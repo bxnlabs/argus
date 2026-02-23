@@ -1,0 +1,33 @@
+import type { Session, SessionStatusInfo, CreateSessionParams } from "@/types";
+import type { TabData } from "@/lib/tabs";
+
+export type { SessionStatusInfo } from "@/types";
+
+export type SidePanel = "git" | "editor" | null;
+
+export interface ViewProps {
+  sessions: Session[];
+  sessionStatuses: Record<string, SessionStatusInfo>;
+
+  // Sidebar
+  sidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
+
+  // Active tab info
+  activeTab: TabData | null;
+
+  // Dialogs
+  showNewSessionDialog: boolean;
+  setShowNewSessionDialog: (show: boolean) => void;
+  showQuickSwitcher: boolean;
+  setShowQuickSwitcher: (show: boolean) => void;
+
+  // Session operations
+  attachToSession: (session: Session) => void;
+  onCreateSession: (params: CreateSessionParams) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, newName: string) => void;
+
+  // Content
+  renderWorkspace: () => React.ReactNode;
+}

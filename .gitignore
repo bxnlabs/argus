@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+out/
+web/dist/
+internal/web/dist/
+bin/
+/argus
+/argus-agent
+
+# Tauri build output
+src-tauri/target/
+
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# MCP config (user-specific)
+.mcp.json
