@@ -44,7 +44,6 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/files/meta", fh.meta)
 	mux.HandleFunc("GET /api/files/content", fh.readContent)
 	mux.HandleFunc("PUT /api/files/content", fh.writeContent)
-	mux.HandleFunc("GET /api/files/search/available", fh.searchAvailable)
 	mux.HandleFunc("GET /api/files/search", fh.search)
 	mux.HandleFunc("POST /api/files/upload", fh.upload)
 

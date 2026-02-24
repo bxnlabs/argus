@@ -321,9 +321,3 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 		t.Fatal("expected 'AppMain' to match 'AppMain.go' (case-insensitive)")
 	}
 }
-
-func TestIsAvailable(t *testing.T) {
-	if !IsAvailable() {
-		t.Error("IsAvailable should always return true")
-	}
-}

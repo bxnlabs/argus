@@ -336,7 +336,3 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 	}, nil
 }
 
-// IsAvailable is a stub for backward compatibility. Always returns true
-// since file search no longer depends on an external binary.
-// TODO: Remove once the /api/files/search/available endpoint is deleted.
-func IsAvailable() bool { return true }

@@ -354,10 +354,3 @@ func (h *filesHandler) search(w http.ResponseWriter, r *http.Request) {
 
 	respondJSON(w, http.StatusOK, result)
 }
-
-// GET /api/files/search/available
-func (h *filesHandler) searchAvailable(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, map[string]bool{
-		"available": filesearch.IsAvailable(),
-	})
-}
