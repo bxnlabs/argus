@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -16,6 +17,24 @@ type sessionInfo struct {
 	AgentType        string  `json:"agent_type"`
 	AutoApprove      bool    `json:"auto_approve"`
 	Model            *string `json:"model"`
+}
+
+// fetchAndResolve fetches all sessions from the agent and resolves the query
+// to a single session by name or ID prefix.
+func fetchAndResolve(c *apiClient, query string) (*sessionInfo, error) {
+	body, err := c.get("/api/sessions")
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Sessions []sessionInfo `json:"sessions"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	return resolveSession(resp.Sessions, query)
 }
 
 // resolveSession finds a session by exact name match or ID prefix.

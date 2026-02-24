@@ -32,10 +32,10 @@ func WriteDiscoveryFile(path, address string) error {
 	if err != nil {
 		return fmt.Errorf("marshal discovery: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("mkdir discovery: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write discovery: %w", err)
 	}
 	return nil

@@ -13,43 +13,30 @@ func runRename(args []string) error {
 	query := args[0]
 	newName := args[1]
 
-	c, err := newClient(discoveryFilePath())
+	path, err := discoveryFilePath()
+	if err != nil {
+		return err
+	}
+	c, err := newClient(path)
 	if err != nil {
 		return err
 	}
 
-	// Fetch all sessions to resolve the query.
-	body, err := c.get("/api/sessions")
+	session, err := fetchAndResolve(c, query)
 	if err != nil {
 		return err
 	}
 
-	var resp struct {
-		Sessions []sessionInfo `json:"sessions"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("parse response: %w", err)
-	}
-
-	session, err := resolveSession(resp.Sessions, query)
+	reqBody, err := json.Marshal(map[string]string{"name": newName})
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal request: %w", err)
 	}
-
-	reqBody, _ := json.Marshal(map[string]string{"name": newName})
 	respBody, status, err := c.patch("/api/sessions/"+session.ID, bytes.NewReader(reqBody))
 	if err != nil {
 		return err
 	}
-	if status >= 400 {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		json.Unmarshal(respBody, &errResp)
-		if errResp.Error != "" {
-			return fmt.Errorf("rename failed: %s", errResp.Error)
-		}
-		return fmt.Errorf("rename failed (HTTP %d)", status)
+	if err := checkStatus(respBody, status, "rename"); err != nil {
+		return err
 	}
 
 	fmt.Printf("Renamed session %q → %q\n", session.Name, newName)

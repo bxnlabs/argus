@@ -43,18 +43,11 @@ func usageError() error {
 	return fmt.Errorf("%s", usage())
 }
 
-// die prints an error to stderr and exits.
-func die(err error) {
-	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-	os.Exit(1)
-}
-
 // discoveryFilePath returns the path to the agent discovery file.
-// Exits with an error if the home directory cannot be determined.
-func discoveryFilePath() string {
+func discoveryFilePath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		die(fmt.Errorf("cannot determine home directory: %w", err))
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".argus", "agent.json")
+	return filepath.Join(home, ".argus", "agent.json"), nil
 }

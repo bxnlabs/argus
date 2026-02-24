@@ -151,6 +151,7 @@ func serve(addr string, handler http.Handler, name string, onListening func(addr
 
 	if onListening != nil {
 		onListening(ln.Addr().String())
+		defer removeDiscovery()
 	}
 
 	select {
@@ -167,6 +168,5 @@ func serve(addr string, handler http.Handler, name string, onListening func(addr
 		return fmt.Errorf("shutdown: %w", err)
 	}
 
-	removeDiscovery()
 	return nil
 }

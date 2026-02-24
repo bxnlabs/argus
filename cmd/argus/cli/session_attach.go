@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -19,25 +18,16 @@ func runAttach(args []string) error {
 	}
 	query := fs.Arg(0)
 
-	c, err := newClient(discoveryFilePath())
+	path, err := discoveryFilePath()
+	if err != nil {
+		return err
+	}
+	c, err := newClient(path)
 	if err != nil {
 		return err
 	}
 
-	// Fetch all sessions to resolve the query.
-	body, err := c.get("/api/sessions")
-	if err != nil {
-		return err
-	}
-
-	var resp struct {
-		Sessions []sessionInfo `json:"sessions"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("parse response: %w", err)
-	}
-
-	session, err := resolveSession(resp.Sessions, query)
+	session, err := fetchAndResolve(c, query)
 	if err != nil {
 		return err
 	}

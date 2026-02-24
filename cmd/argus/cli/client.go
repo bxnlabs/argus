@@ -2,8 +2,10 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"syscall"
@@ -31,13 +33,13 @@ func discover(path string) (*discoveryInfo, error) {
 		return nil, fmt.Errorf("parse discovery file: %w", err)
 	}
 
-	// Check if the PID is still alive.
-	proc, err := os.FindProcess(info.PID)
-	if err != nil {
-		os.Remove(path)
-		return nil, fmt.Errorf("Argus agent is not running (stale state detected, cleaning up).\nStart it with: argus --port 3000")
-	}
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
+	// Check if the PID is still alive using kill(pid, 0).
+	if err := syscall.Kill(info.PID, 0); err != nil {
+		if errors.Is(err, syscall.EPERM) {
+			// Process exists but is owned by another user — agent is running.
+			return &info, nil
+		}
+		// ESRCH or other error: process is gone.
 		os.Remove(path)
 		return nil, fmt.Errorf("Argus agent is not running (stale state detected, cleaning up).\nStart it with: argus --port 3000")
 	}
@@ -58,6 +60,17 @@ func newClient(discoveryPath string) (*apiClient, error) {
 		return nil, err
 	}
 
+	// Validate the address is a loopback IP to prevent redirection
+	// via a tampered discovery file.
+	host, _, err := net.SplitHostPort(info.Address)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address in discovery file: %w", err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return nil, fmt.Errorf("refusing to connect to non-loopback address %q from discovery file", host)
+	}
+
 	c := &apiClient{
 		baseURL: "http://" + info.Address + "/agent",
 		http: http.Client{
@@ -65,6 +78,22 @@ func newClient(discoveryPath string) (*apiClient, error) {
 		},
 	}
 	return c, nil
+}
+
+// checkStatus returns an error if status >= 400, extracting the JSON error
+// message from the response body if available.
+func checkStatus(body []byte, status int, op string) error {
+	if status < 400 {
+		return nil
+	}
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	json.Unmarshal(body, &errResp)
+	if errResp.Error != "" {
+		return fmt.Errorf("%s failed: %s", op, errResp.Error)
+	}
+	return fmt.Errorf("%s failed (HTTP %d)", op, status)
 }
 
 func (c *apiClient) get(path string) ([]byte, error) {
@@ -75,7 +104,7 @@ func (c *apiClient) get(path string) ([]byte, error) {
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode >= 400 {
 		var errResp struct {

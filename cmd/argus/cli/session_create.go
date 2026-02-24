@@ -28,7 +28,11 @@ func runCreate(args []string) error {
 		return fmt.Errorf("resolve directory: %w", err)
 	}
 
-	c, err := newClient(discoveryFilePath())
+	path, err := discoveryFilePath()
+	if err != nil {
+		return err
+	}
+	c, err := newClient(path)
 	if err != nil {
 		return err
 	}
@@ -53,15 +57,8 @@ func runCreate(args []string) error {
 		return err
 	}
 
-	if status >= 400 {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		json.Unmarshal(body, &errResp)
-		if errResp.Error != "" {
-			return fmt.Errorf("create failed: %s", errResp.Error)
-		}
-		return fmt.Errorf("create failed (HTTP %d)", status)
+	if err := checkStatus(body, status, "create"); err != nil {
+		return err
 	}
 
 	var resp struct {

@@ -9,7 +9,11 @@ import (
 )
 
 func runList(args []string) error {
-	c, err := newClient(discoveryFilePath())
+	path, err := discoveryFilePath()
+	if err != nil {
+		return err
+	}
+	c, err := newClient(path)
 	if err != nil {
 		return err
 	}
