@@ -5,12 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/bxnlabs/argus/cmd/argus/cli"
 	"github.com/bxnlabs/argus/internal/agent"
 	"github.com/bxnlabs/argus/internal/web"
 )
@@ -28,12 +30,45 @@ func main() {
 				log.Fatalf("argus agent: %v", err)
 			}
 			return
+		case "session":
+			if err := cli.Run(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 
 	if err := runCombined(); err != nil {
 		log.Fatalf("argus: %v", err)
 	}
+}
+
+func writeDiscovery(addr string) {
+	// Normalize wildcard bind addresses (e.g. [::]:3000, 0.0.0.0:3000)
+	// to loopback so the CLI's loopback validation accepts them.
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+			addr = "127.0.0.1:" + port
+		}
+	}
+
+	dp, err := agent.DefaultDiscoveryPath()
+	if err != nil {
+		log.Printf("warning: cannot determine discovery path: %v", err)
+		return
+	}
+	if err := agent.WriteDiscoveryFile(dp, addr); err != nil {
+		log.Printf("warning: cannot write discovery file: %v", err)
+	}
+}
+
+func removeDiscovery() {
+	dp, err := agent.DefaultDiscoveryPath()
+	if err != nil {
+		return
+	}
+	agent.RemoveDiscoveryFile(dp)
 }
 
 // runCombined starts the agent and SPA on a single port.
@@ -44,7 +79,7 @@ func runCombined() error {
 	fs.Parse(os.Args[1:])
 
 	if args := fs.Args(); len(args) > 0 {
-		fmt.Fprintf(os.Stderr, "argus: unknown command %q\n\nUsage: argus [server|agent] [flags]\n", args[0])
+		fmt.Fprintf(os.Stderr, "argus: unknown command %q\n\nUsage: argus [server|agent|session] [flags]\n", args[0])
 		os.Exit(2)
 	}
 
@@ -58,7 +93,10 @@ func runCombined() error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	return serve(fmt.Sprintf(":%d", *port), mux, "argus")
+	addr := fmt.Sprintf(":%d", *port)
+	return serve(addr, mux, "argus", func(a string) {
+		writeDiscovery(a)
+	})
 }
 
 // runServer starts only the SPA frontend server.
@@ -71,7 +109,7 @@ func runServer(args []string) error {
 	mux := http.NewServeMux()
 	mux.Handle("/", web.NewSPAHandler(*webDir))
 
-	return serve(fmt.Sprintf(":%d", *port), mux, "argus server")
+	return serve(fmt.Sprintf(":%d", *port), mux, "argus server", nil)
 }
 
 // runAgent starts only the agent API.
@@ -90,13 +128,20 @@ func runAgent(args []string) error {
 	mux := http.NewServeMux()
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-	return serve(fmt.Sprintf(":%d", *port), mux, "argus agent")
+	addr := fmt.Sprintf(":%d", *port)
+	return serve(addr, mux, "argus agent", func(a string) {
+		writeDiscovery(a)
+	})
 }
 
 // serve starts an HTTP server with graceful shutdown.
-func serve(addr string, handler http.Handler, name string) error {
+func serve(addr string, handler http.Handler, name string, onListening func(addr string)) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+
 	srv := &http.Server{
-		Addr:    addr,
 		Handler: handler,
 	}
 
@@ -106,15 +151,20 @@ func serve(addr string, handler http.Handler, name string) error {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("%s listening on %s", name, addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("%s listening on %s", name, ln.Addr().String())
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			serveErr <- err
 		}
 	}()
 
+	if onListening != nil {
+		onListening(ln.Addr().String())
+		defer removeDiscovery()
+	}
+
 	select {
 	case err := <-serveErr:
-		return fmt.Errorf("listen: %w", err)
+		return fmt.Errorf("serve: %w", err)
 	case <-done:
 	}
 	log.Println("shutting down...")
