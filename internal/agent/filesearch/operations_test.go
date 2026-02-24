@@ -7,33 +7,29 @@ import (
 	"testing"
 )
 
-func TestBuildFdArgs_Hidden(t *testing.T) {
-	args := buildFdArgs("test", "", 20)
+func TestBuildFdArgs_IgnoreFile(t *testing.T) {
+	args := buildFdArgs("test", "", 20, "/tmp/fake-ignore")
 
-	hasHidden := false
-	for _, a := range args {
-		if a == "--hidden" {
-			hasHidden = true
-		}
-	}
-	if !hasHidden {
-		t.Error("expected --hidden flag")
-	}
-
-	// Verify at least some exclusions are present
-	hasExclude := false
+	hasIgnoreFile := false
 	for i, a := range args {
-		if a == "--exclude" && i+1 < len(args) && args[i+1] == ".cache" {
-			hasExclude = true
+		if a == "--ignore-file" && i+1 < len(args) && args[i+1] == "/tmp/fake-ignore" {
+			hasIgnoreFile = true
 		}
 	}
-	if !hasExclude {
-		t.Error("expected --exclude .cache")
+	if !hasIgnoreFile {
+		t.Error("expected --ignore-file /tmp/fake-ignore")
+	}
+
+	// Verify no --exclude flags remain
+	for _, a := range args {
+		if a == "--exclude" {
+			t.Error("unexpected --exclude flag; should use --ignore-file instead")
+		}
 	}
 }
 
 func TestBuildFdArgs_Directory(t *testing.T) {
-	args := buildFdArgs("test", "directory", 20)
+	args := buildFdArgs("test", "directory", 20, "/tmp/ignore")
 
 	hasType := false
 	for i, a := range args {
@@ -47,7 +43,7 @@ func TestBuildFdArgs_Directory(t *testing.T) {
 }
 
 func TestBuildFdArgs_File(t *testing.T) {
-	args := buildFdArgs("test", "file", 20)
+	args := buildFdArgs("test", "file", 20, "/tmp/ignore")
 
 	hasType := false
 	for i, a := range args {
@@ -61,7 +57,7 @@ func TestBuildFdArgs_File(t *testing.T) {
 }
 
 func TestBuildFdArgs_Both(t *testing.T) {
-	args := buildFdArgs("test", "", 20)
+	args := buildFdArgs("test", "", 20, "/tmp/ignore")
 
 	for _, a := range args {
 		if a == "-t" {

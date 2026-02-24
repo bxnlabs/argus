@@ -78,10 +78,19 @@ func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse
 		limit = defaultLimit
 	}
 
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("home dir: %w", err)
+	}
+	ignoreFile, err := ensureIgnoreFile(home)
+	if err != nil {
+		return nil, fmt.Errorf("ignore file: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), fdTimeout)
 	defer cancel()
 
-	args := buildFdArgs(query, searchType, limit)
+	args := buildFdArgs(query, searchType, limit, ignoreFile)
 	output, err := runFd(ctx, searchDir, maxOutputBuffer, args...)
 	if err != nil {
 		return nil, err
@@ -96,26 +105,15 @@ func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse
 	}, nil
 }
 
-// hiddenExcludes are noisy hidden directories to skip when searching with --hidden.
-// We need --hidden to traverse directories like .worktrees, but these dirs
-// produce excessive noise without useful results.
-var hiddenExcludes = []string{
-	".cache", ".local", ".config", ".cursor", ".claude", ".vscode",
-	".git", "node_modules", ".npm", ".nvm", ".cargo", ".rustup",
-}
-
 // buildFdArgs constructs fd command arguments.
-func buildFdArgs(query, searchType string, limit int) []string {
+func buildFdArgs(query, searchType string, limit int, ignoreFile string) []string {
 	args := []string{
 		"-i",
 		"--hidden",
 		"--max-depth", fmt.Sprintf("%d", maxDepth),
 		"--max-results", fmt.Sprintf("%d", limit*overFetchFactor),
 		"--absolute-path",
-	}
-
-	for _, exc := range hiddenExcludes {
-		args = append(args, "--exclude", exc)
+		"--ignore-file", ignoreFile,
 	}
 
 	switch searchType {
