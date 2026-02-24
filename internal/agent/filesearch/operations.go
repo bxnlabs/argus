@@ -3,17 +3,25 @@ package filesearch
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/charlievieth/fastwalk"
+	ignore "github.com/sabhiram/go-gitignore"
+	"github.com/sahilm/fuzzy"
 )
 
 const (
-	defaultLimit    = 20
-	maxLimit        = 100
-	maxDepth        = 8
-	overFetchFactor = 3 // fetch more results for better relevance sorting
+	defaultLimit  = 20
+	maxLimit      = 100
+	maxDepth      = 8
+	maxCollect    = 100_000
+	searchTimeout = 5 * time.Second
 )
 
 const ignoreFileName = "ignore"
@@ -97,7 +105,7 @@ coverage/
 .rustup/
 `) + "\n"
 
-// ensureIgnoreFile returns the path to ~/.argus/search-ignore, creating it
+// ensureIgnoreFile returns the path to ~/.argus/ignore, creating it
 // with sensible defaults if it doesn't already exist.
 func ensureIgnoreFile(home string) (string, error) {
 	dir := filepath.Join(home, ".argus")
@@ -116,9 +124,34 @@ func ensureIgnoreFile(home string) (string, error) {
 	return path, nil
 }
 
-// Search searches for files/directories using fd.
+// loadIgnoreMatcher compiles an ignore file into a matcher.
+// Returns nil on error so that search proceeds unfiltered.
+func loadIgnoreMatcher(path string) *ignore.GitIgnore {
+	gi, err := ignore.CompileIgnoreFile(path)
+	if err != nil {
+		return nil
+	}
+	return gi
+}
+
+// entry holds a collected filesystem entry during the walk phase.
+type entry struct {
+	path string // absolute path
+	name string // basename
+	typ  string // "file" or "directory"
+}
+
+// entrySource implements fuzzy.Source for case-insensitive matching.
+// It returns lowercased basenames so fuzzy.FindFrom matches case-insensitively,
+// while the original entry data (name, path) preserves original casing.
+type entrySource []entry
+
+func (s entrySource) String(i int) string { return strings.ToLower(s[i].name) }
+func (s entrySource) Len() int            { return len(s) }
+
+// Search searches for files/directories matching a fuzzy query.
 // searchType: "file", "directory", or "" for both.
-// Results are sorted by relevance (exact > prefix > contains, shorter paths first).
+// Results are sorted by fuzzy match quality, with shorter paths as tiebreaker.
 func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query cannot be empty")
@@ -136,16 +169,165 @@ func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse
 		return nil, fmt.Errorf("ignore file: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), fdTimeout)
-	defer cancel()
+	matcher := loadIgnoreMatcher(ignoreFile)
+	return searchInDir(searchDir, query, searchType, limit, matcher)
+}
 
-	args := buildFdArgs(query, searchType, limit, ignoreFile)
-	output, err := runFd(ctx, searchDir, maxOutputBuffer, args...)
-	if err != nil {
-		return nil, err
+// searchInDir is the internal testable search function.
+// It walks the directory tree, filters entries, then runs fuzzy matching.
+func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitIgnore) (*FileSearchResponse, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("query cannot be empty")
+	}
+	if limit < 1 || limit > maxLimit {
+		limit = defaultLimit
 	}
 
-	results := parseOutput(output, query, searchType, limit)
+	// Make root absolute for consistent relative-path computation.
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("abs root: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
+	var (
+		mu      sync.Mutex
+		entries []entry
+		done    bool
+	)
+
+	conf := &fastwalk.Config{
+		Follow:   false,
+		MaxDepth: maxDepth,
+	}
+
+	walkErr := fastwalk.Walk(conf, absRoot, func(path string, d fs.DirEntry, walkError error) error {
+		if walkError != nil {
+			// Skip entries we cannot read.
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Check context cancellation / collection cap.
+		mu.Lock()
+		if done {
+			mu.Unlock()
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return fastwalk.ErrSkipFiles
+		}
+		mu.Unlock()
+
+		// Skip the root directory itself.
+		if path == absRoot {
+			return nil
+		}
+
+		// Compute relative path for ignore matching.
+		rel, relErr := filepath.Rel(absRoot, path)
+		if relErr != nil {
+			return nil
+		}
+
+		// Check ignore patterns.
+		if matcher != nil {
+			matchPath := rel
+			if d.IsDir() {
+				matchPath = rel + "/"
+			}
+			if matcher.MatchesPath(matchPath) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
+		// Filter by type.
+		isDir := d.IsDir()
+		if searchType == "file" && isDir {
+			// Don't skip the directory, just don't collect it.
+			return nil
+		}
+		if searchType == "directory" && !isDir {
+			return nil
+		}
+
+		typ := "file"
+		if isDir {
+			typ = "directory"
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		// Check context and cap under the lock.
+		select {
+		case <-ctx.Done():
+			done = true
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return fastwalk.ErrSkipFiles
+		default:
+		}
+
+		if len(entries) >= maxCollect {
+			done = true
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return fastwalk.ErrSkipFiles
+		}
+
+		entries = append(entries, entry{
+			path: path,
+			name: filepath.Base(path),
+			typ:  typ,
+		})
+		return nil
+	})
+
+	// Ignore walk errors caused by our early-stop signals.
+	if walkErr != nil && walkErr != filepath.SkipDir && walkErr != fastwalk.ErrSkipFiles {
+		// Only fail for actual errors, not context cancellation (we still
+		// want to return partial results).
+		if ctx.Err() == nil {
+			return nil, fmt.Errorf("walk: %w", walkErr)
+		}
+	}
+
+	// Run case-insensitive fuzzy matching via entrySource.
+	matches := fuzzy.FindFrom(strings.ToLower(query), entrySource(entries))
+
+	// Sort: by score descending (already done by fuzzy.Find),
+	// then tiebreak by shorter path.
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].Score != matches[j].Score {
+			return matches[i].Score > matches[j].Score
+		}
+		return len(entries[matches[i].Index].path) < len(entries[matches[j].Index].path)
+	})
+
+	// Take top `limit` results.
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	results := make([]FileSearchResult, len(matches))
+	for i, m := range matches {
+		e := entries[m.Index]
+		results[i] = FileSearchResult{
+			Name: e.name,
+			Path: e.path,
+			Type: e.typ,
+		}
+	}
 
 	return &FileSearchResponse{
 		Results: results,
@@ -154,96 +336,7 @@ func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse
 	}, nil
 }
 
-// buildFdArgs constructs fd command arguments.
-func buildFdArgs(query, searchType string, limit int, ignoreFile string) []string {
-	args := []string{
-		"-i",
-		"--hidden",
-		"--max-depth", fmt.Sprintf("%d", maxDepth),
-		"--max-results", fmt.Sprintf("%d", limit*overFetchFactor),
-		"--absolute-path",
-		"--ignore-file", ignoreFile,
-	}
-
-	switch searchType {
-	case "directory":
-		args = append(args, "-t", "d")
-	case "file":
-		args = append(args, "-t", "f")
-	}
-
-	args = append(args, query)
-	return args
-}
-
-// parseOutput parses fd output (one path per line), sorts by relevance, caps at limit.
-func parseOutput(output, query, searchType string, limit int) []FileSearchResult {
-	if strings.TrimSpace(output) == "" {
-		return []FileSearchResult{}
-	}
-
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	results := make([]FileSearchResult, 0, len(lines))
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		// Determine type from searchType param or trailing slash.
-		// fd --absolute-path outputs directories with a trailing "/".
-		itemType := searchType
-		if itemType == "" {
-			if strings.HasSuffix(line, "/") {
-				itemType = "directory"
-				line = strings.TrimSuffix(line, "/")
-			} else {
-				itemType = "file"
-			}
-		}
-
-		results = append(results, FileSearchResult{
-			Name: filepath.Base(line),
-			Path: line,
-			Type: itemType,
-		})
-	}
-
-	sortByRelevance(results, query)
-
-	if len(results) > limit {
-		results = results[:limit]
-	}
-
-	return results
-}
-
-// sortByRelevance sorts by: exact name > prefix > contains, shorter paths first.
-func sortByRelevance(results []FileSearchResult, query string) {
-	queryLower := strings.ToLower(query)
-
-	sort.SliceStable(results, func(i, j int) bool {
-		scoreI := relevanceScore(strings.ToLower(results[i].Name), queryLower)
-		scoreJ := relevanceScore(strings.ToLower(results[j].Name), queryLower)
-
-		if scoreI != scoreJ {
-			return scoreI > scoreJ
-		}
-		return len(results[i].Path) < len(results[j].Path)
-	})
-}
-
-// relevanceScore: exact=3, prefix=2, contains=1, other=0.
-func relevanceScore(name, query string) int {
-	if name == query {
-		return 3
-	}
-	if strings.HasPrefix(name, query) {
-		return 2
-	}
-	if strings.Contains(name, query) {
-		return 1
-	}
-	return 0
-}
+// IsAvailable is a stub for backward compatibility. Always returns true
+// since file search no longer depends on an external binary.
+// TODO: Remove once the /api/files/search/available endpoint is deleted.
+func IsAvailable() bool { return true }
