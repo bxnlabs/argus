@@ -16,7 +16,7 @@ type sessionHandler struct {
 func (h *sessionHandler) list(w http.ResponseWriter, r *http.Request) {
 	sessions, err := h.manager.List()
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondInternalError(w, err)
 		return
 	}
 	if sessions == nil {
@@ -45,7 +45,7 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.manager.Create(opts)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondInternalError(w, err)
 		return
 	}
 
@@ -63,13 +63,13 @@ func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusNotFound, "session not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondInternalError(w, err)
 		return
 	}
 
 	session, err := h.manager.Get(id)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondInternalError(w, err)
 		return
 	}
 	if session == nil {
@@ -99,7 +99,7 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 				respondError(w, http.StatusNotFound, "session not found")
 				return
 			}
-			respondError(w, http.StatusInternalServerError, err.Error())
+			respondInternalError(w, err)
 			return
 		}
 	}
@@ -114,14 +114,14 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 				respondError(w, http.StatusNotFound, "session not found")
 				return
 			}
-			respondError(w, http.StatusInternalServerError, err.Error())
+			respondInternalError(w, err)
 			return
 		}
 	}
 
 	session, err := h.manager.Get(id)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondInternalError(w, err)
 		return
 	}
 	if session == nil {
@@ -139,7 +139,7 @@ func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusNotFound, "session not found")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondInternalError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]bool{"success": true})

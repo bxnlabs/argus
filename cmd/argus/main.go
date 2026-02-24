@@ -45,6 +45,14 @@ func main() {
 }
 
 func writeDiscovery(addr string) {
+	// Normalize wildcard bind addresses (e.g. [::]:3000, 0.0.0.0:3000)
+	// to loopback so the CLI's loopback validation accepts them.
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+			addr = "127.0.0.1:" + port
+		}
+	}
+
 	dp, err := agent.DefaultDiscoveryPath()
 	if err != nil {
 		log.Printf("warning: cannot determine discovery path: %v", err)

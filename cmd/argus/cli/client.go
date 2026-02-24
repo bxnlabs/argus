@@ -33,6 +33,13 @@ func discover(path string) (*discoveryInfo, error) {
 		return nil, fmt.Errorf("parse discovery file: %w", err)
 	}
 
+	// Reject invalid PIDs before the kill check. PID 0 would target the
+	// entire process group, letting a crafted discovery file pass validation.
+	if info.PID <= 0 {
+		os.Remove(path)
+		return nil, fmt.Errorf("Argus agent is not running (invalid PID in state file, cleaning up).\nStart it with: argus --port 3000")
+	}
+
 	// Check if the PID is still alive using kill(pid, 0).
 	if err := syscall.Kill(info.PID, 0); err != nil {
 		if errors.Is(err, syscall.EPERM) {

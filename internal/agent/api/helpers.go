@@ -21,6 +21,14 @@ func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
 }
 
+// respondInternalError logs the raw error server-side and sends a generic
+// message to the client so internal details (SQL errors, file paths, etc.)
+// are not exposed.
+func respondInternalError(w http.ResponseWriter, err error) {
+	log.Printf("internal error: %v", err)
+	respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+}
+
 const maxBodySize = 1 << 20 // 1 MB
 
 func parseBody(w http.ResponseWriter, r *http.Request, v any) error {
