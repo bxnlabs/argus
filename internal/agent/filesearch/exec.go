@@ -48,6 +48,11 @@ func runFd(ctx context.Context, searchDir string, maxBuffer int64, args ...strin
 		if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 1 {
 			return "", nil
 		}
+		// Context timeout/cancel: return whatever partial output fd
+		// produced before being killed instead of failing the request.
+		if ctx.Err() != nil {
+			return stdout.buf.String(), nil
+		}
 		errMsg := strings.TrimSpace(stderr.String())
 		if errMsg == "" {
 			errMsg = err.Error()

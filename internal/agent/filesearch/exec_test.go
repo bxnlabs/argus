@@ -93,13 +93,13 @@ func TestRunFd(t *testing.T) {
 		}
 	})
 
-	t.Run("timeout", func(t *testing.T) {
+	t.Run("timeout returns partial output not error", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		defer cancel()
 		time.Sleep(time.Millisecond)
 		_, err := runFd(ctx, dir, maxOutputBuffer, "--version")
-		if err == nil {
-			t.Error("expected timeout error")
+		if err != nil {
+			t.Errorf("timeout should return partial output, not error: %v", err)
 		}
 	})
 }
