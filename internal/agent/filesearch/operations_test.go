@@ -139,14 +139,10 @@ func TestEnsureIgnoreFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		content := string(data)
-		if !strings.Contains(content, ".git/") {
-			t.Error("default file should contain .git/")
-		}
-		if !strings.Contains(content, "Library/") {
-			t.Error("default file should contain Library/")
-		}
-		if !strings.Contains(content, "node_modules/") {
-			t.Error("default file should contain node_modules/")
+		for _, want := range []string{".git/", "node_modules/", "__pycache__/", "target/", ".venv/"} {
+			if !strings.Contains(content, want) {
+				t.Errorf("default file should contain %q", want)
+			}
 		}
 	})
 

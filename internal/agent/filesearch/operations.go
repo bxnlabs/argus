@@ -18,7 +18,7 @@ const (
 
 const ignoreFileName = "ignore"
 
-// defaultIgnoreContents is written to ~/.argus/search-ignore on first use.
+// defaultIgnoreContents is written to ~/.argus/ignore on first use.
 var defaultIgnoreContents = strings.TrimSpace(`
 # Argus search ignore patterns (gitignore syntax)
 # Edit this file to control which directories fd skips during search.
@@ -27,25 +27,74 @@ var defaultIgnoreContents = strings.TrimSpace(`
 # Version control
 .git/
 
-# Package managers & toolchains
-node_modules/
-.npm/
-.nvm/
-.cargo/
-.rustup/
-
 # IDE & editor state
 .vscode/
 .cursor/
 .claude/
+.idea/
 
-# Caches & local data
+# Node / npm
+node_modules/
+.npm/
+.nvm/
+.pnpm-store/
+.yarn/
+jspm_packages/
+bower_components/
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+.vite/
+.parcel-cache/
 .cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[codz]
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+.pixi/
+
+# Rust
+target/
+**/*.rs.bk
+
+# Go
+*.test
+*.out
+
+# Build artifacts
+build/
+dist/
+out/
+coverage/
+*.lcov
+
+# Environment & secrets
+.env
+.env.*
+
+# Misc caches & local data
 .local/
 .config/
-
-# macOS
-Library/
+.cargo/
+.rustup/
 `) + "\n"
 
 // ensureIgnoreFile returns the path to ~/.argus/search-ignore, creating it
