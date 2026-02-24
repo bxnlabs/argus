@@ -170,12 +170,14 @@ func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse
 	}
 
 	matcher := loadIgnoreMatcher(ignoreFile)
-	return searchInDir(searchDir, query, searchType, limit, matcher)
+	return searchInDir(searchDir, query, searchType, limit, matcher, home)
 }
 
 // searchInDir is the internal testable search function.
 // It walks the directory tree, filters entries, then runs fuzzy matching.
-func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitIgnore) (*FileSearchResponse, error) {
+// ignoreRoot is the directory that ignore patterns are relative to (typically $HOME).
+// If empty, patterns are relative to root.
+func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitIgnore, ignoreRoot string) (*FileSearchResponse, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
@@ -187,6 +189,17 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("abs root: %w", err)
+	}
+
+	// Determine the base for ignore-pattern matching. Ignore patterns in
+	// ~/.argus/ignore use paths relative to $HOME (e.g. "!Workspace/").
+	// When searching a subdirectory, we still need to compute paths relative
+	// to $HOME so scope patterns (like * + !Workspace/) work correctly.
+	absIgnoreRoot := absRoot
+	if ignoreRoot != "" {
+		if ir, err := filepath.Abs(ignoreRoot); err == nil {
+			absIgnoreRoot = ir
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
@@ -228,23 +241,20 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 			return nil
 		}
 
-		// Compute relative path for ignore matching.
-		rel, relErr := filepath.Rel(absRoot, path)
-		if relErr != nil {
-			return nil
-		}
-
-		// Check ignore patterns.
+		// Check ignore patterns using paths relative to ignoreRoot.
 		if matcher != nil {
-			matchPath := rel
-			if d.IsDir() {
-				matchPath = rel + "/"
-			}
-			if matcher.MatchesPath(matchPath) {
+			ignoreRel, relErr := filepath.Rel(absIgnoreRoot, path)
+			if relErr == nil && !strings.HasPrefix(ignoreRel, "..") {
+				matchPath := ignoreRel
 				if d.IsDir() {
-					return filepath.SkipDir
+					matchPath = ignoreRel + "/"
 				}
-				return nil
+				if matcher.MatchesPath(matchPath) {
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
 			}
 		}
 

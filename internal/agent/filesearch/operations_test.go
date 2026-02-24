@@ -41,7 +41,7 @@ func TestSearch_BasicFuzzyMatch(t *testing.T) {
 		"readme.md":          "",
 	})
 
-	resp, err := searchInDir(root, "ctrl", "", 20, nil)
+	resp, err := searchInDir(root,"ctrl", "", 20, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestSearch_TypeFilter(t *testing.T) {
 	})
 
 	t.Run("file only", func(t *testing.T) {
-		resp, err := searchInDir(root, "main", "file", 20, nil)
+		resp, err := searchInDir(root,"main", "file", 20, nil, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +79,7 @@ func TestSearch_TypeFilter(t *testing.T) {
 	})
 
 	t.Run("directory only", func(t *testing.T) {
-		resp, err := searchInDir(root, "src", "directory", 20, nil)
+		resp, err := searchInDir(root,"src", "directory", 20, nil, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -104,7 +104,7 @@ func TestSearch_IgnorePatterns(t *testing.T) {
 
 	matcher := ignore.CompileIgnoreLines("node_modules/", ".git/")
 
-	resp, err := searchInDir(root, "index", "", 20, matcher)
+	resp, err := searchInDir(root,"index", "", 20, matcher, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestSearch_IgnorePatterns(t *testing.T) {
 	}
 
 	// "main.go" or "vendor/lib.go" should still be findable.
-	resp2, err := searchInDir(root, "main", "", 20, matcher)
+	resp2, err := searchInDir(root,"main", "", 20, matcher, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestSearch_NegationPatterns(t *testing.T) {
 	// Ignore everything, then un-ignore allowed/
 	matcher := ignore.CompileIgnoreLines("*", "!allowed/")
 
-	resp, err := searchInDir(root, "keep", "", 20, matcher)
+	resp, err := searchInDir(root,"keep", "", 20, matcher, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestSearch_MaxDepth(t *testing.T) {
 
 	root := createTree(t, tree)
 
-	resp, err := searchInDir(root, "deep", "file", 20, nil)
+	resp, err := searchInDir(root,"deep", "file", 20, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestSearch_MaxDepth(t *testing.T) {
 	}
 
 	// Shallow file should be found.
-	resp2, err := searchInDir(root, "shallow", "file", 20, nil)
+	resp2, err := searchInDir(root,"shallow", "file", 20, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestSearch_Limit(t *testing.T) {
 	}
 	root := createTree(t, tree)
 
-	resp, err := searchInDir(root, "a", "file", 5, nil)
+	resp, err := searchInDir(root,"a", "file", 5, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,12 +208,12 @@ func TestSearch_Limit(t *testing.T) {
 func TestSearch_EmptyQuery(t *testing.T) {
 	root := createTree(t, map[string]string{"file.txt": ""})
 
-	_, err := searchInDir(root, "", "", 20, nil)
+	_, err := searchInDir(root,"", "", 20, nil, "")
 	if err == nil {
 		t.Error("expected error for empty query")
 	}
 
-	_, err = searchInDir(root, "   ", "", 20, nil)
+	_, err = searchInDir(root,"   ", "", 20, nil, "")
 	if err == nil {
 		t.Error("expected error for whitespace-only query")
 	}
@@ -226,7 +226,7 @@ func TestSearch_AbsolutePaths(t *testing.T) {
 		"readme.md":    "",
 	})
 
-	resp, err := searchInDir(root, "main", "", 20, nil)
+	resp, err := searchInDir(root,"main", "", 20, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,6 +284,37 @@ func TestEnsureIgnoreFile(t *testing.T) {
 	})
 }
 
+func TestSearch_IgnoreRootAnchor(t *testing.T) {
+	// Simulate the real scenario: ignore file has * + !Workspace/ patterns
+	// and we're searching from a subdirectory of Workspace/.
+	root := createTree(t, map[string]string{
+		"Workspace/project/main.go":    "",
+		"Workspace/project/lib.go":     "",
+		"Workspace/project/.git/HEAD":  "",
+		"Downloads/file.txt":           "",
+	})
+
+	// Patterns relative to root (like ~/.argus/ignore relative to $HOME).
+	matcher := ignore.CompileIgnoreLines("*", "!Workspace/", ".git/")
+
+	// Searching from the subdirectory with ignoreRoot set to parent.
+	projectDir := filepath.Join(root, "Workspace", "project")
+	resp, err := searchInDir(projectDir, "main", "file", 20, matcher, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Count == 0 {
+		t.Fatal("expected results when searching subdirectory with ignoreRoot set to parent")
+	}
+
+	// .git/ should still be excluded.
+	for _, r := range resp.Results {
+		if strings.Contains(r.Path, ".git") {
+			t.Errorf(".git should be ignored, got result: %s", r.Path)
+		}
+	}
+}
+
 func TestSearch_CaseInsensitive(t *testing.T) {
 	root := createTree(t, map[string]string{
 		"README.md":      "",
@@ -292,7 +323,7 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 	})
 
 	// Lowercase query should match uppercase filenames.
-	resp, err := searchInDir(root, "readme", "", 20, nil)
+	resp, err := searchInDir(root,"readme", "", 20, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +335,7 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 	}
 
 	// Uppercase query should match lowercase filenames.
-	resp, err = searchInDir(root, "MAKEFILE", "", 20, nil)
+	resp, err = searchInDir(root,"MAKEFILE", "", 20, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +344,7 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 	}
 
 	// Mixed case query.
-	resp, err = searchInDir(root, "AppMain", "", 20, nil)
+	resp, err = searchInDir(root,"AppMain", "", 20, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
