@@ -253,6 +253,7 @@ export const Workspace = memo(function Workspace({
         open={showFilePicker}
         onOpenChange={setShowFilePicker}
         onPick={handleFilesPicked}
+        searchPath={activeWorkingDirectory ?? undefined}
       />
     </div>
   );

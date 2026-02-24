@@ -15,6 +15,7 @@ interface FileBrowserProps {
   placeholder?: string;
   initialQuery?: string;
   headerExtra?: React.ReactNode;
+  searchPath?: string;
 }
 
 function formatSize(bytes?: number) {
@@ -32,6 +33,7 @@ export function FileBrowser({
   placeholder,
   initialQuery,
   headerExtra,
+  searchPath,
 }: FileBrowserProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -83,6 +85,7 @@ export function FileBrowser({
   const searchQuery = useFileSearchQuery(debouncedQuery, {
     enabled: open && !isPathMode && !!debouncedQuery,
     type: mode === "directory" ? "directory" : "",
+    searchPath,
   });
 
   // Learn homePath once for tilde contraction in both modes

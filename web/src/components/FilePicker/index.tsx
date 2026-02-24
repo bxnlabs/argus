@@ -16,6 +16,7 @@ interface FilePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPick: (paths: string[]) => void;
+  searchPath?: string;
 }
 
 // ─── Mobile Bottom Bar ──────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ function MobileBottomBar({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function FilePicker({ open, onOpenChange, onPick }: FilePickerProps) {
+export function FilePicker({ open, onOpenChange, onPick, searchPath }: FilePickerProps) {
   const { isMobile } = useViewport();
   const uploadMutation = useFileUpload();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -267,6 +268,7 @@ export function FilePicker({ open, onOpenChange, onPick }: FilePickerProps) {
             onClose={() => onOpenChange(false)}
             mode="all"
             placeholder="Search files or type a path..."
+            searchPath={searchPath}
             headerExtra={!isMobile ? (
               <button
                 onClick={() => fileInputRef.current?.click()}
