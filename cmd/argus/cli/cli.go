@@ -13,13 +13,13 @@ func Run(args []string) error {
 	}
 
 	switch args[0] {
-	case "list":
+	case "ls":
 		return runList(args[1:])
-	case "create":
+	case "new":
 		return runCreate(args[1:])
 	case "attach":
 		return runAttach(args[1:])
-	case "delete":
+	case "rm":
 		return runDelete(args[1:])
 	case "rename":
 		return runRename(args[1:])
@@ -32,10 +32,10 @@ func usage() string {
 	return `Usage: argus session <command>
 
 Commands:
-  list      List all sessions
-  create    Create a new session
+  ls        List all sessions
+  new       Create a new session and attach
   attach    Attach to a session's tmux
-  delete    Delete a session
+  rm        Delete a session
   rename    Rename a session`
 }
 

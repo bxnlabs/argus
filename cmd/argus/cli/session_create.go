@@ -10,16 +10,15 @@ import (
 )
 
 func runCreate(args []string) error {
-	fs := flag.NewFlagSet("argus session create", flag.ExitOnError)
+	fs := flag.NewFlagSet("argus session new", flag.ExitOnError)
 	name := fs.String("name", "", "Session name (required)")
 	provider := fs.String("provider", "claude", "Agent type (claude, codex, gemini, shell)")
-	model := fs.String("model", "", "Model override")
 	dir := fs.String("dir", ".", "Working directory")
-	autoApprove := fs.Bool("auto-approve", false, "Enable auto-approve")
+	yolo := fs.Bool("yolo", false, "Enable auto-approve")
 	fs.Parse(args)
 
 	if *name == "" {
-		return fmt.Errorf("--name is required\n\nUsage: argus session create --name <name> [flags]")
+		return fmt.Errorf("--name is required\n\nUsage: argus session new --name <name> [flags]")
 	}
 
 	// Resolve working directory to absolute path.
@@ -41,10 +40,7 @@ func runCreate(args []string) error {
 		"name":              *name,
 		"agent_type":        *provider,
 		"working_directory": wd,
-		"auto_approve":      *autoApprove,
-	}
-	if *model != "" {
-		reqBody["model"] = *model
+		"auto_approve":      *yolo,
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -65,7 +61,7 @@ func runCreate(args []string) error {
 	}
 
 	s := resp.Session
-	fmt.Fprintf(os.Stdout, "Created session %q (%s)\n  ID:  %s\n  Dir: %s\n", s.Name, s.AgentType, s.ID, s.WorkingDirectory)
+	fmt.Fprintf(os.Stderr, "Created session %q (%s)\n", s.Name, s.AgentType)
 
-	return nil
+	return attachTmux(s.TmuxName)
 }

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,14 +8,10 @@ import (
 )
 
 func runAttach(args []string) error {
-	fs := flag.NewFlagSet("argus session attach", flag.ExitOnError)
-	cc := fs.Bool("cc", false, "Use tmux control mode (-CC)")
-	fs.Parse(args)
-
-	if fs.NArg() == 0 {
-		return fmt.Errorf("session name or ID required\n\nUsage: argus session attach [--cc] <name-or-id>")
+	if len(args) == 0 {
+		return fmt.Errorf("session name or ID required\n\nUsage: argus session attach <name-or-id>")
 	}
-	query := fs.Arg(0)
+	query := args[0]
 
 	path, err := discoveryFilePath()
 	if err != nil {
@@ -39,20 +34,14 @@ func runAttach(args []string) error {
 		return fmt.Errorf("ensure session: %w", err)
 	}
 
-	// Find tmux binary.
+	return attachTmux(session.TmuxName)
+}
+
+// attachTmux replaces the current process with tmux attach-session.
+func attachTmux(tmuxName string) error {
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("tmux not found: %w", err)
 	}
-
-	// Build tmux args.
-	var tmuxArgs []string
-	if *cc {
-		tmuxArgs = []string{"tmux", "-CC", "attach-session", "-t", session.TmuxName}
-	} else {
-		tmuxArgs = []string{"tmux", "attach-session", "-t", session.TmuxName}
-	}
-
-	// Replace the current process with tmux.
-	return syscall.Exec(tmux, tmuxArgs, os.Environ())
+	return syscall.Exec(tmux, []string{"tmux", "attach-session", "-t", tmuxName}, os.Environ())
 }

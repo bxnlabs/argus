@@ -4,7 +4,7 @@ import "fmt"
 
 func runDelete(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("session name or ID required\n\nUsage: argus session delete <name-or-id>")
+		return fmt.Errorf("session name or ID required\n\nUsage: argus session rm <name-or-id>")
 	}
 	query := args[0]
 
