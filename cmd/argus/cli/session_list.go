@@ -36,9 +36,9 @@ func runList(args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tPROVIDER\tID\tUPDATED")
+	fmt.Fprintln(w, "ID\tNAME\tPROVIDER\tUPDATED")
 	for _, s := range resp.Sessions {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, s.AgentType, s.ID, relativeTime(s.UpdatedAt))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ID, s.Name, s.AgentType, relativeTime(s.UpdatedAt))
 	}
 	w.Flush()
 	return nil
