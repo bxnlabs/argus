@@ -55,6 +55,18 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 // GET /api/sessions/{id}
 func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	// EnsureSession revives the tmux session if it died, then we fetch
+	// the full DB record to return to the caller.
+	if _, err := h.manager.EnsureSession(id); err != nil {
+		if errors.Is(err, agentsession.ErrNotFound) {
+			respondError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	session, err := h.manager.Get(id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())

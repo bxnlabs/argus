@@ -37,11 +37,18 @@ func runRename(args []string) error {
 	}
 
 	reqBody, _ := json.Marshal(map[string]string{"name": newName})
-	_, status, err := c.patch("/api/sessions/"+session.ID, bytes.NewReader(reqBody))
+	respBody, status, err := c.patch("/api/sessions/"+session.ID, bytes.NewReader(reqBody))
 	if err != nil {
 		return err
 	}
 	if status >= 400 {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		json.Unmarshal(respBody, &errResp)
+		if errResp.Error != "" {
+			return fmt.Errorf("rename failed: %s", errResp.Error)
+		}
 		return fmt.Errorf("rename failed (HTTP %d)", status)
 	}
 

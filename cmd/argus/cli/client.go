@@ -73,7 +73,21 @@ func (c *apiClient) get(path string) ([]byte, error) {
 		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		json.Unmarshal(body, &errResp)
+		if errResp.Error != "" {
+			return nil, fmt.Errorf("agent error: %s", errResp.Error)
+		}
+		return nil, fmt.Errorf("agent error (HTTP %d)", resp.StatusCode)
+	}
+	return body, nil
 }
 
 func (c *apiClient) post(path string, body io.Reader) ([]byte, int, error) {

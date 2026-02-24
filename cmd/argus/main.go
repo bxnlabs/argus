@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -127,8 +128,12 @@ func runAgent(args []string) error {
 
 // serve starts an HTTP server with graceful shutdown.
 func serve(addr string, handler http.Handler, name string, onListening func(addr string)) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+
 	srv := &http.Server{
-		Addr:    addr,
 		Handler: handler,
 	}
 
@@ -138,19 +143,19 @@ func serve(addr string, handler http.Handler, name string, onListening func(addr
 
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("%s listening on %s", name, addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("%s listening on %s", name, ln.Addr().String())
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			serveErr <- err
 		}
 	}()
 
 	if onListening != nil {
-		onListening(addr)
+		onListening(ln.Addr().String())
 	}
 
 	select {
 	case err := <-serveErr:
-		return fmt.Errorf("listen: %w", err)
+		return fmt.Errorf("serve: %w", err)
 	case <-done:
 	}
 	log.Println("shutting down...")

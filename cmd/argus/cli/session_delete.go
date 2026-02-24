@@ -34,11 +34,18 @@ func runDelete(args []string) error {
 		return err
 	}
 
-	_, status, err := c.delete("/api/sessions/" + session.ID)
+	body2, status, err := c.delete("/api/sessions/" + session.ID)
 	if err != nil {
 		return err
 	}
 	if status >= 400 {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		json.Unmarshal(body2, &errResp)
+		if errResp.Error != "" {
+			return fmt.Errorf("delete failed: %s", errResp.Error)
+		}
 		return fmt.Errorf("delete failed (HTTP %d)", status)
 	}
 

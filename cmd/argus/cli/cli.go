@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // Run is the entry point for `argus session <subcommand>`.
@@ -55,5 +56,5 @@ func discoveryFilePath() string {
 	if err != nil {
 		die(fmt.Errorf("cannot determine home directory: %w", err))
 	}
-	return home + "/.argus/agent.json"
+	return filepath.Join(home, ".argus", "agent.json")
 }

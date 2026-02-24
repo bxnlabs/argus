@@ -16,7 +16,6 @@ func runCreate(args []string) error {
 	model := fs.String("model", "", "Model override")
 	dir := fs.String("dir", ".", "Working directory")
 	autoApprove := fs.Bool("auto-approve", false, "Enable auto-approve")
-	prompt := fs.String("prompt", "", "Initial prompt to send after creation")
 	fs.Parse(args)
 
 	if *name == "" {
@@ -74,11 +73,6 @@ func runCreate(args []string) error {
 
 	s := resp.Session
 	fmt.Fprintf(os.Stdout, "Created session %q (%s)\n  ID:  %s\n  Dir: %s\n", s.Name, s.AgentType, s.ID, s.WorkingDirectory)
-
-	// If --prompt was provided, print a note (sending keys requires tmux attach or API).
-	if *prompt != "" {
-		fmt.Fprintf(os.Stdout, "\nTo send the initial prompt, attach to the session:\n  argus session attach %s\n", s.Name)
-	}
 
 	return nil
 }
