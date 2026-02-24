@@ -130,7 +130,7 @@ func TestEnsureIgnoreFile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := filepath.Join(home, ".argus", "search-ignore")
+		want := filepath.Join(home, ".argus", "ignore")
 		if path != want {
 			t.Errorf("path = %q, want %q", path, want)
 		}
@@ -157,7 +157,7 @@ func TestEnsureIgnoreFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		custom := "custom-pattern/\n"
-		if err := os.WriteFile(filepath.Join(dir, "search-ignore"), []byte(custom), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "ignore"), []byte(custom), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		path, err := ensureIgnoreFile(home)

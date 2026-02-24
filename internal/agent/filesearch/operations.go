@@ -16,7 +16,7 @@ const (
 	overFetchFactor = 3 // fetch more results for better relevance sorting
 )
 
-const ignoreFileName = "search-ignore"
+const ignoreFileName = "ignore"
 
 // defaultIgnoreContents is written to ~/.argus/search-ignore on first use.
 var defaultIgnoreContents = strings.TrimSpace(`
