@@ -1,6 +1,9 @@
 package filesearch
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -122,4 +125,56 @@ func TestParseOutput_Empty(t *testing.T) {
 	if len(results) != 0 {
 		t.Errorf("expected empty results, got %d", len(results))
 	}
+}
+
+func TestEnsureIgnoreFile(t *testing.T) {
+	t.Run("creates default file when missing", func(t *testing.T) {
+		home := t.TempDir()
+		path, err := ensureIgnoreFile(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(home, ".argus", "search-ignore")
+		if path != want {
+			t.Errorf("path = %q, want %q", path, want)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := string(data)
+		if !strings.Contains(content, ".git/") {
+			t.Error("default file should contain .git/")
+		}
+		if !strings.Contains(content, "Library/") {
+			t.Error("default file should contain Library/")
+		}
+		if !strings.Contains(content, "node_modules/") {
+			t.Error("default file should contain node_modules/")
+		}
+	})
+
+	t.Run("preserves existing file", func(t *testing.T) {
+		home := t.TempDir()
+		dir := filepath.Join(home, ".argus")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		custom := "custom-pattern/\n"
+		if err := os.WriteFile(filepath.Join(dir, "search-ignore"), []byte(custom), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		path, err := ensureIgnoreFile(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != custom {
+			t.Errorf("existing file was overwritten: got %q, want %q", string(data), custom)
+		}
+		_ = path
+	})
 }

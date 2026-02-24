@@ -3,6 +3,7 @@ package filesearch
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -14,6 +15,57 @@ const (
 	maxDepth        = 8
 	overFetchFactor = 3 // fetch more results for better relevance sorting
 )
+
+const ignoreFileName = "search-ignore"
+
+// defaultIgnoreContents is written to ~/.argus/search-ignore on first use.
+var defaultIgnoreContents = strings.TrimSpace(`
+# Argus search ignore patterns (gitignore syntax)
+# Edit this file to control which directories fd skips during search.
+# See: https://git-scm.com/docs/gitignore#_pattern_format
+
+# Version control
+.git/
+
+# Package managers & toolchains
+node_modules/
+.npm/
+.nvm/
+.cargo/
+.rustup/
+
+# IDE & editor state
+.vscode/
+.cursor/
+.claude/
+
+# Caches & local data
+.cache/
+.local/
+.config/
+
+# macOS
+Library/
+`) + "\n"
+
+// ensureIgnoreFile returns the path to ~/.argus/search-ignore, creating it
+// with sensible defaults if it doesn't already exist.
+func ensureIgnoreFile(home string) (string, error) {
+	dir := filepath.Join(home, ".argus")
+	path := filepath.Join(dir, ignoreFileName)
+
+	if _, err := os.Stat(path); err == nil {
+		return path, nil // already exists
+	}
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	if err := os.WriteFile(path, []byte(defaultIgnoreContents), 0o600); err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
+	}
+	return path, nil
+}
 
 // Search searches for files/directories using fd.
 // searchType: "file", "directory", or "" for both.
