@@ -96,64 +96,56 @@ func checkStatus(body []byte, status int, op string) error {
 	return fmt.Errorf("%s failed (HTTP %d)", op, status)
 }
 
-func (c *apiClient) get(path string) ([]byte, error) {
-	resp, err := c.http.Get(c.baseURL + path)
-	if err != nil {
-		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
-	}
+// readResponse reads the response body and checks the status code.
+func readResponse(resp *http.Response, op string) ([]byte, error) {
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
-	if resp.StatusCode >= 400 {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		json.Unmarshal(body, &errResp)
-		if errResp.Error != "" {
-			return nil, fmt.Errorf("agent error: %s", errResp.Error)
-		}
-		return nil, fmt.Errorf("agent error (HTTP %d)", resp.StatusCode)
+	if err := checkStatus(body, resp.StatusCode, op); err != nil {
+		return nil, err
 	}
 	return body, nil
 }
 
-func (c *apiClient) post(path string, body io.Reader) ([]byte, int, error) {
-	resp, err := c.http.Post(c.baseURL+path, "application/json", body)
+func (c *apiClient) get(path string) ([]byte, error) {
+	resp, err := c.http.Get(c.baseURL + path)
 	if err != nil {
-		return nil, 0, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
+		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
 	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	return data, resp.StatusCode, err
+	return readResponse(resp, "get")
 }
 
-func (c *apiClient) patch(path string, body io.Reader) ([]byte, int, error) {
+func (c *apiClient) post(path string, body io.Reader) ([]byte, error) {
+	resp, err := c.http.Post(c.baseURL+path, "application/json", body)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
+	}
+	return readResponse(resp, "create")
+}
+
+func (c *apiClient) patch(path string, body io.Reader) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPatch, c.baseURL+path, body)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
+		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
 	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	return data, resp.StatusCode, err
+	return readResponse(resp, "rename")
 }
 
-func (c *apiClient) delete(path string) ([]byte, int, error) {
+func (c *apiClient) delete(path string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodDelete, c.baseURL+path, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
+		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
 	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	return data, resp.StatusCode, err
+	return readResponse(resp, "delete")
 }

@@ -31,11 +31,7 @@ func runRename(args []string) error {
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	respBody, status, err := c.patch("/api/sessions/"+session.ID, bytes.NewReader(reqBody))
-	if err != nil {
-		return err
-	}
-	if err := checkStatus(respBody, status, "rename"); err != nil {
+	if _, err := c.patch("/api/sessions/"+session.ID, bytes.NewReader(reqBody)); err != nil {
 		return err
 	}
 

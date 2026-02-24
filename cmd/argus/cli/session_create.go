@@ -52,12 +52,8 @@ func runCreate(args []string) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	body, status, err := c.post("/api/sessions", bytes.NewReader(data))
+	body, err := c.post("/api/sessions", bytes.NewReader(data))
 	if err != nil {
-		return err
-	}
-
-	if err := checkStatus(body, status, "create"); err != nil {
 		return err
 	}
 

@@ -22,11 +22,7 @@ func runDelete(args []string) error {
 		return err
 	}
 
-	body, status, err := c.delete("/api/sessions/" + session.ID)
-	if err != nil {
-		return err
-	}
-	if err := checkStatus(body, status, "delete"); err != nil {
+	if _, err := c.delete("/api/sessions/" + session.ID); err != nil {
 		return err
 	}
 
