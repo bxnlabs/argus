@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bxnlabs/argus/cmd/argus/cli"
 	"github.com/bxnlabs/argus/internal/agent"
 	"github.com/bxnlabs/argus/internal/web"
 )
@@ -26,6 +27,12 @@ func main() {
 		case "agent":
 			if err := runAgent(os.Args[2:]); err != nil {
 				log.Fatalf("argus agent: %v", err)
+			}
+			return
+		case "session":
+			if err := cli.Run(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
 			}
 			return
 		}
@@ -63,7 +70,7 @@ func runCombined() error {
 	fs.Parse(os.Args[1:])
 
 	if args := fs.Args(); len(args) > 0 {
-		fmt.Fprintf(os.Stderr, "argus: unknown command %q\n\nUsage: argus [server|agent] [flags]\n", args[0])
+		fmt.Fprintf(os.Stderr, "argus: unknown command %q\n\nUsage: argus [server|agent|session] [flags]\n", args[0])
 		os.Exit(2)
 	}
 
