@@ -12,7 +12,8 @@ import (
 
 // Config holds the configuration for the agent.
 type Config struct {
-	DBPath string
+	DBPath  string
+	Address string // listen address (host:port) for discovery file
 }
 
 // Setup initializes the agent: opens the database, runs migrations, and

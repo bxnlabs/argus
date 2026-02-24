@@ -36,6 +36,25 @@ func main() {
 	}
 }
 
+func writeDiscovery(addr string) {
+	dp, err := agent.DefaultDiscoveryPath()
+	if err != nil {
+		log.Printf("warning: cannot determine discovery path: %v", err)
+		return
+	}
+	if err := agent.WriteDiscoveryFile(dp, addr); err != nil {
+		log.Printf("warning: cannot write discovery file: %v", err)
+	}
+}
+
+func removeDiscovery() {
+	dp, err := agent.DefaultDiscoveryPath()
+	if err != nil {
+		return
+	}
+	agent.RemoveDiscoveryFile(dp)
+}
+
 // runCombined starts the agent and SPA on a single port.
 func runCombined() error {
 	fs := flag.NewFlagSet("argus", flag.ExitOnError)
@@ -58,7 +77,10 @@ func runCombined() error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	return serve(fmt.Sprintf(":%d", *port), mux, "argus")
+	addr := fmt.Sprintf(":%d", *port)
+	return serve(addr, mux, "argus", func(a string) {
+		writeDiscovery(a)
+	})
 }
 
 // runServer starts only the SPA frontend server.
@@ -71,7 +93,7 @@ func runServer(args []string) error {
 	mux := http.NewServeMux()
 	mux.Handle("/", web.NewSPAHandler(*webDir))
 
-	return serve(fmt.Sprintf(":%d", *port), mux, "argus server")
+	return serve(fmt.Sprintf(":%d", *port), mux, "argus server", nil)
 }
 
 // runAgent starts only the agent API.
@@ -90,11 +112,14 @@ func runAgent(args []string) error {
 	mux := http.NewServeMux()
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-	return serve(fmt.Sprintf(":%d", *port), mux, "argus agent")
+	addr := fmt.Sprintf(":%d", *port)
+	return serve(addr, mux, "argus agent", func(a string) {
+		writeDiscovery(a)
+	})
 }
 
 // serve starts an HTTP server with graceful shutdown.
-func serve(addr string, handler http.Handler, name string) error {
+func serve(addr string, handler http.Handler, name string, onListening func(addr string)) error {
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: handler,
@@ -112,6 +137,10 @@ func serve(addr string, handler http.Handler, name string) error {
 		}
 	}()
 
+	if onListening != nil {
+		onListening(addr)
+	}
+
 	select {
 	case err := <-serveErr:
 		return fmt.Errorf("listen: %w", err)
@@ -126,5 +155,6 @@ func serve(addr string, handler http.Handler, name string) error {
 		return fmt.Errorf("shutdown: %w", err)
 	}
 
+	removeDiscovery()
 	return nil
 }
