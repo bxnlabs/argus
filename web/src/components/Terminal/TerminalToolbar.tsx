@@ -162,7 +162,7 @@ function ComposeInput({
           autoFocus
           className="min-h-[4lh] max-h-60 w-full resize-none bg-transparent px-3 pt-3 pb-3 text-sm focus:outline-none"
         />
-        <div className="flex items-center justify-between px-2.5 pb-2.5">
+        <div className="flex items-center justify-between px-2.5 pt-2 pb-2.5">
           <button
             onClick={() => setShowFilePicker(true)}
             className="text-secondary-foreground flex h-8 w-8 items-center justify-center rounded-full border border-white/20"
