@@ -18,4 +18,5 @@ type Session struct {
 	SystemPrompt     *string `json:"system_prompt"`
 	AgentType        string  `json:"agent_type"`
 	AutoApprove      bool    `json:"auto_approve"`
+	WorktreeBranch   *string `json:"worktree_branch"`
 }
