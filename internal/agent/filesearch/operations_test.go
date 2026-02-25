@@ -352,3 +352,26 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 		t.Fatal("expected 'AppMain' to match 'AppMain.go' (case-insensitive)")
 	}
 }
+
+func TestSearch_CrossPathComponents(t *testing.T) {
+	root := createTree(t, map[string]string{
+		"internal/agent/filesearch/operations.go": "",
+		"internal/agent/filesearch/types.go":      "",
+		"internal/server/handler.go":              "",
+		"web/src/components/Terminal/index.tsx":    "",
+	})
+
+	// Query spanning directory + filename components.
+	resp, err := searchInDir(root, "internalsearch", "", 20, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Count == 0 {
+		t.Fatal("expected results for query spanning path components 'internalsearch'")
+	}
+	// Files under internal/agent/filesearch/ should rank highest.
+	top := resp.Results[0]
+	if !strings.Contains(top.Path, "filesearch") {
+		t.Errorf("expected top result under filesearch/, got %s", top.Path)
+	}
+}

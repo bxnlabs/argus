@@ -137,16 +137,18 @@ func loadIgnoreMatcher(path string) *ignore.GitIgnore {
 // entry holds a collected filesystem entry during the walk phase.
 type entry struct {
 	path string // absolute path
+	rel  string // path relative to search root (used for fuzzy matching)
 	name string // basename
 	typ  string // "file" or "directory"
 }
 
 // entrySource implements fuzzy.Source for fuzzy matching.
 // Case-insensitive matching is handled natively by sahilm/fuzzy via equalFold.
-// Returning the original casing preserves CamelCase boundary bonuses in scoring.
+// Returning the relative path lets queries span directory components
+// (e.g. "internalsearch" matches "internal/agent/filesearch/operations.go").
 type entrySource []entry
 
-func (s entrySource) String(i int) string { return s[i].name }
+func (s entrySource) String(i int) string { return s[i].rel }
 func (s entrySource) Len() int            { return len(s) }
 
 // Search searches for files/directories matching a fuzzy query.
@@ -301,8 +303,13 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 			return fastwalk.ErrSkipFiles
 		}
 
+		relPath, _ := filepath.Rel(absRoot, path)
+		if relPath == "" {
+			relPath = filepath.Base(path)
+		}
 		entries = append(entries, entry{
 			path: path,
+			rel:  relPath,
 			name: filepath.Base(path),
 			typ:  typ,
 		})
