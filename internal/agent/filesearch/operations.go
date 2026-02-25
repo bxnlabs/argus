@@ -144,13 +144,57 @@ func ensureIgnoreFile(home string) (string, error) {
 	return path, nil
 }
 
-// loadIgnoreMatcher compiles an ignore file into a matcher.
+var (
+	matcherCache   *ignore.GitIgnore
+	matcherPath    string
+	matcherModTime time.Time
+	matcherMu      sync.RWMutex
+)
+
+// resetMatcherCache clears the cache (for testing).
+func resetMatcherCache() {
+	matcherMu.Lock()
+	defer matcherMu.Unlock()
+	matcherCache = nil
+	matcherPath = ""
+	matcherModTime = time.Time{}
+}
+
+// loadIgnoreMatcher returns a compiled ignore matcher, using a cached
+// version if the file hasn't been modified since last compilation.
 // Returns nil on error so that search proceeds unfiltered.
 func loadIgnoreMatcher(path string) *ignore.GitIgnore {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	modTime := info.ModTime()
+
+	// Fast path: check cache under read lock.
+	matcherMu.RLock()
+	if matcherPath == path && matcherModTime.Equal(modTime) && matcherCache != nil {
+		cached := matcherCache
+		matcherMu.RUnlock()
+		return cached
+	}
+	matcherMu.RUnlock()
+
+	// Slow path: recompile under write lock.
+	matcherMu.Lock()
+	defer matcherMu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if matcherPath == path && matcherModTime.Equal(modTime) && matcherCache != nil {
+		return matcherCache
+	}
+
 	gi, err := ignore.CompileIgnoreFile(path)
 	if err != nil {
 		return nil
 	}
+	matcherCache = gi
+	matcherPath = path
+	matcherModTime = modTime
 	return gi
 }
 

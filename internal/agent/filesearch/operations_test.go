@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	ignore "github.com/sabhiram/go-gitignore"
 )
@@ -426,4 +427,41 @@ func TestSearch_CrossPathComponents(t *testing.T) {
 	if !strings.Contains(top.Path, "filesearch") {
 		t.Errorf("expected top result under filesearch/, got %s", top.Path)
 	}
+}
+
+func TestCachedIgnoreMatcher(t *testing.T) {
+	home := t.TempDir()
+	path, err := ensureIgnoreFile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First load — should compile and cache.
+	m1 := loadIgnoreMatcher(path)
+	if m1 == nil {
+		t.Fatal("expected non-nil matcher")
+	}
+
+	// Second load — should return cached (same pointer).
+	m2 := loadIgnoreMatcher(path)
+	if m2 != m1 {
+		t.Error("expected cached matcher (same pointer) on second load")
+	}
+
+	// Modify the file — should recompile.
+	if err := os.WriteFile(path, []byte("newpattern/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Force a different mtime (filesystem precision may not capture sub-second changes).
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+	m3 := loadIgnoreMatcher(path)
+	if m3 == m1 {
+		t.Error("expected new matcher after file modification")
+	}
+
+	// Reset cache for other tests.
+	resetMatcherCache()
 }
