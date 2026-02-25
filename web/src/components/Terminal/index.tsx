@@ -37,11 +37,13 @@ interface TerminalProps {
   onFilesDropped?: (files: File[]) => void;
   /** Called when the attachments button is clicked */
   onAttachments?: () => void;
+  /** Session working directory, used to anchor file search */
+  workingDirectory?: string | null;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
-    { sessionName, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, onAttachments },
+    { sessionName, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, onAttachments, workingDirectory },
     ref
   ) {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -197,6 +199,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
             onSendText={sendText}
             onAttachments={isConnected ? onAttachments : undefined}
             visible={!selectMode}
+            workingDirectory={workingDirectory}
           />
         )}
 

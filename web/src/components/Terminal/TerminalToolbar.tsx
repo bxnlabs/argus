@@ -58,6 +58,7 @@ interface TerminalToolbarProps {
   onSendText: (text: string) => void;
   onAttachments?: () => void;
   visible?: boolean;
+  workingDirectory?: string | null;
 }
 
 interface PopoverState {
@@ -71,10 +72,12 @@ function ComposeInput({
   open,
   onClose,
   onSend,
+  workingDirectory,
 }: {
   open: boolean;
   onClose: () => void;
   onSend: (text: string) => void;
+  workingDirectory?: string | null;
 }) {
   const [text, setText] = useState("");
   const [showFilePicker, setShowFilePicker] = useState(false);
@@ -179,6 +182,7 @@ function ComposeInput({
         open={showFilePicker}
         onOpenChange={setShowFilePicker}
         onPick={handleFilesPicked}
+        searchPath={workingDirectory ?? undefined}
       />
     </div>
   );
@@ -189,6 +193,7 @@ export const TerminalToolbar = memo(function TerminalToolbar({
   onSendText,
   onAttachments,
   visible = true,
+  workingDirectory,
 }: TerminalToolbarProps) {
   const [showCompose, setShowCompose] = useState(false);
   const [popover, setPopover] = useState<PopoverState | null>(null);
@@ -211,6 +216,7 @@ export const TerminalToolbar = memo(function TerminalToolbar({
         open={showCompose}
         onClose={() => setShowCompose(false)}
         onSend={onSendText}
+        workingDirectory={workingDirectory}
       />
       <div
         data-testid="terminal-toolbar"

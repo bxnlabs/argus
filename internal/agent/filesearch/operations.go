@@ -29,7 +29,7 @@ const ignoreFileName = "ignore"
 // defaultIgnoreContents is written to ~/.argus/ignore on first use.
 var defaultIgnoreContents = strings.TrimSpace(`
 # Argus search ignore patterns (gitignore syntax)
-# Edit this file to control which directories fd skips during search.
+# Edit this file to control which directories are skipped during search.
 # See: https://git-scm.com/docs/gitignore#_pattern_format
 
 # Version control
@@ -141,12 +141,12 @@ type entry struct {
 	typ  string // "file" or "directory"
 }
 
-// entrySource implements fuzzy.Source for case-insensitive matching.
-// It returns lowercased basenames so fuzzy.FindFrom matches case-insensitively,
-// while the original entry data (name, path) preserves original casing.
+// entrySource implements fuzzy.Source for fuzzy matching.
+// Case-insensitive matching is handled natively by sahilm/fuzzy via equalFold.
+// Returning the original casing preserves CamelCase boundary bonuses in scoring.
 type entrySource []entry
 
-func (s entrySource) String(i int) string { return strings.ToLower(s[i].name) }
+func (s entrySource) String(i int) string { return s[i].name }
 func (s entrySource) Len() int            { return len(s) }
 
 // Search searches for files/directories matching a fuzzy query.
@@ -156,8 +156,10 @@ func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
-	if limit < 1 || limit > maxLimit {
+	if limit < 1 {
 		limit = defaultLimit
+	} else if limit > maxLimit {
+		limit = maxLimit
 	}
 
 	home, err := os.UserHomeDir()
@@ -181,8 +183,10 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
-	if limit < 1 || limit > maxLimit {
+	if limit < 1 {
 		limit = defaultLimit
+	} else if limit > maxLimit {
+		limit = maxLimit
 	}
 
 	// Make root absolute for consistent relative-path computation.
@@ -225,9 +229,11 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 			return nil
 		}
 
-		// Check context cancellation / collection cap.
+		// Fast exit if another goroutine already triggered early stop,
+		// or if the context has been cancelled.
+		// NOTE: done is read under mu — no data race.
 		mu.Lock()
-		if done {
+		if done || ctx.Err() != nil {
 			mu.Unlock()
 			if d.IsDir() {
 				return filepath.SkipDir
@@ -304,6 +310,9 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 	})
 
 	// Ignore walk errors caused by our early-stop signals.
+	// filepath.SkipDir can propagate when fastwalk's readDir fails and the
+	// callback returns SkipDir for the error re-invocation. ErrSkipFiles is
+	// consumed internally by fastwalk but is checked here defensively.
 	if walkErr != nil && walkErr != filepath.SkipDir && walkErr != fastwalk.ErrSkipFiles {
 		// Only fail for actual errors, not context cancellation (we still
 		// want to return partial results).
@@ -313,7 +322,7 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 	}
 
 	// Run case-insensitive fuzzy matching via entrySource.
-	matches := fuzzy.FindFrom(strings.ToLower(query), entrySource(entries))
+	matches := fuzzy.FindFrom(query, entrySource(entries))
 
 	// Sort: by score descending (already done by fuzzy.Find),
 	// then tiebreak by shorter path.
