@@ -230,8 +230,10 @@ export function SessionList({
                             )}
                           />
                           <span className="text-muted-foreground text-xs">
-                            {getStatusLabel(status?.status)}
-                            {getStatusLabel(status?.status) && " · "}
+                            {(() => {
+                              const label = getStatusLabel(status?.status);
+                              return label ? `${label} · ` : "";
+                            })()}
                             {formatRelativeTime(session.updated_at)}
                           </span>
                         </div>

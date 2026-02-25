@@ -33,7 +33,7 @@ var WaitingPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)waiting for input`),
 	regexp.MustCompile(`(?i)\(yes/no\)`),
 	regexp.MustCompile(`(?i)Do you want to`),
-	regexp.MustCompile(`(?i)Enter to confirm.*Esc to cancel`),
+	regexp.MustCompile(`(?i)Enter to (?:confirm|select).*Esc to cancel`),
 	regexp.MustCompile(`>\s*1\.\s*Yes`),
 	regexp.MustCompile(`(?i)Yes, allow all`),
 	regexp.MustCompile(`(?i)allow all edits`),
