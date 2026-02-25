@@ -59,7 +59,35 @@ func Resolve(input string) (*Source, error) {
 	}
 
 	// Otherwise try as remote.
-	return parseRemote(input)
+	//
+	// URL-shaped inputs and "org/repo" shorthands are passed verbatim so
+	// that filepath.Abs does not mangle their scheme or interpret them as
+	// relative paths. For all other inputs (bare names, absolute paths that
+	// don't exist), pass abs so that a relative path whose leading segment
+	// has no dots cannot be mistaken for a shorthand org.
+	if looksLikeRemote(input) {
+		return parseRemote(input)
+	}
+	return parseRemote(abs)
+}
+
+// looksLikeRemote reports whether input is clearly a remote reference (SSH
+// URL, HTTPS/HTTP URL, or "org/repo" shorthand) rather than a local path.
+// Shorthand is identified as two slash-separated segments where the first
+// contains no dots (dots are present in hostnames and relative path segments
+// like "..").
+func looksLikeRemote(input string) bool {
+	if strings.HasPrefix(input, "git@") ||
+		strings.HasPrefix(input, "https://") ||
+		strings.HasPrefix(input, "http://") {
+		return true
+	}
+	// org/repo shorthand: exactly one "/", first segment non-empty and dot-free.
+	parts := strings.SplitN(input, "/", 2)
+	return len(parts) == 2 &&
+		parts[0] != "" &&
+		!strings.Contains(parts[0], ".") &&
+		parts[1] != ""
 }
 
 func parseRemote(input string) (*Source, error) {
@@ -84,18 +112,30 @@ func parseRemote(input string) (*Source, error) {
 	}
 
 	// HTTPS: https://host/org/repo[.git]
-	if strings.HasPrefix(input, "https://") || strings.HasPrefix(input, "http://") {
-		trimmed := strings.TrimPrefix(strings.TrimPrefix(input, "https://"), "http://")
-		trimmed = strings.TrimSuffix(trimmed, ".git")
+	var trimmed string
+	isHTTP := false
+	switch {
+	case strings.HasPrefix(input, "https://"):
+		trimmed = input[len("https://"):]
+		isHTTP = true
+	case strings.HasPrefix(input, "http://"):
+		trimmed = input[len("http://"):]
+		isHTTP = true
+	}
+	if isHTTP {
 		parts := strings.SplitN(trimmed, "/", 3)
 		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
 		}
+		repo := strings.TrimSuffix(parts[2], ".git")
+		if strings.Contains(repo, "/") {
+			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
+		}
 		return &Source{
-			RemoteURL: "https://" + parts[0] + "/" + parts[1] + "/" + parts[2] + ".git",
+			RemoteURL: "https://" + parts[0] + "/" + parts[1] + "/" + repo + ".git",
 			Host:      parts[0],
 			Org:       parts[1],
-			Repo:      parts[2],
+			Repo:      repo,
 		}, nil
 	}
 

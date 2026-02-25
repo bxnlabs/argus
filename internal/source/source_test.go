@@ -127,6 +127,44 @@ func TestResolveInvalidInput(t *testing.T) {
 	}
 }
 
+func TestResolveHTTPURL(t *testing.T) {
+	src, err := source.Resolve("http://github.com/bxnlabs/argus.git")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !src.IsRemote() {
+		t.Fatal("expected remote source")
+	}
+	if src.Host != "github.com" || src.Org != "bxnlabs" || src.Repo != "argus" {
+		t.Errorf("unexpected parsed fields: host=%q org=%q repo=%q", src.Host, src.Org, src.Repo)
+	}
+	if src.RemoteURL != "https://github.com/bxnlabs/argus.git" {
+		t.Errorf("unexpected RemoteURL %q", src.RemoteURL)
+	}
+}
+
+func TestResolveSSHURLWithoutDotGit(t *testing.T) {
+	src, err := source.Resolve("git@github.com:bxnlabs/argus")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if src.Repo != "argus" {
+		t.Errorf("expected Repo %q, got %q", "argus", src.Repo)
+	}
+	if src.RemoteURL != "https://github.com/bxnlabs/argus.git" {
+		t.Errorf("unexpected RemoteURL %q", src.RemoteURL)
+	}
+}
+
+func TestResolveRelativeNonexistentPath(t *testing.T) {
+	// A relative path that doesn't exist on disk and doesn't look like a git URL
+	// should return an error (not a bogus remote source).
+	_, err := source.Resolve("../definitely-nonexistent-dir-xyz")
+	if err == nil {
+		t.Fatal("expected error for relative nonexistent path that is not a git URL")
+	}
+}
+
 // Ensure home dir is accessible (sanity check for tilde expansion).
 func TestResolveTilde(t *testing.T) {
 	home, err := os.UserHomeDir()
