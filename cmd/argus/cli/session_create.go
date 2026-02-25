@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -13,7 +12,7 @@ import (
 func newCreateCmd() *cobra.Command {
 	var (
 		provider string
-		dir      string
+		src      string
 		yolo     bool
 	)
 
@@ -25,12 +24,6 @@ func newCreateCmd() *cobra.Command {
 			cmd.SilenceUsage = true
 			name := args[0]
 
-			// Resolve working directory to absolute path.
-			wd, err := filepath.Abs(dir)
-			if err != nil {
-				return fmt.Errorf("resolve directory: %w", err)
-			}
-
 			path, err := discoveryFilePath()
 			if err != nil {
 				return err
@@ -41,10 +34,12 @@ func newCreateCmd() *cobra.Command {
 			}
 
 			reqBody := map[string]any{
-				"name":              name,
-				"agent_type":        provider,
-				"working_directory": wd,
-				"auto_approve":      yolo,
+				"name":         name,
+				"agent_type":   provider,
+				"auto_approve": yolo,
+			}
+			if src != "" {
+				reqBody["source"] = src
 			}
 
 			data, err := json.Marshal(reqBody)
@@ -72,7 +67,7 @@ func newCreateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&provider, "provider", "claude", "Agent type (claude, codex, gemini, shell)")
-	cmd.Flags().StringVar(&dir, "dir", ".", "Working directory")
+	cmd.Flags().StringVar(&src, "src", "", "Source: local path or git URL/shorthand (defaults to current directory)")
 	cmd.Flags().BoolVar(&yolo, "yolo", false, "Enable auto-approve")
 
 	return cmd
