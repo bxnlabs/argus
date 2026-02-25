@@ -18,19 +18,23 @@ export function useFilesQuery(
 
 export function useFileSearchQuery(
   query: string,
-  options?: { enabled?: boolean; type?: string; limit?: number },
+  options?: { enabled?: boolean; type?: string; limit?: number; searchPath?: string },
 ) {
   const type = options?.type ?? "directory";
   const limit = options?.limit ?? 20;
+  const searchPath = options?.searchPath;
 
   return useQuery({
-    queryKey: filesKeys.search(query, type),
+    queryKey: filesKeys.search(query, type, searchPath),
     queryFn: () => {
       const params = new URLSearchParams({
         q: query,
         type,
         limit: String(limit),
       });
+      if (searchPath) {
+        params.set("path", searchPath);
+      }
       return apiFetch<FileSearchResponse>(`/agent/api/files/search?${params}`);
     },
     enabled: (options?.enabled ?? true) && query.trim().length > 0,

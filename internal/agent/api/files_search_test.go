@@ -41,22 +41,19 @@ func TestFilesSearch_ViaRouter(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Should be 200 (even if 0 results) or 500 (if fd not installed)
-	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 200 or 500", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
 
-	if w.Code == http.StatusOK {
-		var resp struct {
-			Results []json.RawMessage `json:"results"`
-			Query   string            `json:"query"`
-			Count   int               `json:"count"`
-		}
-		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("invalid JSON: %v", err)
-		}
-		if resp.Query != "test" {
-			t.Errorf("query = %q, want 'test'", resp.Query)
-		}
+	var resp struct {
+		Results []json.RawMessage `json:"results"`
+		Query   string            `json:"query"`
+		Count   int               `json:"count"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Query != "test" {
+		t.Errorf("query = %q, want 'test'", resp.Query)
 	}
 }

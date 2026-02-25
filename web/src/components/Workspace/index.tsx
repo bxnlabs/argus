@@ -242,6 +242,7 @@ export const Workspace = memo(function Workspace({
                   selectMode={isActive ? selectMode : false}
                   onFilesDropped={handleFilesDropped}
                   onAttachments={() => setShowFilePicker(true)}
+                  workingDirectory={activeWorkingDirectory}
                 />
               </div>
             );
@@ -253,6 +254,7 @@ export const Workspace = memo(function Workspace({
         open={showFilePicker}
         onOpenChange={setShowFilePicker}
         onPick={handleFilesPicked}
+        searchPath={activeWorkingDirectory ?? undefined}
       />
     </div>
   );
