@@ -218,7 +218,7 @@ func (s entrySource) Len() int            { return len(s) }
 // Search searches for files/directories matching a fuzzy query.
 // searchType: "file", "directory", or "" for both.
 // Results are sorted by fuzzy match quality, with shorter paths as tiebreaker.
-func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse, error) {
+func Search(ctx context.Context, searchDir, query, searchType string, limit int) (*FileSearchResponse, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
@@ -238,14 +238,14 @@ func Search(searchDir, query, searchType string, limit int) (*FileSearchResponse
 	}
 
 	matcher := loadIgnoreMatcher(ignoreFile)
-	return searchInDir(searchDir, query, searchType, limit, matcher, home)
+	return searchInDir(ctx, searchDir, query, searchType, limit, matcher, home)
 }
 
 // searchInDir is the internal testable search function.
 // It walks the directory tree, filters entries, then runs fuzzy matching.
 // ignoreRoot is the directory that ignore patterns are relative to (typically $HOME).
 // If empty, patterns are relative to root.
-func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitIgnore, ignoreRoot string) (*FileSearchResponse, error) {
+func searchInDir(ctx context.Context, root, query, searchType string, limit int, matcher *ignore.GitIgnore, ignoreRoot string) (*FileSearchResponse, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
@@ -272,7 +272,7 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	ctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
 
 	var (

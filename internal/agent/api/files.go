@@ -346,7 +346,7 @@ func (h *filesHandler) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := filesearch.Search(searchPath, query, searchType, limit)
+	result, err := filesearch.Search(r.Context(), searchPath, query, searchType, limit)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
