@@ -64,8 +64,7 @@ func Resolve(input string) (*Source, error) {
 
 func parseRemote(input string) (*Source, error) {
 	// SSH: git@host:org/repo[.git]
-	if strings.HasPrefix(input, "git@") {
-		rest := strings.TrimPrefix(input, "git@")
+	if rest, ok := strings.CutPrefix(input, "git@"); ok {
 		parts := strings.SplitN(rest, ":", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
