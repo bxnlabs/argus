@@ -43,10 +43,29 @@ func newListCmd() *cobra.Command {
 				return nil
 			}
 
+			// Fetch session statuses (best-effort — don't fail if unavailable)
+			statuses := make(map[string]string)
+			if statusBody, err := c.get("/api/sessions/status"); err == nil {
+				var statusResp struct {
+					Statuses map[string]struct {
+						Status string `json:"status"`
+					} `json:"statuses"`
+				}
+				if err := json.Unmarshal(statusBody, &statusResp); err == nil {
+					for id, s := range statusResp.Statuses {
+						statuses[id] = s.Status
+					}
+				}
+			}
+
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tPROVIDER\tUPDATED")
+			fmt.Fprintln(w, "ID\tNAME\tSTATUS\tPROVIDER\tUPDATED")
 			for _, s := range resp.Sessions {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ID, s.Name, s.AgentType, relativeTime(s.UpdatedAt))
+				st := statuses[s.ID]
+				if st == "" {
+					st = "-"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.ID, s.Name, st, s.AgentType, relativeTime(s.UpdatedAt))
 			}
 			w.Flush()
 			return nil
