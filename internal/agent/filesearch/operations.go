@@ -281,6 +281,13 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 			typ = "directory"
 		}
 
+		// Compute outside the lock — these are pure functions of local state.
+		relPath, _ := filepath.Rel(absRoot, path)
+		if relPath == "" {
+			relPath = filepath.Base(path)
+		}
+		baseName := filepath.Base(path)
+
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -303,14 +310,10 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 			return fastwalk.ErrSkipFiles
 		}
 
-		relPath, _ := filepath.Rel(absRoot, path)
-		if relPath == "" {
-			relPath = filepath.Base(path)
-		}
 		entries = append(entries, entry{
 			path: path,
 			rel:  relPath,
-			name: filepath.Base(path),
+			name: baseName,
 			typ:  typ,
 		})
 		return nil
