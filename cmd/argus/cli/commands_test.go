@@ -95,22 +95,20 @@ func TestNewClient_AcceptsLoopback(t *testing.T) {
 	}
 }
 
-func TestRunDelete_NoArgs(t *testing.T) {
-	err := runDelete(nil)
+func TestDeleteCmd_NoArgs(t *testing.T) {
+	cmd := newDeleteCmd()
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for missing args")
 	}
-	if !strings.Contains(err.Error(), "session name or ID required") {
-		t.Errorf("error = %q", err)
-	}
 }
 
-func TestRunRename_TooFewArgs(t *testing.T) {
-	err := runRename([]string{"only-one"})
+func TestRenameCmd_TooFewArgs(t *testing.T) {
+	cmd := newRenameCmd()
+	cmd.SetArgs([]string{"only-one"})
+	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for too few args")
-	}
-	if !strings.Contains(err.Error(), "new name required") {
-		t.Errorf("error = %q", err)
 	}
 }

@@ -4,43 +4,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/cobra"
 )
 
-// Run is the entry point for `argus session <subcommand>`.
-func Run(args []string) error {
-	if len(args) == 0 {
-		return usageError()
+// NewSessionCmd returns the "session" parent command with all subcommands.
+func NewSessionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "session",
+		Short: "Manage sessions",
+		Long:  "Create, list, attach, rename, and delete agent sessions.",
 	}
 
-	switch args[0] {
-	case "ls":
-		return runList(args[1:])
-	case "new":
-		return runCreate(args[1:])
-	case "attach":
-		return runAttach(args[1:])
-	case "rm":
-		return runDelete(args[1:])
-	case "rename":
-		return runRename(args[1:])
-	default:
-		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage())
-	}
-}
+	cmd.AddCommand(
+		newListCmd(),
+		newCreateCmd(),
+		newAttachCmd(),
+		newDeleteCmd(),
+		newRenameCmd(),
+	)
 
-func usage() string {
-	return `Usage: argus session <command>
-
-Commands:
-  ls        List all sessions
-  new       Create a new session and attach
-  attach    Attach to a session's tmux
-  rm        Delete a session
-  rename    Rename a session`
-}
-
-func usageError() error {
-	return fmt.Errorf("%s", usage())
+	return cmd
 }
 
 // discoveryFilePath returns the path to the agent discovery file.
