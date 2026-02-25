@@ -419,6 +419,20 @@ func searchInDir(ctx context.Context, root, query, searchType string, limit int,
 		}
 	}
 
+	// If the context has been cancelled (e.g. client disconnected during
+	// typeahead), skip the fuzzy+sort work entirely and return what we have.
+	if ctx.Err() != nil {
+		timedOut = true
+		return &FileSearchResponse{
+			Results:  nil,
+			Query:    query,
+			Count:    0,
+			Partial:  true,
+			TimedOut: true,
+			Scanned:  len(entries),
+		}, nil
+	}
+
 	// Run case-insensitive fuzzy matching via entrySource.
 	matches := fuzzy.FindFromNoSort(query, entrySource(entries))
 
@@ -433,15 +447,28 @@ func searchInDir(ctx context.Context, root, query, searchType string, limit int,
 		tier[m.Index] = basenameMatchTier(entries[m.Index].name, lowerQuery)
 	}
 
-	// Sort by: basename tier (ascending) → fuzzy score (descending) → path length (ascending).
+	// Pre-compute depth (number of path separators in rel) for sort tiebreaking.
+	// Depth is a better proximity signal than absolute path length, which
+	// conflates long directory names with deep nesting.
+	depth := make(map[int]int, len(matches))
+	for _, m := range matches {
+		depth[m.Index] = strings.Count(entries[m.Index].rel, string(filepath.Separator))
+	}
+
+	// Sort by: basename tier (ascending) → fuzzy score (descending) →
+	// depth (ascending) → lexical rel path (ascending, deterministic tiebreak).
 	sort.SliceStable(matches, func(i, j int) bool {
-		if tier[matches[i].Index] != tier[matches[j].Index] {
-			return tier[matches[i].Index] < tier[matches[j].Index]
+		ii, jj := matches[i].Index, matches[j].Index
+		if tier[ii] != tier[jj] {
+			return tier[ii] < tier[jj]
 		}
 		if matches[i].Score != matches[j].Score {
 			return matches[i].Score > matches[j].Score
 		}
-		return len(entries[matches[i].Index].path) < len(entries[matches[j].Index].path)
+		if depth[ii] != depth[jj] {
+			return depth[ii] < depth[jj]
+		}
+		return entries[ii].rel < entries[jj].rel
 	})
 
 	// Take top `limit` results.

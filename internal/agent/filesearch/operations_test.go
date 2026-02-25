@@ -357,24 +357,71 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 }
 
 func TestSearch_SortTiebreaker(t *testing.T) {
-	// Two files with names that produce equal fuzzy scores for "main".
-	// The shorter-path entry should rank first (tiebreaker).
-	root := createTree(t, map[string]string{
-		"a/main.go":     "",
-		"a/b/c/main.go": "",
+	t.Run("shallower depth wins", func(t *testing.T) {
+		root := createTree(t, map[string]string{
+			"a/main.go":     "",
+			"a/b/c/main.go": "",
+		})
+
+		resp, err := searchInDir(context.Background(), root, "main", "file", 20, nil, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Count < 2 {
+			t.Fatalf("expected at least 2 results, got %d", resp.Count)
+		}
+		// Shallower file (depth 1) should rank above deeper file (depth 3).
+		if strings.Count(resp.Results[0].Path, string(filepath.Separator)) >
+			strings.Count(resp.Results[1].Path, string(filepath.Separator)) {
+			t.Errorf("expected shallower path first: %q vs %q",
+				resp.Results[0].Path, resp.Results[1].Path)
+		}
 	})
 
-	resp, err := searchInDir(context.Background(), root, "main", "file", 20, nil, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.Count < 2 {
-		t.Fatalf("expected at least 2 results, got %d", resp.Count)
-	}
-	// Shorter path should come first when scores are equal.
-	if len(resp.Results[0].Path) > len(resp.Results[1].Path) {
-		t.Errorf("expected shorter path first: %q vs %q", resp.Results[0].Path, resp.Results[1].Path)
-	}
+	t.Run("depth beats path length", func(t *testing.T) {
+		// Both paths are 14 chars with "main" at the same index, so fuzzy
+		// scores are equal. Directory chars (x) don't overlap with query
+		// chars (m,a,i,n), preventing the fuzzy algorithm from finding
+		// alternate match paths. Depth 1 should beat depth 2.
+		root := createTree(t, map[string]string{
+			"xxxxxx/main.go": "", // depth 1
+			"xx/xxx/main.go": "", // depth 2
+		})
+
+		resp, err := searchInDir(context.Background(), root, "main", "file", 20, nil, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Count < 2 {
+			t.Fatalf("expected at least 2 results, got %d", resp.Count)
+		}
+		first := resp.Results[0].Path
+		if !strings.Contains(first, "xxxxxx") {
+			t.Errorf("expected depth-1 result first, got %q", first)
+		}
+	})
+
+	t.Run("lexical tiebreak for determinism", func(t *testing.T) {
+		// Same depth, same rel-path length, "main" at the same index.
+		// Directory chars (x, z) don't overlap with query chars.
+		// Lexical ordering of rel path should break the tie.
+		root := createTree(t, map[string]string{
+			"zzzz/main.go": "",
+			"xxxx/main.go": "",
+		})
+
+		resp, err := searchInDir(context.Background(), root, "main", "file", 20, nil, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Count < 2 {
+			t.Fatalf("expected at least 2 results, got %d", resp.Count)
+		}
+		// "xxxx/main.go" < "zzzz/main.go" lexically.
+		if !strings.Contains(resp.Results[0].Path, "xxxx") {
+			t.Errorf("expected lexically-first path (xxxx/) first, got %q", resp.Results[0].Path)
+		}
+	})
 }
 
 func TestSearch_BasenameMatchRanking(t *testing.T) {

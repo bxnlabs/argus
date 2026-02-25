@@ -209,11 +209,11 @@ type FileSearchResponse struct {
 |---|---------|----------|-----------|--------|
 | F1 | Double sort on fuzzy results | High | Yes | **Fixed** — `FindFromNoSort` + single sort pass |
 | F2 | 100K cap non-deterministic | High | Yes | Open |
-| F3 | Timeout doesn't cover scoring/sorting | High | Yes | **Partially addressed** — `Partial`/`TimedOut`/`Scanned` metadata added to response |
+| F3 | Timeout doesn't cover scoring/sorting | High | Yes | **Fixed** — `ctx.Err()` check after walk bails out before fuzzy+sort when request is stale; response metadata added |
 | F4 | Lock contention in walk callback | Medium | Partially — first `filepath.Rel` is outside lock | **Fixed** — `filepath.Rel` and `filepath.Base` moved outside mutex |
 | F5 | No request context propagation | Medium | Yes | **Fixed** — `context.Context` threaded through `Search`/`searchInDir`; handler passes `r.Context()` |
 | F6 | Two `filepath.Rel` calls per entry | Medium | Yes — different roots, both replaceable with prefix slicing | **Fixed** — replaced with `fastRel` string prefix slicing (with path-segment boundary check) |
 | F7 | Ignore matcher recompiled each request | Medium | Yes | **Fixed** — mtime-based cache with `sync.RWMutex` double-checked locking |
 | F8 | Entry struct memory-heavy | Low | Yes | Open |
-| F9 | Narrow ranking heuristic | Low | Yes | Open |
+| F9 | Narrow ranking heuristic | Low | Yes | **Fixed** — tiebreaker changed from path length to depth + lexical rel path for determinism |
 | F10 | No filesystem caching/indexing | Low | Yes | Open |
