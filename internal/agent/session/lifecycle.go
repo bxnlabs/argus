@@ -2,11 +2,15 @@ package session
 
 import (
 	"fmt"
+	"os/exec"
+	"strings"
 	"sync"
 
 	"github.com/bxnlabs/argus/internal/agent/db"
 	"github.com/bxnlabs/argus/internal/agent/provider"
 	"github.com/bxnlabs/argus/internal/shared"
+	"github.com/bxnlabs/argus/internal/source"
+	"github.com/bxnlabs/argus/internal/worktree"
 )
 
 // ErrNotFound is returned when a session ID does not exist in the database.
@@ -15,6 +19,7 @@ var ErrNotFound = db.ErrNotFound
 // Manager handles session lifecycle (create, delete, rename, etc.).
 type Manager struct {
 	db      *db.DB
+	wt      *worktree.Manager
 	mu      sync.Mutex
 	sessLks map[string]*sync.Mutex
 }
@@ -37,19 +42,19 @@ func (m *Manager) sessionLock(id string) *sync.Mutex {
 }
 
 // NewManager creates a new session manager.
-func NewManager(database *db.DB) *Manager {
-	return &Manager{db: database}
+func NewManager(database *db.DB, wt *worktree.Manager) *Manager {
+	return &Manager{db: database, wt: wt}
 }
 
 // CreateOptions are the options for creating a new session.
 type CreateOptions struct {
-	Name             string  `json:"name"`
-	AgentType        string  `json:"agent_type"`
-	WorkingDirectory string  `json:"working_directory"`
-	Model            *string `json:"model,omitempty"`
-	SystemPrompt     *string `json:"system_prompt,omitempty"`
-	AutoApprove      bool    `json:"auto_approve"`
-	ResumeSessionID  string  `json:"resume_session_id,omitempty"`
+	Name            string  `json:"name"`
+	AgentType       string  `json:"agent_type"`
+	Source          string  `json:"source"`
+	Model           *string `json:"model,omitempty"`
+	SystemPrompt    *string `json:"system_prompt,omitempty"`
+	AutoApprove     bool    `json:"auto_approve"`
+	ResumeSessionID string  `json:"resume_session_id,omitempty"`
 }
 
 // Create creates a new session: generates ID, builds CLI command, spawns tmux, inserts DB.
@@ -62,17 +67,10 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	sessionID := shared.GenerateID("sess")
 	tmuxName := fmt.Sprintf("%s-%s", opts.AgentType, sessionID)
 
-	// Expand working directory
-	cwd, err := shared.ExpandPath(opts.WorkingDirectory)
+	// Resolve source → working directory (and optional worktree branch)
+	cwd, worktreeBranch, err := m.resolveSourceToCWD(opts.Source, opts.Name)
 	if err != nil {
-		return nil, fmt.Errorf("expand path: %w", err)
-	}
-	if cwd == "" {
-		home, err := shared.ExpandPath("~")
-		if err != nil {
-			return nil, fmt.Errorf("expand home directory: %w", err)
-		}
-		cwd = home
+		return nil, fmt.Errorf("resolve source: %w", err)
 	}
 
 	// Build the agent command
@@ -111,12 +109,13 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		ID:                sessionID,
 		Name:              opts.Name,
 		TmuxName:          tmuxName,
-		WorkingDirectory:  opts.WorkingDirectory,
+		WorkingDirectory:  cwd,
 		AgentType:         opts.AgentType,
 		Model:             opts.Model,
 		SystemPrompt:      opts.SystemPrompt,
 		AutoApprove:       opts.AutoApprove,
 		ProviderSessionID: providerSessionID,
+		WorktreeBranch:    worktreeBranch,
 	}
 
 	if err := m.db.CreateSession(session); err != nil {
@@ -131,6 +130,57 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, err
 	}
 	return created, nil
+}
+
+// resolveSourceToCWD resolves a source string to a working directory path.
+// If the source is a git repo, it creates an isolated worktree and returns
+// the worktree path and branch name. If source is empty, defaults to home dir.
+func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, worktreeBranch *string, err error) {
+	if src == "" {
+		home, err := shared.ExpandPath("~")
+		if err != nil {
+			return "", nil, fmt.Errorf("expand home directory: %w", err)
+		}
+		return home, nil, nil
+	}
+
+	resolved, err := source.Resolve(src)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if resolved.IsRemote() {
+		wtPath, branch, err := m.wt.CreateForRemoteRepo(resolved, sessionName)
+		if err != nil {
+			return "", nil, err
+		}
+		return wtPath, &branch, nil
+	}
+
+	// Local path: check if it's inside a git repo.
+	gitRoot, err := findGitRoot(resolved.LocalPath)
+	if err != nil {
+		// Not a git repo — use the path directly.
+		return resolved.LocalPath, nil, nil
+	}
+
+	wtPath, branch, err := m.wt.CreateForLocalRepo(gitRoot, sessionName)
+	if err != nil {
+		return "", nil, err
+	}
+	return wtPath, &branch, nil
+}
+
+// findGitRoot returns the git root for the given directory, or an error if
+// the directory is not inside a git repository.
+func findGitRoot(dir string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // Delete kills the tmux session and removes from DB.

@@ -36,12 +36,10 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 	if opts.AgentType == "" {
 		opts.AgentType = "claude"
 	}
-	if opts.WorkingDirectory == "" {
-		opts.WorkingDirectory = "~"
-	}
 	if opts.Name == "" {
 		opts.Name = "New Session"
 	}
+	// opts.Source may be empty — lifecycle defaults to home directory
 
 	session, err := h.manager.Create(opts)
 	if err != nil {
