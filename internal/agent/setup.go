@@ -45,7 +45,10 @@ func Setup(cfg Config) (http.Handler, func(), error) {
 		stateDir = filepath.Join(home, ".argus")
 	}
 
-	userCfg, _ := config.Load()
+	userCfg, err := config.Load()
+	if err != nil || userCfg == nil {
+		userCfg = &config.Config{}
+	}
 	wtMgr := worktree.NewManager(stateDir, userCfg)
 
 	mgr := session.NewManager(database, wtMgr)
