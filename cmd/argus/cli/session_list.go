@@ -6,42 +6,52 @@ import (
 	"os"
 	"text/tabwriter"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
-func runList(args []string) error {
-	path, err := discoveryFilePath()
-	if err != nil {
-		return err
-	}
-	c, err := newClient(path)
-	if err != nil {
-		return err
-	}
+func newListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ls",
+		Short: "List all sessions",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			path, err := discoveryFilePath()
+			if err != nil {
+				return err
+			}
+			c, err := newClient(path)
+			if err != nil {
+				return err
+			}
 
-	body, err := c.get("/api/sessions")
-	if err != nil {
-		return err
-	}
+			body, err := c.get("/api/sessions")
+			if err != nil {
+				return err
+			}
 
-	var resp struct {
-		Sessions []sessionInfo `json:"sessions"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("parse response: %w", err)
-	}
+			var resp struct {
+				Sessions []sessionInfo `json:"sessions"`
+			}
+			if err := json.Unmarshal(body, &resp); err != nil {
+				return fmt.Errorf("parse response: %w", err)
+			}
 
-	if len(resp.Sessions) == 0 {
-		fmt.Println("No sessions.")
-		return nil
-	}
+			if len(resp.Sessions) == 0 {
+				fmt.Println("No sessions.")
+				return nil
+			}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tPROVIDER\tUPDATED")
-	for _, s := range resp.Sessions {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ID, s.Name, s.AgentType, relativeTime(s.UpdatedAt))
+			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintln(w, "ID\tNAME\tPROVIDER\tUPDATED")
+			for _, s := range resp.Sessions {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ID, s.Name, s.AgentType, relativeTime(s.UpdatedAt))
+			}
+			w.Flush()
+			return nil
+		},
 	}
-	w.Flush()
-	return nil
 }
 
 // relativeTime converts a datetime string to a human-readable relative time.
