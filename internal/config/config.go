@@ -37,7 +37,7 @@ func LoadFrom(path string) (*Config, error) {
 		return cfg, nil
 	}
 	if _, err := toml.Decode(string(data), cfg); err != nil {
-		// Malformed config: warn to stderr, use defaults.
+		fmt.Fprintf(os.Stderr, "argus: warning: malformed config at %s: %v\n", path, err)
 		return cfg, nil
 	}
 	return cfg, nil

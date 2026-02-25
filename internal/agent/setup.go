@@ -11,6 +11,7 @@ import (
 	"github.com/bxnlabs/argus/internal/agent/session"
 	"github.com/bxnlabs/argus/internal/agent/status"
 	"github.com/bxnlabs/argus/internal/config"
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/worktree"
 )
 
@@ -35,7 +36,11 @@ func Setup(cfg Config) (http.Handler, func(), error) {
 	}
 
 	// Determine state dir from DB path (~/.argus)
-	stateDir := filepath.Dir(cfg.DBPath)
+	expandedDBPath, expandErr := shared.ExpandPath(cfg.DBPath)
+	if expandErr != nil {
+		expandedDBPath = cfg.DBPath // fall back to literal path
+	}
+	stateDir := filepath.Dir(expandedDBPath)
 	if stateDir == "." {
 		home, err := os.UserHomeDir()
 		if err != nil {
