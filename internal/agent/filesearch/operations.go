@@ -16,6 +16,26 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
+// fastRel computes a relative path when base is known to be a prefix of target.
+// Falls back to filepath.Rel for edge cases.
+func fastRel(base, target string) string {
+	if strings.HasPrefix(target, base) {
+		rel := target[len(base):]
+		if len(rel) > 0 && rel[0] == filepath.Separator {
+			rel = rel[1:]
+		}
+		if rel != "" {
+			return rel
+		}
+	}
+	// Fallback for edge cases (symlinks, non-clean paths).
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return filepath.Base(target)
+	}
+	return rel
+}
+
 const (
 	defaultLimit  = 20
 	maxLimit      = 100
@@ -251,8 +271,8 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 
 		// Check ignore patterns using paths relative to ignoreRoot.
 		if matcher != nil {
-			ignoreRel, relErr := filepath.Rel(absIgnoreRoot, path)
-			if relErr == nil && !strings.HasPrefix(ignoreRel, "..") {
+			ignoreRel := fastRel(absIgnoreRoot, path)
+			if !strings.HasPrefix(ignoreRel, "..") {
 				matchPath := ignoreRel
 				if d.IsDir() {
 					matchPath = ignoreRel + "/"
@@ -282,10 +302,7 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 		}
 
 		// Compute outside the lock — these are pure functions of local state.
-		relPath, _ := filepath.Rel(absRoot, path)
-		if relPath == "" {
-			relPath = filepath.Base(path)
-		}
+		relPath := fastRel(absRoot, path)
 		baseName := filepath.Base(path)
 
 		mu.Lock()

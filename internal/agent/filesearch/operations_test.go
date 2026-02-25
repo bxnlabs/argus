@@ -374,6 +374,37 @@ func TestSearch_SortTiebreaker(t *testing.T) {
 	}
 }
 
+func TestSearch_RelativePathsCorrect(t *testing.T) {
+	// Ensure results have correct relative paths used for fuzzy matching,
+	// even with nested search roots.
+	root := createTree(t, map[string]string{
+		"src/main.go":            "",
+		"src/lib/utils.go":      "",
+		"src/lib/deep/inner.go": "",
+	})
+
+	resp, err := searchInDir(root, "utils", "file", 20, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Count == 0 {
+		t.Fatal("expected results")
+	}
+	// The result path should be absolute and contain the expected file.
+	found := false
+	for _, r := range resp.Results {
+		if r.Name == "utils.go" {
+			found = true
+			if !strings.HasPrefix(r.Path, root) {
+				t.Errorf("result path %q should start with root %q", r.Path, root)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected to find utils.go")
+	}
+}
+
 func TestSearch_CrossPathComponents(t *testing.T) {
 	root := createTree(t, map[string]string{
 		"internal/agent/filesearch/operations.go": "",
