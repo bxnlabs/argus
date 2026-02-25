@@ -1,7 +1,9 @@
 package worktree
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,7 +38,11 @@ func (m *Manager) CreateForLocalRepo(gitRoot, sessionName string) (worktreePath,
 func (m *Manager) CreateForRemoteRepo(src *source.Source, sessionName string) (worktreePath, branch string, err error) {
 	cloneDir := filepath.Join(m.stateDir, "projects", src.ParentKey(), "gitrepo")
 
-	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
+	_, statErr := os.Stat(cloneDir)
+	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+		return "", "", fmt.Errorf("stat clone dir: %w", statErr)
+	}
+	if errors.Is(statErr, fs.ErrNotExist) {
 		if err := os.MkdirAll(filepath.Dir(cloneDir), 0755); err != nil {
 			return "", "", fmt.Errorf("create project dir: %w", err)
 		}
@@ -127,7 +133,8 @@ func branchExists(repoDir, branch string) (bool, error) {
 }
 
 // getDefaultBranch returns the repo's default branch name.
-// Tries: origin/HEAD symbolic ref → local "main" → local "master" → error.
+// Tries: origin/HEAD symbolic ref → local "main" → local "master" →
+// remote origin/main → remote origin/master → error.
 func getDefaultBranch(repoDir string) (string, error) {
 	out, err := gitOutput(repoDir, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {

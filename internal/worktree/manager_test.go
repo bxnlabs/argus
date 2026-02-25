@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/config"
+	"github.com/bxnlabs/argus/internal/source"
 	"github.com/bxnlabs/argus/internal/worktree"
 )
 
@@ -96,5 +97,67 @@ func TestCreateForLocalRepoBranchConflict(t *testing.T) {
 	}
 	if branch2 != "jeev/my-feature-2" {
 		t.Errorf("expected second branch %q, got %q", "jeev/my-feature-2", branch2)
+	}
+}
+
+func TestCreateForRemoteRepo(t *testing.T) {
+	// Use a local git repo as the "remote" — git clone works with local paths.
+	remoteRepo := initGitRepo(t)
+	stateDir := t.TempDir()
+
+	src := &source.Source{
+		RemoteURL: remoteRepo, // local path works as git clone target
+		Host:      "github.com",
+		Org:       "testorg",
+		Repo:      "testrepo",
+	}
+
+	mgr := worktree.NewManager(stateDir, &config.Config{BranchPrefix: "jeev"})
+	wtPath, branch, err := mgr.CreateForRemoteRepo(src, "my feature")
+	if err != nil {
+		t.Fatalf("CreateForRemoteRepo: %v", err)
+	}
+
+	if branch != "jeev/my-feature" {
+		t.Errorf("expected branch %q, got %q", "jeev/my-feature", branch)
+	}
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree path %q does not exist: %v", wtPath, err)
+	}
+	// Clone dir should be at stateDir/projects/<parentKey>/gitrepo
+	cloneDir := filepath.Join(stateDir, "projects", src.ParentKey(), "gitrepo")
+	if _, err := os.Stat(cloneDir); err != nil {
+		t.Errorf("clone dir %q does not exist: %v", cloneDir, err)
+	}
+}
+
+func TestCreateForRemoteRepoAlreadyCloned(t *testing.T) {
+	// Verify that calling CreateForRemoteRepo a second time (repo already cloned)
+	// fetches and creates a new worktree without error.
+	remoteRepo := initGitRepo(t)
+	stateDir := t.TempDir()
+
+	src := &source.Source{
+		RemoteURL: remoteRepo,
+		Host:      "github.com",
+		Org:       "testorg",
+		Repo:      "testrepo",
+	}
+
+	mgr := worktree.NewManager(stateDir, &config.Config{BranchPrefix: "jeev"})
+
+	// First call — clones the repo.
+	_, _, err := mgr.CreateForRemoteRepo(src, "first session")
+	if err != nil {
+		t.Fatalf("first CreateForRemoteRepo: %v", err)
+	}
+
+	// Second call — repo already cloned; should fetch and create another worktree.
+	_, branch2, err := mgr.CreateForRemoteRepo(src, "second session")
+	if err != nil {
+		t.Fatalf("second CreateForRemoteRepo: %v", err)
+	}
+	if branch2 != "jeev/second-session" {
+		t.Errorf("expected branch %q, got %q", "jeev/second-session", branch2)
 	}
 }
