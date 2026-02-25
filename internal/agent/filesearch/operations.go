@@ -47,6 +47,26 @@ const (
 	searchTimeout = 5 * time.Second
 )
 
+// basenameMatchTier classifies how well a lowercase query matches a filename.
+//
+//	0 = exact match        (e.g. query "argus" ↔ name "argus")
+//	1 = prefix match       (e.g. query "main"  ↔ name "main.go")
+//	2 = substring match    (e.g. query "argus" ↔ name ".argus")
+//	3 = no basename match  (match is path-only)
+func basenameMatchTier(name, lowerQuery string) int {
+	name = strings.ToLower(name)
+	switch {
+	case name == lowerQuery:
+		return 0
+	case strings.HasPrefix(name, lowerQuery):
+		return 1
+	case strings.Contains(name, lowerQuery):
+		return 2
+	default:
+		return 3
+	}
+}
+
 const ignoreFileName = "ignore"
 
 // defaultIgnoreContents is written to ~/.argus/ignore on first use.
@@ -402,8 +422,22 @@ func searchInDir(ctx context.Context, root, query, searchType string, limit int,
 	// Run case-insensitive fuzzy matching via entrySource.
 	matches := fuzzy.FindFromNoSort(query, entrySource(entries))
 
-	// Single sort pass: score descending, shorter path tiebreak.
+	// Pre-compute a basename-match tier for each matched entry.
+	// The fuzzy library's greedy algorithm can mis-align characters across
+	// path components (e.g. matching 'a' from "Workspace" and 'r' from
+	// "repos" instead of the contiguous "argus" in a deeper component).
+	// Tiering by basename match quality corrects this.
+	lowerQuery := strings.ToLower(query)
+	tier := make(map[int]int, len(matches))
+	for _, m := range matches {
+		tier[m.Index] = basenameMatchTier(entries[m.Index].name, lowerQuery)
+	}
+
+	// Sort by: basename tier (ascending) → fuzzy score (descending) → path length (ascending).
 	sort.SliceStable(matches, func(i, j int) bool {
+		if tier[matches[i].Index] != tier[matches[j].Index] {
+			return tier[matches[i].Index] < tier[matches[j].Index]
+		}
 		if matches[i].Score != matches[j].Score {
 			return matches[i].Score > matches[j].Score
 		}

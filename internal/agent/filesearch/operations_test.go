@@ -377,6 +377,90 @@ func TestSearch_SortTiebreaker(t *testing.T) {
 	}
 }
 
+func TestSearch_BasenameMatchRanking(t *testing.T) {
+	// Regression: searching for "argus" from $HOME should rank the project
+	// directory (basename "argus") above config directories like ".argus",
+	// even though the fuzzy library's greedy matcher mis-aligns characters
+	// across path components in longer paths (e.g. Workspace/repos/bxnlabs/argus).
+	root := createTree(t, map[string]string{
+		".argus/":                                  "",
+		".argus/ignore":                            "",
+		"Workspace/repos/bxnlabs/argus/":           "",
+		"Workspace/repos/bxnlabs/argus/go.mod":     "",
+		"Workspace/repos/bxnlabs/argus/main.go":    "",
+		"Workspace/repos/bxnlabs/argus/cmd/argus/": "",
+	})
+
+	resp, err := searchInDir(context.Background(), root, "argus", "", 20, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Count == 0 {
+		t.Fatal("expected results")
+	}
+
+	// The first result must be an exact basename match for "argus".
+	if resp.Results[0].Name != "argus" {
+		t.Errorf("expected first result basename to be %q, got %q (%s)",
+			"argus", resp.Results[0].Name, resp.Results[0].Path)
+	}
+
+	// The project root should rank above the nested cmd/argus/ directory
+	// (both are exact matches, but the project root has a shorter path).
+	var projectIdx, cmdIdx int = -1, -1
+	for i, r := range resp.Results {
+		if r.Name == "argus" && !strings.Contains(r.Path, "cmd") {
+			projectIdx = i
+		}
+		if r.Name == "argus" && strings.Contains(r.Path, "cmd") {
+			cmdIdx = i
+		}
+	}
+	if projectIdx == -1 || cmdIdx == -1 {
+		t.Fatalf("expected both argus directories; projectIdx=%d cmdIdx=%d, results=%+v",
+			projectIdx, cmdIdx, resp.Results)
+	}
+	if projectIdx > cmdIdx {
+		t.Errorf("project root (idx %d) should rank above cmd/argus/ (idx %d)",
+			projectIdx, cmdIdx)
+	}
+
+	// ".argus" (substring match in basename) should rank below exact matches.
+	var dotArgusIdx int = -1
+	for i, r := range resp.Results {
+		if r.Name == ".argus" {
+			dotArgusIdx = i
+		}
+	}
+	if dotArgusIdx != -1 && dotArgusIdx < projectIdx {
+		t.Errorf(".argus (idx %d) should rank below exact match argus (idx %d)",
+			dotArgusIdx, projectIdx)
+	}
+}
+
+func TestBasenameMatchTier(t *testing.T) {
+	tests := []struct {
+		name       string
+		lowerQuery string
+		want       int
+	}{
+		{"argus", "argus", 0},         // exact
+		{"Argus", "argus", 0},         // exact (case-insensitive)
+		{"main.go", "main", 1},        // prefix
+		{"Main.go", "main", 1},        // prefix (case-insensitive)
+		{".argus", "argus", 2},        // substring
+		{"my-argus-lib", "argus", 2},  // substring
+		{"operations.go", "argus", 3}, // no match
+		{"ignore", "argus", 3},        // no match
+	}
+	for _, tt := range tests {
+		got := basenameMatchTier(tt.name, tt.lowerQuery)
+		if got != tt.want {
+			t.Errorf("basenameMatchTier(%q, %q) = %d, want %d", tt.name, tt.lowerQuery, got, tt.want)
+		}
+	}
+}
+
 func TestSearch_RelativePathsCorrect(t *testing.T) {
 	// Ensure results have correct relative paths used for fuzzy matching,
 	// even with nested search roots.
