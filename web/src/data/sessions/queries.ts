@@ -18,7 +18,7 @@ export function useSessionsQuery() {
 
 export interface CreateSessionInput {
   name?: string;
-  working_directory: string;
+  source?: string;
   agent_type: AgentType;
   auto_approve: boolean;
   model?: string;
