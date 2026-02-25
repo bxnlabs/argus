@@ -1,6 +1,9 @@
 package config
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -17,7 +20,7 @@ type Config struct {
 func Load() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return defaultConfig(), nil
+		return nil, fmt.Errorf("config: could not determine home directory: %w", err)
 	}
 	return LoadFrom(filepath.Join(home, ".argus", "config.toml"))
 }
@@ -27,7 +30,7 @@ func Load() (*Config, error) {
 func LoadFrom(path string) (*Config, error) {
 	cfg := defaultConfig()
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return cfg, nil
 	}
 	if err != nil {

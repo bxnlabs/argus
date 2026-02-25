@@ -48,3 +48,19 @@ func TestLoadMalformedConfig(t *testing.T) {
 		t.Errorf("expected empty BranchPrefix for malformed config, got %q", cfg.BranchPrefix)
 	}
 }
+
+func TestLoadPartialConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	// File with no branch_prefix — field should remain at default ""
+	if err := os.WriteFile(path, []byte(`# no fields set`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.BranchPrefix != "" {
+		t.Errorf("expected empty BranchPrefix for partial config, got %q", cfg.BranchPrefix)
+	}
+}
