@@ -353,6 +353,27 @@ func TestSearch_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestSearch_SortTiebreaker(t *testing.T) {
+	// Two files with names that produce equal fuzzy scores for "main".
+	// The shorter-path entry should rank first (tiebreaker).
+	root := createTree(t, map[string]string{
+		"a/main.go":     "",
+		"a/b/c/main.go": "",
+	})
+
+	resp, err := searchInDir(root, "main", "file", 20, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Count < 2 {
+		t.Fatalf("expected at least 2 results, got %d", resp.Count)
+	}
+	// Shorter path should come first when scores are equal.
+	if len(resp.Results[0].Path) > len(resp.Results[1].Path) {
+		t.Errorf("expected shorter path first: %q vs %q", resp.Results[0].Path, resp.Results[1].Path)
+	}
+}
+
 func TestSearch_CrossPathComponents(t *testing.T) {
 	root := createTree(t, map[string]string{
 		"internal/agent/filesearch/operations.go": "",

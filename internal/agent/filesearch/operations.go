@@ -329,10 +329,9 @@ func searchInDir(root, query, searchType string, limit int, matcher *ignore.GitI
 	}
 
 	// Run case-insensitive fuzzy matching via entrySource.
-	matches := fuzzy.FindFrom(query, entrySource(entries))
+	matches := fuzzy.FindFromNoSort(query, entrySource(entries))
 
-	// Sort: by score descending (already done by fuzzy.Find),
-	// then tiebreak by shorter path.
+	// Single sort pass: score descending, shorter path tiebreak.
 	sort.SliceStable(matches, func(i, j int) bool {
 		if matches[i].Score != matches[j].Score {
 			return matches[i].Score > matches[j].Score
