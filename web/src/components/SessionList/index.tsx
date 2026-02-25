@@ -29,6 +29,33 @@ function getStatusColor(status?: string) {
   }
 }
 
+function getStatusAnimation(status?: string) {
+  switch (status) {
+    case "running":
+      return "animate-pulse-green";
+    case "waiting":
+      return "animate-pulse-yellow";
+    default:
+      return "";
+  }
+}
+
+function getStatusLabel(status?: string) {
+  switch (status) {
+    case "running":
+      return "Running";
+    case "waiting":
+      return "Needs input";
+    case "idle":
+      return "Idle";
+    case "dead":
+      return "Dead";
+    case "error":
+      return "Error";
+    default:
+      return "";
+  }
+}
 
 interface SessionListProps {
   sessions: Session[];
@@ -198,10 +225,15 @@ export function SessionList({
                           <div
                             className={cn(
                               "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                              getStatusColor(status?.status)
+                              getStatusColor(status?.status),
+                              getStatusAnimation(status?.status)
                             )}
                           />
                           <span className="text-muted-foreground text-xs">
+                            {(() => {
+                              const label = getStatusLabel(status?.status);
+                              return label ? `${label} · ` : "";
+                            })()}
                             {formatRelativeTime(session.updated_at)}
                           </span>
                         </div>

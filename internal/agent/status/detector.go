@@ -29,7 +29,6 @@ const (
 
 type stateTracker struct {
 	lastChangeTime        int64
-	acknowledged          bool
 	lastActivityTimestamp int64
 	spikeWindowStart     *int64
 	spikeChangeCount     int
@@ -88,7 +87,6 @@ func (d *Detector) getTracker(name string, timestamp int64) *stateTracker {
 		now := time.Now().UnixMilli()
 		t = &stateTracker{
 			lastChangeTime:        now - activityCooldownMS,
-			acknowledged:          true,
 			lastActivityTimestamp: timestamp,
 		}
 		d.trackers[name] = t
@@ -167,7 +165,6 @@ func (d *Detector) processSpikeDetection(tracker *stateTracker, currentTimestamp
 			tracker.spikeChangeCount++
 			if tracker.spikeChangeCount >= sustainedThreshold {
 				tracker.lastChangeTime = now
-				tracker.acknowledged = false
 				tracker.spikeWindowStart = nil
 				tracker.spikeChangeCount = 0
 				return StatusRunning
@@ -192,13 +189,6 @@ func (d *Detector) isInCooldown(tracker *stateTracker) bool {
 	return time.Now().UnixMilli()-tracker.lastChangeTime < activityCooldownMS
 }
 
-func (d *Detector) getIdleOrWaiting(tracker *stateTracker) SessionStatus {
-	if tracker.acknowledged {
-		return StatusIdle
-	}
-	return StatusWaiting
-}
-
 // GetStatus returns the detected status for a single session.
 func (d *Detector) GetStatus(ctx context.Context, sessionName string) SessionStatus {
 	d.mu.Lock()
@@ -219,7 +209,6 @@ func (d *Detector) GetStatus(ctx context.Context, sessionName string) SessionSta
 	// 1. Busy indicators (highest priority)
 	if checkBusyIndicators(content) {
 		tracker.lastChangeTime = time.Now().UnixMilli()
-		tracker.acknowledged = false
 		return StatusRunning
 	}
 
@@ -238,7 +227,7 @@ func (d *Detector) GetStatus(ctx context.Context, sessionName string) SessionSta
 		if d.isInCooldown(tracker) {
 			return StatusRunning
 		}
-		return d.getIdleOrWaiting(tracker)
+		return StatusIdle
 	}
 
 	// 5. Cooldown check
@@ -247,16 +236,7 @@ func (d *Detector) GetStatus(ctx context.Context, sessionName string) SessionSta
 	}
 
 	// 6. Cooldown expired
-	return d.getIdleOrWaiting(tracker)
-}
-
-// Acknowledge marks a session as acknowledged (waiting → idle).
-func (d *Detector) Acknowledge(sessionName string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if t, ok := d.trackers[sessionName]; ok {
-		t.acknowledged = true
-	}
+	return StatusIdle
 }
 
 // GetAllStatuses returns statuses for all given session names.
