@@ -124,6 +124,37 @@ func (m *Manager) uniqueBranch(repoDir, branch string) (string, error) {
 	return "", fmt.Errorf("could not find unique branch name for %s", branch)
 }
 
+// Cleanup removes an orphaned worktree and its associated branch. It is
+// best-effort: errors are silently ignored. repoDir is the main git repository
+// that owns the worktree.
+func (m *Manager) Cleanup(worktreePath, branch string) {
+	repoDir, err := mainRepoFromWorktree(worktreePath)
+	if err != nil {
+		return
+	}
+	runGit(repoDir, "worktree", "remove", "--force", worktreePath)
+	runGit(repoDir, "branch", "-D", branch)
+}
+
+// mainRepoFromWorktree reads the linked worktree's .git file to find the path
+// of the main repository. A linked worktree has a .git FILE (not directory)
+// containing "gitdir: /path/to/main/.git/worktrees/<name>".
+func mainRepoFromWorktree(worktreePath string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(worktreePath, ".git"))
+	if err != nil {
+		return "", err
+	}
+	line := strings.TrimSpace(string(data))
+	const prefix = "gitdir: "
+	if !strings.HasPrefix(line, prefix) {
+		return "", fmt.Errorf("unexpected .git format in %s", worktreePath)
+	}
+	// gitDir = /abs/path/to/main/.git/worktrees/<name>
+	// main repo = Dir(Dir(Dir(gitDir)))
+	gitDir := line[len(prefix):]
+	return filepath.Dir(filepath.Dir(filepath.Dir(gitDir))), nil
+}
+
 func branchExists(repoDir, branch string) (bool, error) {
 	out, err := gitOutput(repoDir, "branch", "--list", branch)
 	if err != nil {
@@ -139,8 +170,8 @@ func getDefaultBranch(repoDir string) (string, error) {
 	out, err := gitOutput(repoDir, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		ref := strings.TrimSpace(out)
-		parts := strings.Split(ref, "/")
-		if len(parts) > 0 {
+		if ref != "" {
+			parts := strings.Split(ref, "/")
 			return parts[len(parts)-1], nil
 		}
 	}

@@ -98,6 +98,9 @@ func parseRemote(input string) (*Source, error) {
 			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
 		}
 		host := parts[0]
+		if err := validateHost(host, input); err != nil {
+			return nil, err
+		}
 		orgRepo := strings.TrimSuffix(parts[1], ".git")
 		pr := strings.SplitN(orgRepo, "/", 2)
 		if len(pr) != 2 || pr[0] == "" || pr[1] == "" {
@@ -131,6 +134,9 @@ func parseRemote(input string) (*Source, error) {
 			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
 		}
 		repo := strings.TrimSuffix(parts[2], ".git")
+		if repo == "" {
+			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
+		}
 		if err := validateOrgRepo(parts[1], repo, input); err != nil {
 			return nil, err
 		}
@@ -146,6 +152,12 @@ func parseRemote(input string) (*Source, error) {
 	parts := strings.SplitN(input, "/", 2)
 	if len(parts) == 2 && parts[0] != "" && parts[1] != "" && !strings.Contains(parts[0], ".") {
 		repo := strings.TrimSuffix(parts[1], ".git")
+		if repo == "" {
+			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
+		}
+		if err := validateOrgRepo(parts[0], repo, input); err != nil {
+			return nil, err
+		}
 		return &Source{
 			RemoteURL: "https://github.com/" + parts[0] + "/" + repo + ".git",
 			Host:      "github.com",
@@ -155,6 +167,15 @@ func parseRemote(input string) (*Source, error) {
 	}
 
 	return nil, fmt.Errorf("not a valid path or git URL: %s", input)
+}
+
+// validateHost returns an error if host contains characters that could cause
+// path traversal when used in filepath.Join (e.g. "/" or "..").
+func validateHost(host, input string) error {
+	if strings.Contains(host, "/") || strings.Contains(host, "..") {
+		return fmt.Errorf("not a valid path or git URL: %s", input)
+	}
+	return nil
 }
 
 // validateOrgRepo returns an error if org or repo contain path-traversal

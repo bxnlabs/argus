@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -67,11 +68,21 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	sessionID := shared.GenerateID("sess")
 	tmuxName := fmt.Sprintf("%s-%s", opts.AgentType, sessionID)
 
-	// Resolve source → working directory (and optional worktree branch)
-	cwd, worktreeBranch, err := m.resolveSourceToCWD(opts.Source, opts.Name)
+	// Resolve source → working directory (and optional worktree branch).
+	// cleanup removes the git worktree if a later step fails; it is a no-op
+	// for non-worktree sessions.
+	cwd, worktreeBranch, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name)
 	if err != nil {
 		return nil, fmt.Errorf("resolve source: %w", err)
 	}
+
+	// If anything below fails before the DB commit, clean up the worktree.
+	success := false
+	defer func() {
+		if !success {
+			cleanup()
+		}
+	}()
 
 	// Build the agent command
 	agentCmd, err := provider.BuildCommand(opts.AgentType, provider.BuildCommandOptions{
@@ -119,10 +130,11 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	}
 
 	if err := m.db.CreateSession(session); err != nil {
-		// Clean up tmux on DB error
+		// Clean up tmux on DB error; worktree cleanup handled by defer.
 		KillSession(tmuxName)
 		return nil, fmt.Errorf("insert session: %w", err)
 	}
+	success = true
 
 	// Re-fetch to get defaults (created_at, updated_at, status)
 	created, err := m.db.GetSession(sessionID)
@@ -134,41 +146,45 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 
 // resolveSourceToCWD resolves a source string to a working directory path.
 // If the source is a git repo, it creates an isolated worktree and returns
-// the worktree path and branch name. If source is empty, defaults to home dir.
-func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, worktreeBranch *string, err error) {
+// the worktree path, branch name, and a cleanup function that removes the
+// worktree if a subsequent step fails. For non-worktree sessions, cleanup is
+// a no-op. If source is empty, defaults to home dir.
+func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, worktreeBranch *string, cleanup func(), err error) {
+	noop := func() {}
+
 	if src == "" {
 		home, err := shared.ExpandPath("~")
 		if err != nil {
-			return "", nil, fmt.Errorf("expand home directory: %w", err)
+			return "", nil, noop, fmt.Errorf("expand home directory: %w", err)
 		}
-		return home, nil, nil
+		return home, nil, noop, nil
 	}
 
 	resolved, err := source.Resolve(src)
 	if err != nil {
-		return "", nil, err
+		return "", nil, noop, err
 	}
 
 	if resolved.IsRemote() {
 		wtPath, branch, err := m.wt.CreateForRemoteRepo(resolved, sessionName)
 		if err != nil {
-			return "", nil, err
+			return "", nil, noop, err
 		}
-		return wtPath, &branch, nil
+		return wtPath, &branch, func() { m.wt.Cleanup(wtPath, branch) }, nil
 	}
 
 	// Local path: check if it's inside a git repo.
 	gitRoot, err := findGitRoot(resolved.LocalPath)
 	if err != nil {
 		// Not a git repo — use the path directly.
-		return resolved.LocalPath, nil, nil
+		return resolved.LocalPath, nil, noop, nil
 	}
 
 	wtPath, branch, err := m.wt.CreateForLocalRepo(gitRoot, sessionName)
 	if err != nil {
-		return "", nil, err
+		return "", nil, noop, err
 	}
-	return wtPath, &branch, nil
+	return wtPath, &branch, func() { m.wt.Cleanup(wtPath, branch) }, nil
 }
 
 // findGitRoot returns the git root for the given directory, or an error if
@@ -200,6 +216,11 @@ func (m *Manager) Delete(id string) error {
 	// Kill tmux (ignore error if already dead)
 	if HasSession(session.TmuxName) {
 		KillSession(session.TmuxName)
+	}
+
+	// Clean up git worktree and branch for worktree-backed sessions.
+	if session.WorktreeBranch != nil {
+		m.wt.Cleanup(session.WorkingDirectory, *session.WorktreeBranch)
 	}
 
 	return m.db.DeleteSession(id)
@@ -286,6 +307,12 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 			return "", fmt.Errorf("expand home directory: %w", err)
 		}
 		cwd = home
+	}
+	// Verify the working directory still exists on disk. For worktree-backed
+	// sessions the directory may have been removed externally; without this
+	// check tmux would silently fall back to the home directory.
+	if _, statErr := os.Stat(cwd); statErr != nil {
+		return "", fmt.Errorf("working directory no longer exists: %s", cwd)
 	}
 
 	agentCmd, err := provider.BuildCommand(session.AgentType, provider.BuildCommandOptions{

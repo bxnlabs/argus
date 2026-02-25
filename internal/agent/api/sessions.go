@@ -82,8 +82,7 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var body struct {
-		Name             *string `json:"name"`
-		WorkingDirectory *string `json:"working_directory"`
+		Name *string `json:"name"`
 	}
 	if err := parseBody(w, r, &body); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
@@ -93,21 +92,6 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	// If renaming, use the lifecycle rename (display name only)
 	if body.Name != nil {
 		if err := h.manager.Rename(id, *body.Name); err != nil {
-			if errors.Is(err, db.ErrNotFound) {
-				respondError(w, http.StatusNotFound, "session not found")
-				return
-			}
-			respondInternalError(w, err)
-			return
-		}
-	}
-
-	// Apply other updates
-	u := db.SessionUpdate{
-		WorkingDirectory: body.WorkingDirectory,
-	}
-	if body.WorkingDirectory != nil {
-		if err := h.manager.Update(id, u); err != nil {
 			if errors.Is(err, db.ErrNotFound) {
 				respondError(w, http.StatusNotFound, "session not found")
 				return
