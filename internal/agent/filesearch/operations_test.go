@@ -439,20 +439,35 @@ func TestSearch_RespectsContextCancellation(t *testing.T) {
 	}
 	root := createTree(t, tree)
 
-	// Cancel context immediately.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	resp, err := searchInDir(ctx, root, "file", "", 20, nil, "")
+	// Run a baseline search to know how many results a full walk returns.
+	baseline, err := searchInDir(context.Background(), root, "file", "", 100, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// With a cancelled context, we should get few or zero results.
-	// The exact count depends on timing, but it should complete without error.
-	_ = resp
+	if baseline.Count == 0 {
+		t.Fatal("expected baseline results")
+	}
+
+	// Cancel context immediately, then search again.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp, err := searchInDir(ctx, root, "file", "", 100, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A pre-cancelled context should return strictly fewer results than a
+	// full walk. The exact count depends on timing, but it must not return
+	// the complete set.
+	if resp.Count >= baseline.Count {
+		t.Errorf("cancelled search returned %d results (same as baseline %d); cancellation had no effect",
+			resp.Count, baseline.Count)
+	}
 }
 
 func TestCachedIgnoreMatcher(t *testing.T) {
+	t.Cleanup(resetMatcherCache)
+
 	home := t.TempDir()
 	path, err := ensureIgnoreFile(home)
 	if err != nil {
@@ -484,7 +499,4 @@ func TestCachedIgnoreMatcher(t *testing.T) {
 	if m3 == m1 {
 		t.Error("expected new matcher after file modification")
 	}
-
-	// Reset cache for other tests.
-	resetMatcherCache()
 }

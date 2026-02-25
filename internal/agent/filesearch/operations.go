@@ -21,11 +21,14 @@ import (
 func fastRel(base, target string) string {
 	if strings.HasPrefix(target, base) {
 		rel := target[len(base):]
-		if len(rel) > 0 && rel[0] == filepath.Separator {
-			rel = rel[1:]
-		}
-		if rel != "" {
-			return rel
+		if len(rel) == 0 {
+			// target == base; fall through to filepath.Rel.
+		} else if rel[0] == filepath.Separator {
+			// Clean boundary: base="/a/b", target="/a/b/c" → "c".
+			return rel[1:]
+		} else {
+			// Not a path-segment boundary: base="/a/b", target="/a/bc".
+			// Fall through to filepath.Rel for correct result.
 		}
 	}
 	// Fallback for edge cases (symlinks, non-clean paths).
@@ -276,9 +279,11 @@ func searchInDir(ctx context.Context, root, query, searchType string, limit int,
 	defer cancel()
 
 	var (
-		mu      sync.Mutex
-		entries []entry
-		done    bool
+		mu       sync.Mutex
+		entries  []entry
+		done     bool
+		capped   bool // true if maxCollect was reached
+		timedOut bool // true if context deadline/cancellation stopped the walk
 	)
 
 	conf := &fastwalk.Config{
@@ -356,6 +361,7 @@ func searchInDir(ctx context.Context, root, query, searchType string, limit int,
 		select {
 		case <-ctx.Done():
 			done = true
+			timedOut = true
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -365,6 +371,7 @@ func searchInDir(ctx context.Context, root, query, searchType string, limit int,
 
 		if len(entries) >= maxCollect {
 			done = true
+			capped = true
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -419,9 +426,12 @@ func searchInDir(ctx context.Context, root, query, searchType string, limit int,
 	}
 
 	return &FileSearchResponse{
-		Results: results,
-		Query:   query,
-		Count:   len(results),
+		Results:  results,
+		Query:    query,
+		Count:    len(results),
+		Partial:  capped || timedOut,
+		TimedOut: timedOut,
+		Scanned:  len(entries),
 	}, nil
 }
 

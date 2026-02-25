@@ -9,7 +9,10 @@ type FileSearchResult struct {
 
 // FileSearchResponse contains all matches for a query.
 type FileSearchResponse struct {
-	Results []FileSearchResult `json:"results"`
-	Query   string             `json:"query"`
-	Count   int                `json:"count"`
+	Results  []FileSearchResult `json:"results"`
+	Query    string             `json:"query"`
+	Count    int                `json:"count"`
+	Partial  bool               `json:"partial,omitempty"`
+	TimedOut bool               `json:"timedOut,omitempty"`
+	Scanned  int                `json:"scanned,omitempty"`
 }
