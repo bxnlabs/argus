@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   model TEXT DEFAULT 'sonnet',
   system_prompt TEXT,
   agent_type TEXT NOT NULL DEFAULT 'claude',
-  auto_approve INTEGER NOT NULL DEFAULT 0
+  auto_approve INTEGER NOT NULL DEFAULT 0,
+  worktree_branch TEXT
 );
 
 -- Migrations tracking

@@ -115,7 +115,7 @@ function HomeContent() {
       try {
         const result = await createSessionMutation.mutateAsync({
           name: params.name,
-          working_directory: params.working_directory || "~",
+          source: params.source,
           agent_type: params.agent_type,
           auto_approve: params.auto_approve || false,
         });

@@ -22,6 +22,7 @@ func NewSessionCmd() *cobra.Command {
 		newAttachCmd(),
 		newDeleteCmd(),
 		newRenameCmd(),
+		newPwdCmd(),
 	)
 
 	return cmd

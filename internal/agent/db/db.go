@@ -26,7 +26,54 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
+	// Seed migrations that are already reflected in the schema so that
+	// RunMigrations skips them on fresh databases.
+	if err := d.seedMigrations(); err != nil {
+		d.sql.Close()
+		return nil, fmt.Errorf("seed migrations: %w", err)
+	}
+
 	return d, nil
+}
+
+// seedMigrations pre-marks schema-embedded migrations as applied for fresh
+// databases where the columns are already present in the CREATE TABLE statement.
+// On an existing database that lacks the column, this is a no-op so that
+// RunMigrations can apply the ALTER TABLE normally.
+func (d *DB) seedMigrations() error {
+	// Check whether worktree_branch already exists in the sessions table.
+	rows, err := d.sql.Query(`PRAGMA table_info(sessions)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var hasWorktreeBranch bool
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "worktree_branch" {
+			hasWorktreeBranch = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if hasWorktreeBranch {
+		_, err = d.sql.Exec(
+			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
+			"add_worktree_branch",
+		)
+		return err
+	}
+	return nil
 }
 
 // Close closes the database.

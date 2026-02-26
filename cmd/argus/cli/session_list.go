@@ -59,13 +59,18 @@ func newListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tSTATUS\tPROVIDER\tUPDATED")
+			fmt.Fprintln(w, "ID\tNAME\tSTATUS\tPROVIDER\tBRANCH\tUPDATED")
 			for _, s := range resp.Sessions {
 				st := statuses[s.ID]
 				if st == "" {
 					st = "-"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.ID, s.Name, st, s.AgentType, relativeTime(s.UpdatedAt))
+				branch := ""
+				if s.WorktreeBranch != nil {
+					branch = *s.WorktreeBranch
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					s.ID, s.Name, st, s.AgentType, branch, relativeTime(s.UpdatedAt))
 			}
 			w.Flush()
 			return nil

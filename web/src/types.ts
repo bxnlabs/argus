@@ -5,6 +5,7 @@ export interface Session {
   created_at: string;
   updated_at: string;
   working_directory: string;
+  worktree_branch: string | null;
   provider_session_id: string | null;
   model: string | null;
   system_prompt: string | null;
@@ -31,7 +32,7 @@ export const AGENT_OPTIONS: { value: AgentType; label: string; description: stri
 export interface CreateSessionParams {
   name?: string;
   agent_type: AgentType;
-  working_directory?: string;
+  source?: string;
   auto_approve?: boolean;
 }
 

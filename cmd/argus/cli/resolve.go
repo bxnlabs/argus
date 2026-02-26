@@ -17,6 +17,7 @@ type sessionInfo struct {
 	AgentType        string  `json:"agent_type"`
 	AutoApprove      bool    `json:"auto_approve"`
 	Model            *string `json:"model"`
+	WorktreeBranch   *string `json:"worktree_branch"`
 }
 
 // fetchAndResolve fetches all sessions from the agent and resolves the query

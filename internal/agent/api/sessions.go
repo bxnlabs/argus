@@ -6,6 +6,7 @@ import (
 
 	"github.com/bxnlabs/argus/internal/agent/db"
 	agentsession "github.com/bxnlabs/argus/internal/agent/session"
+	"github.com/bxnlabs/argus/internal/worktree"
 )
 
 type sessionHandler struct {
@@ -36,15 +37,17 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 	if opts.AgentType == "" {
 		opts.AgentType = "claude"
 	}
-	if opts.WorkingDirectory == "" {
-		opts.WorkingDirectory = "~"
-	}
 	if opts.Name == "" {
 		opts.Name = "New Session"
 	}
+	// opts.Source may be empty — lifecycle defaults to home directory
 
 	session, err := h.manager.Create(opts)
 	if err != nil {
+		if errors.Is(err, agentsession.ErrInvalidInput) {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		respondInternalError(w, err)
 		return
 	}
@@ -84,8 +87,7 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var body struct {
-		Name             *string `json:"name"`
-		WorkingDirectory *string `json:"working_directory"`
+		Name *string `json:"name"`
 	}
 	if err := parseBody(w, r, &body); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
@@ -95,21 +97,6 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	// If renaming, use the lifecycle rename (display name only)
 	if body.Name != nil {
 		if err := h.manager.Rename(id, *body.Name); err != nil {
-			if errors.Is(err, db.ErrNotFound) {
-				respondError(w, http.StatusNotFound, "session not found")
-				return
-			}
-			respondInternalError(w, err)
-			return
-		}
-	}
-
-	// Apply other updates
-	u := db.SessionUpdate{
-		WorkingDirectory: body.WorkingDirectory,
-	}
-	if body.WorkingDirectory != nil {
-		if err := h.manager.Update(id, u); err != nil {
 			if errors.Is(err, db.ErrNotFound) {
 				respondError(w, http.StatusNotFound, "session not found")
 				return
@@ -134,9 +121,15 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/sessions/{id}
 func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.manager.Delete(id); err != nil {
+	force := r.URL.Query().Get("force") == "true"
+
+	if err := h.manager.Delete(id, force); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		if errors.Is(err, worktree.ErrWorktreeDirty) {
+			respondError(w, http.StatusConflict, "worktree has uncommitted changes; use force to delete anyway")
 			return
 		}
 		respondInternalError(w, err)
