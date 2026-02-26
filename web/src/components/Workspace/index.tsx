@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { shellEscape } from "@/lib/shell";
 import { MobileTabBar } from "./MobileTabBar";
 import { DesktopTabBar } from "./DesktopTabBar";
+import { RightSidebar } from "./RightSidebar";
 import { GitPanel } from "@/components/GitPanel";
 import { FileExplorer } from "@/components/FileExplorer";
 import { Terminal } from "@/components/Terminal";
@@ -150,10 +151,12 @@ export const Workspace = memo(function Workspace({
   return (
     <div
       className={cn(
-        "flex h-full w-full flex-col overflow-hidden",
+        "flex h-full w-full overflow-hidden",
         !isMobile && "shadow-lg shadow-black/10 dark:shadow-black/30"
       )}
     >
+      {/* Main column: tab bar + content */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       {/* Tab Bar */}
       {isMobile ? (
         <MobileTabBar
@@ -185,10 +188,6 @@ export const Workspace = memo(function Workspace({
           activeTabId={activeTabId}
           sessions={sessions}
           hasAttachedSession={!!activeTab?.sessionId}
-          activePanel={activePanel}
-          onSetActivePanel={setActivePanel}
-          isGitEnabled={isGitRepo}
-          isEditorEnabled={!!activeWorkingDirectory}
           onTabSwitch={switchTab}
           onTabClose={closeTab}
           onTabAdd={addTab}
@@ -249,6 +248,18 @@ export const Workspace = memo(function Workspace({
           })}
         </div>
       </div>
+      </div>
+
+      {/* Right sidebar — desktop only */}
+      {!isMobile && (
+        <RightSidebar
+          activePanel={activePanel}
+          onSetActivePanel={setActivePanel}
+          isGitEnabled={isGitRepo}
+          isEditorEnabled={!!activeWorkingDirectory}
+          onAttachments={() => setShowFilePicker(true)}
+        />
+      )}
 
       <FilePicker
         open={showFilePicker}
