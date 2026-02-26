@@ -36,7 +36,7 @@ function SidebarButton({
 }) {
   return (
     <div className="relative">
-      {/* Active indicator pill — anchored to the left border */}
+      {/* Active indicator pill — anchored to the right edge */}
       {active && (
         <div className="bg-primary absolute -right-1 top-1/2 h-2.5 w-1 -translate-y-1/2 rounded-full" />
       )}
@@ -48,6 +48,7 @@ function SidebarButton({
             onClick={onClick}
             disabled={disabled}
             className="h-10 w-10"
+            aria-label={tooltip}
           >
             {children}
           </Button>
@@ -70,7 +71,7 @@ export function RightSidebar({
   const isEditorActive = activePanel === "editor";
 
   return (
-    <div className="border-border flex flex-col items-center gap-1 border-l px-1 pt-1">
+    <div className="border-border flex shrink-0 flex-col items-center gap-1 border-l px-1 py-1">
       {/* View mode icons */}
       <SidebarButton
         active={isTerminalActive}
@@ -116,6 +117,7 @@ export function RightSidebar({
               size="icon-sm"
               onClick={onAttachments}
               className="h-10 w-10"
+              aria-label="Attachments"
             >
               <Paperclip className="h-5 w-5" />
             </Button>

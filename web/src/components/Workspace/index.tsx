@@ -157,97 +157,97 @@ export const Workspace = memo(function Workspace({
     >
       {/* Main column: tab bar + content */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      {/* Tab Bar */}
-      {isMobile ? (
-        <MobileTabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          session={session}
-          sessions={sessions}
-          activePanel={activePanel}
-          onSetActivePanel={setActivePanel}
-          isGitEnabled={isGitRepo}
-          isEditorEnabled={!!activeWorkingDirectory}
-          selectMode={selectMode}
-          onEnterSelectMode={() => {
-            setActivePanel(null);
-            setSelectMode(true);
-          }}
-          onExitSelectMode={() => setSelectMode(false)}
-          onMenuClick={onMenuClick}
-          onTabSwitch={switchTab}
-          onTabClose={closeTab}
-          onTabAdd={addTab}
-          onNewSession={onNewSession}
-          hasAttachedSession={!!activeTab?.sessionId}
-          onDetach={detachSession}
-        />
-      ) : (
-        <DesktopTabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          sessions={sessions}
-          hasAttachedSession={!!activeTab?.sessionId}
-          onTabSwitch={switchTab}
-          onTabClose={closeTab}
-          onTabAdd={addTab}
-          onDetach={detachSession}
-        />
-      )}
-
-      {/* Content */}
-      <div
-        className="relative min-h-0 w-full flex-1 pl-1"
-        onTouchStart={isMobile ? handleTouchStart : undefined}
-        onTouchEnd={isMobile ? handleTouchEnd : undefined}
-      >
-        {activePanel === "git" && (
-          activeWorkingDirectory ? (
-            <GitPanel workingDirectory={activeWorkingDirectory} />
-          ) : (
-            <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-              Attach a session to view git status
-            </div>
-          )
+        {/* Tab Bar */}
+        {isMobile ? (
+          <MobileTabBar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            session={session}
+            sessions={sessions}
+            activePanel={activePanel}
+            onSetActivePanel={setActivePanel}
+            isGitEnabled={isGitRepo}
+            isEditorEnabled={!!activeWorkingDirectory}
+            selectMode={selectMode}
+            onEnterSelectMode={() => {
+              setActivePanel(null);
+              setSelectMode(true);
+            }}
+            onExitSelectMode={() => setSelectMode(false)}
+            onMenuClick={onMenuClick}
+            onTabSwitch={switchTab}
+            onTabClose={closeTab}
+            onTabAdd={addTab}
+            onNewSession={onNewSession}
+            hasAttachedSession={!!activeTab?.sessionId}
+            onDetach={detachSession}
+          />
+        ) : (
+          <DesktopTabBar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            sessions={sessions}
+            hasAttachedSession={!!activeTab?.sessionId}
+            onTabSwitch={switchTab}
+            onTabClose={closeTab}
+            onTabAdd={addTab}
+            onDetach={detachSession}
+          />
         )}
-        {activePanel === "editor" && (
-          activeWorkingDirectory ? (
-            <FileExplorer workingDirectory={activeWorkingDirectory} />
-          ) : (
-            <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-              Attach a session to browse files
-            </div>
-          )
-        )}
-        {/* Always render terminals so xterm instances stay alive across panel switches */}
-        <div className={activePanel !== null ? "hidden" : "contents"}>
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTab?.id;
 
-            return (
-              <div
-                key={tab.id}
-                className={isActive ? "h-full w-full" : "hidden"}
-              >
-                <Terminal
-                  ref={(handle) => {
-                    if (handle) {
-                      terminalRefs.current.set(tab.id, handle);
-                    } else {
-                      terminalRefs.current.delete(tab.id);
-                    }
-                  }}
-                  sessionName={getTabSessionId(tab)}
-                  selectMode={isActive ? selectMode : false}
-                  onFilesDropped={handleFilesDropped}
-                  onAttachments={() => setShowFilePicker(true)}
-                  workingDirectory={activeWorkingDirectory}
-                />
+        {/* Content */}
+        <div
+          className="relative min-h-0 w-full flex-1 pl-1"
+          onTouchStart={isMobile ? handleTouchStart : undefined}
+          onTouchEnd={isMobile ? handleTouchEnd : undefined}
+        >
+          {activePanel === "git" && (
+            activeWorkingDirectory ? (
+              <GitPanel workingDirectory={activeWorkingDirectory} />
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                Attach a session to view git status
               </div>
-            );
-          })}
+            )
+          )}
+          {activePanel === "editor" && (
+            activeWorkingDirectory ? (
+              <FileExplorer workingDirectory={activeWorkingDirectory} />
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                Attach a session to browse files
+              </div>
+            )
+          )}
+          {/* Always render terminals so xterm instances stay alive across panel switches */}
+          <div className={activePanel !== null ? "hidden" : "contents"}>
+            {tabs.map((tab) => {
+              const isActive = tab.id === activeTab?.id;
+
+              return (
+                <div
+                  key={tab.id}
+                  className={isActive ? "h-full w-full" : "hidden"}
+                >
+                  <Terminal
+                    ref={(handle) => {
+                      if (handle) {
+                        terminalRefs.current.set(tab.id, handle);
+                      } else {
+                        terminalRefs.current.delete(tab.id);
+                      }
+                    }}
+                    sessionName={getTabSessionId(tab)}
+                    selectMode={isActive ? selectMode : false}
+                    onFilesDropped={handleFilesDropped}
+                    onAttachments={() => setShowFilePicker(true)}
+                    workingDirectory={activeWorkingDirectory}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
       </div>
 
       {/* Right sidebar — desktop only */}
