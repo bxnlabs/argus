@@ -55,6 +55,11 @@ func (s *RepoService) listAll(ctx context.Context) ([]string, error) {
 		return nil, nil
 	}
 
+	// Detach from the HTTP request context so client disconnects don't
+	// kill the gh subprocess mid-pagination. The cache means subsequent
+	// requests are instant.
+	ctx = context.WithoutCancel(ctx)
+
 	var allRepos []string
 
 	// Fetch user's repos
