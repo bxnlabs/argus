@@ -10,8 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { AgentSelector } from "./AgentSelector";
-import { DirectoryPicker } from "@/components/DirectoryPicker";
-import { FolderOpen } from "lucide-react";
+import { SourcePicker } from "@/components/SourcePicker";
 import type { AgentType, CreateSessionParams } from "@/types";
 
 type SourceTab = "local" | "remote";
@@ -29,40 +28,36 @@ export function NewSessionDialog({
 }: NewSessionDialogProps) {
   const [name, setName] = useState("");
   const [agentType, setAgentType] = useState<AgentType>("claude");
+  const [source, setSource] = useState("");
   const [sourceTab, setSourceTab] = useState<SourceTab>("local");
-  const [localDir, setLocalDir] = useState("");
-  const [remoteRepo, setRemoteRepo] = useState("");
   const [autoApprove, setAutoApprove] = useState(true);
-  const [showDirectoryPicker, setShowDirectoryPicker] = useState(false);
-  const directoryPickerClosingRef = useRef(false);
+  const [showSourcePicker, setShowSourcePicker] = useState(false);
+  const sourcePickerClosingRef = useRef(false);
 
   useEffect(() => {
     if (open) {
       setName("");
       setAgentType("claude");
+      setSource("");
       setSourceTab("local");
-      setLocalDir("");
-      setRemoteRepo("");
       setAutoApprove(true);
-      setShowDirectoryPicker(false);
+      setShowSourcePicker(false);
     }
   }, [open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
     const params: CreateSessionParams = {
+      name: trimmedName,
       agent_type: agentType,
     };
 
-    if (name.trim()) {
-      params.name = name.trim();
-    }
-
-    const sourceValue =
-      sourceTab === "local" ? localDir.trim() : remoteRepo.trim();
-    if (sourceValue) {
-      params.source = sourceValue;
+    if (source) {
+      params.source = source;
     }
 
     if (autoApprove) {
@@ -79,12 +74,12 @@ export function NewSessionDialog({
         <DialogContent
           className="top-[env(safe-area-inset-top)] translate-y-0 max-h-[85vh] overflow-y-auto sm:top-[50%] sm:translate-y-[-50%]"
           onPointerDownOutside={(e) => {
-            if (directoryPickerClosingRef.current) e.preventDefault();
+            if (sourcePickerClosingRef.current) e.preventDefault();
           }}
           onFocusOutside={(e) => {
-            if (directoryPickerClosingRef.current) {
+            if (sourcePickerClosingRef.current) {
               e.preventDefault();
-              directoryPickerClosingRef.current = false;
+              sourcePickerClosingRef.current = false;
             }
           }}
           onKeyDown={(e) => {
@@ -101,79 +96,24 @@ export function NewSessionDialog({
             <AgentSelector value={agentType} onChange={setAgentType} />
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Name{" "}
-                <span className="text-muted-foreground font-normal">
-                  (optional)
-                </span>
-              </label>
+              <label className="text-sm font-medium">Name</label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Auto-generated if empty"
+                placeholder="my-feature"
                 autoFocus
               />
             </div>
 
             <div className="space-y-2">
-              {/* Tab switcher */}
-              <div className="flex gap-1 rounded-md bg-muted p-1 w-fit">
-                <button
-                  type="button"
-                  onClick={() => setSourceTab("local")}
-                  className={`px-3 py-1 text-sm rounded-sm transition-colors ${
-                    sourceTab === "local"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Local
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSourceTab("remote")}
-                  className={`px-3 py-1 text-sm rounded-sm transition-colors ${
-                    sourceTab === "remote"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Remote
-                </button>
-              </div>
-
-              {sourceTab === "local" ? (
-                <div>
-                  <label className="text-sm font-medium">Directory</label>
-                  <div className="flex gap-2 mt-1">
-                    <Input
-                      value={localDir}
-                      onChange={(e) => setLocalDir(e.target.value)}
-                      placeholder="~/projects/my-app"
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setShowDirectoryPicker(true)}
-                      aria-label="Browse folders"
-                    >
-                      <FolderOpen className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="text-sm font-medium">Repository</label>
-                  <Input
-                    value={remoteRepo}
-                    onChange={(e) => setRemoteRepo(e.target.value)}
-                    placeholder="org/repo  or  https://github.com/org/repo.git"
-                    className="mt-1"
-                  />
-                </div>
-              )}
+              <label className="text-sm font-medium">Source</label>
+              <Input
+                value={source}
+                readOnly
+                onClick={() => setShowSourcePicker(true)}
+                placeholder="Click to select a folder or repository..."
+                className="cursor-pointer"
+              />
             </div>
 
             <div className="flex items-center justify-between">
@@ -193,19 +133,26 @@ export function NewSessionDialog({
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit">Create</Button>
+              <Button type="submit" disabled={!name.trim()}>
+                Create
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
-      <DirectoryPicker
-        open={showDirectoryPicker}
+      <SourcePicker
+        open={showSourcePicker}
         onOpenChange={(o) => {
-          if (!o) directoryPickerClosingRef.current = true;
-          setShowDirectoryPicker(o);
+          if (!o) sourcePickerClosingRef.current = true;
+          setShowSourcePicker(o);
         }}
-        onSelect={(path) => setLocalDir(path)}
-        initialPath={localDir}
+        onSelect={(value, tab) => {
+          setSource(value);
+          setSourceTab(tab);
+        }}
+        initialTab={sourceTab}
+        initialLocalPath={sourceTab === "local" ? source : undefined}
+        initialRemoteQuery={sourceTab === "remote" ? source : undefined}
       />
     </>
   );
