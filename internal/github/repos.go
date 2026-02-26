@@ -1,21 +1,21 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	gh "github.com/google/go-github/v69/github"
 	"github.com/sahilm/fuzzy"
 )
 
-// RepoService lists and searches GitHub repositories for the authenticated user.
+// RepoService lists and searches GitHub repositories using the gh CLI.
+// If gh is not installed or not authenticated, operations return empty results.
 type RepoService struct {
-	token string
-
 	mu        sync.Mutex
 	cached    []string
 	fetchedAt time.Time
@@ -23,9 +23,9 @@ type RepoService struct {
 
 const cacheTTL = 5 * time.Minute
 
-// NewRepoService creates a new RepoService with the given GitHub token.
-func NewRepoService(token string) *RepoService {
-	return &RepoService{token: token}
+// NewRepoService creates a new RepoService.
+func NewRepoService() *RepoService {
+	return &RepoService{}
 }
 
 // Search returns repos matching the query. If query is empty, returns all repos.
@@ -50,52 +50,31 @@ func (s *RepoService) listAll(ctx context.Context) ([]string, error) {
 	}
 	s.mu.Unlock()
 
-	client := gh.NewClient(nil).WithAuthToken(s.token)
+	// Check if gh CLI is available
+	if _, err := exec.LookPath("gh"); err != nil {
+		return nil, nil
+	}
 
 	var allRepos []string
 
-	// Fetch user's repos (includes personal + repos with push access)
-	opts := &gh.RepositoryListByAuthenticatedUserOptions{
-		Sort:        "full_name",
-		ListOptions: gh.ListOptions{PerPage: 100},
+	// Fetch user's repos
+	userRepos, err := ghAPILines(ctx, "user/repos", ".[].full_name")
+	if err != nil {
+		return nil, fmt.Errorf("listing user repos: %w", err)
 	}
-	for {
-		repos, resp, err := client.Repositories.ListByAuthenticatedUser(ctx, opts)
-		if err != nil {
-			return nil, fmt.Errorf("listing user repos: %w", err)
-		}
-		for _, r := range repos {
-			allRepos = append(allRepos, r.GetFullName())
-		}
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-	}
+	allRepos = append(allRepos, userRepos...)
 
-	// Fetch org repos
-	orgs, _, err := client.Organizations.List(ctx, "", &gh.ListOptions{PerPage: 100})
+	// Fetch orgs, then each org's repos
+	orgs, err := ghAPILines(ctx, "user/orgs", ".[].login")
 	if err != nil {
 		return nil, fmt.Errorf("listing orgs: %w", err)
 	}
 	for _, org := range orgs {
-		orgOpts := &gh.RepositoryListByOrgOptions{
-			Sort:        "full_name",
-			ListOptions: gh.ListOptions{PerPage: 100},
+		orgRepos, err := ghAPILines(ctx, fmt.Sprintf("orgs/%s/repos", org), ".[].full_name")
+		if err != nil {
+			return nil, fmt.Errorf("listing repos for org %s: %w", org, err)
 		}
-		for {
-			repos, resp, err := client.Repositories.ListByOrg(ctx, org.GetLogin(), orgOpts)
-			if err != nil {
-				return nil, fmt.Errorf("listing repos for org %s: %w", org.GetLogin(), err)
-			}
-			for _, r := range repos {
-				allRepos = append(allRepos, r.GetFullName())
-			}
-			if resp.NextPage == 0 {
-				break
-			}
-			orgOpts.Page = resp.NextPage
-		}
+		allRepos = append(allRepos, orgRepos...)
 	}
 
 	// Deduplicate (user repos may overlap with org repos)
@@ -115,6 +94,26 @@ func (s *RepoService) listAll(ctx context.Context) ([]string, error) {
 	s.mu.Unlock()
 
 	return deduped, nil
+}
+
+// ghAPILines calls `gh api --paginate <endpoint> --jq <jqExpr>` and returns
+// the non-empty lines of output.
+func ghAPILines(ctx context.Context, endpoint, jqExpr string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "gh", "api", "--paginate", endpoint, "--jq", jqExpr)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("%s: %w (stderr: %s)", endpoint, err, strings.TrimSpace(stderr.String()))
+	}
+	var lines []string
+	for _, l := range strings.Split(stdout.String(), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines, nil
 }
 
 // fuzzyFilterRepos applies fuzzy matching on repo full names.

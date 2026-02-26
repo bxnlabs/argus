@@ -49,19 +49,6 @@ func TestLoadMalformedConfig(t *testing.T) {
 	}
 }
 
-func TestLoadGitHubToken(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	os.WriteFile(path, []byte(`github_token = "ghp_test123"`), 0o644)
-
-	cfg, err := config.LoadFrom(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.GitHubToken != "ghp_test123" {
-		t.Errorf("got %q, want %q", cfg.GitHubToken, "ghp_test123")
-	}
-}
-
 func TestLoadPartialConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

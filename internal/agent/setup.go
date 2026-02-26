@@ -60,15 +60,10 @@ func Setup(cfg Config) (http.Handler, func(), error) {
 	mgr := session.NewManager(database, wtMgr)
 	detector := status.NewDetector()
 
-	var repoService *ghsvc.RepoService
-	if userCfg.GitHubToken != "" {
-		repoService = ghsvc.NewRepoService(userCfg.GitHubToken)
-	}
-
 	handler := api.NewRouter(api.Deps{
 		SessionManager: mgr,
 		StatusDetector: detector,
-		RepoService:    repoService,
+		RepoService:    ghsvc.NewRepoService(),
 	})
 
 	cleanup := func() { database.Close() }
