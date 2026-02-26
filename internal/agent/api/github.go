@@ -7,22 +7,17 @@ import (
 )
 
 type githubHandler struct {
-	repoService *ghservice.RepoService
+	repoIndexer *ghservice.RepoIndexer
 }
 
 // GET /api/github/repos?q=...
 func (h *githubHandler) listRepos(w http.ResponseWriter, r *http.Request) {
-	if h.repoService == nil {
+	if h.repoIndexer == nil {
 		respondJSON(w, http.StatusOK, map[string]any{"repos": []string{}})
 		return
 	}
 
 	query := r.URL.Query().Get("q")
-	repos, err := h.repoService.Search(r.Context(), query)
-	if err != nil {
-		respondInternalError(w, err)
-		return
-	}
-
+	repos := h.repoIndexer.Search(query)
 	respondJSON(w, http.StatusOK, map[string]any{"repos": repos})
 }

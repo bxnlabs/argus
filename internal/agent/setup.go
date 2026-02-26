@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -60,12 +61,18 @@ func Setup(cfg Config) (http.Handler, func(), error) {
 	mgr := session.NewManager(database, wtMgr)
 	detector := status.NewDetector()
 
+	repoIndexer := ghsvc.NewRepoIndexer(stateDir)
+	repoIndexer.Start(context.Background())
+
 	handler := api.NewRouter(api.Deps{
 		SessionManager: mgr,
 		StatusDetector: detector,
-		RepoService:    ghsvc.NewRepoService(),
+		RepoIndexer:    repoIndexer,
 	})
 
-	cleanup := func() { database.Close() }
+	cleanup := func() {
+		repoIndexer.Close()
+		database.Close()
+	}
 	return handler, cleanup, nil
 }

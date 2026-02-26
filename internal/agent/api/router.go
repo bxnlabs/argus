@@ -13,7 +13,7 @@ import (
 type Deps struct {
 	SessionManager     *session.Manager
 	StatusDetector     *status.Detector
-	RepoService        *ghservice.RepoService
+	RepoIndexer        *ghservice.RepoIndexer
 	UploadDirOverride  string // override upload directory (for testing)
 }
 
@@ -55,7 +55,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/code-search/available", srch.available)
 
 	// GitHub routes
-	ghub := &githubHandler{repoService: deps.RepoService}
+	ghub := &githubHandler{repoIndexer: deps.RepoIndexer}
 	mux.HandleFunc("GET /api/github/repos", ghub.listRepos)
 
 	// Status route

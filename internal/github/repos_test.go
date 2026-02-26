@@ -1,7 +1,12 @@
 package github
 
 import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestFuzzySearch(t *testing.T) {
@@ -31,4 +36,110 @@ func TestFuzzySearch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSnapshotRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	idx := NewRepoIndexer(dir)
+
+	repos := []string{"org/alpha", "org/beta", "org/gamma"}
+	idx.saveSnapshot(repos)
+
+	idx2 := NewRepoIndexer(dir)
+	idx2.loadSnapshot()
+
+	got := idx2.Search("")
+	if len(got) != len(repos) {
+		t.Fatalf("got %d repos, want %d", len(got), len(repos))
+	}
+	for i, r := range repos {
+		if got[i] != r {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], r)
+		}
+	}
+}
+
+func TestSnapshotFileFormat(t *testing.T) {
+	dir := t.TempDir()
+	idx := NewRepoIndexer(dir)
+	idx.saveSnapshot([]string{"a/b", "c/d"})
+
+	data, err := os.ReadFile(filepath.Join(dir, "data", "repos.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap repoSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(snap.Repos) != 2 {
+		t.Errorf("got %d repos in snapshot, want 2", len(snap.Repos))
+	}
+	if snap.FetchedAt.IsZero() {
+		t.Error("fetched_at should not be zero")
+	}
+}
+
+func TestSnapshotCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data", "repos.json"), []byte("{invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := NewRepoIndexer(dir)
+	idx.loadSnapshot()
+
+	got := idx.Search("")
+	if len(got) != 0 {
+		t.Errorf("expected empty repos after corrupt snapshot, got %d", len(got))
+	}
+}
+
+func TestSnapshotMissing(t *testing.T) {
+	dir := t.TempDir()
+	idx := NewRepoIndexer(dir)
+	idx.loadSnapshot() // should be a no-op
+
+	got := idx.Search("")
+	if len(got) != 0 {
+		t.Errorf("expected empty repos when no snapshot, got %d", len(got))
+	}
+}
+
+func TestSearchNeverBlocks(t *testing.T) {
+	idx := NewRepoIndexer(t.TempDir())
+	// Don't call Start(). Search must return immediately.
+	got := idx.Search("anything")
+	if len(got) != 0 {
+		t.Errorf("expected empty, got %v", got)
+	}
+}
+
+func TestSearchFromSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	idx := NewRepoIndexer(dir)
+	idx.saveSnapshot([]string{"bxnlabs/argus", "bxnlabs/infra", "myorg/backend"})
+
+	idx2 := NewRepoIndexer(dir)
+	idx2.loadSnapshot()
+
+	got := idx2.Search("argus")
+	if len(got) != 1 || got[0] != "bxnlabs/argus" {
+		t.Errorf("expected [bxnlabs/argus], got %v", got)
+	}
+}
+
+func TestCloseWithoutStart(t *testing.T) {
+	idx := NewRepoIndexer(t.TempDir())
+	idx.Close() // must not panic
+}
+
+func TestStartAndClose(t *testing.T) {
+	idx := NewRepoIndexer(t.TempDir())
+	idx.Start(context.Background())
+	time.Sleep(50 * time.Millisecond)
+	idx.Close() // goroutine must exit cleanly
 }

@@ -3,88 +3,185 @@ package github
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sahilm/fuzzy"
+	"golang.org/x/sync/singleflight"
 )
 
-// RepoService lists and searches GitHub repositories using the gh CLI.
-// If gh is not installed or not authenticated, operations return empty results.
-type RepoService struct {
-	mu        sync.Mutex
-	cached    []string
+// RepoIndexer maintains an in-memory snapshot of the user's GitHub repos,
+// refreshed periodically in the background. Search() reads from the snapshot
+// without blocking on network calls.
+type RepoIndexer struct {
+	stateDir string
+
+	mu        sync.RWMutex
+	repos     []string
 	fetchedAt time.Time
+
+	group  singleflight.Group
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
-const cacheTTL = 5 * time.Minute
+const (
+	refreshInterval = 5 * time.Minute
+	snapshotSubdir  = "data"
+	snapshotFile    = "repos.json"
+)
 
-// NewRepoService creates a new RepoService.
-func NewRepoService() *RepoService {
-	return &RepoService{}
+// repoSnapshot is the on-disk JSON format.
+type repoSnapshot struct {
+	Repos     []string  `json:"repos"`
+	FetchedAt time.Time `json:"fetched_at"`
 }
 
-// Search returns repos matching the query. If query is empty, returns all repos.
-// Results are cached for 5 minutes.
-func (s *RepoService) Search(ctx context.Context, query string) ([]string, error) {
-	repos, err := s.listAll(ctx)
-	if err != nil {
-		return nil, err
+// NewRepoIndexer creates a new RepoIndexer. Call Start() to begin background
+// refreshes and Close() to stop.
+func NewRepoIndexer(stateDir string) *RepoIndexer {
+	return &RepoIndexer{stateDir: stateDir}
+}
+
+// Start loads the disk snapshot (if any) and begins periodic background
+// refreshes.
+func (idx *RepoIndexer) Start(ctx context.Context) {
+	idx.loadSnapshot()
+
+	ctx, idx.cancel = context.WithCancel(ctx)
+	idx.wg.Add(1)
+	go idx.loop(ctx)
+}
+
+// Close cancels background refreshes and waits for the goroutine to exit.
+func (idx *RepoIndexer) Close() {
+	if idx.cancel != nil {
+		idx.cancel()
+	}
+	idx.wg.Wait()
+}
+
+// Search returns repos matching the query from the current in-memory snapshot.
+// It never blocks on a network fetch.
+func (idx *RepoIndexer) Search(query string) []string {
+	idx.mu.RLock()
+	repos := idx.repos
+	idx.mu.RUnlock()
+
+	if len(repos) == 0 {
+		return []string{}
 	}
 	if query == "" {
-		return repos, nil
+		return repos
 	}
-	return fuzzyFilterRepos(repos, query), nil
+	return fuzzyFilterRepos(repos, query)
 }
 
-func (s *RepoService) listAll(ctx context.Context) ([]string, error) {
-	s.mu.Lock()
-	if s.cached != nil && time.Since(s.fetchedAt) < cacheTTL {
-		cached := s.cached
-		s.mu.Unlock()
-		return cached, nil
-	}
-	s.mu.Unlock()
+func (idx *RepoIndexer) loop(ctx context.Context) {
+	defer idx.wg.Done()
 
-	// Check if gh CLI is available
+	// Refresh immediately on start.
+	idx.refresh(ctx)
+
+	ticker := time.NewTicker(refreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			idx.refresh(ctx)
+		}
+	}
+}
+
+func (idx *RepoIndexer) refresh(ctx context.Context) {
+	_, _, _ = idx.group.Do("refresh", func() (any, error) {
+		repos, err := fetchAll(ctx)
+		if err != nil {
+			log.Printf("repo indexer: refresh failed: %v", err)
+			return nil, nil
+		}
+
+		idx.mu.Lock()
+		idx.repos = repos
+		idx.fetchedAt = time.Now()
+		idx.mu.Unlock()
+
+		idx.saveSnapshot(repos)
+		return nil, nil
+	})
+}
+
+// fetchAll fetches user repos and org repos in parallel via the gh CLI.
+func fetchAll(ctx context.Context) ([]string, error) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		return nil, nil
 	}
 
-	// Detach from the HTTP request context so client disconnects don't
-	// kill the gh subprocess mid-pagination. The cache means subsequent
-	// requests are instant.
-	ctx = context.WithoutCancel(ctx)
-
-	var allRepos []string
-
-	// Fetch user's repos
-	userRepos, err := ghAPILines(ctx, "user/repos", ".[].full_name")
-	if err != nil {
-		return nil, fmt.Errorf("listing user repos: %w", err)
+	type result struct {
+		lines []string
+		err   error
 	}
-	allRepos = append(allRepos, userRepos...)
 
-	// Fetch orgs, then each org's repos
-	orgs, err := ghAPILines(ctx, "user/orgs", ".[].login")
-	if err != nil {
-		return nil, fmt.Errorf("listing orgs: %w", err)
+	// Fetch user repos and org list concurrently.
+	userCh := make(chan result, 1)
+	orgsCh := make(chan result, 1)
+
+	go func() {
+		lines, err := ghAPILines(ctx, "user/repos", ".[].full_name")
+		userCh <- result{lines, err}
+	}()
+	go func() {
+		lines, err := ghAPILines(ctx, "user/orgs", ".[].login")
+		orgsCh <- result{lines, err}
+	}()
+
+	userRes := <-userCh
+	if userRes.err != nil {
+		return nil, fmt.Errorf("listing user repos: %w", userRes.err)
 	}
-	for _, org := range orgs {
-		orgRepos, err := ghAPILines(ctx, fmt.Sprintf("orgs/%s/repos", org), ".[].full_name")
-		if err != nil {
-			return nil, fmt.Errorf("listing repos for org %s: %w", org, err)
+	orgsRes := <-orgsCh
+	if orgsRes.err != nil {
+		return nil, fmt.Errorf("listing orgs: %w", orgsRes.err)
+	}
+
+	allRepos := userRes.lines
+
+	// Fan out org repo fetches.
+	if len(orgsRes.lines) > 0 {
+		orgResults := make([]result, len(orgsRes.lines))
+		var wg sync.WaitGroup
+		for i, org := range orgsRes.lines {
+			wg.Add(1)
+			go func(i int, org string) {
+				defer wg.Done()
+				lines, err := ghAPILines(ctx, fmt.Sprintf("orgs/%s/repos", org), ".[].full_name")
+				orgResults[i] = result{lines, err}
+			}(i, org)
 		}
-		allRepos = append(allRepos, orgRepos...)
+		wg.Wait()
+
+		for i, r := range orgResults {
+			if r.err != nil {
+				return nil, fmt.Errorf("listing repos for org %s: %w", orgsRes.lines[i], r.err)
+			}
+			allRepos = append(allRepos, r.lines...)
+		}
 	}
 
-	// Deduplicate (user repos may overlap with org repos)
+	// Deduplicate and sort.
 	seen := make(map[string]bool, len(allRepos))
-	deduped := allRepos[:0]
+	deduped := make([]string, 0, len(allRepos))
 	for _, r := range allRepos {
 		if !seen[r] {
 			seen[r] = true
@@ -92,14 +189,51 @@ func (s *RepoService) listAll(ctx context.Context) ([]string, error) {
 		}
 	}
 	sort.Strings(deduped)
-
-	s.mu.Lock()
-	s.cached = deduped
-	s.fetchedAt = time.Now()
-	s.mu.Unlock()
-
 	return deduped, nil
 }
+
+// --- Disk snapshot ---
+
+func (idx *RepoIndexer) snapshotPath() string {
+	return filepath.Join(idx.stateDir, snapshotSubdir, snapshotFile)
+}
+
+func (idx *RepoIndexer) loadSnapshot() {
+	data, err := os.ReadFile(idx.snapshotPath())
+	if err != nil {
+		return
+	}
+	var snap repoSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		log.Printf("repo indexer: corrupt snapshot, ignoring: %v", err)
+		return
+	}
+	idx.mu.Lock()
+	idx.repos = snap.Repos
+	idx.fetchedAt = snap.FetchedAt
+	idx.mu.Unlock()
+	log.Printf("repo indexer: loaded %d repos from snapshot (age %s)",
+		len(snap.Repos), time.Since(snap.FetchedAt).Round(time.Second))
+}
+
+func (idx *RepoIndexer) saveSnapshot(repos []string) {
+	snap := repoSnapshot{Repos: repos, FetchedAt: time.Now()}
+	data, err := json.Marshal(snap)
+	if err != nil {
+		log.Printf("repo indexer: snapshot marshal: %v", err)
+		return
+	}
+	dir := filepath.Dir(idx.snapshotPath())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Printf("repo indexer: mkdir %s: %v", dir, err)
+		return
+	}
+	if err := os.WriteFile(idx.snapshotPath(), data, 0o600); err != nil {
+		log.Printf("repo indexer: write snapshot: %v", err)
+	}
+}
+
+// --- gh CLI helper ---
 
 // ghAPILines calls `gh api --paginate <endpoint> --jq <jqExpr>` and returns
 // the non-empty lines of output.
@@ -121,6 +255,8 @@ func ghAPILines(ctx context.Context, endpoint, jqExpr string) ([]string, error) 
 	return lines, nil
 }
 
+// --- Fuzzy search ---
+
 // fuzzyFilterRepos applies fuzzy matching on repo full names.
 func fuzzyFilterRepos(repos []string, query string) []string {
 	if query == "" {
@@ -130,17 +266,14 @@ func fuzzyFilterRepos(repos []string, query string) []string {
 	matches := fuzzy.FindFromNoSort(query, src)
 	sort.SliceStable(matches, func(i, j int) bool {
 		ii, jj := matches[i].Index, matches[j].Index
-		// Tier 1: prefer matches where the repo name (after /) matches
 		ti := repoNameTier(repos[ii], query)
 		tj := repoNameTier(repos[jj], query)
 		if ti != tj {
 			return ti < tj
 		}
-		// Tier 2: fuzzy score (descending)
 		if matches[i].Score != matches[j].Score {
 			return matches[i].Score > matches[j].Score
 		}
-		// Tier 3: lexical
 		return repos[ii] < repos[jj]
 	})
 	result := make([]string, len(matches))
@@ -163,12 +296,12 @@ func repoNameTier(fullName, query string) int {
 	name = strings.ToLower(name)
 	switch {
 	case name == q:
-		return 0 // exact
+		return 0
 	case strings.HasPrefix(name, q):
-		return 1 // prefix
+		return 1
 	case strings.Contains(name, q):
-		return 2 // substring
+		return 2
 	default:
-		return 3 // path-only
+		return 3
 	}
 }
