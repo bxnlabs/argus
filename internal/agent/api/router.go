@@ -6,12 +6,14 @@ import (
 	"github.com/bxnlabs/argus/internal/agent/session"
 	"github.com/bxnlabs/argus/internal/agent/status"
 	"github.com/bxnlabs/argus/internal/agent/terminal"
+	ghservice "github.com/bxnlabs/argus/internal/github"
 )
 
 // Deps holds the dependencies injected into API handlers.
 type Deps struct {
 	SessionManager     *session.Manager
 	StatusDetector     *status.Detector
+	RepoService        *ghservice.RepoService
 	UploadDirOverride  string // override upload directory (for testing)
 }
 
@@ -51,6 +53,10 @@ func NewRouter(deps Deps) http.Handler {
 	srch := &searchHandler{}
 	mux.HandleFunc("GET /api/code-search", srch.search)
 	mux.HandleFunc("GET /api/code-search/available", srch.available)
+
+	// GitHub routes
+	ghub := &githubHandler{repoService: deps.RepoService}
+	mux.HandleFunc("GET /api/github/repos", ghub.listRepos)
 
 	// Status route
 	if deps.StatusDetector != nil {

@@ -11,6 +11,7 @@ import (
 	"github.com/bxnlabs/argus/internal/agent/session"
 	"github.com/bxnlabs/argus/internal/agent/status"
 	"github.com/bxnlabs/argus/internal/config"
+	ghsvc "github.com/bxnlabs/argus/internal/github"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/worktree"
 )
@@ -59,9 +60,15 @@ func Setup(cfg Config) (http.Handler, func(), error) {
 	mgr := session.NewManager(database, wtMgr)
 	detector := status.NewDetector()
 
+	var repoService *ghsvc.RepoService
+	if userCfg.GitHubToken != "" {
+		repoService = ghsvc.NewRepoService(userCfg.GitHubToken)
+	}
+
 	handler := api.NewRouter(api.Deps{
 		SessionManager: mgr,
 		StatusDetector: detector,
+		RepoService:    repoService,
 	})
 
 	cleanup := func() { database.Close() }
