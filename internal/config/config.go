@@ -13,6 +13,7 @@ import (
 // Config holds user preferences loaded from ~/.argus/config.toml.
 type Config struct {
 	BranchPrefix string `toml:"branch_prefix"`
+	GitHubToken  string `toml:"github_token"`
 }
 
 // Load loads the config from the default location (~/.argus/config.toml).
