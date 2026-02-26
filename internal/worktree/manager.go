@@ -13,6 +13,10 @@ import (
 	"github.com/bxnlabs/argus/internal/source"
 )
 
+// ErrWorktreeDirty is returned when attempting to remove a worktree that has
+// uncommitted changes without the force flag.
+var ErrWorktreeDirty = errors.New("worktree has uncommitted changes")
+
 // Manager handles git worktree creation and remote repo cloning.
 type Manager struct {
 	stateDir string
@@ -124,16 +128,38 @@ func (m *Manager) uniqueBranch(repoDir, branch string) (string, error) {
 	return "", fmt.Errorf("could not find unique branch name for %s", branch)
 }
 
-// Cleanup removes an orphaned worktree and its associated branch. It is
-// best-effort: errors are silently ignored. repoDir is the main git repository
-// that owns the worktree.
-func (m *Manager) Cleanup(worktreePath, branch string) {
+// RemoveWorktree removes a git worktree directory. The branch is intentionally
+// preserved so the user can recover work.
+//
+// When force is false and the worktree contains uncommitted changes,
+// ErrWorktreeDirty is returned. When force is true, the worktree is removed
+// unconditionally.
+func (m *Manager) RemoveWorktree(worktreePath string, force bool) error {
 	repoDir, err := mainRepoFromWorktree(worktreePath)
 	if err != nil {
-		return
+		return fmt.Errorf("locate parent repo: %w", err)
 	}
-	runGit(repoDir, "worktree", "remove", "--force", worktreePath)
-	runGit(repoDir, "branch", "-D", branch)
+
+	args := []string{"worktree", "remove", worktreePath}
+	if force {
+		args = []string{"worktree", "remove", "--force", worktreePath}
+	}
+
+	if err := runGit(repoDir, args...); err != nil {
+		errMsg := err.Error()
+		if !force && (strings.Contains(errMsg, "contains modified or untracked files") ||
+			strings.Contains(errMsg, "is dirty")) {
+			return fmt.Errorf("%w: use --force to delete anyway", ErrWorktreeDirty)
+		}
+		return fmt.Errorf("git worktree remove: %w", err)
+	}
+	return nil
+}
+
+// Cleanup is a best-effort removal used during create-failure rollback.
+// It force-removes the worktree since no user work exists yet.
+func (m *Manager) Cleanup(worktreePath string) {
+	_ = m.RemoveWorktree(worktreePath, true)
 }
 
 // mainRepoFromWorktree reads the linked worktree's .git file to find the path

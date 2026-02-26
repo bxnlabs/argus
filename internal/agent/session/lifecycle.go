@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +17,10 @@ import (
 
 // ErrNotFound is returned when a session ID does not exist in the database.
 var ErrNotFound = db.ErrNotFound
+
+// ErrInvalidInput is returned when a create/update request contains
+// user-fixable validation errors (bad source, unknown agent type, etc.).
+var ErrInvalidInput = errors.New("invalid input")
 
 // Manager handles session lifecycle (create, delete, rename, etc.).
 type Manager struct {
@@ -61,7 +66,7 @@ type CreateOptions struct {
 // Create creates a new session: generates ID, builds CLI command, spawns tmux, inserts DB.
 func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if !provider.IsValid(opts.AgentType) {
-		return nil, fmt.Errorf("invalid agent type: %s", opts.AgentType)
+		return nil, fmt.Errorf("%w: invalid agent type: %s", ErrInvalidInput, opts.AgentType)
 	}
 
 	// Generate session ID (UUID format for tmux name)
@@ -73,7 +78,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// for non-worktree sessions.
 	cwd, worktreeBranch, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name)
 	if err != nil {
-		return nil, fmt.Errorf("resolve source: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
 
 	// If anything below fails before the DB commit, clean up the worktree.
@@ -170,7 +175,7 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, workt
 		if err != nil {
 			return "", nil, noop, err
 		}
-		return wtPath, &branch, func() { m.wt.Cleanup(wtPath, branch) }, nil
+		return wtPath, &branch, func() { m.wt.Cleanup(wtPath) }, nil
 	}
 
 	// Local path: check if it's inside a git repo.
@@ -184,7 +189,7 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, workt
 	if err != nil {
 		return "", nil, noop, err
 	}
-	return wtPath, &branch, func() { m.wt.Cleanup(wtPath, branch) }, nil
+	return wtPath, &branch, func() { m.wt.Cleanup(wtPath) }, nil
 }
 
 // findGitRoot returns the git root for the given directory, or an error if
@@ -199,8 +204,10 @@ func findGitRoot(dir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Delete kills the tmux session and removes from DB.
-func (m *Manager) Delete(id string) error {
+// Delete kills the tmux session and removes from DB. For worktree-backed
+// sessions, the worktree is removed but the branch is preserved. If the
+// worktree has uncommitted changes and force is false, the delete is refused.
+func (m *Manager) Delete(id string, force bool) error {
 	l := m.sessionLock(id)
 	l.Lock()
 	defer l.Unlock()
@@ -213,14 +220,21 @@ func (m *Manager) Delete(id string) error {
 		return fmt.Errorf("%w: %s", db.ErrNotFound, id)
 	}
 
+	// Remove worktree FIRST so a dirty-check failure leaves the session
+	// fully intact (tmux still alive, DB row untouched).
+	if session.WorktreeBranch != nil {
+		if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
+			// Worktree was removed externally; skip git cleanup and
+			// proceed with deletion. The orphaned git worktree ref
+			// will be cleaned up by "git worktree prune".
+		} else if err := m.wt.RemoveWorktree(session.WorkingDirectory, force); err != nil {
+			return err
+		}
+	}
+
 	// Kill tmux (ignore error if already dead)
 	if HasSession(session.TmuxName) {
 		KillSession(session.TmuxName)
-	}
-
-	// Clean up git worktree and branch for worktree-backed sessions.
-	if session.WorktreeBranch != nil {
-		m.wt.Cleanup(session.WorkingDirectory, *session.WorktreeBranch)
 	}
 
 	return m.db.DeleteSession(id)

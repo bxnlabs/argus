@@ -7,7 +7,9 @@ import (
 )
 
 func newDeleteCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+
+	cmd := &cobra.Command{
 		Use:   "rm <name-or-id>",
 		Short: "Delete a session",
 		Args:  cobra.ExactArgs(1),
@@ -29,7 +31,12 @@ func newDeleteCmd() *cobra.Command {
 				return err
 			}
 
-			if _, err := c.delete("/api/sessions/" + session.ID); err != nil {
+			endpoint := "/api/sessions/" + session.ID
+			if force {
+				endpoint += "?force=true"
+			}
+
+			if _, err := c.delete(endpoint); err != nil {
 				return err
 			}
 
@@ -37,4 +44,8 @@ func newDeleteCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Force delete even if worktree has uncommitted changes")
+
+	return cmd
 }

@@ -48,7 +48,7 @@ export function useDeleteSession() {
 
   return useMutation({
     mutationFn: (sessionId: string) =>
-      apiFetch(`/agent/api/sessions/${sessionId}`, { method: "DELETE" }),
+      apiFetch(`/agent/api/sessions/${sessionId}?force=true`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
     },

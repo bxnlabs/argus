@@ -82,6 +82,12 @@ func looksLikeRemote(input string) bool {
 		strings.HasPrefix(input, "http://") {
 		return true
 	}
+	// Inputs that look like local paths are never shorthand.
+	if strings.HasPrefix(input, "~") ||
+		strings.HasPrefix(input, ".") ||
+		filepath.IsAbs(input) {
+		return false
+	}
 	// org/repo shorthand: exactly one "/", first segment non-empty and dot-free.
 	parts := strings.SplitN(input, "/", 2)
 	return len(parts) == 2 &&

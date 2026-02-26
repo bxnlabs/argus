@@ -6,6 +6,7 @@ import (
 
 	"github.com/bxnlabs/argus/internal/agent/db"
 	agentsession "github.com/bxnlabs/argus/internal/agent/session"
+	"github.com/bxnlabs/argus/internal/worktree"
 )
 
 type sessionHandler struct {
@@ -43,6 +44,10 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.manager.Create(opts)
 	if err != nil {
+		if errors.Is(err, agentsession.ErrInvalidInput) {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		respondInternalError(w, err)
 		return
 	}
@@ -116,9 +121,15 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/sessions/{id}
 func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.manager.Delete(id); err != nil {
+	force := r.URL.Query().Get("force") == "true"
+
+	if err := h.manager.Delete(id, force); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		if errors.Is(err, worktree.ErrWorktreeDirty) {
+			respondError(w, http.StatusConflict, "worktree has uncommitted changes; use force to delete anyway")
 			return
 		}
 		respondInternalError(w, err)

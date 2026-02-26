@@ -165,6 +165,22 @@ func TestResolveRelativeNonexistentPath(t *testing.T) {
 	}
 }
 
+func TestResolveTildeNonexistentIsNotRemote(t *testing.T) {
+	// ~/nonexistent-xyz should NOT be treated as GitHub shorthand org=~ repo=nonexistent-xyz.
+	_, err := source.Resolve("~/definitely-nonexistent-dir-xyz")
+	if err == nil {
+		t.Fatal("expected error for nonexistent tilde path")
+	}
+}
+
+func TestResolveDotSlashNonexistentIsNotRemote(t *testing.T) {
+	// ./nonexistent should NOT be treated as GitHub shorthand.
+	_, err := source.Resolve("./definitely-nonexistent-dir-xyz")
+	if err == nil {
+		t.Fatal("expected error for nonexistent relative path")
+	}
+}
+
 // Ensure home dir is accessible (sanity check for tilde expansion).
 func TestResolveTilde(t *testing.T) {
 	home, err := os.UserHomeDir()

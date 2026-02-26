@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/bxnlabs/argus/internal/source"
 )
 
 func newCreateCmd() *cobra.Command {
@@ -33,13 +35,23 @@ func newCreateCmd() *cobra.Command {
 				return err
 			}
 
+			// Default to current directory when no source is specified.
+			if src == "" {
+				src = "."
+			}
+
+			// Resolve local paths to absolute before sending to the server
+			// daemon, whose CWD may differ from the caller's shell.
+			resolved, err := source.Resolve(src)
+			if err == nil && !resolved.IsRemote() {
+				src = resolved.LocalPath
+			}
+
 			reqBody := map[string]any{
 				"name":         name,
 				"agent_type":   provider,
+				"source":       src,
 				"auto_approve": yolo,
-			}
-			if src != "" {
-				reqBody["source"] = src
 			}
 
 			data, err := json.Marshal(reqBody)
