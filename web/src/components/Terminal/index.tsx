@@ -139,17 +139,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           </div>
         )}
 
-        {/* Floating Attachments button (desktop only, when connected) */}
-        {!isMobile && isConnected && onAttachments && (
-          <button
-            onClick={onAttachments}
-            className="absolute top-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-            aria-label="Attachments"
-          >
-            <Paperclip className="h-5 w-5" />
-          </button>
-        )}
-
         {/* Search Bar */}
         <SearchBar
           ref={searchInputRef}

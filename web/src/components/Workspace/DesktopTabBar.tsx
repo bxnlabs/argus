@@ -3,9 +3,6 @@ import {
   X,
   Unplug,
   Plus,
-  Terminal as TerminalIcon,
-  GitBranch,
-  FilePenLine,
 } from "lucide-react";
 import {
   Tooltip,
@@ -15,17 +12,12 @@ import {
 import { cn } from "@/lib/utils";
 import type { Session } from "@/types";
 import type { TabData } from "@/lib/tabs";
-import type { SidePanel } from "@/components/views/types";
 
 interface DesktopTabBarProps {
   tabs: TabData[];
   activeTabId: string;
   sessions: Session[];
   hasAttachedSession: boolean;
-  activePanel: SidePanel;
-  onSetActivePanel: (panel: SidePanel) => void;
-  isGitEnabled: boolean;
-  isEditorEnabled: boolean;
   onTabSwitch: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   onTabAdd: () => void;
@@ -37,10 +29,6 @@ export function DesktopTabBar({
   activeTabId,
   sessions,
   hasAttachedSession,
-  activePanel,
-  onSetActivePanel,
-  isGitEnabled,
-  isEditorEnabled,
   onTabSwitch,
   onTabClose,
   onTabAdd,
@@ -53,10 +41,6 @@ export function DesktopTabBar({
     }
     return "New Tab";
   };
-
-  const isTerminalActive = activePanel === null;
-  const isGitActive = activePanel === "git";
-  const isEditorActive = activePanel === "editor";
 
   return (
     <div
@@ -133,59 +117,6 @@ export function DesktopTabBar({
         </Tooltip>
       </div>
 
-      {/* Divider + View Modes */}
-      <div className="border-border flex items-center gap-0.5 border-l pl-1 pr-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSetActivePanel(null);
-              }}
-              className="h-6 w-6"
-            >
-              <TerminalIcon className={cn("h-3 w-3", isTerminalActive && "text-primary")} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Terminal</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSetActivePanel("git");
-              }}
-              disabled={!isGitEnabled}
-              className="h-6 w-6"
-            >
-              <GitBranch className={cn("h-3 w-3", isGitActive && "text-primary")} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Git</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSetActivePanel("editor");
-              }}
-              disabled={!isEditorEnabled}
-              className="h-6 w-6"
-            >
-              <FilePenLine className={cn("h-3 w-3", isEditorActive && "text-primary")} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Editor</TooltipContent>
-        </Tooltip>
-      </div>
     </div>
   );
 }
