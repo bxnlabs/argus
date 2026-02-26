@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -139,7 +140,92 @@ func TestCloseWithoutStart(t *testing.T) {
 
 func TestStartAndClose(t *testing.T) {
 	idx := NewRepoIndexer(t.TempDir())
+	idx.fetchFunc = func(ctx context.Context) ([]string, error) {
+		return []string{"a/b"}, nil
+	}
 	idx.Start(context.Background())
 	time.Sleep(50 * time.Millisecond)
 	idx.Close() // goroutine must exit cleanly
+}
+
+func TestDoubleStartIsSafe(t *testing.T) {
+	calls := 0
+	idx := NewRepoIndexer(t.TempDir())
+	idx.fetchFunc = func(ctx context.Context) ([]string, error) {
+		calls++
+		return []string{"a/b"}, nil
+	}
+	ctx := context.Background()
+	idx.Start(ctx)
+	idx.Start(ctx) // second call must be a no-op
+	time.Sleep(100 * time.Millisecond)
+	idx.Close()
+	if calls != 1 {
+		t.Errorf("expected fetchFunc called once, got %d", calls)
+	}
+}
+
+func TestRefreshPreservesDataOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	idx := NewRepoIndexer(dir)
+
+	// Seed with known data.
+	idx.mu.Lock()
+	idx.repos = []string{"org/alpha", "org/beta"}
+	idx.mu.Unlock()
+	idx.saveSnapshot([]string{"org/alpha", "org/beta"})
+
+	// Override fetch to fail.
+	idx.fetchFunc = func(ctx context.Context) ([]string, error) {
+		return nil, fmt.Errorf("gh CLI not found")
+	}
+
+	// Trigger refresh — should preserve old data.
+	idx.refresh(context.Background())
+
+	got := idx.Search("")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 repos preserved after failed refresh, got %d", len(got))
+	}
+	if got[0] != "org/alpha" || got[1] != "org/beta" {
+		t.Errorf("unexpected repos: %v", got)
+	}
+}
+
+func TestRefreshUpdatesDataOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	idx := NewRepoIndexer(dir)
+
+	// Seed with old data.
+	idx.mu.Lock()
+	idx.repos = []string{"old/repo"}
+	idx.mu.Unlock()
+
+	// Override fetch to succeed with new data.
+	idx.fetchFunc = func(ctx context.Context) ([]string, error) {
+		return []string{"new/alpha", "new/beta"}, nil
+	}
+
+	idx.refresh(context.Background())
+
+	got := idx.Search("")
+	if len(got) != 2 || got[0] != "new/alpha" || got[1] != "new/beta" {
+		t.Errorf("expected [new/alpha new/beta], got %v", got)
+	}
+}
+
+func TestSearchReturnsDefensiveCopy(t *testing.T) {
+	idx := NewRepoIndexer(t.TempDir())
+	idx.mu.Lock()
+	idx.repos = []string{"a/b", "c/d"}
+	idx.mu.Unlock()
+
+	got := idx.Search("")
+	got[0] = "mutated"
+
+	// Internal state must be unchanged.
+	got2 := idx.Search("")
+	if got2[0] != "a/b" {
+		t.Errorf("internal state was mutated: got %q, want %q", got2[0], "a/b")
+	}
 }

@@ -73,7 +73,7 @@ export function SourcePicker({
         className={cn(
           "gap-0 overflow-hidden p-0",
           isMobile
-            ? "top-[env(safe-area-inset-top)] left-0 right-0 h-[calc(var(--app-height)_-_env(safe-area-inset-top))] max-w-none translate-x-0 translate-y-0 rounded-none border-0"
+            ? "top-[env(safe-area-inset-top)] left-0 right-0 h-[calc(var(--app-height)_-_env(safe-area-inset-top))] flex flex-col max-w-none translate-x-0 translate-y-0 rounded-none border-0"
             : "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] sm:max-w-md",
         )}
         showCloseButton={false}

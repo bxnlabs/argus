@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sahilm/fuzzy"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -28,9 +29,14 @@ type RepoIndexer struct {
 	repos     []string
 	fetchedAt time.Time
 
-	group  singleflight.Group
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	group     singleflight.Group
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	startOnce sync.Once
+
+	// fetchFunc is the function used to fetch repos. Defaults to fetchAll
+	// and can be overridden for testing.
+	fetchFunc func(ctx context.Context) ([]string, error)
 }
 
 const (
@@ -48,17 +54,23 @@ type repoSnapshot struct {
 // NewRepoIndexer creates a new RepoIndexer. Call Start() to begin background
 // refreshes and Close() to stop.
 func NewRepoIndexer(stateDir string) *RepoIndexer {
-	return &RepoIndexer{stateDir: stateDir}
+	return &RepoIndexer{
+		stateDir:  stateDir,
+		fetchFunc: fetchAll,
+	}
 }
 
 // Start loads the disk snapshot (if any) and begins periodic background
-// refreshes.
+// refreshes. It is safe to call multiple times; only the first call has
+// any effect.
 func (idx *RepoIndexer) Start(ctx context.Context) {
-	idx.loadSnapshot()
+	idx.startOnce.Do(func() {
+		idx.loadSnapshot()
 
-	ctx, idx.cancel = context.WithCancel(ctx)
-	idx.wg.Add(1)
-	go idx.loop(ctx)
+		ctx, idx.cancel = context.WithCancel(ctx)
+		idx.wg.Add(1)
+		go idx.loop(ctx)
+	})
 }
 
 // Close cancels background refreshes and waits for the goroutine to exit.
@@ -80,7 +92,7 @@ func (idx *RepoIndexer) Search(query string) []string {
 		return []string{}
 	}
 	if query == "" {
-		return repos
+		return append([]string(nil), repos...)
 	}
 	return fuzzyFilterRepos(repos, query)
 }
@@ -106,7 +118,7 @@ func (idx *RepoIndexer) loop(ctx context.Context) {
 
 func (idx *RepoIndexer) refresh(ctx context.Context) {
 	_, _, _ = idx.group.Do("refresh", func() (any, error) {
-		repos, err := fetchAll(ctx)
+		repos, err := idx.fetchFunc(ctx)
 		if err != nil {
 			log.Printf("repo indexer: refresh failed: %v", err)
 			return nil, nil
@@ -125,7 +137,7 @@ func (idx *RepoIndexer) refresh(ctx context.Context) {
 // fetchAll fetches user repos and org repos in parallel via the gh CLI.
 func fetchAll(ctx context.Context) ([]string, error) {
 	if _, err := exec.LookPath("gh"); err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("gh CLI not found: %w", err)
 	}
 
 	type result struct {
@@ -157,19 +169,19 @@ func fetchAll(ctx context.Context) ([]string, error) {
 
 	allRepos := userRes.lines
 
-	// Fan out org repo fetches.
+	// Fan out org repo fetches with bounded concurrency.
 	if len(orgsRes.lines) > 0 {
 		orgResults := make([]result, len(orgsRes.lines))
-		var wg sync.WaitGroup
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(8)
 		for i, org := range orgsRes.lines {
-			wg.Add(1)
-			go func(i int, org string) {
-				defer wg.Done()
-				lines, err := ghAPILines(ctx, fmt.Sprintf("orgs/%s/repos", org), ".[].full_name")
+			g.Go(func() error {
+				lines, err := ghAPILines(gctx, fmt.Sprintf("orgs/%s/repos", org), ".[].full_name")
 				orgResults[i] = result{lines, err}
-			}(i, org)
+				return nil // errors collected per-org
+			})
 		}
-		wg.Wait()
+		g.Wait()
 
 		for i, r := range orgResults {
 			if r.err != nil {
