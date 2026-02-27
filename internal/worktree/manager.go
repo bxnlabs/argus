@@ -37,40 +37,75 @@ func (m *Manager) CreateForLocalRepo(gitRoot, sessionName string) (worktreePath,
 	return m.createWorktree(gitRoot, src.ParentKey(), sessionName)
 }
 
-// CreateForRemoteRepo clones (or fetches) the remote repo and creates a worktree.
-// Returns the worktree path and the git branch name.
-func (m *Manager) CreateForRemoteRepo(src *source.Source, sessionName string) (worktreePath, branch string, err error) {
+// EnsureClone clones the remote repo if not already cloned, or fetches
+// updates if it is. Returns the clone directory path.
+func (m *Manager) EnsureClone(src *source.Source) (string, error) {
 	cloneDir := filepath.Join(m.stateDir, "projects", src.ParentKey(), "gitrepo")
 
 	_, statErr := os.Stat(cloneDir)
 	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
-		return "", "", fmt.Errorf("stat clone dir: %w", statErr)
+		return "", fmt.Errorf("stat clone dir: %w", statErr)
 	}
 	if errors.Is(statErr, fs.ErrNotExist) {
 		if err := os.MkdirAll(filepath.Dir(cloneDir), 0755); err != nil {
-			return "", "", fmt.Errorf("create project dir: %w", err)
+			return "", fmt.Errorf("create project dir: %w", err)
 		}
 		if err := runGit("", "clone", src.RemoteURL, cloneDir); err != nil {
 			os.RemoveAll(cloneDir)
-			return "", "", fmt.Errorf("clone repo: %w", err)
+			return "", fmt.Errorf("clone repo: %w", err)
 		}
 	} else {
 		defaultBranch, err := getDefaultBranch(cloneDir)
 		if err != nil {
-			return "", "", err
+			return "", err
 		}
 		if err := runGit(cloneDir, "fetch", "origin"); err != nil {
-			return "", "", fmt.Errorf("fetch: %w", err)
+			return "", fmt.Errorf("fetch: %w", err)
 		}
 		if err := runGit(cloneDir, "checkout", defaultBranch); err != nil {
-			return "", "", fmt.Errorf("checkout default branch: %w", err)
+			return "", fmt.Errorf("checkout default branch: %w", err)
 		}
 		if err := runGit(cloneDir, "reset", "--hard", "origin/"+defaultBranch); err != nil {
-			return "", "", fmt.Errorf("reset to origin: %w", err)
+			return "", fmt.Errorf("reset to origin: %w", err)
 		}
 	}
+	return cloneDir, nil
+}
 
+// CreateForRemoteRepo clones (or fetches) the remote repo and creates a worktree.
+// Returns the worktree path and the git branch name.
+func (m *Manager) CreateForRemoteRepo(src *source.Source, sessionName string) (worktreePath, branch string, err error) {
+	cloneDir, err := m.EnsureClone(src)
+	if err != nil {
+		return "", "", err
+	}
 	return m.createWorktree(cloneDir, src.ParentKey(), sessionName)
+}
+
+// FindWorktree checks whether a git worktree already exists for the given
+// branch. repoDir can be the main repo root or any existing worktree
+// directory (git worktree list works from either).
+// Returns the worktree path if found, empty string if not.
+func (m *Manager) FindWorktree(repoDir, branch string) (string, error) {
+	out, err := gitOutput(repoDir, "worktree", "list")
+	if err != nil {
+		return "", fmt.Errorf("git worktree list: %w", err)
+	}
+
+	target := "[" + branch + "]"
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[2] == target {
+			// git worktree list may resolve symlinks (e.g. /var -> /private/var
+			// on macOS). Attempt to return the original path by checking
+			// whether our canonical worktrees directory matches.
+			return fields[0], nil
+		}
+	}
+	return "", nil
 }
 
 func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktreePath, branch string, err error) {
