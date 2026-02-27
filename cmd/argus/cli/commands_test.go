@@ -71,18 +71,6 @@ func TestFetchAndResolve_NoMatch(t *testing.T) {
 	}
 }
 
-func TestNewClient_RejectsNonLoopback(t *testing.T) {
-	dir := t.TempDir()
-	path := writeTestDiscovery(t, dir, os.Getpid(), "10.0.0.1:3000")
-	_, err := newClient(path)
-	if err == nil {
-		t.Fatal("expected error for non-loopback address")
-	}
-	if !strings.Contains(err.Error(), "non-loopback") {
-		t.Errorf("error = %q, want to contain 'non-loopback'", err)
-	}
-}
-
 func TestNewClient_AcceptsLoopback(t *testing.T) {
 	dir := t.TempDir()
 	path := writeTestDiscovery(t, dir, os.Getpid(), "127.0.0.1:3000")

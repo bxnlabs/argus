@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"syscall"
@@ -23,7 +22,7 @@ func discover(path string) (*discoveryInfo, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("Argus agent is not running.\nStart it with: argus --port 3000")
+			return nil, fmt.Errorf("Argus agent is not running.\nStart it with: argus")
 		}
 		return nil, fmt.Errorf("read discovery file: %w", err)
 	}
@@ -37,7 +36,7 @@ func discover(path string) (*discoveryInfo, error) {
 	// entire process group, letting a crafted discovery file pass validation.
 	if info.PID <= 0 {
 		os.Remove(path)
-		return nil, fmt.Errorf("Argus agent is not running (invalid PID in state file, cleaning up).\nStart it with: argus --port 3000")
+		return nil, fmt.Errorf("Argus agent is not running (invalid PID in state file, cleaning up).\nStart it with: argus")
 	}
 
 	// Check if the PID is still alive using kill(pid, 0).
@@ -48,7 +47,7 @@ func discover(path string) (*discoveryInfo, error) {
 		}
 		// ESRCH or other error: process is gone.
 		os.Remove(path)
-		return nil, fmt.Errorf("Argus agent is not running (stale state detected, cleaning up).\nStart it with: argus --port 3000")
+		return nil, fmt.Errorf("Argus agent is not running (stale state detected, cleaning up).\nStart it with: argus")
 	}
 
 	return &info, nil
@@ -65,17 +64,6 @@ func newClient(discoveryPath string) (*apiClient, error) {
 	info, err := discover(discoveryPath)
 	if err != nil {
 		return nil, err
-	}
-
-	// Validate the address is a loopback IP to prevent redirection
-	// via a tampered discovery file.
-	host, _, err := net.SplitHostPort(info.Address)
-	if err != nil {
-		return nil, fmt.Errorf("invalid address in discovery file: %w", err)
-	}
-	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return nil, fmt.Errorf("refusing to connect to non-loopback address %q from discovery file", host)
 	}
 
 	c := &apiClient{
