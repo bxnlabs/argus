@@ -48,7 +48,7 @@ func TestCreateForLocalRepo(t *testing.T) {
 	gitRoot := initGitRepo(t)
 	stateDir := t.TempDir()
 
-	mgr := worktree.NewManager(stateDir, &config.Config{BranchPrefix: "jeev"})
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 	wtPath, branch, err := mgr.CreateForLocalRepo(gitRoot, "Fix Auth Bug")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
@@ -81,7 +81,7 @@ func TestCreateForLocalRepoBranchConflict(t *testing.T) {
 	gitRoot := initGitRepo(t)
 	stateDir := t.TempDir()
 
-	mgr := worktree.NewManager(stateDir, &config.Config{BranchPrefix: "jeev"})
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	_, branch1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
@@ -112,7 +112,7 @@ func TestCreateForRemoteRepo(t *testing.T) {
 		Repo:      "testrepo",
 	}
 
-	mgr := worktree.NewManager(stateDir, &config.Config{BranchPrefix: "jeev"})
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 	wtPath, branch, err := mgr.CreateForRemoteRepo(src, "my feature")
 	if err != nil {
 		t.Fatalf("CreateForRemoteRepo: %v", err)
@@ -144,7 +144,7 @@ func TestCreateForRemoteRepoAlreadyCloned(t *testing.T) {
 		Repo:      "testrepo",
 	}
 
-	mgr := worktree.NewManager(stateDir, &config.Config{BranchPrefix: "jeev"})
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// First call — clones the repo.
 	_, _, err := mgr.CreateForRemoteRepo(src, "first session")

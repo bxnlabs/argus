@@ -101,8 +101,8 @@ func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktr
 }
 
 func (m *Manager) branchName(slug string) string {
-	if m.cfg.BranchPrefix != "" {
-		return m.cfg.BranchPrefix + "/" + slug
+	if m.cfg.Git.BranchPrefix != "" {
+		return m.cfg.Git.BranchPrefix + "/" + slug
 	}
 	return slug
 }
