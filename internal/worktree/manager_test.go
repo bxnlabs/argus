@@ -83,7 +83,7 @@ func TestCreateForLocalRepoBranchConflict(t *testing.T) {
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
-	_, branch1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	wtPath1, branch1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("first CreateForLocalRepo: %v", err)
 	}
@@ -91,12 +91,16 @@ func TestCreateForLocalRepoBranchConflict(t *testing.T) {
 		t.Errorf("expected first branch %q, got %q", "jeev/my-feature", branch1)
 	}
 
-	_, branch2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	// Second call with same name — should reuse the existing worktree
+	wtPath2, branch2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("second CreateForLocalRepo: %v", err)
 	}
-	if branch2 != "jeev/my-feature-2" {
-		t.Errorf("expected second branch %q, got %q", "jeev/my-feature-2", branch2)
+	if branch2 != "jeev/my-feature" {
+		t.Errorf("expected reused branch %q, got %q", "jeev/my-feature", branch2)
+	}
+	if realPath(t, wtPath2) != realPath(t, wtPath1) {
+		t.Errorf("expected reused path %q, got %q", realPath(t, wtPath1), realPath(t, wtPath2))
 	}
 }
 
@@ -235,6 +239,32 @@ func TestFindWorktreeFromWorktreeDir(t *testing.T) {
 	}
 	if found != realPath(t, wtPath2) {
 		t.Errorf("FindWorktree = %q, want %q", found, realPath(t, wtPath2))
+	}
+}
+
+func TestCreateForLocalRepoReusesExistingWorktree(t *testing.T) {
+	gitRoot := initGitRepo(t)
+	stateDir := t.TempDir()
+
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
+
+	// First creation
+	wtPath1, branch1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	if err != nil {
+		t.Fatalf("first CreateForLocalRepo: %v", err)
+	}
+
+	// Second creation with same name — should reuse, not create "-2"
+	wtPath2, branch2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	if err != nil {
+		t.Fatalf("second CreateForLocalRepo: %v", err)
+	}
+
+	if branch2 != branch1 {
+		t.Errorf("expected reused branch %q, got %q", branch1, branch2)
+	}
+	if realPath(t, wtPath2) != realPath(t, wtPath1) {
+		t.Errorf("expected reused path %q, got %q", realPath(t, wtPath1), realPath(t, wtPath2))
 	}
 }
 

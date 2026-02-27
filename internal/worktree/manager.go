@@ -113,6 +113,15 @@ func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktr
 	slug := slugify(sessionName)
 	baseBranch := m.branchName(slug)
 
+	// Check if a worktree already exists for this branch.
+	existing, err := m.FindWorktree(repoDir, baseBranch)
+	if err != nil {
+		return "", "", err
+	}
+	if existing != "" {
+		return existing, baseBranch, nil
+	}
+
 	branch, err = m.uniqueBranch(repoDir, baseBranch)
 	if err != nil {
 		return "", "", err
