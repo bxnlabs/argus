@@ -178,19 +178,22 @@ func runCombined() error {
 func bindIPs(bindAddr string, extra ...string) []string {
 	ips := []string{bindAddr}
 	ip := net.ParseIP(bindAddr)
-	if ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+	if ip == nil {
+		return append(ips, extra...)
+	}
+	if !ip.IsLoopback() && !ip.IsUnspecified() {
 		ips = append(ips, "127.0.0.1")
 	}
-	if ip != nil && ip.IsUnspecified() {
-		primaryIsV4 := ip.To4() != nil
-		for _, e := range extra {
-			if eip := net.ParseIP(e); eip != nil && (eip.To4() != nil) == primaryIsV4 {
-				continue
-			}
-			ips = append(ips, e)
+	if !ip.IsUnspecified() {
+		return append(ips, extra...)
+	}
+	// Unspecified: only keep extras from the other address family.
+	isV4 := ip.To4() != nil
+	for _, e := range extra {
+		if eip := net.ParseIP(e); eip != nil && (eip.To4() != nil) == isV4 {
+			continue
 		}
-	} else {
-		ips = append(ips, extra...)
+		ips = append(ips, e)
 	}
 	return ips
 }
