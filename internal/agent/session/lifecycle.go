@@ -198,6 +198,12 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 		return resolved.LocalPath, nil, noop, nil
 	}
 
+	// Check if the resolved path is already a worktree — reuse it.
+	existingBranch, err := m.wt.FindWorktreeByPath(resolved.LocalPath)
+	if err == nil && existingBranch != "" {
+		return resolved.LocalPath, &existingBranch, noop, nil
+	}
+
 	wtPath, branch, err := m.wt.CreateForLocalRepo(gitRoot, sessionName)
 	if err != nil {
 		return "", nil, noop, err

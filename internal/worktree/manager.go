@@ -109,6 +109,40 @@ func (m *Manager) FindWorktree(repoDir, branch string) (string, error) {
 	return "", nil
 }
 
+// FindWorktreeByPath checks if the given path is a known git worktree and
+// returns its branch name. Returns empty string if the path is not a worktree
+// or is the main working tree.
+func (m *Manager) FindWorktreeByPath(dir string) (branch string, err error) {
+	out, err := gitOutput(dir, "worktree", "list")
+	if err != nil {
+		return "", fmt.Errorf("git worktree list: %w", err)
+	}
+
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks: %w", err)
+	}
+
+	first := true
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		if first {
+			first = false
+			continue // Skip main working tree
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[0] == resolvedDir {
+			raw := fields[2]
+			if strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]") {
+				return raw[1 : len(raw)-1], nil
+			}
+		}
+	}
+	return "", nil
+}
+
 func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktreePath, branch string, err error) {
 	slug := slugify(sessionName)
 	baseBranch := m.branchName(slug)

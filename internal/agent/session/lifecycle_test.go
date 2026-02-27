@@ -70,6 +70,42 @@ func TestResolveSourceToCWD_ShellSkipsWorktree(t *testing.T) {
 	}
 }
 
+func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
+	gitRoot := initTestGitRepo(t)
+	stateDir := t.TempDir()
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt)
+
+	// Create a worktree externally
+	wtPath, branch, err := wt.CreateForLocalRepo(gitRoot, "existing work")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	// Point an agent session at the worktree path — should reuse it
+	cwd, gotBranch, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.AgentClaude)
+	if err != nil {
+		t.Fatalf("resolveSourceToCWD: %v", err)
+	}
+	if cwd != wtPath {
+		t.Errorf("expected cwd %q (existing worktree), got %q", wtPath, cwd)
+	}
+	if gotBranch == nil || *gotBranch != branch {
+		var got string
+		if gotBranch != nil {
+			got = *gotBranch
+		}
+		t.Errorf("expected branch %q, got %q", branch, got)
+	}
+}
+
 func TestResolveSourceToCWD_AgentCreatesWorktree(t *testing.T) {
 	gitRoot := initTestGitRepo(t)
 	stateDir := t.TempDir()

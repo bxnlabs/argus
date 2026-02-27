@@ -268,6 +268,42 @@ func TestCreateForLocalRepoReusesExistingWorktree(t *testing.T) {
 	}
 }
 
+func TestFindWorktreeByPath(t *testing.T) {
+	gitRoot := initGitRepo(t)
+	stateDir := t.TempDir()
+
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
+
+	wtPath, branch, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	got, err := mgr.FindWorktreeByPath(wtPath)
+	if err != nil {
+		t.Fatalf("FindWorktreeByPath: %v", err)
+	}
+	if got != branch {
+		t.Errorf("FindWorktreeByPath = %q, want %q", got, branch)
+	}
+}
+
+func TestFindWorktreeByPathMainWorktree(t *testing.T) {
+	gitRoot := initGitRepo(t)
+	stateDir := t.TempDir()
+
+	mgr := worktree.NewManager(stateDir, &config.Config{})
+
+	// Main repo root is not a "linked" worktree — should return empty
+	got, err := mgr.FindWorktreeByPath(gitRoot)
+	if err != nil {
+		t.Fatalf("FindWorktreeByPath: %v", err)
+	}
+	if got != "" {
+		t.Errorf("FindWorktreeByPath on main = %q, want empty", got)
+	}
+}
+
 func TestCreateForRemoteRepoAlreadyCloned(t *testing.T) {
 	// Verify that calling CreateForRemoteRepo a second time (repo already cloned)
 	// fetches and creates a new worktree without error.
