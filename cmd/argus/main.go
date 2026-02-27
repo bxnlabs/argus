@@ -13,9 +13,12 @@ import (
 
 	"github.com/bxnlabs/argus/cmd/argus/cli"
 	"github.com/bxnlabs/argus/internal/agent"
+	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/web"
 	"github.com/spf13/cobra"
 )
+
+var cfg *config.Config
 
 func main() {
 	rootCmd := newRootCmd()
@@ -25,23 +28,27 @@ func main() {
 }
 
 func newRootCmd() *cobra.Command {
-	var (
-		port   int
-		dbPath string
-	)
+	var configFile string
 
 	rootCmd := &cobra.Command{
 		Use:   "argus",
 		Short: "Argus — agent session manager",
 		Long:  "Argus runs a combined web server and agent API, or individual components.",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			var err error
+			cfg, err = config.Load(config.Options{ConfigFile: configFile})
+			if err != nil {
+				return err
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCombined(port, dbPath)
+			return runCombined()
 		},
 		SilenceUsage: true,
 	}
 
-	rootCmd.Flags().IntVar(&port, "port", 3000, "HTTP server port")
-	rootCmd.Flags().StringVar(&dbPath, "db", "~/.argus/agent.db", "SQLite database path")
+	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "path to config file (default ~/.argus/config.toml)")
 
 	rootCmd.AddCommand(
 		newServerCmd(),
@@ -53,40 +60,30 @@ func newRootCmd() *cobra.Command {
 }
 
 func newServerCmd() *cobra.Command {
-	var (
-		port   int
-		webDir string
-	)
+	var webDir string
 
 	cmd := &cobra.Command{
 		Use:   "server",
 		Short: "Start only the SPA frontend server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cmd.SilenceUsage = true
 			mux := http.NewServeMux()
 			mux.Handle("/", web.NewSPAHandler(webDir))
-			return serve(fmt.Sprintf(":%d", port), mux, "argus server", nil)
+			addr := fmt.Sprintf("%s:%d", cfg.Server.BindAddress, cfg.Server.Port)
+			return serve(addr, mux, "argus server", nil)
 		},
 	}
 
-	cmd.Flags().IntVar(&port, "port", 3000, "HTTP server port")
 	cmd.Flags().StringVar(&webDir, "web", "", "Override embedded SPA with local directory")
 
 	return cmd
 }
 
 func newAgentCmd() *cobra.Command {
-	var (
-		port   int
-		dbPath string
-	)
-
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "Start only the agent API",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cmd.SilenceUsage = true
-			agentHandler, cleanup, err := agent.Setup(agent.Config{DBPath: dbPath})
+			agentHandler, cleanup, err := agent.Setup(cfg)
 			if err != nil {
 				return err
 			}
@@ -95,15 +92,12 @@ func newAgentCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-			addr := fmt.Sprintf(":%d", port)
+			addr := fmt.Sprintf("%s:%d", cfg.Agent.BindAddress, cfg.Agent.Port)
 			return serve(addr, mux, "argus agent", func(a string) {
 				writeDiscovery(a)
 			})
 		},
 	}
-
-	cmd.Flags().IntVar(&port, "port", 3011, "HTTP server port")
-	cmd.Flags().StringVar(&dbPath, "db", "~/.argus/agent.db", "SQLite database path")
 
 	return cmd
 }
@@ -136,8 +130,8 @@ func removeDiscovery() {
 }
 
 // runCombined starts the agent and SPA on a single port.
-func runCombined(port int, dbPath string) error {
-	agentHandler, cleanup, err := agent.Setup(agent.Config{DBPath: dbPath})
+func runCombined() error {
+	agentHandler, cleanup, err := agent.Setup(cfg)
 	if err != nil {
 		return err
 	}
@@ -147,7 +141,7 @@ func runCombined(port int, dbPath string) error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	addr := fmt.Sprintf(":%d", port)
+	addr := fmt.Sprintf("%s:%d", cfg.Server.BindAddress, cfg.Server.Port)
 	return serve(addr, mux, "argus", func(a string) {
 		writeDiscovery(a)
 	})
