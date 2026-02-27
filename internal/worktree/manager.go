@@ -29,17 +29,39 @@ func NewManager(stateDir string, cfg *config.Config) *Manager {
 	return &Manager{stateDir: stateDir, cfg: cfg}
 }
 
+// IsManaged reports whether the given worktree path matches the layout used
+// by argus-created worktrees: <stateDir>/projects/<parentKey>/worktrees/<name>.
+// It determines the parent key by resolving the worktree's parent git
+// repository and deriving the key from that path.
+// External worktrees (user-provided paths outside this structure) return false
+// and are never deleted on session cleanup.
+func (m *Manager) IsManaged(worktreePath string) bool {
+	mainRepo, err := mainRepoFromWorktree(worktreePath)
+	if err != nil {
+		return false
+	}
+
+	parentKey := source.ParentKeyFromPath(mainRepo)
+	name := filepath.Base(worktreePath)
+	expected := filepath.Join(m.stateDir, "projects", parentKey, "worktrees", name)
+	return worktreePath == expected
+}
+
 // CreateForLocalRepo creates an isolated git worktree for a local git repo.
 // gitRoot must be the absolute path to the repo root.
-// Returns the worktree path and the git branch name.
-func (m *Manager) CreateForLocalRepo(gitRoot, sessionName string) (worktreePath, branch string, err error) {
+// Returns the worktree path, git branch name, and whether the worktree was
+// newly created (true) or an existing one was reused (false).
+func (m *Manager) CreateForLocalRepo(gitRoot, sessionName string) (worktreePath, branch string, created bool, err error) {
 	src := &source.Source{LocalPath: gitRoot}
 	return m.createWorktree(gitRoot, src.ParentKey(), sessionName)
 }
 
 // EnsureClone clones the remote repo if not already cloned, or fetches
-// updates if it is. Returns the clone directory path.
-func (m *Manager) EnsureClone(src *source.Source) (string, error) {
+// updates if it is. When fetchOnly is false (the default for worktree
+// creation), existing clones are reset to the latest default branch.
+// When fetchOnly is true (used for shell session CWDs), existing clones
+// are only fetched so that uncommitted user work is preserved.
+func (m *Manager) EnsureClone(src *source.Source, fetchOnly bool) (string, error) {
 	cloneDir := filepath.Join(m.stateDir, "projects", src.ParentKey(), "gitrepo")
 
 	_, statErr := os.Stat(cloneDir)
@@ -53,6 +75,10 @@ func (m *Manager) EnsureClone(src *source.Source) (string, error) {
 		if err := runGit("", "clone", src.RemoteURL, cloneDir); err != nil {
 			os.RemoveAll(cloneDir)
 			return "", fmt.Errorf("clone repo: %w", err)
+		}
+	} else if fetchOnly {
+		if err := runGit(cloneDir, "fetch", "origin"); err != nil {
+			return "", fmt.Errorf("fetch: %w", err)
 		}
 	} else {
 		defaultBranch, err := getDefaultBranch(cloneDir)
@@ -73,37 +99,73 @@ func (m *Manager) EnsureClone(src *source.Source) (string, error) {
 }
 
 // CreateForRemoteRepo clones (or fetches) the remote repo and creates a worktree.
-// Returns the worktree path and the git branch name.
-func (m *Manager) CreateForRemoteRepo(src *source.Source, sessionName string) (worktreePath, branch string, err error) {
-	cloneDir, err := m.EnsureClone(src)
+// Returns the worktree path, git branch name, and whether the worktree was
+// newly created (true) or an existing one was reused (false).
+func (m *Manager) CreateForRemoteRepo(src *source.Source, sessionName string) (worktreePath, branch string, created bool, err error) {
+	cloneDir, err := m.EnsureClone(src, false)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	return m.createWorktree(cloneDir, src.ParentKey(), sessionName)
+}
+
+// worktreeEntry represents a parsed entry from git worktree list --porcelain.
+type worktreeEntry struct {
+	path   string // worktree path (may contain spaces)
+	branch string // short branch name (e.g. "main"), empty for detached HEAD
+}
+
+// listWorktrees returns parsed worktree entries, excluding the first entry
+// (main working tree). Uses --porcelain for reliable parsing of paths with
+// spaces.
+func listWorktrees(repoDir string) ([]worktreeEntry, error) {
+	out, err := gitOutput(repoDir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("git worktree list: %w", err)
+	}
+
+	var entries []worktreeEntry
+	var current worktreeEntry
+	first := true
+
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			if current.path != "" {
+				if first {
+					first = false
+				} else {
+					entries = append(entries, current)
+				}
+			}
+			current = worktreeEntry{}
+			continue
+		}
+		if strings.HasPrefix(line, "worktree ") {
+			current.path = line[len("worktree "):]
+		} else if strings.HasPrefix(line, "branch refs/heads/") {
+			current.branch = line[len("branch refs/heads/"):]
+		}
+	}
+	// Flush last entry (porcelain output may not end with blank line).
+	if current.path != "" && !first {
+		entries = append(entries, current)
+	}
+	return entries, nil
 }
 
 // FindWorktree checks whether a git worktree already exists for the given
 // branch. repoDir can be the main repo root or any existing worktree
 // directory (git worktree list works from either).
 // Returns the worktree path if found, empty string if not.
+// Only linked worktrees are considered — the main working tree is excluded.
 func (m *Manager) FindWorktree(repoDir, branch string) (string, error) {
-	out, err := gitOutput(repoDir, "worktree", "list")
+	entries, err := listWorktrees(repoDir)
 	if err != nil {
-		return "", fmt.Errorf("git worktree list: %w", err)
+		return "", err
 	}
-
-	target := "[" + branch + "]"
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[2] == target {
-			// Note: git worktree list resolves symlinks (e.g.
-			// /var -> /private/var on macOS), so the returned path
-			// may differ from the path originally passed to
-			// "git worktree add".
-			return fields[0], nil
+	for _, e := range entries {
+		if e.branch == branch {
+			return e.path, nil
 		}
 	}
 	return "", nil
@@ -113,9 +175,9 @@ func (m *Manager) FindWorktree(repoDir, branch string) (string, error) {
 // returns its branch name. Returns empty string if the path is not a worktree
 // or is the main working tree.
 func (m *Manager) FindWorktreeByPath(dir string) (branch string, err error) {
-	out, err := gitOutput(dir, "worktree", "list")
+	entries, err := listWorktrees(dir)
 	if err != nil {
-		return "", fmt.Errorf("git worktree list: %w", err)
+		return "", err
 	}
 
 	resolvedDir, err := filepath.EvalSymlinks(dir)
@@ -123,60 +185,48 @@ func (m *Manager) FindWorktreeByPath(dir string) (branch string, err error) {
 		return "", fmt.Errorf("resolve symlinks: %w", err)
 	}
 
-	first := true
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if line == "" {
-			continue
-		}
-		if first {
-			first = false
-			continue // Skip main working tree
-		}
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[0] == resolvedDir {
-			raw := fields[2]
-			if strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]") {
-				return raw[1 : len(raw)-1], nil
-			}
+	for _, e := range entries {
+		if e.path == resolvedDir {
+			return e.branch, nil
 		}
 	}
 	return "", nil
 }
 
-func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktreePath, branch string, err error) {
+func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktreePath, branch string, created bool, err error) {
 	slug := slugify(sessionName)
 	baseBranch := m.branchName(slug)
 
 	// Check if a worktree already exists for this branch.
 	existing, err := m.FindWorktree(repoDir, baseBranch)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	if existing != "" {
-		return existing, baseBranch, nil
+		return existing, baseBranch, false, nil
 	}
 
 	branch, err = m.uniqueBranch(repoDir, baseBranch)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	defaultBranch, err := getDefaultBranch(repoDir)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	worktreePath = filepath.Join(m.stateDir, "projects", parentKey, "worktrees", worktreeDirName(branch))
 
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
-		return "", "", fmt.Errorf("create worktrees dir: %w", err)
+		return "", "", false, fmt.Errorf("create worktrees dir: %w", err)
 	}
 
 	if err := runGit(repoDir, "worktree", "add", worktreePath, "-b", branch, defaultBranch); err != nil {
-		return "", "", fmt.Errorf("git worktree add: %w", err)
+		return "", "", false, fmt.Errorf("git worktree add: %w", err)
 	}
 
-	return worktreePath, branch, nil
+	return worktreePath, branch, true, nil
 }
 
 func (m *Manager) branchName(slug string) string {

@@ -39,6 +39,13 @@ func (s *Source) ParentKey() string {
 	return "--" + strings.ReplaceAll(stripped, "/", "--")
 }
 
+// ParentKeyFromPath computes the parent key for an absolute local path.
+// This is the same encoding used by ParentKey for local sources.
+func ParentKeyFromPath(absPath string) string {
+	stripped := strings.TrimPrefix(absPath, "/")
+	return "--" + strings.ReplaceAll(stripped, "/", "--")
+}
+
 // Resolve resolves input into a Source. It first checks whether input is an
 // existing local directory; otherwise it attempts to parse it as a git URL
 // or "org/repo" GitHub shorthand. Returns an error if neither interpretation

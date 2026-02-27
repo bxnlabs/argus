@@ -127,6 +127,18 @@ func (d *DB) UpdateSession(id string, u SessionUpdate) error {
 	return nil
 }
 
+// CountSessionsByWorkingDir returns the number of sessions (excluding the
+// given session ID) that share the same working directory. Used to determine
+// whether it's safe to remove a worktree on session deletion.
+func (d *DB) CountSessionsByWorkingDir(excludeID, workingDir string) (int, error) {
+	var count int
+	err := d.sql.QueryRow(
+		`SELECT COUNT(*) FROM sessions WHERE id != ? AND working_directory = ?`,
+		excludeID, workingDir,
+	).Scan(&count)
+	return count, err
+}
+
 func (d *DB) DeleteSession(id string) error {
 	result, err := d.sql.Exec(`DELETE FROM sessions WHERE id = ?`, id)
 	if err != nil {

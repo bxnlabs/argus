@@ -84,7 +84,7 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 	mgr := NewManager(database, wt)
 
 	// Create a worktree externally
-	wtPath, branch, err := wt.CreateForLocalRepo(gitRoot, "existing work")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "existing work")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}

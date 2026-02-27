@@ -49,13 +49,16 @@ func TestCreateForLocalRepo(t *testing.T) {
 	stateDir := t.TempDir()
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
-	wtPath, branch, err := mgr.CreateForLocalRepo(gitRoot, "Fix Auth Bug")
+	wtPath, branch, created, err := mgr.CreateForLocalRepo(gitRoot, "Fix Auth Bug")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
 
 	if branch != "jeev/fix-auth-bug" {
 		t.Errorf("expected branch %q, got %q", "jeev/fix-auth-bug", branch)
+	}
+	if !created {
+		t.Error("expected created=true for new worktree")
 	}
 
 	if _, err := os.Stat(wtPath); err != nil {
@@ -68,7 +71,7 @@ func TestCreateForLocalRepoNoBranchPrefix(t *testing.T) {
 	stateDir := t.TempDir()
 
 	mgr := worktree.NewManager(stateDir, &config.Config{})
-	_, branch, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	_, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -83,21 +86,27 @@ func TestCreateForLocalRepoBranchConflict(t *testing.T) {
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
-	wtPath1, branch1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	wtPath1, branch1, created1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("first CreateForLocalRepo: %v", err)
 	}
 	if branch1 != "jeev/my-feature" {
 		t.Errorf("expected first branch %q, got %q", "jeev/my-feature", branch1)
 	}
+	if !created1 {
+		t.Error("expected created=true for first worktree")
+	}
 
 	// Second call with same name — should reuse the existing worktree
-	wtPath2, branch2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	wtPath2, branch2, created2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("second CreateForLocalRepo: %v", err)
 	}
 	if branch2 != "jeev/my-feature" {
 		t.Errorf("expected reused branch %q, got %q", "jeev/my-feature", branch2)
+	}
+	if created2 {
+		t.Error("expected created=false for reused worktree")
 	}
 	if realPath(t, wtPath2) != realPath(t, wtPath1) {
 		t.Errorf("expected reused path %q, got %q", realPath(t, wtPath1), realPath(t, wtPath2))
@@ -118,7 +127,7 @@ func TestEnsureClone(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{})
 
 	// First call — clones
-	cloneDir, err := mgr.EnsureClone(src)
+	cloneDir, err := mgr.EnsureClone(src, false)
 	if err != nil {
 		t.Fatalf("first EnsureClone: %v", err)
 	}
@@ -127,7 +136,7 @@ func TestEnsureClone(t *testing.T) {
 	}
 
 	// Second call — fetches, returns same dir
-	cloneDir2, err := mgr.EnsureClone(src)
+	cloneDir2, err := mgr.EnsureClone(src, false)
 	if err != nil {
 		t.Fatalf("second EnsureClone: %v", err)
 	}
@@ -149,13 +158,16 @@ func TestCreateForRemoteRepo(t *testing.T) {
 	}
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
-	wtPath, branch, err := mgr.CreateForRemoteRepo(src, "my feature")
+	wtPath, branch, created, err := mgr.CreateForRemoteRepo(src, "my feature")
 	if err != nil {
 		t.Fatalf("CreateForRemoteRepo: %v", err)
 	}
 
 	if branch != "jeev/my-feature" {
 		t.Errorf("expected branch %q, got %q", "jeev/my-feature", branch)
+	}
+	if !created {
+		t.Error("expected created=true for new remote worktree")
 	}
 	if _, err := os.Stat(wtPath); err != nil {
 		t.Errorf("worktree path %q does not exist: %v", wtPath, err)
@@ -186,7 +198,7 @@ func TestFindWorktreeExists(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// Create a worktree first
-	wtPath, branch, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	wtPath, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -223,11 +235,11 @@ func TestFindWorktreeFromWorktreeDir(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// Create two worktrees
-	wtPath1, _, err := mgr.CreateForLocalRepo(gitRoot, "first")
+	wtPath1, _, _, err := mgr.CreateForLocalRepo(gitRoot, "first")
 	if err != nil {
 		t.Fatalf("first CreateForLocalRepo: %v", err)
 	}
-	wtPath2, branch2, err := mgr.CreateForLocalRepo(gitRoot, "second")
+	wtPath2, branch2, _, err := mgr.CreateForLocalRepo(gitRoot, "second")
 	if err != nil {
 		t.Fatalf("second CreateForLocalRepo: %v", err)
 	}
@@ -249,19 +261,25 @@ func TestCreateForLocalRepoReusesExistingWorktree(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// First creation
-	wtPath1, branch1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	wtPath1, branch1, created1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("first CreateForLocalRepo: %v", err)
 	}
+	if !created1 {
+		t.Error("expected created=true for first worktree")
+	}
 
 	// Second creation with same name — should reuse, not create "-2"
-	wtPath2, branch2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	wtPath2, branch2, created2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("second CreateForLocalRepo: %v", err)
 	}
 
 	if branch2 != branch1 {
 		t.Errorf("expected reused branch %q, got %q", branch1, branch2)
+	}
+	if created2 {
+		t.Error("expected created=false for reused worktree")
 	}
 	if realPath(t, wtPath2) != realPath(t, wtPath1) {
 		t.Errorf("expected reused path %q, got %q", realPath(t, wtPath1), realPath(t, wtPath2))
@@ -274,7 +292,7 @@ func TestFindWorktreeByPath(t *testing.T) {
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
-	wtPath, branch, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	wtPath, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -320,13 +338,13 @@ func TestCreateForRemoteRepoAlreadyCloned(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// First call — clones the repo.
-	_, _, err := mgr.CreateForRemoteRepo(src, "first session")
+	_, _, _, err := mgr.CreateForRemoteRepo(src, "first session")
 	if err != nil {
 		t.Fatalf("first CreateForRemoteRepo: %v", err)
 	}
 
 	// Second call — repo already cloned; should fetch and create another worktree.
-	_, branch2, err := mgr.CreateForRemoteRepo(src, "second session")
+	_, branch2, _, err := mgr.CreateForRemoteRepo(src, "second session")
 	if err != nil {
 		t.Fatalf("second CreateForRemoteRepo: %v", err)
 	}

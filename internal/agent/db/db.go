@@ -41,7 +41,6 @@ func Open(path string) (*DB, error) {
 // On an existing database that lacks the column, this is a no-op so that
 // RunMigrations can apply the ALTER TABLE normally.
 func (d *DB) seedMigrations() error {
-	// Check whether worktree_branch already exists in the sessions table.
 	rows, err := d.sql.Query(`PRAGMA table_info(sessions)`)
 	if err != nil {
 		return err
@@ -59,7 +58,6 @@ func (d *DB) seedMigrations() error {
 		}
 		if name == "worktree_branch" {
 			hasWorktreeBranch = true
-			break
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -67,11 +65,12 @@ func (d *DB) seedMigrations() error {
 	}
 
 	if hasWorktreeBranch {
-		_, err = d.sql.Exec(
+		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
 			"add_worktree_branch",
-		)
-		return err
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }
