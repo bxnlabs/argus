@@ -17,17 +17,11 @@ import (
 	"github.com/bxnlabs/argus/internal/worktree"
 )
 
-// Config holds the configuration for the agent.
-type Config struct {
-	DBPath  string
-	Address string
-}
-
 // Setup initializes the agent: opens the database, runs migrations, and
 // returns an HTTP handler with all agent API routes. The returned cleanup
 // function closes the database and should be called on shutdown.
-func Setup(cfg Config) (http.Handler, func(), error) {
-	database, err := db.Open(cfg.DBPath)
+func Setup(cfg *config.Config) (http.Handler, func(), error) {
+	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open db: %w", err)
 	}
@@ -38,9 +32,9 @@ func Setup(cfg Config) (http.Handler, func(), error) {
 	}
 
 	// Determine state dir from DB path (~/.argus)
-	expandedDBPath, expandErr := shared.ExpandPath(cfg.DBPath)
+	expandedDBPath, expandErr := shared.ExpandPath(cfg.Database.Path)
 	if expandErr != nil {
-		expandedDBPath = cfg.DBPath // fall back to literal path
+		expandedDBPath = cfg.Database.Path // fall back to literal path
 	}
 	stateDir := filepath.Dir(expandedDBPath)
 	if stateDir == "." {
@@ -52,11 +46,7 @@ func Setup(cfg Config) (http.Handler, func(), error) {
 		stateDir = filepath.Join(home, ".argus")
 	}
 
-	userCfg, err := config.Load()
-	if err != nil || userCfg == nil {
-		userCfg = &config.Config{}
-	}
-	wtMgr := worktree.NewManager(stateDir, userCfg)
+	wtMgr := worktree.NewManager(stateDir, cfg)
 
 	mgr := session.NewManager(database, wtMgr)
 	detector := status.NewDetector()
