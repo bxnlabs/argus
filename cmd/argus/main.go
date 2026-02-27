@@ -37,10 +37,7 @@ func newRootCmd() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			cfg, err = config.Load(config.Options{ConfigFile: configFile})
-			if err != nil {
-				return err
-			}
-			return nil
+			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCombined()
@@ -63,8 +60,9 @@ func newServerCmd() *cobra.Command {
 	var webDir string
 
 	cmd := &cobra.Command{
-		Use:   "server",
-		Short: "Start only the SPA frontend server",
+		Use:          "server",
+		Short:        "Start only the SPA frontend server",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mux := http.NewServeMux()
 			mux.Handle("/", web.NewSPAHandler(webDir))
@@ -80,8 +78,9 @@ func newServerCmd() *cobra.Command {
 
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "agent",
-		Short: "Start only the agent API",
+		Use:          "agent",
+		Short:        "Start only the agent API",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentHandler, cleanup, err := agent.Setup(cfg)
 			if err != nil {

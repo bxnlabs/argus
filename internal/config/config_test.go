@@ -215,6 +215,22 @@ bind_address = "not-an-ip"
 	}
 }
 
+func TestValidation_EmptyDatabasePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[database]
+path = ""
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(config.Options{ConfigFile: path})
+	if err == nil {
+		t.Fatal("expected error for empty database.path, got nil")
+	}
+}
+
 func TestDefaultConfigFileSearch(t *testing.T) {
 	// When no ConfigFile is specified, Load searches ~/.argus/
 	// We test this by NOT setting ConfigFile — it should not error
