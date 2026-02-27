@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"syscall"
@@ -65,17 +64,6 @@ func newClient(discoveryPath string) (*apiClient, error) {
 	info, err := discover(discoveryPath)
 	if err != nil {
 		return nil, err
-	}
-
-	// Validate the address is a loopback IP to prevent redirection
-	// via a tampered discovery file.
-	host, _, err := net.SplitHostPort(info.Address)
-	if err != nil {
-		return nil, fmt.Errorf("invalid address in discovery file: %w", err)
-	}
-	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return nil, fmt.Errorf("refusing to connect to non-loopback address %q from discovery file", host)
 	}
 
 	c := &apiClient{
