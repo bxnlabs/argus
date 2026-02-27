@@ -6,7 +6,7 @@
 
 **Architecture:** New `TailscaleConfig` struct in config package. New `internal/tailscale` package with `DetectIPs()` using the Tailscale Go client library. Refactored `listenAddrs()` to accept a flat IP slice + port, with callers building the full IP list including Tailscale addresses.
 
-**Tech Stack:** Go stdlib `net/netip`, `tailscale.com/client/tailscale`, existing Viper config system.
+**Tech Stack:** Go stdlib `net/netip`, `tailscale.com/client/local`, existing Viper config system.
 
 ---
 
@@ -147,7 +147,7 @@ git commit -m "feat: add tailscale config section with enabled toggle"
 
 **Step 1: Add the Tailscale client dependency**
 
-Run: `go get tailscale.com/client/tailscale`
+Run: `go get tailscale.com/client/local`
 
 This pulls in `tailscale.com` and its transitive deps. The binary size increase is acceptable since we only import the client.
 
@@ -162,15 +162,14 @@ import (
 	"context"
 	"net/netip"
 
-	"tailscale.com/client/tailscale"
+	"tailscale.com/client/local"
 )
 
 // DetectIPs queries the local Tailscale daemon for this node's Tailscale IPs.
 // Returns both IPv4 (100.x.x.x) and IPv6 (fd7a:...) addresses when available.
 // Returns nil and no error if Tailscale is not running or has no IPs.
 func DetectIPs(ctx context.Context) ([]netip.Addr, error) {
-	var lc tailscale.LocalClient
-	status, err := lc.Status(ctx)
+	status, err := local.Status(ctx)
 	if err != nil {
 		return nil, err
 	}

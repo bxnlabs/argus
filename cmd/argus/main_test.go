@@ -109,6 +109,18 @@ func TestBindIPs(t *testing.T) {
 			extra:    []string{"100.64.0.1"},
 			want:     []string{"192.168.1.10", "127.0.0.1", "100.64.0.1"},
 		},
+		{
+			name:     "unspecified IPv4 skips same-family extras",
+			bindAddr: "0.0.0.0",
+			extra:    []string{"100.64.0.1", "fd7a:115c:a1e0::1"},
+			want:     []string{"0.0.0.0", "fd7a:115c:a1e0::1"},
+		},
+		{
+			name:     "unspecified IPv6 skips same-family extras",
+			bindAddr: "::",
+			extra:    []string{"fd7a:115c:a1e0::1", "100.64.0.1"},
+			want:     []string{"::", "100.64.0.1"},
+		},
 	}
 
 	for _, tt := range tests {

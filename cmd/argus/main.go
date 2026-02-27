@@ -172,13 +172,26 @@ func runCombined() error {
 
 // bindIPs builds the list of IPs to bind to. It always includes the primary
 // bind address. If the primary is a specific non-loopback IP, it appends
-// 127.0.0.1 so the CLI can always reach via loopback.
+// 127.0.0.1 so the CLI can always reach via loopback. When the primary is
+// unspecified (0.0.0.0 or ::), same-family extras are skipped since they're
+// redundant, but opposite-family extras are kept (e.g. 0.0.0.0 + Tailscale IPv6).
 func bindIPs(bindAddr string, extra ...string) []string {
 	ips := []string{bindAddr}
-	if ip := net.ParseIP(bindAddr); ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+	ip := net.ParseIP(bindAddr)
+	if ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
 		ips = append(ips, "127.0.0.1")
 	}
-	ips = append(ips, extra...)
+	if ip != nil && ip.IsUnspecified() {
+		primaryIsV4 := ip.To4() != nil
+		for _, e := range extra {
+			if eip := net.ParseIP(e); eip != nil && (eip.To4() != nil) == primaryIsV4 {
+				continue
+			}
+			ips = append(ips, e)
+		}
+	} else {
+		ips = append(ips, extra...)
+	}
 	return ips
 }
 

@@ -16,7 +16,7 @@ func DetectIPs(ctx context.Context) ([]netip.Addr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if status.Self == nil {
+	if status == nil || status.Self == nil {
 		return nil, nil
 	}
 	return status.Self.TailscaleIPs, nil
