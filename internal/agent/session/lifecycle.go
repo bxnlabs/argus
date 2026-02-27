@@ -4,15 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 	"sync"
 
 	"github.com/bxnlabs/argus/internal/agent/db"
 	"github.com/bxnlabs/argus/internal/agent/provider"
 	"github.com/bxnlabs/argus/internal/shared"
+	"github.com/bxnlabs/argus/internal/git"
+	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/source"
-	"github.com/bxnlabs/argus/internal/worktree"
 )
 
 // ErrNotFound is returned when a session ID does not exist in the database.
@@ -193,7 +192,7 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 	}
 
 	// Local path: check if it's inside a git repo.
-	gitRoot, err := findGitRoot(resolved.LocalPath)
+	gitRoot, err := git.FindMainRepo(resolved.LocalPath)
 	if err != nil {
 		// Not a git repo — use the path directly.
 		return resolved.LocalPath, nil, noop, nil
@@ -219,18 +218,6 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 		cleanup2 = func() { m.wt.Cleanup(wtPath) }
 	}
 	return wtPath, &branch, cleanup2, nil
-}
-
-// findGitRoot returns the git root for the given directory, or an error if
-// the directory is not inside a git repository.
-func findGitRoot(dir string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 // Delete kills the tmux session and removes from DB. For worktree-backed

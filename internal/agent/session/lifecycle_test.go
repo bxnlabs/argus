@@ -9,7 +9,7 @@ import (
 	"github.com/bxnlabs/argus/internal/agent/db"
 	"github.com/bxnlabs/argus/internal/agent/provider"
 	"github.com/bxnlabs/argus/internal/config"
-	"github.com/bxnlabs/argus/internal/worktree"
+	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
 func initTestGitRepo(t *testing.T) string {

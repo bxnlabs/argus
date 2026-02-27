@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/config"
+	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/source"
-	"github.com/bxnlabs/argus/internal/worktree"
 )
 
 // initGitRepo creates a temporary git repo with an initial commit on "main".

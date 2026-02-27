@@ -7,7 +7,7 @@ import (
 	"github.com/bxnlabs/argus/internal/agent/db"
 	"github.com/bxnlabs/argus/internal/agent/provider"
 	agentsession "github.com/bxnlabs/argus/internal/agent/session"
-	"github.com/bxnlabs/argus/internal/worktree"
+	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
 type sessionHandler struct {
