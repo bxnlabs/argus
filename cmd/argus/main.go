@@ -67,7 +67,7 @@ func newServerCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mux := http.NewServeMux()
 			mux.Handle("/", web.NewSPAHandler(webDir))
-			return serve(listenAddrs(cfg.Server.BindAddress, cfg.Server.Port), mux, "argus server", nil)
+			return serve(listenAddrs(bindIPs(cfg.Server.BindAddress), cfg.Server.Port), mux, "argus server", nil)
 		},
 	}
 
@@ -91,7 +91,7 @@ func newAgentCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-			return serve(listenAddrs(cfg.Agent.BindAddress, cfg.Agent.Port), mux, "argus agent", func(a string) {
+			return serve(listenAddrs(bindIPs(cfg.Agent.BindAddress), cfg.Agent.Port), mux, "argus agent", func(a string) {
 				writeDiscovery(a)
 			})
 		},
@@ -140,23 +140,37 @@ func runCombined() error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	return serve(listenAddrs(cfg.Server.BindAddress, cfg.Server.Port), mux, "argus", func(a string) {
+	return serve(listenAddrs(bindIPs(cfg.Server.BindAddress), cfg.Server.Port), mux, "argus", func(a string) {
 		writeDiscovery(a)
 	})
 }
 
-// listenAddrs returns the list of TCP addresses to listen on. It always
-// includes the primary bindAddr:port. If bindAddr is a specific non-loopback
-// IP (not unspecified), it appends 127.0.0.1:port so the local CLI can
-// always reach the agent via loopback.
-func listenAddrs(bindAddr string, port int) []string {
-	primary := net.JoinHostPort(bindAddr, strconv.Itoa(port))
-	ip := net.ParseIP(bindAddr)
-	if ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
-		loopback := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-		return []string{primary, loopback}
+// bindIPs builds the list of IPs to bind to. It always includes the primary
+// bind address. If the primary is a specific non-loopback IP, it appends
+// 127.0.0.1 so the CLI can always reach via loopback.
+func bindIPs(bindAddr string, extra ...string) []string {
+	ips := []string{bindAddr}
+	if ip := net.ParseIP(bindAddr); ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+		ips = append(ips, "127.0.0.1")
 	}
-	return []string{primary}
+	ips = append(ips, extra...)
+	return ips
+}
+
+// listenAddrs formats each IP with the given port into host:port addresses,
+// deduplicating any repeated entries.
+func listenAddrs(ips []string, port int) []string {
+	portStr := strconv.Itoa(port)
+	seen := make(map[string]bool)
+	var addrs []string
+	for _, ip := range ips {
+		addr := net.JoinHostPort(ip, portStr)
+		if !seen[addr] {
+			seen[addr] = true
+			addrs = append(addrs, addr)
+		}
+	}
+	return addrs
 }
 
 // serve starts an HTTP server on the given addresses with graceful shutdown.
