@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -66,7 +67,7 @@ func newServerCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mux := http.NewServeMux()
 			mux.Handle("/", web.NewSPAHandler(webDir))
-			addr := fmt.Sprintf("%s:%d", cfg.Server.BindAddress, cfg.Server.Port)
+			addr := net.JoinHostPort(cfg.Server.BindAddress, strconv.Itoa(cfg.Server.Port))
 			return serve(addr, mux, "argus server", nil)
 		},
 	}
@@ -91,7 +92,7 @@ func newAgentCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-			addr := fmt.Sprintf("%s:%d", cfg.Agent.BindAddress, cfg.Agent.Port)
+			addr := net.JoinHostPort(cfg.Agent.BindAddress, strconv.Itoa(cfg.Agent.Port))
 			return serve(addr, mux, "argus agent", func(a string) {
 				writeDiscovery(a)
 			})
@@ -140,7 +141,7 @@ func runCombined() error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	addr := fmt.Sprintf("%s:%d", cfg.Server.BindAddress, cfg.Server.Port)
+	addr := net.JoinHostPort(cfg.Server.BindAddress, strconv.Itoa(cfg.Server.Port))
 	return serve(addr, mux, "argus", func(a string) {
 		writeDiscovery(a)
 	})

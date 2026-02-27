@@ -8,10 +8,27 @@ import (
 	"github.com/bxnlabs/argus/internal/config"
 )
 
+// clearArgusEnv unsets all known ARGUS_* environment variables for the
+// duration of the test, preventing ambient env from contaminating defaults.
+func clearArgusEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"ARGUS_SERVER_PORT", "ARGUS_SERVER_BIND_ADDRESS",
+		"ARGUS_AGENT_PORT", "ARGUS_AGENT_BIND_ADDRESS",
+		"ARGUS_DATABASE_PATH", "ARGUS_GIT_BRANCH_PREFIX",
+	} {
+		if v, ok := os.LookupEnv(key); ok {
+			t.Cleanup(func() { os.Setenv(key, v) })
+		}
+		os.Unsetenv(key)
+	}
+}
+
 func TestDefaults(t *testing.T) {
-	cfg, err := config.Load(config.Options{
-		ConfigFile: "/nonexistent/config.toml",
-	})
+	clearArgusEnv(t)
+	// Use auto-discovery with a fake HOME so no real config is found.
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.Load(config.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,12 +127,22 @@ port = 4000
 	}
 }
 
-func TestMissingFileUsesDefaults(t *testing.T) {
-	cfg, err := config.Load(config.Options{
+func TestExplicitMissingFileReturnsError(t *testing.T) {
+	_, err := config.Load(config.Options{
 		ConfigFile: "/does/not/exist.toml",
 	})
+	if err == nil {
+		t.Fatal("expected error for explicitly specified missing config file, got nil")
+	}
+}
+
+func TestAutoDiscoveryMissingFileUsesDefaults(t *testing.T) {
+	clearArgusEnv(t)
+	// Auto-discovery (no explicit ConfigFile) should tolerate missing files.
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.Load(config.Options{})
 	if err != nil {
-		t.Fatalf("unexpected error for missing file: %v", err)
+		t.Fatalf("unexpected error for auto-discovery missing file: %v", err)
 	}
 	if cfg.Server.Port != 3000 {
 		t.Errorf("Server.Port = %d, want 3000", cfg.Server.Port)
@@ -126,6 +153,7 @@ func TestMissingFileUsesDefaults(t *testing.T) {
 }
 
 func TestEmptyFileUsesDefaults(t *testing.T) {
+	clearArgusEnv(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(path, []byte(""), 0644); err != nil {
@@ -145,6 +173,7 @@ func TestEmptyFileUsesDefaults(t *testing.T) {
 }
 
 func TestPartialConfig(t *testing.T) {
+	clearArgusEnv(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
@@ -232,6 +261,7 @@ path = ""
 }
 
 func TestDefaultConfigFileSearch(t *testing.T) {
+	clearArgusEnv(t)
 	// When no ConfigFile is specified, Load searches ~/.argus/
 	// Redirect HOME to a temp dir so we don't read the developer's real config.
 	t.Setenv("HOME", t.TempDir())
@@ -241,5 +271,31 @@ func TestDefaultConfigFileSearch(t *testing.T) {
 	}
 	if cfg.Server.Port != 3000 {
 		t.Errorf("Server.Port = %d, want 3000", cfg.Server.Port)
+	}
+}
+
+func TestIPv6BindAddress(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[server]
+bind_address = "::1"
+
+[agent]
+bind_address = "::1"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.Options{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("unexpected error for IPv6 bind address: %v", err)
+	}
+	if cfg.Server.BindAddress != "::1" {
+		t.Errorf("Server.BindAddress = %q, want ::1", cfg.Server.BindAddress)
+	}
+	if cfg.Agent.BindAddress != "::1" {
+		t.Errorf("Agent.BindAddress = %q, want ::1", cfg.Agent.BindAddress)
 	}
 }

@@ -45,8 +45,9 @@ type Options struct {
 
 // Load reads configuration from the TOML file and environment variables.
 // Priority (highest to lowest): env vars > config file > defaults.
-// A missing config file is not an error; defaults are used.
-// A malformed config file is an error.
+// When ConfigFile is set explicitly, a missing file is an error.
+// When auto-discovering (~/.argus/config.toml), a missing file is fine; defaults are used.
+// A malformed config file is always an error.
 func Load(opts Options) (*Config, error) {
 	v := viper.New()
 
@@ -77,13 +78,16 @@ func Load(opts Options) (*Config, error) {
 	}
 
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// Missing file is fine — use defaults.
-		} else if os.IsNotExist(err) {
-			// Explicit path that doesn't exist — use defaults.
-		} else {
+		notFound := false
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok && opts.ConfigFile == "" {
+			notFound = true
+		} else if os.IsNotExist(err) && opts.ConfigFile == "" {
+			notFound = true
+		}
+		if !notFound {
 			return nil, fmt.Errorf("config: read config file: %w", err)
 		}
+		// Auto-discovery found no file — use defaults.
 	}
 
 	var cfg Config
