@@ -76,7 +76,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// Resolve source → working directory (and optional worktree branch).
 	// cleanup removes the git worktree if a later step fails; it is a no-op
 	// for non-worktree sessions.
-	cwd, worktreeBranch, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name)
+	cwd, worktreeBranch, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name, provider.AgentType(opts.AgentType))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
@@ -154,7 +154,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 // the worktree path, branch name, and a cleanup function that removes the
 // worktree if a subsequent step fails. For non-worktree sessions, cleanup is
 // a no-op. If source is empty, defaults to home dir.
-func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, worktreeBranch *string, cleanup func(), err error) {
+func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider.AgentType) (cwd string, worktreeBranch *string, cleanup func(), err error) {
 	noop := func() {}
 
 	if src == "" {
@@ -171,6 +171,14 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, workt
 	}
 
 	if resolved.IsRemote() {
+		if agentType == provider.AgentShell {
+			// Shell sessions clone but don't create a worktree.
+			cloneDir, err := m.wt.EnsureClone(resolved)
+			if err != nil {
+				return "", nil, noop, err
+			}
+			return cloneDir, nil, noop, nil
+		}
 		wtPath, branch, err := m.wt.CreateForRemoteRepo(resolved, sessionName)
 		if err != nil {
 			return "", nil, noop, err
@@ -182,6 +190,11 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, workt
 	gitRoot, err := findGitRoot(resolved.LocalPath)
 	if err != nil {
 		// Not a git repo — use the path directly.
+		return resolved.LocalPath, nil, noop, nil
+	}
+
+	if agentType == provider.AgentShell {
+		// Shell sessions use the local path directly, no worktree.
 		return resolved.LocalPath, nil, noop, nil
 	}
 
