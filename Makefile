@@ -7,7 +7,7 @@ build-web:
 	cd web && npm run build
 
 dev: build-web
-	go run ./cmd/argus --port 3000
+	go run ./cmd/argus
 
 dev-web:
 	cd web && npm run dev

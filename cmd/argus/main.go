@@ -15,6 +15,7 @@ import (
 	"github.com/bxnlabs/argus/cmd/argus/cli"
 	"github.com/bxnlabs/argus/internal/agent"
 	"github.com/bxnlabs/argus/internal/config"
+	ts "github.com/bxnlabs/argus/internal/tailscale"
 	"github.com/bxnlabs/argus/internal/web"
 	"github.com/spf13/cobra"
 )
@@ -67,7 +68,7 @@ func newServerCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mux := http.NewServeMux()
 			mux.Handle("/", web.NewSPAHandler(webDir))
-			return serve(listenAddrs(cfg.Server.BindAddress, cfg.Server.Port), mux, "argus server", nil)
+			return serve(listenAddrs(bindIPs(cfg.Server.BindAddress, tailscaleIPs()...), cfg.Server.Port), mux, "argus server", nil)
 		},
 	}
 
@@ -91,7 +92,7 @@ func newAgentCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-			return serve(listenAddrs(cfg.Agent.BindAddress, cfg.Agent.Port), mux, "argus agent", func(a string) {
+			return serve(listenAddrs(bindIPs(cfg.Agent.BindAddress, tailscaleIPs()...), cfg.Agent.Port), mux, "argus agent", func(a string) {
 				writeDiscovery(a)
 			})
 		},
@@ -128,6 +129,30 @@ func removeDiscovery() {
 	agent.RemoveDiscoveryFile(dp)
 }
 
+// tailscaleIPs returns Tailscale IPs as strings if Tailscale is enabled in config.
+// Logs warnings and returns nil on failure — never fatal.
+func tailscaleIPs() []string {
+	if !cfg.Tailscale.Enabled {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	addrs, err := ts.DetectIPs(ctx)
+	if err != nil {
+		log.Printf("warning: tailscale enabled but detection failed: %v", err)
+		return nil
+	}
+	if len(addrs) == 0 {
+		log.Printf("warning: tailscale enabled but no IPs found")
+		return nil
+	}
+	strs := make([]string, len(addrs))
+	for i, a := range addrs {
+		strs[i] = a.String()
+	}
+	return strs
+}
+
 // runCombined starts the agent and SPA on a single port.
 func runCombined() error {
 	agentHandler, cleanup, err := agent.Setup(cfg)
@@ -140,23 +165,53 @@ func runCombined() error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	return serve(listenAddrs(cfg.Server.BindAddress, cfg.Server.Port), mux, "argus", func(a string) {
+	return serve(listenAddrs(bindIPs(cfg.Server.BindAddress, tailscaleIPs()...), cfg.Server.Port), mux, "argus", func(a string) {
 		writeDiscovery(a)
 	})
 }
 
-// listenAddrs returns the list of TCP addresses to listen on. It always
-// includes the primary bindAddr:port. If bindAddr is a specific non-loopback
-// IP (not unspecified), it appends 127.0.0.1:port so the local CLI can
-// always reach the agent via loopback.
-func listenAddrs(bindAddr string, port int) []string {
-	primary := net.JoinHostPort(bindAddr, strconv.Itoa(port))
+// bindIPs builds the list of IPs to bind to. It always includes the primary
+// bind address. If the primary is a specific non-loopback IP, it appends
+// 127.0.0.1 so the CLI can always reach via loopback. When the primary is
+// unspecified (0.0.0.0 or ::), same-family extras are skipped since they're
+// redundant, but opposite-family extras are kept (e.g. 0.0.0.0 + Tailscale IPv6).
+func bindIPs(bindAddr string, extra ...string) []string {
+	ips := []string{bindAddr}
 	ip := net.ParseIP(bindAddr)
-	if ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
-		loopback := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-		return []string{primary, loopback}
+	if ip == nil {
+		return append(ips, extra...)
 	}
-	return []string{primary}
+	if !ip.IsLoopback() && !ip.IsUnspecified() {
+		ips = append(ips, "127.0.0.1")
+	}
+	if !ip.IsUnspecified() {
+		return append(ips, extra...)
+	}
+	// Unspecified: only keep extras from the other address family.
+	isV4 := ip.To4() != nil
+	for _, e := range extra {
+		if eip := net.ParseIP(e); eip != nil && (eip.To4() != nil) == isV4 {
+			continue
+		}
+		ips = append(ips, e)
+	}
+	return ips
+}
+
+// listenAddrs formats each IP with the given port into host:port addresses,
+// deduplicating any repeated entries.
+func listenAddrs(ips []string, port int) []string {
+	portStr := strconv.Itoa(port)
+	seen := make(map[string]bool)
+	var addrs []string
+	for _, ip := range ips {
+		addr := net.JoinHostPort(ip, portStr)
+		if !seen[addr] {
+			seen[addr] = true
+			addrs = append(addrs, addr)
+		}
+	}
+	return addrs
 }
 
 // serve starts an HTTP server on the given addresses with graceful shutdown.

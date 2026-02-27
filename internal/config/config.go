@@ -12,10 +12,11 @@ import (
 
 // Config holds all Argus configuration.
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Agent    AgentConfig    `mapstructure:"agent"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Git      GitConfig      `mapstructure:"git"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Agent     AgentConfig     `mapstructure:"agent"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Git       GitConfig       `mapstructure:"git"`
+	Tailscale TailscaleConfig `mapstructure:"tailscale"`
 }
 
 type ServerConfig struct {
@@ -34,6 +35,10 @@ type DatabaseConfig struct {
 
 type GitConfig struct {
 	BranchPrefix string `mapstructure:"branch_prefix"`
+}
+
+type TailscaleConfig struct {
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // Options controls how config is loaded.
@@ -58,6 +63,7 @@ func Load(opts Options) (*Config, error) {
 	v.SetDefault("agent.bind_address", "127.0.0.1")
 	v.SetDefault("database.path", "~/.argus/agent.db")
 	v.SetDefault("git.branch_prefix", "")
+	v.SetDefault("tailscale.enabled", false)
 
 	// Environment variables: ARGUS_SERVER_PORT, etc.
 	v.SetEnvPrefix("ARGUS")

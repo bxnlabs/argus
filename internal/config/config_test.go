@@ -16,6 +16,7 @@ func clearArgusEnv(t *testing.T) {
 		"ARGUS_SERVER_PORT", "ARGUS_SERVER_BIND_ADDRESS",
 		"ARGUS_AGENT_PORT", "ARGUS_AGENT_BIND_ADDRESS",
 		"ARGUS_DATABASE_PATH", "ARGUS_GIT_BRANCH_PREFIX",
+		"ARGUS_TAILSCALE_ENABLED",
 	} {
 		if v, ok := os.LookupEnv(key); ok {
 			t.Cleanup(func() { os.Setenv(key, v) })
@@ -297,5 +298,52 @@ bind_address = "::1"
 	}
 	if cfg.Agent.BindAddress != "::1" {
 		t.Errorf("Agent.BindAddress = %q, want ::1", cfg.Agent.BindAddress)
+	}
+}
+
+func TestTailscaleDefaults(t *testing.T) {
+	clearArgusEnv(t)
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.Load(config.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Tailscale.Enabled {
+		t.Errorf("Tailscale.Enabled = true, want false")
+	}
+}
+
+func TestTailscaleFromFile(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[tailscale]
+enabled = true
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.Options{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Tailscale.Enabled {
+		t.Errorf("Tailscale.Enabled = false, want true")
+	}
+}
+
+func TestTailscaleEnvOverride(t *testing.T) {
+	clearArgusEnv(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("ARGUS_TAILSCALE_ENABLED", "true")
+
+	cfg, err := config.Load(config.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Tailscale.Enabled {
+		t.Errorf("Tailscale.Enabled = false, want true (env override)")
 	}
 }
