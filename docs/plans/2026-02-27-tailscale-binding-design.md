@@ -35,12 +35,12 @@ New package: `internal/tailscale/detect.go`
 func DetectIPs(ctx context.Context) ([]netip.Addr, error)
 ```
 
-Uses `tailscale.com/client/tailscale.LocalClient` to query the local Tailscale daemon:
-1. `lc.Status(ctx)` returns `*ipnstate.Status`
+Uses `tailscale.com/client/local` to query the local Tailscale daemon:
+1. `local.Status(ctx)` returns `*ipnstate.Status`
 2. Extract `status.Self.TailscaleIPs` for both IPv4 (`100.x.x.x`) and IPv6 (`fd7a:...`) addresses
-3. Return them, or empty slice if Tailscale isn't running
+3. Return them, or an error if the daemon is unreachable
 
-Dependency: `tailscale.com/client/tailscale`
+Dependency: `tailscale.com` (specifically `tailscale.com/client/local`)
 
 ## Listener Integration
 
@@ -73,4 +73,4 @@ The caller builds the full IP list:
 | `internal/tailscale/detect.go` | New: `DetectIPs()` via Tailscale Go client |
 | `cmd/argus/main.go` | Refactor `listenAddrs()` signature; add Tailscale detection to all modes |
 | `cmd/argus/main_test.go` | Update `listenAddrs()` tests |
-| `go.mod` | Add `tailscale.com/client/tailscale` |
+| `go.mod` | Add `tailscale.com` (for `tailscale.com/client/local`) |
