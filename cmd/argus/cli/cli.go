@@ -14,6 +14,11 @@ func NewSessionCmd() *cobra.Command {
 		Use:   "session",
 		Short: "Manage sessions",
 		Long:  "Create, list, attach, rename, and delete agent sessions.",
+		// Override root's PersistentPreRunE — session commands use
+		// only the discovery file and don't need config loading.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return nil
+		},
 	}
 
 	cmd.AddCommand(

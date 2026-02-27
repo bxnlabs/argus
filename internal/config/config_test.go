@@ -233,8 +233,8 @@ path = ""
 
 func TestDefaultConfigFileSearch(t *testing.T) {
 	// When no ConfigFile is specified, Load searches ~/.argus/
-	// We test this by NOT setting ConfigFile — it should not error
-	// even if the default file doesn't exist.
+	// Redirect HOME to a temp dir so we don't read the developer's real config.
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := config.Load(config.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error with default search: %v", err)
