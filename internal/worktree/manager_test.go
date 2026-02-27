@@ -163,6 +163,18 @@ func TestCreateForRemoteRepo(t *testing.T) {
 	}
 }
 
+// realPath resolves symlinks so that paths from git worktree list
+// (which resolves symlinks, e.g. /var -> /private/var on macOS)
+// can be compared with paths returned by CreateForLocalRepo.
+func realPath(t *testing.T, p string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", p, err)
+	}
+	return resolved
+}
+
 func TestFindWorktreeExists(t *testing.T) {
 	gitRoot := initGitRepo(t)
 	stateDir := t.TempDir()
@@ -180,8 +192,8 @@ func TestFindWorktreeExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindWorktree: %v", err)
 	}
-	if found != wtPath {
-		t.Errorf("FindWorktree = %q, want %q", found, wtPath)
+	if found != realPath(t, wtPath) {
+		t.Errorf("FindWorktree = %q, want %q", found, realPath(t, wtPath))
 	}
 }
 
@@ -221,8 +233,8 @@ func TestFindWorktreeFromWorktreeDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindWorktree from worktree dir: %v", err)
 	}
-	if found != wtPath2 {
-		t.Errorf("FindWorktree = %q, want %q", found, wtPath2)
+	if found != realPath(t, wtPath2) {
+		t.Errorf("FindWorktree = %q, want %q", found, realPath(t, wtPath2))
 	}
 }
 

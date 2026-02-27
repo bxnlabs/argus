@@ -99,9 +99,10 @@ func (m *Manager) FindWorktree(repoDir, branch string) (string, error) {
 		}
 		fields := strings.Fields(line)
 		if len(fields) >= 3 && fields[2] == target {
-			// git worktree list may resolve symlinks (e.g. /var -> /private/var
-			// on macOS). Attempt to return the original path by checking
-			// whether our canonical worktrees directory matches.
+			// Note: git worktree list resolves symlinks (e.g.
+			// /var -> /private/var on macOS), so the returned path
+			// may differ from the path originally passed to
+			// "git worktree add".
 			return fields[0], nil
 		}
 	}
