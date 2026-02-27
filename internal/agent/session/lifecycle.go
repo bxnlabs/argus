@@ -65,7 +65,7 @@ type CreateOptions struct {
 
 // Create creates a new session: generates ID, builds CLI command, spawns tmux, inserts DB.
 func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
-	if !provider.IsValid(opts.AgentType) {
+	if !provider.IsValid(provider.AgentType(opts.AgentType)) {
 		return nil, fmt.Errorf("%w: invalid agent type: %s", ErrInvalidInput, opts.AgentType)
 	}
 
@@ -90,7 +90,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	}()
 
 	// Build the agent command
-	agentCmd, err := provider.BuildCommand(opts.AgentType, provider.BuildCommandOptions{
+	agentCmd, err := provider.BuildCommand(provider.AgentType(opts.AgentType), provider.BuildCommandOptions{
 		AutoApprove: opts.AutoApprove,
 		SessionID:   opts.ResumeSessionID,
 		Model:       ptrStr(opts.Model),
@@ -329,7 +329,7 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 		return "", fmt.Errorf("working directory no longer exists: %s", cwd)
 	}
 
-	agentCmd, err := provider.BuildCommand(session.AgentType, provider.BuildCommandOptions{
+	agentCmd, err := provider.BuildCommand(provider.AgentType(session.AgentType), provider.BuildCommandOptions{
 		AutoApprove: session.AutoApprove,
 		SessionID:   ptrStr(session.ProviderSessionID),
 		Model:       ptrStr(session.Model),
