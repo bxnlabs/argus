@@ -2,14 +2,24 @@ package provider
 
 import "fmt"
 
+// AgentType identifies a supported agent provider.
+type AgentType string
+
+const (
+	AgentClaude AgentType = "claude"
+	AgentCodex  AgentType = "codex"
+	AgentGemini AgentType = "gemini"
+	AgentShell  AgentType = "shell"
+)
+
 // Provider defines an AI coding agent CLI.
 type Provider struct {
-	ID              string
+	ID              AgentType
 	Name            string
 	CLI             string // command name (e.g. "claude")
 	AutoApproveFlag string // flag to skip permission prompts
 	SupportsResume  bool
-	ResumeArg      string
+	ResumeArg       string
 	ModelFlag       string
 }
 
@@ -20,14 +30,14 @@ type BuildCommandOptions struct {
 	Model       string
 }
 
-var providers = map[string]*Provider{}
+var providers = map[AgentType]*Provider{}
 
 func register(p *Provider) {
 	providers[p.ID] = p
 }
 
 // Get returns a provider by ID.
-func Get(id string) (*Provider, error) {
+func Get(id AgentType) (*Provider, error) {
 	p, ok := providers[id]
 	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", id)
@@ -38,7 +48,7 @@ func Get(id string) (*Provider, error) {
 // All returns all registered providers.
 func All() []*Provider {
 	out := make([]*Provider, 0, len(providers))
-	for _, id := range []string{"claude", "codex", "gemini", "shell"} {
+	for _, id := range []AgentType{AgentClaude, AgentCodex, AgentGemini, AgentShell} {
 		if p, ok := providers[id]; ok {
 			out = append(out, p)
 		}
@@ -47,13 +57,13 @@ func All() []*Provider {
 }
 
 // IsValid checks if a provider ID is registered.
-func IsValid(id string) bool {
+func IsValid(id AgentType) bool {
 	_, ok := providers[id]
 	return ok
 }
 
 // BuildCommand constructs the full CLI command string for a provider.
-func BuildCommand(id string, opts BuildCommandOptions) (string, error) {
+func BuildCommand(id AgentType, opts BuildCommandOptions) (string, error) {
 	p, err := Get(id)
 	if err != nil {
 		return "", err

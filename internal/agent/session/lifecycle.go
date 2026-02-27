@@ -4,15 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 	"sync"
 
 	"github.com/bxnlabs/argus/internal/agent/db"
 	"github.com/bxnlabs/argus/internal/agent/provider"
 	"github.com/bxnlabs/argus/internal/shared"
+	"github.com/bxnlabs/argus/internal/git"
+	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/source"
-	"github.com/bxnlabs/argus/internal/worktree"
 )
 
 // ErrNotFound is returned when a session ID does not exist in the database.
@@ -65,7 +64,7 @@ type CreateOptions struct {
 
 // Create creates a new session: generates ID, builds CLI command, spawns tmux, inserts DB.
 func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
-	if !provider.IsValid(opts.AgentType) {
+	if !provider.IsValid(provider.AgentType(opts.AgentType)) {
 		return nil, fmt.Errorf("%w: invalid agent type: %s", ErrInvalidInput, opts.AgentType)
 	}
 
@@ -75,8 +74,8 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 
 	// Resolve source → working directory (and optional worktree branch).
 	// cleanup removes the git worktree if a later step fails; it is a no-op
-	// for non-worktree sessions.
-	cwd, worktreeBranch, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name)
+	// for non-worktree sessions or reused worktrees.
+	cwd, worktreeBranch, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name, provider.AgentType(opts.AgentType))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
@@ -90,7 +89,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	}()
 
 	// Build the agent command
-	agentCmd, err := provider.BuildCommand(opts.AgentType, provider.BuildCommandOptions{
+	agentCmd, err := provider.BuildCommand(provider.AgentType(opts.AgentType), provider.BuildCommandOptions{
 		AutoApprove: opts.AutoApprove,
 		SessionID:   opts.ResumeSessionID,
 		Model:       ptrStr(opts.Model),
@@ -152,9 +151,9 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 // resolveSourceToCWD resolves a source string to a working directory path.
 // If the source is a git repo, it creates an isolated worktree and returns
 // the worktree path, branch name, and a cleanup function that removes the
-// worktree if a subsequent step fails. For non-worktree sessions, cleanup is
-// a no-op. If source is empty, defaults to home dir.
-func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, worktreeBranch *string, cleanup func(), err error) {
+// worktree if a subsequent step fails. For non-worktree or reused-worktree
+// sessions, cleanup is a no-op. If source is empty, defaults to home dir.
+func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider.AgentType) (cwd string, worktreeBranch *string, cleanup func(), err error) {
 	noop := func() {}
 
 	if src == "" {
@@ -171,37 +170,54 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string) (cwd string, workt
 	}
 
 	if resolved.IsRemote() {
-		wtPath, branch, err := m.wt.CreateForRemoteRepo(resolved, sessionName)
+		if agentType == provider.AgentShell {
+			// Shell sessions clone but don't create a worktree.
+			// Use fetchOnly=true to avoid resetting uncommitted work
+			// from other shell sessions sharing the same clone dir.
+			cloneDir, err := m.wt.EnsureClone(resolved, true)
+			if err != nil {
+				return "", nil, noop, err
+			}
+			return cloneDir, nil, noop, nil
+		}
+		wtPath, branch, created, err := m.wt.CreateForRemoteRepo(resolved, sessionName)
 		if err != nil {
 			return "", nil, noop, err
 		}
-		return wtPath, &branch, func() { m.wt.Cleanup(wtPath) }, nil
+		cleanup := noop
+		if created {
+			cleanup = func() { m.wt.Cleanup(wtPath) }
+		}
+		return wtPath, &branch, cleanup, nil
 	}
 
 	// Local path: check if it's inside a git repo.
-	gitRoot, err := findGitRoot(resolved.LocalPath)
+	gitRoot, err := git.FindMainRepo(resolved.LocalPath)
 	if err != nil {
 		// Not a git repo — use the path directly.
 		return resolved.LocalPath, nil, noop, nil
 	}
 
-	wtPath, branch, err := m.wt.CreateForLocalRepo(gitRoot, sessionName)
+	if agentType == provider.AgentShell {
+		// Shell sessions use the local path directly, no worktree.
+		return resolved.LocalPath, nil, noop, nil
+	}
+
+	// Check if the resolved path is already a worktree — reuse it.
+	existingBranch, err := m.wt.FindWorktreeByPath(resolved.LocalPath)
+	if err == nil && existingBranch != "" {
+		return resolved.LocalPath, &existingBranch, noop, nil
+	}
+
+	wtPath, branch, created, err := m.wt.CreateForLocalRepo(gitRoot, sessionName)
 	if err != nil {
 		return "", nil, noop, err
 	}
-	return wtPath, &branch, func() { m.wt.Cleanup(wtPath) }, nil
-}
-
-// findGitRoot returns the git root for the given directory, or an error if
-// the directory is not inside a git repository.
-func findGitRoot(dir string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
+	cleanup2 := noop
+	if created {
+		cleanup2 = func() { m.wt.Cleanup(wtPath) }
 	}
-	return strings.TrimSpace(string(out)), nil
+	return wtPath, &branch, cleanup2, nil
 }
 
 // Delete kills the tmux session and removes from DB. For worktree-backed
@@ -222,13 +238,22 @@ func (m *Manager) Delete(id string, force bool) error {
 
 	// Remove worktree FIRST so a dirty-check failure leaves the session
 	// fully intact (tmux still alive, DB row untouched).
-	if session.WorktreeBranch != nil {
-		if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
-			// Worktree was removed externally; skip git cleanup and
-			// proceed with deletion. The orphaned git worktree ref
-			// will be cleaned up by "git worktree prune".
-		} else if err := m.wt.RemoveWorktree(session.WorkingDirectory, force); err != nil {
-			return err
+	// Only remove argus-managed worktrees (those inside the state dir) and
+	// only when no other session references the same working directory.
+	// External worktrees (user-provided paths) are never deleted.
+	if session.WorktreeBranch != nil && m.wt.IsManaged(session.WorkingDirectory) {
+		others, err := m.db.CountSessionsByWorkingDir(id, session.WorkingDirectory)
+		if err != nil {
+			return fmt.Errorf("check shared worktree: %w", err)
+		}
+		if others == 0 {
+			if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
+				// Worktree was removed externally; skip git cleanup and
+				// proceed with deletion. The orphaned git worktree ref
+				// will be cleaned up by "git worktree prune".
+			} else if err := m.wt.RemoveWorktree(session.WorkingDirectory, force); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -329,7 +354,7 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 		return "", fmt.Errorf("working directory no longer exists: %s", cwd)
 	}
 
-	agentCmd, err := provider.BuildCommand(session.AgentType, provider.BuildCommandOptions{
+	agentCmd, err := provider.BuildCommand(provider.AgentType(session.AgentType), provider.BuildCommandOptions{
 		AutoApprove: session.AutoApprove,
 		SessionID:   ptrStr(session.ProviderSessionID),
 		Model:       ptrStr(session.Model),

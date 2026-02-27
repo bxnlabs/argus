@@ -10,11 +10,11 @@ func TestAllProviders(t *testing.T) {
 	if len(all) != 4 {
 		t.Errorf("len = %d, want 4", len(all))
 	}
-	ids := map[string]bool{}
+	ids := map[AgentType]bool{}
 	for _, p := range all {
 		ids[p.ID] = true
 	}
-	for _, want := range []string{"claude", "codex", "gemini", "shell"} {
+	for _, want := range []AgentType{AgentClaude, AgentCodex, AgentGemini, AgentShell} {
 		if !ids[want] {
 			t.Errorf("missing provider: %s", want)
 		}
@@ -22,16 +22,16 @@ func TestAllProviders(t *testing.T) {
 }
 
 func TestIsValid(t *testing.T) {
-	if !IsValid("claude") {
+	if !IsValid(AgentClaude) {
 		t.Error("claude should be valid")
 	}
-	if IsValid("opencode") {
+	if IsValid(AgentType("opencode")) {
 		t.Error("opencode should not be valid")
 	}
 }
 
 func TestBuildCommandClaude(t *testing.T) {
-	cmd, err := BuildCommand("claude", BuildCommandOptions{
+	cmd, err := BuildCommand(AgentClaude, BuildCommandOptions{
 		AutoApprove: true,
 	})
 	if err != nil {
@@ -43,7 +43,7 @@ func TestBuildCommandClaude(t *testing.T) {
 }
 
 func TestBuildCommandClaudeResume(t *testing.T) {
-	cmd, err := BuildCommand("claude", BuildCommandOptions{
+	cmd, err := BuildCommand(AgentClaude, BuildCommandOptions{
 		AutoApprove: true,
 		SessionID:   "abc123",
 	})
@@ -56,7 +56,7 @@ func TestBuildCommandClaudeResume(t *testing.T) {
 }
 
 func TestBuildCommandCodex(t *testing.T) {
-	cmd, err := BuildCommand("codex", BuildCommandOptions{
+	cmd, err := BuildCommand(AgentCodex, BuildCommandOptions{
 		AutoApprove: true,
 		Model:       "gpt-4",
 	})
@@ -72,7 +72,7 @@ func TestBuildCommandCodex(t *testing.T) {
 }
 
 func TestBuildCommandGemini(t *testing.T) {
-	cmd, err := BuildCommand("gemini", BuildCommandOptions{
+	cmd, err := BuildCommand(AgentGemini, BuildCommandOptions{
 		AutoApprove: true,
 		Model:       "gemini-pro",
 	})
@@ -88,7 +88,7 @@ func TestBuildCommandGemini(t *testing.T) {
 }
 
 func TestBuildCommandShell(t *testing.T) {
-	cmd, err := BuildCommand("shell", BuildCommandOptions{})
+	cmd, err := BuildCommand(AgentShell, BuildCommandOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,14 +98,14 @@ func TestBuildCommandShell(t *testing.T) {
 }
 
 func TestBuildCommandUnknown(t *testing.T) {
-	_, err := BuildCommand("unknown", BuildCommandOptions{})
+	_, err := BuildCommand(AgentType("unknown"), BuildCommandOptions{})
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
 }
 
 func TestBuildCommandClaudeModel(t *testing.T) {
-	cmd, err := BuildCommand("claude", BuildCommandOptions{
+	cmd, err := BuildCommand(AgentClaude, BuildCommandOptions{
 		Model: "opus",
 	})
 	if err != nil {
@@ -117,7 +117,7 @@ func TestBuildCommandClaudeModel(t *testing.T) {
 }
 
 func TestBuildCommandEscapesModelAndSessionID(t *testing.T) {
-	cmd, err := BuildCommand("claude", BuildCommandOptions{
+	cmd, err := BuildCommand(AgentClaude, BuildCommandOptions{
 		SessionID: "; rm -rf /",
 		Model:     "$(whoami)",
 	})

@@ -14,7 +14,7 @@ import (
 	"github.com/bxnlabs/argus/internal/config"
 	ghsvc "github.com/bxnlabs/argus/internal/github"
 	"github.com/bxnlabs/argus/internal/shared"
-	"github.com/bxnlabs/argus/internal/worktree"
+	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
 // Setup initializes the agent: opens the database, runs migrations, and
