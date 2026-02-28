@@ -246,6 +246,18 @@ func GetCommitDetail(dir, hash string) (*CommitDetail, error) {
 	return detail, nil
 }
 
+// GetCommitFullDiff returns the full combined diff for all files in a commit.
+func GetCommitFullDiff(dir, hash string) (string, error) {
+	if err := validateHash(hash); err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
+	defer cancel()
+
+	return runGit(ctx, dir, diffMaxBuffer, "show", "-U20", "-m", "--first-parent", hash)
+}
+
 // GetCommitFileDiff returns the diff for a specific file in a commit.
 // Matches lib/git-history.ts:getCommitFileDiff().
 func GetCommitFileDiff(dir, hash, file string) (string, error) {

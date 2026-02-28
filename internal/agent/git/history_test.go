@@ -1,6 +1,7 @@
 package git
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -121,4 +122,47 @@ func TestGetCommitFileDiff(t *testing.T) {
 	if !strings.Contains(diff, "+hello") {
 		t.Errorf("expected diff to contain +hello, got: %s", diff)
 	}
+}
+
+func TestGetCommitFullDiff(t *testing.T) {
+	dir := initTestRepo(t)
+	commitFile(t, dir, "a.txt", "aaa\n", "add a")
+	commitFile(t, dir, "b.txt", "bbb\n", "add b")
+
+	// Make a commit that changes both files
+	writeTestFile(dir, "a.txt", "aaa modified\n")
+	writeTestFile(dir, "b.txt", "bbb modified\n")
+	cmd := exec.Command("git", "add", "-A")
+	cmd.Dir = dir
+	cmd.CombinedOutput()
+	cmd = exec.Command("git", "commit", "-m", "modify both files")
+	cmd.Dir = dir
+	cmd.CombinedOutput()
+
+	commits, _ := GetHistory(dir, 1)
+	hash := commits[0].Hash
+
+	t.Run("returns combined diff", func(t *testing.T) {
+		diff, err := GetCommitFullDiff(dir, hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(diff, "a.txt") {
+			t.Error("expected diff to contain a.txt")
+		}
+		if !strings.Contains(diff, "b.txt") {
+			t.Error("expected diff to contain b.txt")
+		}
+		// Should contain multiple diff --git sections
+		if strings.Count(diff, "diff --git") < 2 {
+			t.Errorf("expected multiple diff sections, got %d", strings.Count(diff, "diff --git"))
+		}
+	})
+
+	t.Run("invalid hash", func(t *testing.T) {
+		_, err := GetCommitFullDiff(dir, "not-a-hash!")
+		if err == nil {
+			t.Error("expected error for invalid hash")
+		}
+	})
 }
