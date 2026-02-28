@@ -38,6 +38,8 @@ export function createTerminal(
     cursorStyle: "bar",
     cursorWidth: 2,
     allowProposedApi: true,
+    altClickMovesCursor: false,
+    macOptionClickForcesSelection: true,
     minimumContrastRatio: 4.5,
     theme: TERMINAL_THEME,
   });
