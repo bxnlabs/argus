@@ -36,7 +36,9 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/git/diff", gh.diff)
 	mux.HandleFunc("GET /api/git/history", gh.history)
 	mux.HandleFunc("GET /api/git/history/{hash}", gh.commitDetail)
-	mux.HandleFunc("GET /api/git/history/{hash}/diff", gh.commitFileDiff)
+	mux.HandleFunc("GET /api/git/history/{hash}/full-diff", gh.commitFullDiff)
+	mux.HandleFunc("GET /api/git/compare/branches", gh.compareBranches)
+	mux.HandleFunc("GET /api/git/compare", gh.compare)
 	mux.HandleFunc("GET /api/git/file-content", gh.fileContent)
 	mux.HandleFunc("GET /api/git/check", gh.check)
 

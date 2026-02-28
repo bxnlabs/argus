@@ -154,13 +154,12 @@ func (h *gitHandler) commitDetail(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"commit": commit})
 }
 
-// GET /api/git/history/{hash}/diff?path=...&file=...
-func (h *gitHandler) commitFileDiff(w http.ResponseWriter, r *http.Request) {
+// GET /api/git/history/{hash}/full-diff?path=...
+func (h *gitHandler) commitFullDiff(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	path := r.URL.Query().Get("path")
-	file := r.URL.Query().Get("file")
-	if path == "" || file == "" {
-		respondError(w, http.StatusBadRequest, "path and file parameters are required")
+	if path == "" {
+		respondError(w, http.StatusBadRequest, "path parameter is required")
 		return
 	}
 	expandedPath, err := shared.SafeExpandPath(path)
@@ -168,18 +167,56 @@ func (h *gitHandler) commitFileDiff(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	file, err = sanitizeFilePath(expandedPath, file)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "invalid file path")
-		return
-	}
 
-	diff, err := git.GetCommitFileDiff(expandedPath, hash, file)
+	diff, err := git.GetCommitFullDiff(expandedPath, hash)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"diff": diff})
+}
+
+// GET /api/git/compare?path=...&base=...
+func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	base := r.URL.Query().Get("base")
+	if path == "" || base == "" {
+		respondError(w, http.StatusBadRequest, "path and base parameters are required")
+		return
+	}
+	expandedPath, err := shared.SafeExpandPath(path)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, err := git.GetCompare(expandedPath, base)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// GET /api/git/compare/branches?path=...
+func (h *gitHandler) compareBranches(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		respondError(w, http.StatusBadRequest, "path parameter is required")
+		return
+	}
+	expandedPath, err := shared.SafeExpandPath(path)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, err := git.GetBranches(expandedPath)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
 }
 
 // GET /api/git/file-content?path=...&file=...
