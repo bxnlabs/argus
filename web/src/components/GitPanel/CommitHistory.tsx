@@ -66,25 +66,13 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
     (hash: string, file: CommitFile) => {
       setExpandedHash(hash);
       setSelectedFilePath(file.path);
-
-      if (isMobile) {
-        setMobileShowDiffs(true);
-        // Scroll after render
-        requestAnimationFrame(() => {
-          const el = diffRefs.current.get(file.path);
-          if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        });
-      } else {
-        // Desktop: scroll in the right pane
-        requestAnimationFrame(() => {
-          const el = diffRefs.current.get(file.path);
-          if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        });
-      }
+      if (isMobile) setMobileShowDiffs(true);
+      requestAnimationFrame(() => {
+        const el = diffRefs.current.get(file.path);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
     },
     [isMobile],
   );

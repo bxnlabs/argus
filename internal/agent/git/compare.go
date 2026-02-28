@@ -3,10 +3,13 @@ package git
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
+
+var validBranchName = regexp.MustCompile(`^[a-zA-Z0-9._/@{}\-]+$`)
 
 // GetBranches returns all local branches and the auto-detected default base branch.
 func GetBranches(dir string) (*BranchList, error) {
@@ -38,6 +41,10 @@ func GetBranches(dir string) (*BranchList, error) {
 
 // GetCompare returns the full diff and per-file metadata comparing base to HEAD.
 func GetCompare(dir, base string) (*CompareResult, error) {
+	if !validBranchName.MatchString(base) {
+		return nil, fmt.Errorf("invalid branch name: %q", base)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
 	defer cancel()
 
@@ -153,9 +160,16 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 		Files:          files,
 		TotalAdditions: totalAdds,
 		TotalDeletions: totalDels,
-		BaseRef:        mergeBase[:7],
+		BaseRef:        truncateRef(mergeBase),
 		HeadRef:        headRef,
 	}, nil
+}
+
+func truncateRef(ref string) string {
+	if len(ref) > 7 {
+		return ref[:7]
+	}
+	return ref
 }
 
 // detectDefaultBase tries upstream tracking branch, then falls back to main/master.

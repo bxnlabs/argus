@@ -255,6 +255,6 @@ func GetCommitFullDiff(dir, hash string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
 	defer cancel()
 
-	return runGit(ctx, dir, diffMaxBuffer, "show", "-U20", "-m", "--first-parent", hash)
+	return runGit(ctx, dir, diffMaxBuffer, "show", "--format=", "-U20", "-m", "--first-parent", hash)
 }
 
