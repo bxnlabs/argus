@@ -108,21 +108,6 @@ func TestGetCommitDetail(t *testing.T) {
 	})
 }
 
-func TestGetCommitFileDiff(t *testing.T) {
-	dir := initTestRepo(t)
-	commitFile(t, dir, "diff.txt", "hello\nworld\n", "add diff.txt")
-
-	commits, _ := GetHistory(dir, 1)
-	hash := commits[0].Hash
-
-	diff, err := GetCommitFileDiff(dir, hash, "diff.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(diff, "+hello") {
-		t.Errorf("expected diff to contain +hello, got: %s", diff)
-	}
-}
 
 func TestGetCommitFullDiff(t *testing.T) {
 	dir := initTestRepo(t)

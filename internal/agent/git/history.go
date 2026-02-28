@@ -258,15 +258,3 @@ func GetCommitFullDiff(dir, hash string) (string, error) {
 	return runGit(ctx, dir, diffMaxBuffer, "show", "-U20", "-m", "--first-parent", hash)
 }
 
-// GetCommitFileDiff returns the diff for a specific file in a commit.
-// Matches lib/git-history.ts:getCommitFileDiff().
-func GetCommitFileDiff(dir, hash, file string) (string, error) {
-	if err := validateHash(hash); err != nil {
-		return "", err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), shortTimeout)
-	defer cancel()
-
-	return runGit(ctx, dir, diffMaxBuffer, "show", "-U20", "-m", "--first-parent", hash, "--", file)
-}
