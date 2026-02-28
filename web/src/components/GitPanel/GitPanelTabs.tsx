@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export type GitTab = "changes" | "history";
+export type GitTab = "changes" | "history" | "compare";
 
 interface GitPanelTabsProps {
   activeTab: GitTab;
@@ -31,6 +31,17 @@ export function GitPanelTabs({ activeTab, onTabChange }: GitPanelTabsProps) {
         )}
       >
         History
+      </button>
+      <button
+        onClick={() => onTabChange("compare")}
+        className={cn(
+          "flex-1 px-3 py-1.5 text-sm font-medium transition-colors",
+          activeTab === "compare"
+            ? "text-foreground border-primary border-b-2"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        Compare
       </button>
     </div>
   );

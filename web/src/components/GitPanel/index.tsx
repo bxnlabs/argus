@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { FileChanges } from "./FileChanges";
 import { GitPanelTabs, type GitTab } from "./GitPanelTabs";
 import { CommitHistory } from "./CommitHistory";
+import { CompareView } from "./CompareView";
 import { DiffView } from "@/components/DiffViewer";
 import { useViewport } from "@/hooks/useViewport";
 import { useGitStatusQuery } from "@/data/git";
@@ -160,6 +161,23 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
 
   // --- Mobile layout ---
   if (isMobile) {
+    // Compare tab
+    if (activeTab === "compare") {
+      return (
+        <div className="bg-background relative flex h-full w-full flex-col">
+          <Header
+            branch={status.branch}
+            ahead={status.ahead}
+            behind={status.behind}
+            onRefresh={handleRefresh}
+            refreshing={isRefetching}
+          />
+          <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
+          <CompareView workingDirectory={workingDirectory} />
+        </div>
+      );
+    }
+
     // History tab
     if (activeTab === "history") {
       return (
@@ -257,6 +275,23 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   }
 
   // --- Desktop layout ---
+
+  // Compare tab
+  if (activeTab === "compare") {
+    return (
+      <div className="bg-background flex h-full w-full flex-col">
+        <Header
+          branch={status.branch}
+          ahead={status.ahead}
+          behind={status.behind}
+          onRefresh={handleRefresh}
+          refreshing={isRefetching}
+        />
+        <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
+        <CompareView workingDirectory={workingDirectory} />
+      </div>
+    );
+  }
 
   // History tab
   if (activeTab === "history") {
