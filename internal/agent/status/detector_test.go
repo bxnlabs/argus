@@ -46,7 +46,8 @@ func TestCheckWaitingPatterns(t *testing.T) {
 		{"allow", "Allow? (y/n)", true},
 		{"press enter", "Press Enter to continue", true},
 		{"yes allow all", "  1. Yes, allow all", true},
-		{"old scrollback", "[Y/n]\n" + repeat("safe\n", 10), false},
+		{"plan exit full", " Claude has written up a plan and is ready to execute. Would you like to proceed?\n\n \u276f 1. Yes, clear context (13% used) and bypass permissions\n   2. Yes, and bypass permissions\n   3. Yes, manually approve edits\n   4. Type here to tell Claude what to change\n\n ctrl-g to edit in Vim \u00b7 ~/.claude/plans/temporal-finding-meteor.md", true},
+		{"old scrollback", "[Y/n]\n" + repeat("safe\n", 15), false},
 	}
 
 	for _, tt := range tests {
