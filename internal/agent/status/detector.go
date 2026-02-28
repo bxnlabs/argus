@@ -134,7 +134,9 @@ func checkBusyIndicators(content string) bool {
 // checkWaitingPatterns checks if terminal content shows waiting patterns.
 func checkWaitingPatterns(content string) bool {
 	lines := strings.Split(content, "\n")
-	start := len(lines) - 5
+	// Use last 10 lines (matching checkBusyIndicators) — plan approval
+	// prompts can span 6+ lines with numbered options and hints.
+	start := len(lines) - 10
 	if start < 0 {
 		start = 0
 	}
