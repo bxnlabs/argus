@@ -7,8 +7,12 @@ export const gitKeys = {
     [...gitKeys.all, "commit", path, hash] as const,
   fileDiff: (path: string, file: string, staged?: boolean, untracked?: boolean) =>
     [...gitKeys.all, "diff", path, file, staged, untracked] as const,
-  commitFileDiff: (path: string, hash: string, file: string) =>
-    [...gitKeys.all, "commit-diff", path, hash, file] as const,
   fileContent: (path: string, file: string) =>
     [...gitKeys.all, "content", path, file] as const,
+  compareBranches: (path: string) =>
+    [...gitKeys.all, "compare-branches", path] as const,
+  compare: (path: string, base: string) =>
+    [...gitKeys.all, "compare", path, base] as const,
+  commitFullDiff: (path: string, hash: string) =>
+    [...gitKeys.all, "commit-full-diff", path, hash] as const,
 };

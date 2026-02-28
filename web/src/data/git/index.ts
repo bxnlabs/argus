@@ -5,5 +5,7 @@ export {
   useFileDiffQuery,
   useGitHistoryQuery,
   useCommitDetailQuery,
-  useCommitFileDiffQuery,
+  useCompareBranchesQuery,
+  useCompareQuery,
+  useCommitFullDiffQuery,
 } from "./queries";
