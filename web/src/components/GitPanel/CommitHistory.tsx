@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useMemo } from "react";
-import { Loader2, History, ArrowLeft, FileCode } from "lucide-react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { Loader2, History, ArrowLeft, FileCode, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommitItem } from "./CommitItem";
 import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
@@ -7,7 +7,7 @@ import {
   useGitHistoryQuery,
   useCommitFullDiffQuery,
 } from "@/data/git";
-import { parseMultiFileDiff, getDiffFileName } from "@/lib/diff-parser";
+import { parseMultiFileDiff, getDiffFileName, getDiffPathKey } from "@/lib/diff-parser";
 import { useViewport } from "@/hooks/useViewport";
 import type { CommitFile } from "@/types";
 
@@ -30,7 +30,7 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
   // Track if user tapped a file on mobile to navigate to full-screen diff view
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
 
-  const { data: fullDiff, isLoading: loadingDiff } = useCommitFullDiffQuery(
+  const { data: fullDiff, isLoading: loadingDiff, isError: diffError } = useCommitFullDiffQuery(
     workingDirectory,
     expandedHash,
   );
@@ -67,22 +67,26 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
       setExpandedHash(hash);
       setSelectedFilePath(file.path);
       if (isMobile) setMobileShowDiffs(true);
-      requestAnimationFrame(() => {
-        const el = diffRefs.current.get(file.path);
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      });
     },
     [isMobile],
   );
 
+  // Scroll to selected file once diffs are rendered and refs are ready
+  useEffect(() => {
+    if (!selectedFilePath) return;
+    const el = diffRefs.current.get(selectedFilePath);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedFilePath, parsedDiffs]);
+
   const stackedDiffs = (
     <div className="space-y-3 p-3">
       {parsedDiffs.map((diff) => {
+        const pathKey = getDiffPathKey(diff);
         const fileName = getDiffFileName(diff);
         return (
-          <div key={fileName} ref={setDiffRef(fileName)}>
+          <div key={pathKey} ref={setDiffRef(pathKey)}>
             <UnifiedDiff diff={diff} fileName={fileName} expanded />
           </div>
         );
@@ -135,6 +139,7 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
             variant="ghost"
             size="icon-sm"
             onClick={() => setMobileShowDiffs(false)}
+            aria-label="Back to commit list"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
@@ -151,6 +156,11 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
           {loadingDiff ? (
             <div className="flex h-32 items-center justify-center">
               <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+            </div>
+          ) : diffError ? (
+            <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
+              <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
+              <p className="text-sm">Failed to load commit diff</p>
             </div>
           ) : (
             stackedDiffs
@@ -219,6 +229,11 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
         {loadingDiff ? (
           <div className="flex flex-1 items-center justify-center">
             <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+          </div>
+        ) : diffError ? (
+          <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center">
+            <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
+            <p className="text-sm">Failed to load commit diff</p>
           </div>
         ) : expandedHash && parsedDiffs.length > 0 ? (
           <div className="flex-1 overflow-auto">{stackedDiffs}</div>

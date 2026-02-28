@@ -155,84 +155,84 @@ func GetCommitDetail(dir, hash string) (*CommitDetail, error) {
 		status  string
 		oldPath string
 	}{}
-	if nsOut, err := runGit(ctx, dir, diffMaxBuffer, "show", "--name-status", "--format=", hash); err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(nsOut), "\n") {
-			if line == "" {
-				continue
-			}
-			fields := strings.Split(line, "\t")
-			if len(fields) < 2 {
-				continue
-			}
-			statusChar := fields[0]
-			if len(fields) == 3 {
-				// Rename: R100\told\tnew
-				statusMap[fields[2]] = struct {
-					status  string
-					oldPath string
-				}{statusChar[:1], fields[1]}
-			} else {
-				statusMap[fields[1]] = struct {
-					status  string
-					oldPath string
-				}{statusChar[:1], ""}
-			}
+	nsOut, err := runGit(ctx, dir, diffMaxBuffer, "show", "--name-status", "--format=", hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file statuses: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(nsOut), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 {
+			continue
+		}
+		statusChar := fields[0]
+		if len(fields) == 3 {
+			// Rename: R100\told\tnew
+			statusMap[fields[2]] = struct {
+				status  string
+				oldPath string
+			}{statusChar[:1], fields[1]}
+		} else {
+			statusMap[fields[1]] = struct {
+				status  string
+				oldPath string
+			}{statusChar[:1], ""}
 		}
 	}
 
 	// Step 3: numstat
 	var files []CommitFile
 	totalAdds, totalDels := 0, 0
-	if numOut, err := runGit(ctx, dir, diffMaxBuffer, "show", "--numstat", "--format=", hash); err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(numOut), "\n") {
-			if line == "" {
-				continue
-			}
-			fields := strings.SplitN(line, "\t", 3)
-			if len(fields) != 3 {
-				continue
-			}
-
-			adds, dels := 0, 0
-			isBinary := fields[0] == "-" && fields[1] == "-"
-			if !isBinary {
-				adds, _ = strconv.Atoi(fields[0])
-				dels, _ = strconv.Atoi(fields[1])
-			}
-
-			path := fields[2]
-			// Handle renames in numstat: "old => new" or "{old => new}/path"
-			if idx := strings.Index(path, " => "); idx != -1 {
-				path = path[idx+4:]
-			}
-
-			st := StatusModified
-			var oldPath string
-			if info, ok := statusMap[path]; ok {
-				switch info.status {
-				case "A":
-					st = StatusAdded
-				case "D":
-					st = StatusDeleted
-				case "R":
-					st = StatusRenamed
-					oldPath = info.oldPath
-				case "C":
-					st = StatusCopied
-				}
-			}
-
-			files = append(files, CommitFile{
-				Path:      path,
-				Status:    st,
-				Additions: adds,
-				Deletions: dels,
-				OldPath:   oldPath,
-			})
-
-			totalAdds += adds
-			totalDels += dels
+	numOut, err := runGit(ctx, dir, diffMaxBuffer, "show", "--numstat", "--format=", hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file stats: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(numOut), "\n") {
+		if line == "" {
+			continue
 		}
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+
+		adds, dels := 0, 0
+		isBinary := fields[0] == "-" && fields[1] == "-"
+		if !isBinary {
+			adds, _ = strconv.Atoi(fields[0])
+			dels, _ = strconv.Atoi(fields[1])
+		}
+
+		path := normalizeNumstatPath(fields[2])
+
+		st := StatusModified
+		var oldPath string
+		if info, ok := statusMap[path]; ok {
+			switch info.status {
+			case "A":
+				st = StatusAdded
+			case "D":
+				st = StatusDeleted
+			case "R":
+				st = StatusRenamed
+				oldPath = info.oldPath
+			case "C":
+				st = StatusCopied
+			}
+		}
+
+		files = append(files, CommitFile{
+			Path:      path,
+			Status:    st,
+			Additions: adds,
+			Deletions: dels,
+			OldPath:   oldPath,
+		})
+
+		totalAdds += adds
+		totalDels += dels
 	}
 
 	if files == nil {

@@ -44,6 +44,16 @@ export function parseDiff(diffText: string): ParsedDiff {
   let newLineNum = 0;
 
   for (const line of lines) {
+    // Parse diff --git header as fallback for filenames (needed for binary diffs)
+    if (line.startsWith("diff --git ")) {
+      const m = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+      if (m) {
+        if (!oldFile) oldFile = m[1];
+        if (!newFile) newFile = m[2];
+      }
+      continue;
+    }
+
     if (line.startsWith("Binary files")) {
       isBinary = true;
       continue;
@@ -163,6 +173,12 @@ export function getDiffFileName(diff: ParsedDiff): string {
   if (diff.isNew) return diff.newFile;
   if (diff.isDeleted) return diff.oldFile;
   if (diff.isRenamed) return `${diff.oldFile} \u2192 ${diff.newFile}`;
+  return diff.newFile || diff.oldFile;
+}
+
+/** Returns a stable path key for ref/scroll lookup (always the canonical file path). */
+export function getDiffPathKey(diff: ParsedDiff): string {
+  if (diff.isDeleted) return diff.oldFile;
   return diff.newFile || diff.oldFile;
 }
 

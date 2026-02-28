@@ -8,11 +8,12 @@ import {
   ArrowRight,
   ArrowLeft,
   List,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
-import { parseMultiFileDiff, getDiffFileName } from "@/lib/diff-parser";
+import { parseMultiFileDiff, getDiffFileName, getDiffPathKey } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery } from "@/data/git";
 import { useViewport } from "@/hooks/useViewport";
 import type { CommitFile, FileStatus } from "@/types";
@@ -31,18 +32,31 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
   const {
     data: branchData,
     isLoading: loadingBranches,
+    isError: branchError,
+    error: branchErrorDetail,
   } = useCompareBranchesQuery(workingDirectory);
+
+  // Reset repo-scoped state when working directory changes
+  useEffect(() => {
+    setBaseBranch(null);
+    setSelectedPath(null);
+    diffRefs.current.clear();
+  }, [workingDirectory]);
 
   // Set default base branch when branch data loads
   useEffect(() => {
-    if (branchData?.defaultBase && baseBranch === null) {
-      setBaseBranch(branchData.defaultBase);
-    }
+    if (baseBranch !== null) return;
+    if (!branchData) return;
+    setBaseBranch(
+      branchData.defaultBase || branchData.branches[0] || null,
+    );
   }, [branchData, baseBranch]);
 
   const {
     data: compareData,
     isLoading: loadingCompare,
+    isError: compareError,
+    error: compareErrorDetail,
   } = useCompareQuery(workingDirectory, baseBranch);
 
   const parsedDiffs = useMemo(() => {
@@ -78,13 +92,26 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
     );
   }
 
-  if (!branchData?.defaultBase && !baseBranch) {
+  if (branchError) {
+    return (
+      <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center p-4">
+        <AlertCircle className="mb-2 h-8 w-8 opacity-50" />
+        <p className="text-sm">
+          {branchErrorDetail instanceof Error
+            ? branchErrorDetail.message
+            : "Failed to load branches"}
+        </p>
+      </div>
+    );
+  }
+
+  if (!baseBranch && (!branchData?.branches || branchData.branches.length === 0)) {
     return (
       <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center p-4">
         <GitCompareArrows className="mb-2 h-8 w-8 opacity-50" />
-        <p className="text-sm">No base branch detected</p>
+        <p className="text-sm">No branches available to compare</p>
         <p className="text-xs">
-          Set an upstream tracking branch or create a main/master branch
+          Create another branch or set an upstream tracking branch
         </p>
       </div>
     );
@@ -138,6 +165,15 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
         </div>
+      ) : compareError ? (
+        <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
+          <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
+          <p className="text-sm">
+            {compareErrorDetail instanceof Error
+              ? compareErrorDetail.message
+              : "Failed to compare branches"}
+          </p>
+        </div>
       ) : parsedDiffs.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
           <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
@@ -146,9 +182,10 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
       ) : (
         <div className="space-y-3">
           {parsedDiffs.map((diff) => {
+            const pathKey = getDiffPathKey(diff);
             const fileName = getDiffFileName(diff);
             return (
-              <div key={fileName} ref={setDiffRef(fileName)}>
+              <div key={pathKey} ref={setDiffRef(pathKey)}>
                 <UnifiedDiff diff={diff} fileName={fileName} expanded />
               </div>
             );
@@ -171,6 +208,7 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
             <button
               onClick={() => setShowMobileFileList(true)}
               className="bg-primary text-primary-foreground absolute bottom-4 right-4 rounded-full p-3 shadow-lg"
+              aria-label="Open file list"
             >
               <List className="h-5 w-5" />
             </button>
@@ -181,6 +219,7 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => setShowMobileFileList(false)}
+                    aria-label="Close file list"
                   >
                     <ArrowLeft className="h-5 w-5" />
                   </Button>
