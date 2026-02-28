@@ -78,3 +78,55 @@ func TestGetBranches(t *testing.T) {
 		}
 	})
 }
+
+func TestGetCompare(t *testing.T) {
+	dir := initTestRepo(t)
+	commitFile(t, dir, "base.txt", "base content", "base commit")
+
+	// Create a feature branch and add changes
+	for _, args := range [][]string{
+		{"git", "checkout", "-b", "feature"},
+		{"git", "checkout", "-b", "main", "HEAD~0"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		cmd.CombinedOutput()
+	}
+	// Switch back to set up main as a branch at current commit
+	run := func(args ...string) {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v failed: %s: %s", args, err, out)
+		}
+	}
+	run("git", "checkout", "feature")
+	commitFile(t, dir, "new.txt", "new content", "add new file")
+	commitFile(t, dir, "base.txt", "modified content", "modify base file")
+
+	t.Run("returns diff and files", func(t *testing.T) {
+		result, err := GetCompare(dir, "main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Diff == "" {
+			t.Error("expected non-empty diff")
+		}
+		if len(result.Files) != 2 {
+			t.Fatalf("expected 2 files, got %d", len(result.Files))
+		}
+		if result.TotalAdditions == 0 {
+			t.Error("expected additions > 0")
+		}
+		if result.BaseRef == "" || result.HeadRef == "" {
+			t.Error("expected baseRef and headRef")
+		}
+	})
+
+	t.Run("invalid base ref", func(t *testing.T) {
+		_, err := GetCompare(dir, "nonexistent-branch")
+		if err == nil {
+			t.Error("expected error for invalid base ref")
+		}
+	})
+}
