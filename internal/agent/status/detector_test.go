@@ -46,6 +46,8 @@ func TestCheckWaitingPatterns(t *testing.T) {
 		{"allow", "Allow? (y/n)", true},
 		{"press enter", "Press Enter to continue", true},
 		{"yes allow all", "  1. Yes, allow all", true},
+		{"numbered yes ascii", "> 1. Yes, proceed", true},
+		{"numbered yes unicode", " \u276f 1. Yes, clear context (13% used) and bypass permissions\n   2. Yes, and bypass permissions\n   3. Yes, manually approve edits\n   4. Type here to tell Claude what to change", true},
 		{"old scrollback", "[Y/n]\n" + repeat("safe\n", 10), false},
 	}
 
