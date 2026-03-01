@@ -66,7 +66,7 @@ var hashRegex = regexp.MustCompile(`^[a-f0-9]{7,40}$`)
 // validateHash checks that a string looks like a git hash.
 func validateHash(hash string) error {
 	if !hashRegex.MatchString(hash) {
-		return fmt.Errorf("invalid commit hash: %q", hash)
+		return fmt.Errorf("%w: invalid commit hash: %q", ErrInvalidInput, hash)
 	}
 	return nil
 }
