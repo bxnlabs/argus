@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,19 @@ import (
 	"github.com/bxnlabs/argus/internal/agent/git"
 	"github.com/bxnlabs/argus/internal/shared"
 )
+
+// respondGitError maps git package sentinel errors to appropriate HTTP
+// status codes, falling back to respondInternalError for unknown errors.
+func respondGitError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, git.ErrInvalidInput):
+		respondError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, git.ErrNotFound):
+		respondError(w, http.StatusNotFound, err.Error())
+	default:
+		respondInternalError(w, err)
+	}
+}
 
 // sanitizeFilePath resolves file relative to dir, verifies the result stays
 // inside dir (including through symlinks), and returns the cleaned relative path.
@@ -68,7 +82,7 @@ func (h *gitHandler) status(w http.ResponseWriter, r *http.Request) {
 
 	status, err := git.GetStatus(expandedPath)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"status": status})
@@ -98,7 +112,7 @@ func (h *gitHandler) diff(w http.ResponseWriter, r *http.Request) {
 	diff, err := git.GetFileDiff(expandedPath, file, staged, untracked)
 	if err != nil {
 		log.Printf("git diff failed: file=%s staged=%v untracked=%v err=%v", file, staged, untracked, err)
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"diff": diff})
@@ -126,7 +140,7 @@ func (h *gitHandler) history(w http.ResponseWriter, r *http.Request) {
 
 	commits, err := git.GetHistory(expandedPath, limit)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"commits": commits})
@@ -148,7 +162,7 @@ func (h *gitHandler) commitDetail(w http.ResponseWriter, r *http.Request) {
 
 	commit, err := git.GetCommitDetail(expandedPath, hash)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"commit": commit})
@@ -170,7 +184,7 @@ func (h *gitHandler) commitFullDiff(w http.ResponseWriter, r *http.Request) {
 
 	diff, err := git.GetCommitFullDiff(expandedPath, hash)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"diff": diff})
@@ -192,7 +206,7 @@ func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
 
 	result, err := git.GetCompare(expandedPath, base)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, result)
@@ -213,7 +227,7 @@ func (h *gitHandler) compareBranches(w http.ResponseWriter, r *http.Request) {
 
 	result, err := git.GetBranches(expandedPath)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, result)
@@ -240,7 +254,7 @@ func (h *gitHandler) fileContent(w http.ResponseWriter, r *http.Request) {
 
 	content, isNew, err := git.GetFileContent(expandedPath, file)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{
@@ -264,7 +278,7 @@ func (h *gitHandler) check(w http.ResponseWriter, r *http.Request) {
 
 	isRepo, err := git.Check(expandedPath)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondGitError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]bool{"isGitRepo": isRepo})
