@@ -60,7 +60,14 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 	// Find the merge base
 	mergeBase, err := runGit(ctx, dir, defaultMaxBuffer, "merge-base", base, "HEAD")
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to find merge base for %q: %w", ErrNotFound, base, err)
+		// merge-base exits 1 when no common ancestor exists (disconnected
+		// histories). Together with isNotFoundError (bad ref), these are
+		// user-facing not-found conditions. Other failures (timeout,
+		// corruption) should surface as internal errors.
+		if isNotFoundError(err) || strings.HasSuffix(err.Error(), "exit status 1") {
+			return nil, fmt.Errorf("%w: no merge base found for %q", ErrNotFound, base)
+		}
+		return nil, fmt.Errorf("failed to find merge base for %q: %w", base, err)
 	}
 	mergeBase = strings.TrimSpace(mergeBase)
 

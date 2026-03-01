@@ -61,6 +61,19 @@ func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
+// isNotFoundError returns true when a runGit error indicates a missing git
+// object (unknown revision, bad object, invalid ref) rather than an
+// operational failure (timeout, corruption, permission denied).
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "bad object") ||
+		strings.Contains(msg, "unknown revision") ||
+		strings.Contains(msg, "Not a valid object")
+}
+
 var hashRegex = regexp.MustCompile(`^[a-f0-9]{7,40}$`)
 
 // validateHash checks that a string looks like a git hash.

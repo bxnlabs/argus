@@ -124,6 +124,9 @@ func GetCommitDetail(dir, hash string) (*CommitDetail, error) {
 	format := "%H%x00%h%x00%s%x00%b%x00%an%x00%ae%x00%at%x1E"
 	metaOut, err := runGit(ctx, dir, defaultMaxBuffer, "show", fmt.Sprintf("--format=%s", format), "-s", hash)
 	if err != nil {
+		if isNotFoundError(err) {
+			return nil, fmt.Errorf("%w: commit %q", ErrNotFound, hash)
+		}
 		return nil, err
 	}
 
@@ -255,6 +258,13 @@ func GetCommitFullDiff(dir, hash string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
 	defer cancel()
 
-	return runGit(ctx, dir, diffMaxBuffer, "show", "--format=", "-U20", "-m", "--first-parent", hash)
+	diff, err := runGit(ctx, dir, diffMaxBuffer, "show", "--format=", "-U20", "-m", "--first-parent", hash)
+	if err != nil {
+		if isNotFoundError(err) {
+			return "", fmt.Errorf("%w: commit %q", ErrNotFound, hash)
+		}
+		return "", err
+	}
+	return diff, nil
 }
 

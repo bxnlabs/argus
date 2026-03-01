@@ -153,4 +153,19 @@ func TestGetCompare(t *testing.T) {
 			t.Errorf("expected ErrNotFound, got: %v", err)
 		}
 	})
+
+	t.Run("disconnected histories wraps ErrNotFound", func(t *testing.T) {
+		// Create an orphan branch with no common ancestor
+		run("git", "checkout", "--orphan", "orphan-branch")
+		commitFile(t, dir, "orphan.txt", "orphan", "orphan commit")
+		run("git", "checkout", "feature")
+
+		_, err := GetCompare(dir, "orphan-branch")
+		if err == nil {
+			t.Fatal("expected error for disconnected histories")
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected ErrNotFound, got: %v", err)
+		}
+	})
 }

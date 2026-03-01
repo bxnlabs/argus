@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -105,6 +106,19 @@ func TestGetCommitDetail(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for invalid hash")
 		}
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got: %v", err)
+		}
+	})
+
+	t.Run("nonexistent hash wraps ErrNotFound", func(t *testing.T) {
+		_, err := GetCommitDetail(dir, "abcdef1234567890abcdef1234567890abcdef12")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected ErrNotFound, got: %v", err)
+		}
 	})
 }
 
@@ -148,6 +162,19 @@ func TestGetCommitFullDiff(t *testing.T) {
 		_, err := GetCommitFullDiff(dir, "not-a-hash!")
 		if err == nil {
 			t.Error("expected error for invalid hash")
+		}
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got: %v", err)
+		}
+	})
+
+	t.Run("nonexistent hash wraps ErrNotFound", func(t *testing.T) {
+		_, err := GetCommitFullDiff(dir, "abcdef1234567890abcdef1234567890abcdef12")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected ErrNotFound, got: %v", err)
 		}
 	})
 }
