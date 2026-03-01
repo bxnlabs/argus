@@ -60,3 +60,19 @@ type CommitDetail struct {
 	CommitSummary
 	Files []CommitFile `json:"files"`
 }
+
+// CompareResult holds the diff and file metadata for a branch comparison.
+type CompareResult struct {
+	Diff           string       `json:"diff"`
+	Files          []CommitFile `json:"files"`
+	TotalAdditions int          `json:"totalAdditions"`
+	TotalDeletions int          `json:"totalDeletions"`
+	BaseRef        string       `json:"baseRef"`
+	HeadRef        string       `json:"headRef"`
+}
+
+// BranchList holds available branches and the auto-detected default base.
+type BranchList struct {
+	Branches    []string `json:"branches"`
+	DefaultBase string   `json:"defaultBase"`
+}

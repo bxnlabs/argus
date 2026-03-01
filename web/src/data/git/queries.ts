@@ -4,6 +4,8 @@ import type {
   GitStatus,
   CommitSummary,
   CommitDetail,
+  CompareResult,
+  BranchList,
 } from "@/types";
 import { gitKeys } from "./keys";
 
@@ -132,22 +134,50 @@ export function useCommitDetailQuery(
   });
 }
 
-// --- Commit File Diff ---
+// --- Compare Branches ---
 
-export function useCommitFileDiffQuery(
-  path: string,
-  hash: string | null,
-  file: string | null,
-) {
+export function useCompareBranchesQuery(path: string) {
   return useQuery({
-    queryKey: gitKeys.commitFileDiff(path, hash ?? "", file ?? ""),
+    queryKey: gitKeys.compareBranches(path),
+    queryFn: async () => {
+      const data = await apiFetch<BranchList>(
+        `/agent/api/git/compare/branches?path=${encodeURIComponent(path)}`,
+      );
+      return data;
+    },
+    staleTime: 30_000,
+    enabled: path.trim().length > 0,
+  });
+}
+
+// --- Compare ---
+
+export function useCompareQuery(path: string, base: string | null) {
+  return useQuery({
+    queryKey: gitKeys.compare(path, base ?? ""),
+    queryFn: async () => {
+      const data = await apiFetch<CompareResult>(
+        `/agent/api/git/compare?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base!)}`,
+      );
+      return data;
+    },
+    staleTime: 30_000,
+    enabled: path.trim().length > 0 && !!base,
+  });
+}
+
+// --- Commit Full Diff ---
+
+export function useCommitFullDiffQuery(path: string, hash: string | null) {
+  return useQuery({
+    queryKey: gitKeys.commitFullDiff(path, hash ?? ""),
     queryFn: async () => {
       const data = await apiFetch<DiffResponse>(
-        `/agent/api/git/history/${hash}/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file!)}`,
+        `/agent/api/git/history/${hash}/full-diff?path=${encodeURIComponent(path)}`,
       );
       return data.diff ?? "";
     },
     staleTime: Infinity,
-    enabled: path.trim().length > 0 && !!hash && !!file,
+    enabled: path.trim().length > 0 && !!hash,
   });
 }

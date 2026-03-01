@@ -124,6 +124,9 @@ func GetCommitDetail(dir, hash string) (*CommitDetail, error) {
 	format := "%H%x00%h%x00%s%x00%b%x00%an%x00%ae%x00%at%x1E"
 	metaOut, err := runGit(ctx, dir, defaultMaxBuffer, "show", fmt.Sprintf("--format=%s", format), "-s", hash)
 	if err != nil {
+		if isNotFoundError(err) {
+			return nil, fmt.Errorf("%w: commit %q", ErrNotFound, hash)
+		}
 		return nil, err
 	}
 
@@ -155,84 +158,84 @@ func GetCommitDetail(dir, hash string) (*CommitDetail, error) {
 		status  string
 		oldPath string
 	}{}
-	if nsOut, err := runGit(ctx, dir, diffMaxBuffer, "show", "--name-status", "--format=", hash); err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(nsOut), "\n") {
-			if line == "" {
-				continue
-			}
-			fields := strings.Split(line, "\t")
-			if len(fields) < 2 {
-				continue
-			}
-			statusChar := fields[0]
-			if len(fields) == 3 {
-				// Rename: R100\told\tnew
-				statusMap[fields[2]] = struct {
-					status  string
-					oldPath string
-				}{statusChar[:1], fields[1]}
-			} else {
-				statusMap[fields[1]] = struct {
-					status  string
-					oldPath string
-				}{statusChar[:1], ""}
-			}
+	nsOut, err := runGit(ctx, dir, diffMaxBuffer, "show", "--name-status", "--format=", hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file statuses: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(nsOut), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 {
+			continue
+		}
+		statusChar := fields[0]
+		if len(fields) == 3 {
+			// Rename: R100\told\tnew
+			statusMap[fields[2]] = struct {
+				status  string
+				oldPath string
+			}{statusChar[:1], fields[1]}
+		} else {
+			statusMap[fields[1]] = struct {
+				status  string
+				oldPath string
+			}{statusChar[:1], ""}
 		}
 	}
 
 	// Step 3: numstat
 	var files []CommitFile
 	totalAdds, totalDels := 0, 0
-	if numOut, err := runGit(ctx, dir, diffMaxBuffer, "show", "--numstat", "--format=", hash); err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(numOut), "\n") {
-			if line == "" {
-				continue
-			}
-			fields := strings.SplitN(line, "\t", 3)
-			if len(fields) != 3 {
-				continue
-			}
-
-			adds, dels := 0, 0
-			isBinary := fields[0] == "-" && fields[1] == "-"
-			if !isBinary {
-				adds, _ = strconv.Atoi(fields[0])
-				dels, _ = strconv.Atoi(fields[1])
-			}
-
-			path := fields[2]
-			// Handle renames in numstat: "old => new" or "{old => new}/path"
-			if idx := strings.Index(path, " => "); idx != -1 {
-				path = path[idx+4:]
-			}
-
-			st := StatusModified
-			var oldPath string
-			if info, ok := statusMap[path]; ok {
-				switch info.status {
-				case "A":
-					st = StatusAdded
-				case "D":
-					st = StatusDeleted
-				case "R":
-					st = StatusRenamed
-					oldPath = info.oldPath
-				case "C":
-					st = StatusCopied
-				}
-			}
-
-			files = append(files, CommitFile{
-				Path:      path,
-				Status:    st,
-				Additions: adds,
-				Deletions: dels,
-				OldPath:   oldPath,
-			})
-
-			totalAdds += adds
-			totalDels += dels
+	numOut, err := runGit(ctx, dir, diffMaxBuffer, "show", "--numstat", "--format=", hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file stats: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(numOut), "\n") {
+		if line == "" {
+			continue
 		}
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+
+		adds, dels := 0, 0
+		isBinary := fields[0] == "-" && fields[1] == "-"
+		if !isBinary {
+			adds, _ = strconv.Atoi(fields[0])
+			dels, _ = strconv.Atoi(fields[1])
+		}
+
+		path := normalizeNumstatPath(fields[2])
+
+		st := StatusModified
+		var oldPath string
+		if info, ok := statusMap[path]; ok {
+			switch info.status {
+			case "A":
+				st = StatusAdded
+			case "D":
+				st = StatusDeleted
+			case "R":
+				st = StatusRenamed
+				oldPath = info.oldPath
+			case "C":
+				st = StatusCopied
+			}
+		}
+
+		files = append(files, CommitFile{
+			Path:      path,
+			Status:    st,
+			Additions: adds,
+			Deletions: dels,
+			OldPath:   oldPath,
+		})
+
+		totalAdds += adds
+		totalDels += dels
 	}
 
 	if files == nil {
@@ -246,15 +249,22 @@ func GetCommitDetail(dir, hash string) (*CommitDetail, error) {
 	return detail, nil
 }
 
-// GetCommitFileDiff returns the diff for a specific file in a commit.
-// Matches lib/git-history.ts:getCommitFileDiff().
-func GetCommitFileDiff(dir, hash, file string) (string, error) {
+// GetCommitFullDiff returns the full combined diff for all files in a commit.
+func GetCommitFullDiff(dir, hash string) (string, error) {
 	if err := validateHash(hash); err != nil {
 		return "", err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), shortTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
 	defer cancel()
 
-	return runGit(ctx, dir, diffMaxBuffer, "show", "-U20", "-m", "--first-parent", hash, "--", file)
+	diff, err := runGit(ctx, dir, diffMaxBuffer, "show", "--format=", "-U20", "-m", "--first-parent", hash)
+	if err != nil {
+		if isNotFoundError(err) {
+			return "", fmt.Errorf("%w: commit %q", ErrNotFound, hash)
+		}
+		return "", err
+	}
+	return diff, nil
 }
+

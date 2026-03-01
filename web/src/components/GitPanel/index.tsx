@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { FileChanges } from "./FileChanges";
 import { GitPanelTabs, type GitTab } from "./GitPanelTabs";
 import { CommitHistory } from "./CommitHistory";
+import { CompareView } from "./CompareView";
 import { DiffView } from "@/components/DiffViewer";
 import { useViewport } from "@/hooks/useViewport";
 import { useGitStatusQuery } from "@/data/git";
@@ -158,8 +159,34 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     status.unstaged.length > 0 ||
     status.untracked.length > 0;
 
+  const compareHeader = (
+    <>
+      <Header
+        branch={status.branch}
+        ahead={status.ahead}
+        behind={status.behind}
+        onRefresh={handleRefresh}
+        refreshing={isRefetching}
+      />
+      <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
+    </>
+  );
+
   // --- Mobile layout ---
   if (isMobile) {
+    // Compare tab
+    if (activeTab === "compare") {
+      return (
+        <div className="bg-background relative flex h-full w-full flex-col">
+          <CompareView
+            workingDirectory={workingDirectory}
+            currentBranch={status.branch}
+            header={compareHeader}
+          />
+        </div>
+      );
+    }
+
     // History tab
     if (activeTab === "history") {
       return (
@@ -197,7 +224,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
               </p>
             </div>
           </div>
-          <div className="flex-1 overflow-auto p-3">
+          <div className="safe-area-bottom flex-1 overflow-auto p-3">
             {loadingDiff ? (
               <div className="flex h-32 items-center justify-center">
                 <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
@@ -221,7 +248,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
           refreshing={isRefetching}
         />
         <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
-        <div className="flex-1 overflow-y-auto">
+        <div className="safe-area-bottom flex-1 overflow-y-auto">
           {!hasChanges ? (
             <div className="flex h-32 items-center justify-center">
               <p className="text-muted-foreground text-sm">No changes</p>
@@ -257,6 +284,19 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   }
 
   // --- Desktop layout ---
+
+  // Compare tab
+  if (activeTab === "compare") {
+    return (
+      <div className="bg-background flex h-full w-full flex-col">
+        <CompareView
+          workingDirectory={workingDirectory}
+          currentBranch={status.branch}
+          header={compareHeader}
+        />
+      </div>
+    );
+  }
 
   // History tab
   if (activeTab === "history") {

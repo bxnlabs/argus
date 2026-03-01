@@ -44,6 +44,16 @@ export function parseDiff(diffText: string): ParsedDiff {
   let newLineNum = 0;
 
   for (const line of lines) {
+    // Parse diff --git header as fallback for filenames (needed for binary diffs)
+    if (line.startsWith("diff --git ")) {
+      const m = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+      if (m) {
+        if (!oldFile) oldFile = m[1];
+        if (!newFile) newFile = m[2];
+      }
+      continue;
+    }
+
     if (line.startsWith("Binary files")) {
       isBinary = true;
       continue;
@@ -164,4 +174,30 @@ export function getDiffFileName(diff: ParsedDiff): string {
   if (diff.isDeleted) return diff.oldFile;
   if (diff.isRenamed) return `${diff.oldFile} \u2192 ${diff.newFile}`;
   return diff.newFile || diff.oldFile;
+}
+
+/** Returns a stable path key for ref/scroll lookup (always the canonical file path). */
+export function getDiffPathKey(diff: ParsedDiff): string {
+  if (diff.isDeleted) return diff.oldFile;
+  return diff.newFile || diff.oldFile;
+}
+
+/**
+ * Splits a combined multi-file diff into individual ParsedDiff objects.
+ * A combined diff contains multiple "diff --git a/... b/..." sections.
+ */
+export function parseMultiFileDiff(diffText: string): ParsedDiff[] {
+  if (!diffText) return [];
+
+  // Split on "diff --git " boundaries, keeping the delimiter
+  const sections = diffText.split(/(?=^diff --git )/m);
+  const results: ParsedDiff[] = [];
+
+  for (const section of sections) {
+    const trimmed = section.trim();
+    if (!trimmed || !trimmed.startsWith("diff --git ")) continue;
+    results.push(parseDiff(trimmed));
+  }
+
+  return results;
 }

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -99,6 +100,22 @@ func TestValidateHash(t *testing.T) {
 			t.Errorf("validateHash(%q) = nil, want error", h)
 		}
 	}
+
+	t.Run("invalid hash wraps ErrInvalidInput", func(t *testing.T) {
+		err := validateHash("xyz")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got: %v", err)
+		}
+	})
+
+	t.Run("valid hash does not produce error", func(t *testing.T) {
+		if err := validateHash("abcdef1"); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestRelativeTime(t *testing.T) {

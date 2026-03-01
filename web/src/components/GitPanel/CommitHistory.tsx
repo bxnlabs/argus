@@ -1,23 +1,19 @@
-import { useState, useCallback } from "react";
-import { Loader2, History, ArrowLeft, FileCode } from "lucide-react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { Loader2, History, ArrowLeft, FileCode, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommitItem } from "./CommitItem";
-import { DiffView } from "@/components/DiffViewer";
+import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
 import {
   useGitHistoryQuery,
-  useCommitFileDiffQuery,
+  useCommitFullDiffQuery,
 } from "@/data/git";
+import { parseMultiFileDiff, getDiffFileName, getDiffPathKey } from "@/lib/diff-parser";
 import { useViewport } from "@/hooks/useViewport";
 import type { CommitFile } from "@/types";
 
 interface CommitHistoryProps {
   workingDirectory: string;
   header?: React.ReactNode;
-}
-
-interface SelectedFileDiff {
-  hash: string;
-  file: CommitFile;
 }
 
 export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) {
@@ -27,27 +23,76 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
     isLoading,
     error,
   } = useGitHistoryQuery(workingDirectory);
-  const [selectedFile, setSelectedFile] = useState<SelectedFileDiff | null>(
-    null,
-  );
-
-  const { data: diff, isLoading: loadingDiff } = useCommitFileDiffQuery(
-    workingDirectory,
-    selectedFile?.hash ?? null,
-    selectedFile?.file.path ?? null,
-  );
 
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Track if user tapped a file on mobile to navigate to full-screen diff view
+  const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
+
+  const { data: fullDiff, isLoading: loadingDiff, isError: diffError } = useCommitFullDiffQuery(
+    workingDirectory,
+    expandedHash,
+  );
+
+  const parsedDiffs = useMemo(() => {
+    if (!fullDiff) return [];
+    return parseMultiFileDiff(fullDiff);
+  }, [fullDiff]);
+
+  const setDiffRef = useCallback(
+    (path: string) => (el: HTMLDivElement | null) => {
+      if (el) {
+        diffRefs.current.set(path, el);
+      } else {
+        diffRefs.current.delete(path);
+      }
+    },
+    [],
+  );
 
   const handleToggleCommit = useCallback((hash: string) => {
-    setExpandedHash((prev) => (prev === hash ? null : hash));
-    setSelectedFile((prev) => (prev?.hash === hash ? null : prev));
+    setExpandedHash((prev) => {
+      if (prev === hash) {
+        return null;
+      }
+      return hash;
+    });
+    setSelectedFilePath(null);
+    setMobileShowDiffs(false);
   }, []);
 
-  const handleFileClick = (hash: string, file: CommitFile) => {
-    setExpandedHash(hash);
-    setSelectedFile({ hash, file });
-  };
+  const handleFileClick = useCallback(
+    (hash: string, file: CommitFile) => {
+      setExpandedHash(hash);
+      setSelectedFilePath(file.path);
+      if (isMobile) setMobileShowDiffs(true);
+    },
+    [isMobile],
+  );
+
+  // Scroll to selected file once diffs are rendered and refs are ready
+  useEffect(() => {
+    if (!selectedFilePath) return;
+    const el = diffRefs.current.get(selectedFilePath);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedFilePath, parsedDiffs]);
+
+  const stackedDiffs = (
+    <div className="space-y-3 p-3">
+      {parsedDiffs.map((diff) => {
+        const pathKey = getDiffPathKey(diff);
+        const fileName = getDiffFileName(diff);
+        return (
+          <div key={pathKey} ref={setDiffRef(pathKey)}>
+            <UnifiedDiff diff={diff} fileName={fileName} expanded />
+          </div>
+        );
+      })}
+    </div>
+  );
 
   if (isLoading) {
     return (
@@ -84,34 +129,41 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
     );
   }
 
-  // Mobile: full-screen diff view when file selected
-  if (isMobile && selectedFile) {
+  // Mobile: full-screen stacked diff view when user taps a file
+  if (isMobile && mobileShowDiffs && expandedHash) {
+    const commit = commits.find((c) => c.hash === expandedHash);
     return (
       <div className="flex h-full flex-col">
         <div className="bg-muted/30 flex items-center gap-2 p-2">
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => setSelectedFile(null)}
+            onClick={() => setMobileShowDiffs(false)}
+            aria-label="Back to commit list"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">
-              {selectedFile.file.path}
+              {commit?.subject ?? expandedHash.slice(0, 7)}
             </p>
             <p className="text-muted-foreground text-xs">
-              {selectedFile.hash.slice(0, 7)}
+              {expandedHash.slice(0, 7)}
             </p>
           </div>
         </div>
-        <div className="flex-1 overflow-auto p-3">
+        <div className="safe-area-bottom flex-1 overflow-auto">
           {loadingDiff ? (
             <div className="flex h-32 items-center justify-center">
               <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
             </div>
+          ) : diffError ? (
+            <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
+              <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
+              <p className="text-sm">Failed to load commit diff</p>
+            </div>
           ) : (
-            <DiffView diff={diff || ""} fileName={selectedFile.file.path} />
+            stackedDiffs
           )}
         </div>
       </div>
@@ -123,7 +175,7 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {header}
-        <div className="flex-1 overflow-y-auto">
+        <div className="safe-area-bottom flex-1 overflow-y-auto">
           {commits.map((commit) => (
             <CommitItem
               key={commit.hash}
@@ -133,8 +185,8 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
               onToggle={() => handleToggleCommit(commit.hash)}
               onFileClick={handleFileClick}
               selectedFile={
-                selectedFile
-                  ? { hash: selectedFile.hash, path: selectedFile.file.path }
+                selectedFilePath && expandedHash
+                  ? { hash: expandedHash, path: selectedFilePath }
                   : null
               }
             />
@@ -151,52 +203,44 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
       <div className="flex w-[300px] flex-shrink-0 flex-col">
         {header}
         <div className="flex-1 overflow-y-auto">
-        {commits.map((commit) => (
-          <CommitItem
-            key={commit.hash}
-            commit={commit}
-            workingDir={workingDirectory}
-            expanded={expandedHash === commit.hash}
-            onToggle={() => handleToggleCommit(commit.hash)}
-            onFileClick={handleFileClick}
-            selectedFile={
-              selectedFile
-                ? { hash: selectedFile.hash, path: selectedFile.file.path }
-                : null
-            }
-          />
-        ))}
+          {commits.map((commit) => (
+            <CommitItem
+              key={commit.hash}
+              commit={commit}
+              workingDir={workingDirectory}
+              expanded={expandedHash === commit.hash}
+              onToggle={() => handleToggleCommit(commit.hash)}
+              onFileClick={handleFileClick}
+              selectedFile={
+                selectedFilePath && expandedHash
+                  ? { hash: expandedHash, path: selectedFilePath }
+                  : null
+              }
+            />
+          ))}
         </div>
       </div>
 
-      {/* Divider (matches Changes view) */}
+      {/* Divider */}
       <div className="bg-muted/50 w-1 flex-shrink-0" />
 
-      {/* Diff view */}
+      {/* Diff view - stacked diffs */}
       <div className="bg-muted/20 flex min-w-0 flex-1 flex-col">
         {loadingDiff ? (
           <div className="flex flex-1 items-center justify-center">
             <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
           </div>
-        ) : selectedFile && diff !== undefined ? (
-          <>
-            <div className="bg-background/50 flex items-center gap-2 p-3">
-              <FileCode className="text-muted-foreground h-4 w-4" />
-              <span className="flex-1 truncate text-sm font-medium">
-                {selectedFile.file.path}
-              </span>
-              <span className="text-muted-foreground font-mono text-xs">
-                {selectedFile.hash.slice(0, 7)}
-              </span>
-            </div>
-            <div className="flex-1 overflow-auto p-3">
-              <DiffView diff={diff} fileName={selectedFile.file.path} />
-            </div>
-          </>
+        ) : diffError ? (
+          <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center">
+            <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
+            <p className="text-sm">Failed to load commit diff</p>
+          </div>
+        ) : expandedHash && parsedDiffs.length > 0 ? (
+          <div className="flex-1 overflow-auto">{stackedDiffs}</div>
         ) : (
           <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center">
             <FileCode className="mb-4 h-12 w-12 opacity-50" />
-            <p className="text-sm">Select a file to view diff</p>
+            <p className="text-sm">Select a commit to view changes</p>
           </div>
         )}
       </div>

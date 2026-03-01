@@ -134,3 +134,17 @@ export interface CommitFile {
 export interface CommitDetail extends CommitSummary {
   files: CommitFile[];
 }
+
+export interface CompareResult {
+  diff: string;
+  files: CommitFile[];
+  totalAdditions: number;
+  totalDeletions: number;
+  baseRef: string;
+  headRef: string;
+}
+
+export interface BranchList {
+  branches: string[];
+  defaultBase: string;
+}
