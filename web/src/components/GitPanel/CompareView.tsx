@@ -7,7 +7,6 @@ import {
   FileText,
   ArrowRight,
   ArrowLeft,
-  List,
   AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,12 +19,14 @@ import type { CommitFile, FileStatus } from "@/types";
 
 interface CompareViewProps {
   workingDirectory: string;
+  currentBranch?: string;
+  header?: React.ReactNode;
 }
 
-export function CompareView({ workingDirectory }: CompareViewProps) {
+export function CompareView({ workingDirectory, currentBranch, header }: CompareViewProps) {
   const { isMobile } = useViewport();
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
-  const [showMobileFileList, setShowMobileFileList] = useState(false);
+  const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
@@ -43,14 +44,23 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
     diffRefs.current.clear();
   }, [workingDirectory]);
 
+  // Branches excluding the current one (comparing with yourself is useless)
+  const availableBranches = useMemo(() => {
+    if (!branchData?.branches) return [];
+    if (!currentBranch) return branchData.branches;
+    return branchData.branches.filter((b) => b !== currentBranch);
+  }, [branchData?.branches, currentBranch]);
+
   // Set default base branch when branch data loads
   useEffect(() => {
     if (baseBranch !== null) return;
     if (!branchData) return;
-    setBaseBranch(
-      branchData.defaultBase || branchData.branches[0] || null,
-    );
-  }, [branchData, baseBranch]);
+    const defaultBase =
+      branchData.defaultBase && branchData.defaultBase !== currentBranch
+        ? branchData.defaultBase
+        : null;
+    setBaseBranch(defaultBase || availableBranches[0] || null);
+  }, [branchData, baseBranch, currentBranch, availableBranches]);
 
   const {
     data: compareData,
@@ -77,12 +87,24 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
 
   const scrollToFile = useCallback((path: string) => {
     setSelectedPath(path);
-    const el = diffRefs.current.get(path);
+    if (isMobile) {
+      setMobileShowDiffs(true);
+    } else {
+      const el = diffRefs.current.get(path);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, [isMobile]);
+
+  // Scroll to selected file once diffs are rendered and refs are ready
+  useEffect(() => {
+    if (!selectedPath || !mobileShowDiffs) return;
+    const el = diffRefs.current.get(selectedPath);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-    setShowMobileFileList(false);
-  }, []);
+  }, [selectedPath, parsedDiffs, mobileShowDiffs]);
 
   if (loadingBranches) {
     return (
@@ -105,7 +127,7 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
     );
   }
 
-  if (!baseBranch && (!branchData?.branches || branchData.branches.length === 0)) {
+  if (!baseBranch && availableBranches.length === 0) {
     return (
       <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center p-4">
         <GitCompareArrows className="mb-2 h-8 w-8 opacity-50" />
@@ -125,7 +147,7 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
         onChange={(e) => setBaseBranch(e.target.value)}
         className="bg-muted border-border rounded border px-2 py-1 text-xs"
       >
-        {branchData?.branches.map((branch) => (
+        {availableBranches.map((branch) => (
           <option key={branch} value={branch}>
             {branch}
           </option>
@@ -195,50 +217,109 @@ export function CompareView({ workingDirectory }: CompareViewProps) {
     </div>
   );
 
-  // Mobile layout
-  if (isMobile) {
+  // Mobile: full-screen diff view when user taps a file
+  if (isMobile && mobileShowDiffs) {
     return (
       <div className="flex h-full flex-col">
+        <div className="bg-muted/30 flex items-center gap-2 p-2">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setMobileShowDiffs(false)}
+            aria-label="Back to file list"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">
+              {baseBranch ? `Changes from ${baseBranch}` : "Compare"}
+            </p>
+            {compareData && (
+              <p className="text-muted-foreground text-xs">
+                {compareData.files.length} file{compareData.files.length !== 1 ? "s" : ""} changed
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="safe-area-bottom flex-1 overflow-auto">
+          {loadingCompare ? (
+            <div className="flex h-32 items-center justify-center">
+              <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+            </div>
+          ) : compareError ? (
+            <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
+              <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
+              <p className="text-sm">
+                {compareErrorDetail instanceof Error
+                  ? compareErrorDetail.message
+                  : "Failed to compare branches"}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 p-3">
+              {parsedDiffs.map((diff) => {
+                const pathKey = getDiffPathKey(diff);
+                const fileName = getDiffFileName(diff);
+                return (
+                  <div key={pathKey} ref={setDiffRef(pathKey)}>
+                    <UnifiedDiff diff={diff} fileName={fileName} expanded />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Mobile: file list view (default)
+  if (isMobile) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {header}
         {branchSelector}
         {summary}
-        {diffPane}
-        {/* Floating file navigator button */}
-        {compareData && compareData.files.length > 0 && (
-          <>
-            <button
-              onClick={() => setShowMobileFileList(true)}
-              className="bg-primary text-primary-foreground absolute bottom-4 right-4 rounded-full p-3 shadow-lg"
-              aria-label="Open file list"
-            >
-              <List className="h-5 w-5" />
-            </button>
-            {showMobileFileList && (
-              <div className="bg-background/95 absolute inset-0 z-50 flex flex-col backdrop-blur-sm">
-                <div className="flex items-center gap-2 p-3">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setShowMobileFileList(false)}
-                    aria-label="Close file list"
-                  >
-                    <ArrowLeft className="h-5 w-5" />
-                  </Button>
-                  <span className="text-sm font-medium">Files</span>
-                </div>
-                <div className="flex-1 overflow-y-auto">{fileList}</div>
-              </div>
-            )}
-          </>
-        )}
+        <div className="safe-area-bottom flex-1 overflow-y-auto">
+          {loadingCompare ? (
+            <div className="flex h-32 items-center justify-center">
+              <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+            </div>
+          ) : compareError ? (
+            <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
+              <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
+              <p className="text-sm">
+                {compareErrorDetail instanceof Error
+                  ? compareErrorDetail.message
+                  : "Failed to compare branches"}
+              </p>
+            </div>
+          ) : compareData?.files.length ? (
+            compareData.files.map((file) => (
+              <CompareFileRow
+                key={file.path}
+                file={file}
+                isSelected={selectedPath === file.path}
+                onClick={() => scrollToFile(file.path)}
+              />
+            ))
+          ) : compareData ? (
+            <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
+              <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
+              <p className="text-sm">No changes between branches</p>
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   }
 
   // Desktop layout
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex min-h-0 flex-1">
       {/* Left sidebar */}
-      <div className="flex w-[260px] flex-shrink-0 flex-col">
+      <div className="flex w-[300px] flex-shrink-0 flex-col">
+        {header}
         {branchSelector}
         {summary}
         {fileList}
@@ -277,7 +358,7 @@ function CompareFileRow({
       <StatusIcon
         className={cn("h-4 w-4 flex-shrink-0", getStatusColor(file.status))}
       />
-      <span className="flex-1 truncate text-xs">
+      <span className="flex-1 truncate text-sm">
         {file.oldPath ? (
           <span className="flex items-center gap-1">
             <span className="text-muted-foreground">{file.oldPath}</span>

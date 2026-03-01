@@ -152,7 +152,7 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
             </p>
           </div>
         </div>
-        <div className="flex-1 overflow-auto">
+        <div className="safe-area-bottom flex-1 overflow-auto">
           {loadingDiff ? (
             <div className="flex h-32 items-center justify-center">
               <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
@@ -175,7 +175,7 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {header}
-        <div className="flex-1 overflow-y-auto">
+        <div className="safe-area-bottom flex-1 overflow-y-auto">
           {commits.map((commit) => (
             <CommitItem
               key={commit.hash}
