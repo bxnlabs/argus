@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"os/exec"
 	"testing"
 )
@@ -123,10 +124,33 @@ func TestGetCompare(t *testing.T) {
 		}
 	})
 
+	t.Run("invalid branch name wraps ErrInvalidInput", func(t *testing.T) {
+		_, err := GetCompare(dir, "-bad-branch")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got: %v", err)
+		}
+	})
+
+	t.Run("nonexistent branch wraps ErrNotFound", func(t *testing.T) {
+		_, err := GetCompare(dir, "nonexistent")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected ErrNotFound, got: %v", err)
+		}
+	})
+
 	t.Run("invalid base ref", func(t *testing.T) {
 		_, err := GetCompare(dir, "nonexistent-branch")
 		if err == nil {
 			t.Error("expected error for invalid base ref")
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected ErrNotFound, got: %v", err)
 		}
 	})
 }

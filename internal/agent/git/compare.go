@@ -40,10 +40,10 @@ func GetBranches(dir string) (*BranchList, error) {
 // and does not start with a dash (to prevent git option injection).
 func validateBranchRef(ctx context.Context, dir, ref string) error {
 	if strings.HasPrefix(ref, "-") {
-		return fmt.Errorf("invalid branch name: %q", ref)
+		return fmt.Errorf("%w: invalid branch name: %q", ErrInvalidInput, ref)
 	}
 	if _, err := runGit(ctx, dir, defaultMaxBuffer, "check-ref-format", "--branch", ref); err != nil {
-		return fmt.Errorf("invalid branch name: %q", ref)
+		return fmt.Errorf("%w: invalid branch name: %q", ErrInvalidInput, ref)
 	}
 	return nil
 }
@@ -60,7 +60,7 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 	// Find the merge base
 	mergeBase, err := runGit(ctx, dir, defaultMaxBuffer, "merge-base", base, "HEAD")
 	if err != nil {
-		return nil, fmt.Errorf("failed to find merge base: %w", err)
+		return nil, fmt.Errorf("%w: failed to find merge base for %q: %w", ErrNotFound, base, err)
 	}
 	mergeBase = strings.TrimSpace(mergeBase)
 
