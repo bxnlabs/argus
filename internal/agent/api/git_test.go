@@ -1,10 +1,54 @@
 package api
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/bxnlabs/argus/internal/agent/git"
 )
+
+func TestRespondGitError(t *testing.T) {
+	t.Run("ErrInvalidInput returns 400", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		respondGitError(w, fmt.Errorf("%w: bad input", git.ErrInvalidInput))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("ErrNotFound returns 404", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		respondGitError(w, fmt.Errorf("%w: missing ref", git.ErrNotFound))
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("unknown error returns 500", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		respondGitError(w, fmt.Errorf("something went wrong"))
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("expected 500, got %d", w.Code)
+		}
+	})
+
+	t.Run("unknown error does not leak message", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		respondGitError(w, fmt.Errorf("secret internal path /etc/shadow"))
+		body := w.Body.String()
+		if strings.Contains(body, "/etc/shadow") {
+			t.Errorf("internal error message leaked to client: %s", body)
+		}
+		if !strings.Contains(body, "internal error") {
+			t.Errorf("expected generic 'internal error' message, got: %s", body)
+		}
+	})
+}
 
 func TestSanitizeFilePath(t *testing.T) {
 	dir := "/repo"
