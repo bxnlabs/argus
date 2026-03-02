@@ -12,7 +12,7 @@ import (
 // Deps holds the dependencies injected into API handlers.
 type Deps struct {
 	SessionManager     *session.Manager
-	StatusDetector     *status.Detector
+	StatusMonitor      *status.Monitor
 	RepoIndexer        *ghservice.RepoIndexer
 	UploadDirOverride  string // override upload directory (for testing)
 }
@@ -61,8 +61,8 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/github/repos", ghub.listRepos)
 
 	// Status route
-	if deps.StatusDetector != nil {
-		mux.HandleFunc("GET /api/sessions/status", handleStatus(deps.SessionManager, deps.StatusDetector))
+	if deps.StatusMonitor != nil {
+		mux.HandleFunc("GET /api/sessions/status", handleStatus(deps.StatusMonitor))
 	}
 
 	// Terminal WebSocket

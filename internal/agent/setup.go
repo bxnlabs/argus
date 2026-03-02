@@ -51,16 +51,20 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 	mgr := session.NewManager(database, wtMgr)
 	detector := status.NewDetector()
 
+	statusMon := status.NewMonitor(mgr, mgr, detector, nil)
+	statusMon.Start(context.Background())
+
 	repoIndexer := ghsvc.NewRepoIndexer(stateDir)
 	repoIndexer.Start(context.Background())
 
 	handler := api.NewRouter(api.Deps{
 		SessionManager: mgr,
-		StatusDetector: detector,
+		StatusMonitor:  statusMon,
 		RepoIndexer:    repoIndexer,
 	})
 
 	cleanup := func() {
+		statusMon.Close()
 		repoIndexer.Close()
 		database.Close()
 	}
