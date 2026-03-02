@@ -92,7 +92,7 @@ func CapturePane(name string) (string, error) {
 
 // CapturePaneContext captures pane content with context for cancellation/timeout.
 func CapturePaneContext(ctx context.Context, name string) (string, error) {
-	cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", name, "-p")
+	cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", name, "-p", "-J")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("tmux capture-pane: %w", err)
