@@ -22,6 +22,8 @@ func TestCheckBusyIndicators(t *testing.T) {
 		{"word without ellipsis", "line1\ncogitating something\n", false},
 		{"truncated text", "line1\n\u23f5\u23f5 bypass permissions on (shift+tab to cycl\u2026\n", false},
 		{"running ellipsis", "line1\n  \u23bf  running\u2026\n", true},
+		{"background tasks running plural", "output\n\u203b Brewed for 53s \u00b7 3 background tasks still running (\u2193 to manage)\n", true},
+		{"background task running singular", "output\n\u203b Brewed for 10s \u00b7 1 background task still running (\u2193 to manage)\n", true},
 		{"old scrollback ignored", "esc to interrupt\n" + repeat("safe line\n", 15), false},
 	}
 
