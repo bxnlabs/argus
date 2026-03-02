@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -72,7 +73,13 @@ func ListSessions() ([]string, error) {
 	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")
 	out, err := cmd.Output()
 	if err != nil {
-		// No sessions is not an error
+		// tmux exits non-zero when no server is running — expected.
+		// Log and propagate unexpected errors (e.g. binary not found).
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			log.Printf("tmux list-sessions: %v", err)
+			return nil, err
+		}
 		return nil, nil
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -123,17 +130,35 @@ func GetSessionActivitiesContext(ctx context.Context) ([]SessionActivity, error)
 	cmd := exec.CommandContext(ctx, "tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_activity}")
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, nil // no sessions
+		// Context cancellation kills the process, producing an ExitError.
+		// Return the context error so callers can preserve stale state.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		// tmux exits non-zero when no server is running — expected.
+		// Log and propagate unexpected errors (e.g. binary not found).
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			log.Printf("tmux list-windows: %v", err)
+			return nil, err
+		}
+		return nil, nil
 	}
 
-	// A session may have multiple windows; take the max timestamp per session.
+	return parseWindowActivities(string(out)), nil
+}
+
+// parseWindowActivities parses the tab-separated output of
+// `tmux list-windows -a -F "#{session_name}\t#{window_activity}"`.
+// A session may have multiple windows; the max timestamp wins.
+func parseWindowActivities(output string) []SessionActivity {
 	maxTS := make(map[string]int64)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		if line == "" {
 			continue
 		}
 		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
+		if len(parts) != 2 || parts[0] == "" {
 			continue
 		}
 		ts, err := strconv.ParseInt(parts[1], 10, 64)
@@ -152,5 +177,5 @@ func GetSessionActivitiesContext(ctx context.Context) ([]SessionActivity, error)
 			Timestamp: ts,
 		})
 	}
-	return activities, nil
+	return activities
 }
