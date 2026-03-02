@@ -82,7 +82,7 @@ func (f *fakeDetector) GetAllStatuses(_ context.Context, names []string) map[str
 	return result
 }
 
-func (f *fakeDetector) Cleanup() {
+func (f *fakeDetector) Cleanup(_ context.Context) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cleanupCalls++

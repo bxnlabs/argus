@@ -23,7 +23,7 @@ type SessionToucher interface {
 // StatusDetector detects statuses for a set of session names.
 type StatusDetector interface {
 	GetAllStatuses(ctx context.Context, names []string) map[string]SessionStatus
-	Cleanup()
+	Cleanup(ctx context.Context)
 }
 
 // ActivityEntry holds a session name and its last activity timestamp.
@@ -153,7 +153,7 @@ func (m *Monitor) refresh(ctx context.Context) {
 	}
 
 	statuses := m.detector.GetAllStatuses(ctx, names)
-	m.detector.Cleanup()
+	m.detector.Cleanup(ctx)
 
 	// Fetch activity timestamps with a 2s timeout.
 	actCtx, actCancel := context.WithTimeout(ctx, 2*time.Second)
