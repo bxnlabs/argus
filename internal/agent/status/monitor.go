@@ -62,9 +62,10 @@ type Monitor struct {
 	mu       sync.RWMutex
 	snapshot Snapshot
 
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	startOnce sync.Once
+	ctrlMu  sync.Mutex
+	cancel  context.CancelFunc
+	started bool
+	wg      sync.WaitGroup
 }
 
 // NewMonitor creates a Monitor. If fetchAct is nil, the default
@@ -85,17 +86,24 @@ func NewMonitor(lister SessionLister, toucher SessionToucher, detector StatusDet
 // Start begins the background refresh loop. It is safe to call multiple
 // times; only the first call has any effect.
 func (m *Monitor) Start(ctx context.Context) {
-	m.startOnce.Do(func() {
-		ctx, m.cancel = context.WithCancel(ctx)
-		m.wg.Add(1)
-		go m.loop(ctx)
-	})
+	m.ctrlMu.Lock()
+	defer m.ctrlMu.Unlock()
+	if m.started {
+		return
+	}
+	m.started = true
+	ctx, m.cancel = context.WithCancel(ctx)
+	m.wg.Add(1)
+	go m.loop(ctx)
 }
 
 // Close cancels the background loop and waits for it to exit.
 func (m *Monitor) Close() {
-	if m.cancel != nil {
-		m.cancel()
+	m.ctrlMu.Lock()
+	cancel := m.cancel
+	m.ctrlMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	m.wg.Wait()
 }
@@ -160,17 +168,33 @@ func (m *Monitor) refresh(ctx context.Context) {
 		activityByName[a.Name] = a.Timestamp
 	}
 
+	// Read prior snapshot to carry forward statuses when the detector
+	// omits sessions (e.g. on timeout/cancellation).
+	m.mu.RLock()
+	prev := m.snapshot
+	m.mu.RUnlock()
+
 	// Build new snapshot and touch sessions.
 	snap := Snapshot{Statuses: make(map[string]SnapshotEntry, len(sessions))}
 	for _, s := range sessions {
 		st, ok := statuses[s.TmuxName]
 		if !ok {
-			st = StatusIdle
+			// Detector omitted this session (timeout/cancel). Carry
+			// forward the prior status; default to idle only when
+			// there is no prior value.
+			if prev, exists := prev.Statuses[s.ID]; exists {
+				st = prev.Status
+			} else {
+				st = StatusIdle
+			}
 		}
 		snap.Statuses[s.ID] = SnapshotEntry{
 			SessionName: s.TmuxName,
 			Status:      st,
 			AgentType:   s.AgentType,
+		}
+		if ctx.Err() != nil {
+			continue // shutdown requested; skip remaining DB writes
 		}
 		if ts, ok := activityByName[s.TmuxName]; ok {
 			if err := m.toucher.TouchSession(s.ID, ts); err != nil {
