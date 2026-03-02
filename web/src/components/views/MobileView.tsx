@@ -101,7 +101,7 @@ export function MobileView({
       )}
 
       {/* Terminal fills the screen */}
-      <div className="min-h-0 w-full flex-1">
+      <div className="isolate min-h-0 w-full flex-1">
         {renderWorkspace()}
       </div>
 
