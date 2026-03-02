@@ -385,6 +385,12 @@ func (m *Manager) Update(id string, u db.SessionUpdate) error {
 	return m.db.UpdateSession(id, u)
 }
 
+// TouchSession sets updated_at to the given Unix timestamp to reflect
+// the most recent tmux activity for the session.
+func (m *Manager) TouchSession(id string, unixTS int64) error {
+	return m.db.TouchSession(id, unixTS)
+}
+
 func ptrStr(s *string) string {
 	if s == nil {
 		return ""

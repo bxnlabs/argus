@@ -139,6 +139,18 @@ func (d *DB) CountSessionsByWorkingDir(excludeID, workingDir string) (int, error
 	return count, err
 }
 
+// TouchSession sets updated_at to the given Unix timestamp (seconds).
+// The WHERE guard skips the write when the stored value is already >= the
+// supplied timestamp, so repeated calls with the same value are no-ops.
+func (d *DB) TouchSession(id string, unixTS int64) error {
+	_, err := d.sql.Exec(
+		`UPDATE sessions SET updated_at = datetime(?, 'unixepoch')
+		 WHERE id = ? AND updated_at < datetime(?, 'unixepoch')`,
+		unixTS, id, unixTS,
+	)
+	return err
+}
+
 func (d *DB) DeleteSession(id string) error {
 	result, err := d.sql.Exec(`DELETE FROM sessions WHERE id = ?`, id)
 	if err != nil {

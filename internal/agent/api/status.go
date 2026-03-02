@@ -27,6 +27,14 @@ func handleStatus(mgr *session.Manager, detector *status.Detector) http.HandlerF
 		// Prune trackers for sessions that no longer exist in tmux.
 		detector.Cleanup()
 
+		// Sync tmux activity timestamps into updated_at so the sidebar
+		// and CLI reflect real session activity, not just creation time.
+		activities, _ := session.GetSessionActivities()
+		activityByName := make(map[string]int64, len(activities))
+		for _, a := range activities {
+			activityByName[a.Name] = a.Timestamp
+		}
+
 		// Map back to session IDs
 		result := make(map[string]any)
 		for _, s := range sessions {
@@ -38,6 +46,9 @@ func handleStatus(mgr *session.Manager, detector *status.Detector) http.HandlerF
 				"sessionName": s.TmuxName,
 				"status":      string(st),
 				"agentType":   s.AgentType,
+			}
+			if ts, ok := activityByName[s.TmuxName]; ok {
+				mgr.TouchSession(s.ID, ts)
 			}
 		}
 
