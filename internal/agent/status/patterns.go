@@ -6,8 +6,10 @@ import "regexp"
 var BusyIndicators = []string{
 	"esc to interrupt",
 	"(esc to interrupt)",
-	"\u00b7 esc to interrupt", // · esc to interrupt
-	"running\u2026",           // Running… (active tool execution)
+	"\u00b7 esc to interrupt",          // · esc to interrupt
+	"running\u2026",                     // Running… (active tool execution)
+	"background task still running",    // 1 background task still running (↓ to manage)
+	"background tasks still running",   // N background tasks still running (↓ to manage)
 }
 
 // SpinnerChars are braille spinner characters used by CLI tools.
