@@ -169,7 +169,7 @@ func (m *Monitor) refresh(ctx context.Context) {
 		}
 		// Bump updated_at when the agent is active or status changed.
 		prevEntry, hadPrev := prev.Statuses[s.ID]
-		statusChanged := !hadPrev || prevEntry.Status != st
+		statusChanged := hadPrev && prevEntry.Status != st
 		active := st == StatusRunning || st == StatusWaiting
 		if active || statusChanged {
 			if err := m.toucher.TouchSession(ctx, s.ID, nowUnix); err != nil {

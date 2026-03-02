@@ -136,8 +136,11 @@ func GetSessionActivitiesContext(ctx context.Context) ([]SessionActivity, error)
 		if len(parts) != 2 {
 			continue
 		}
-		ts, _ := strconv.ParseInt(parts[1], 10, 64)
-		if ts > maxTS[parts[0]] {
+		ts, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		if cur, ok := maxTS[parts[0]]; !ok || ts > cur {
 			maxTS[parts[0]] = ts
 		}
 	}

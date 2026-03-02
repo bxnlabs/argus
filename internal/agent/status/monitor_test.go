@@ -139,11 +139,10 @@ func TestMonitorSnapshot(t *testing.T) {
 	before := time.Now().Unix()
 	mon := NewMonitor(lister, toucher, detector)
 	mon.Start(context.Background())
-	// Wait for both touches to complete before closing, since Close()
-	// cancels the context and the ctx.Err() guard skips remaining touches.
-	// Both sessions are touched on first refresh: s1 is active (running),
-	// s2 has a status change (first seen → idle).
-	waitForRefresh(t, toucher.ch)
+	// Wait for the active session's touch to complete before closing.
+	// On first refresh only active sessions (running/waiting) are touched;
+	// idle sessions seen for the first time are NOT touched to avoid
+	// inflating updated_at on every agent restart.
 	waitForRefresh(t, toucher.ch)
 	mon.Close()
 
@@ -168,13 +167,13 @@ func TestMonitorSnapshot(t *testing.T) {
 		t.Errorf("s2 Status = %q, want %q", s2.Status, StatusIdle)
 	}
 
-	// Verify TouchSession was called with time.Now().Unix() timestamps.
+	// Verify TouchSession was called for s1 (active) but NOT s2 (idle, first seen).
 	touched := toucher.getTouched()
 	if touched["s1"] < before {
 		t.Errorf("touched[s1] = %d, want >= %d", touched["s1"], before)
 	}
-	if touched["s2"] < before {
-		t.Errorf("touched[s2] = %d, want >= %d", touched["s2"], before)
+	if _, ok := touched["s2"]; ok {
+		t.Errorf("idle session s2 should not be touched on first refresh, got %d", touched["s2"])
 	}
 
 	// Verify Cleanup was called.
