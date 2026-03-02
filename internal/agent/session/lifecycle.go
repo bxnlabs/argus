@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -288,8 +289,8 @@ func (m *Manager) Get(id string) (*db.Session, error) {
 }
 
 // List returns all sessions.
-func (m *Manager) List() ([]*db.Session, error) {
-	return m.db.ListSessions()
+func (m *Manager) List(ctx context.Context) ([]*db.Session, error) {
+	return m.db.ListSessions(ctx)
 }
 
 // getSession looks up a session by ID and checks whether its tmux
@@ -387,8 +388,8 @@ func (m *Manager) Update(id string, u db.SessionUpdate) error {
 
 // TouchSession sets updated_at to the given Unix timestamp to reflect
 // the most recent tmux activity for the session.
-func (m *Manager) TouchSession(id string, unixTS int64) error {
-	return m.db.TouchSession(id, unixTS)
+func (m *Manager) TouchSession(ctx context.Context, id string, unixTS int64) error {
+	return m.db.TouchSession(ctx, id, unixTS)
 }
 
 func ptrStr(s *string) string {

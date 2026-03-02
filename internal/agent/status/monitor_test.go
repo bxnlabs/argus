@@ -19,7 +19,7 @@ type fakeLister struct {
 	ch       chan struct{} // optional: signals after each List call
 }
 
-func (f *fakeLister) List() ([]*db.Session, error) {
+func (f *fakeLister) List(_ context.Context) ([]*db.Session, error) {
 	f.mu.Lock()
 	sessions, err := f.sessions, f.err
 	f.mu.Unlock()
@@ -38,7 +38,7 @@ type fakeToucher struct {
 	ch      chan struct{} // optional: signals after each touch
 }
 
-func (f *fakeToucher) TouchSession(id string, unixTS int64) error {
+func (f *fakeToucher) TouchSession(_ context.Context, id string, unixTS int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.touched == nil {
@@ -200,6 +200,11 @@ func TestMonitorSnapshot(t *testing.T) {
 	if detector.getCleanupCalls() == 0 {
 		t.Error("expected Cleanup to be called at least once")
 	}
+
+	// Verify LastRefreshedAt is set.
+	if snap.LastRefreshedAt.IsZero() {
+		t.Error("expected LastRefreshedAt to be non-zero after successful refresh")
+	}
 }
 
 func TestMonitorSnapshotEmpty(t *testing.T) {
@@ -219,6 +224,11 @@ func TestMonitorSnapshotEmpty(t *testing.T) {
 	snap := mon.Snapshot()
 	if len(snap.Statuses) != 0 {
 		t.Errorf("expected 0 statuses, got %d", len(snap.Statuses))
+	}
+
+	// Empty list is still a successful refresh.
+	if snap.LastRefreshedAt.IsZero() {
+		t.Error("expected LastRefreshedAt to be non-zero after successful refresh with empty list")
 	}
 }
 
@@ -317,6 +327,11 @@ func TestMonitorListError(t *testing.T) {
 	// No sessions should have been touched.
 	if len(toucher.getTouched()) != 0 {
 		t.Error("expected no touches after List error")
+	}
+
+	// LastRefreshedAt should be zero — refresh exits early on List error.
+	if !snap.LastRefreshedAt.IsZero() {
+		t.Error("expected LastRefreshedAt to be zero after List error")
 	}
 }
 

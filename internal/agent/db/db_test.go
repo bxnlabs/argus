@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,7 +77,7 @@ func TestListSessions(t *testing.T) {
 		}
 	}
 
-	sessions, err := db.ListSessions()
+	sessions, err := db.ListSessions(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +161,7 @@ func TestTouchSession(t *testing.T) {
 
 	// Touch with a future timestamp should advance updated_at.
 	futureTS := int64(4102444800) // 2100-01-01 00:00:00 UTC
-	if err := db.TouchSession("s1", futureTS); err != nil {
+	if err := db.TouchSession(context.Background(), "s1", futureTS); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +178,7 @@ func TestTouchSession(t *testing.T) {
 
 	// Touch with an older timestamp should be a no-op (monotonic guard).
 	olderTS := int64(946684800) // 2000-01-01 00:00:00 UTC
-	if err := db.TouchSession("s1", olderTS); err != nil {
+	if err := db.TouchSession(context.Background(), "s1", olderTS); err != nil {
 		t.Fatal(err)
 	}
 
@@ -190,7 +191,7 @@ func TestTouchSession(t *testing.T) {
 	}
 
 	// Touch with the same timestamp should also be a no-op.
-	if err := db.TouchSession("s1", futureTS); err != nil {
+	if err := db.TouchSession(context.Background(), "s1", futureTS); err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,7 +208,7 @@ func TestTouchSessionNonexistent(t *testing.T) {
 	db := testDB(t)
 
 	// Touching a nonexistent session should not error (just 0 rows affected).
-	if err := db.TouchSession("nonexistent", 1000000); err != nil {
+	if err := db.TouchSession(context.Background(), "nonexistent", 1000000); err != nil {
 		t.Errorf("expected no error for nonexistent session, got: %v", err)
 	}
 }

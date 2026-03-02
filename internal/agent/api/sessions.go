@@ -16,7 +16,7 @@ type sessionHandler struct {
 
 // GET /api/sessions
 func (h *sessionHandler) list(w http.ResponseWriter, r *http.Request) {
-	sessions, err := h.manager.List()
+	sessions, err := h.manager.List(r.Context())
 	if err != nil {
 		respondInternalError(w, err)
 		return

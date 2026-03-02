@@ -18,6 +18,9 @@ func handleStatus(mon *status.Monitor) http.HandlerFunc {
 				"agentType":   entry.AgentType,
 			}
 		}
-		respondJSON(w, http.StatusOK, map[string]any{"statuses": result})
+		respondJSON(w, http.StatusOK, map[string]any{
+			"statuses":        result,
+			"lastRefreshedAt": snap.LastRefreshedAt,
+		})
 	}
 }

@@ -12,12 +12,12 @@ import (
 
 // SessionLister lists sessions from the database.
 type SessionLister interface {
-	List() ([]*db.Session, error)
+	List(ctx context.Context) ([]*db.Session, error)
 }
 
 // SessionToucher updates a session's updated_at timestamp.
 type SessionToucher interface {
-	TouchSession(id string, unixTS int64) error
+	TouchSession(ctx context.Context, id string, unixTS int64) error
 }
 
 // StatusDetector detects statuses for a set of session names.
@@ -45,7 +45,8 @@ type SnapshotEntry struct {
 
 // Snapshot is the in-memory status snapshot read by the API handler.
 type Snapshot struct {
-	Statuses map[string]SnapshotEntry // keyed by session ID
+	Statuses        map[string]SnapshotEntry // keyed by session ID
+	LastRefreshedAt time.Time                // when the last successful refresh completed
 }
 
 // Monitor runs a background loop that detects session statuses, fetches
@@ -113,7 +114,10 @@ func (m *Monitor) Snapshot() Snapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	cp := Snapshot{Statuses: make(map[string]SnapshotEntry, len(m.snapshot.Statuses))}
+	cp := Snapshot{
+		Statuses:        make(map[string]SnapshotEntry, len(m.snapshot.Statuses)),
+		LastRefreshedAt: m.snapshot.LastRefreshedAt,
+	}
 	for k, v := range m.snapshot.Statuses {
 		cp.Statuses[k] = v
 	}
@@ -140,7 +144,7 @@ func (m *Monitor) loop(ctx context.Context) {
 }
 
 func (m *Monitor) refresh(ctx context.Context) {
-	sessions, err := m.lister.List()
+	sessions, err := m.lister.List(ctx)
 	if err != nil {
 		log.Printf("status monitor: list sessions: %v", err)
 		return
@@ -197,11 +201,13 @@ func (m *Monitor) refresh(ctx context.Context) {
 			continue // shutdown requested; skip remaining DB writes
 		}
 		if ts, ok := activityByName[s.TmuxName]; ok {
-			if err := m.toucher.TouchSession(s.ID, ts); err != nil {
+			if err := m.toucher.TouchSession(ctx, s.ID, ts); err != nil {
 				log.Printf("status monitor: touch session %s: %v", s.ID, err)
 			}
 		}
 	}
+
+	snap.LastRefreshedAt = time.Now()
 
 	m.mu.Lock()
 	m.snapshot = snap
