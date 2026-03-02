@@ -122,14 +122,17 @@ func GetSessionActivities() ([]SessionActivity, error) {
 }
 
 // GetSessionActivitiesContext returns activity timestamps with context for cancellation/timeout.
+// It uses window_activity (last pane output) rather than session_activity
+// so that merely attaching to a session does not bump the timestamp.
 func GetSessionActivitiesContext(ctx context.Context) ([]SessionActivity, error) {
-	cmd := exec.CommandContext(ctx, "tmux", "list-sessions", "-F", "#{session_name}\t#{session_activity}")
+	cmd := exec.CommandContext(ctx, "tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_activity}")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, nil // no sessions
 	}
 
-	var activities []SessionActivity
+	// A session may have multiple windows; take the max timestamp per session.
+	maxTS := make(map[string]int64)
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line == "" {
 			continue
@@ -139,8 +142,15 @@ func GetSessionActivitiesContext(ctx context.Context) ([]SessionActivity, error)
 			continue
 		}
 		ts, _ := strconv.ParseInt(parts[1], 10, 64)
+		if ts > maxTS[parts[0]] {
+			maxTS[parts[0]] = ts
+		}
+	}
+
+	activities := make([]SessionActivity, 0, len(maxTS))
+	for name, ts := range maxTS {
 		activities = append(activities, SessionActivity{
-			Name:      parts[0],
+			Name:      name,
 			Timestamp: ts,
 		})
 	}
