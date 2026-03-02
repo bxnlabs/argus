@@ -116,11 +116,6 @@ type SessionActivity struct {
 	Timestamp int64 // unix timestamp of last activity
 }
 
-// GetSessionActivities returns activity timestamps for all tmux sessions.
-func GetSessionActivities() ([]SessionActivity, error) {
-	return GetSessionActivitiesContext(context.Background())
-}
-
 // GetSessionActivitiesContext returns activity timestamps with context for cancellation/timeout.
 // It uses window_activity (last pane output) rather than session_activity
 // so that merely attaching to a session does not bump the timestamp.

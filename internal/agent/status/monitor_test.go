@@ -94,20 +94,6 @@ func (f *fakeDetector) getCleanupCalls() int {
 	return f.cleanupCalls
 }
 
-// notifyingFetcher wraps a fetcher and signals a channel after each call.
-// Tests wait on this channel instead of using time.Sleep.
-func notifyingFetcher(fn ActivityFetcher) (ActivityFetcher, <-chan struct{}) {
-	ch := make(chan struct{}, 1)
-	return func(ctx context.Context) ([]ActivityEntry, error) {
-		result, err := fn(ctx)
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-		return result, err
-	}, ch
-}
-
 // waitForRefresh waits for the channel to signal or fails the test after 5s.
 func waitForRefresh(t *testing.T, ch <-chan struct{}) {
 	t.Helper()
@@ -119,8 +105,8 @@ func waitForRefresh(t *testing.T, ch <-chan struct{}) {
 }
 
 // waitForSnapshot polls mon.Snapshot() until check returns true, or fails
-// after timeout. Use this when the fetcher/lister signal fires before the
-// snapshot is committed.
+// after timeout. Use this when the lister signal fires before the snapshot
+// is committed.
 func waitForSnapshot(t *testing.T, mon *Monitor, timeout time.Duration, check func(Snapshot) bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -149,19 +135,14 @@ func TestMonitorSnapshot(t *testing.T) {
 			"shell-s2":  StatusIdle,
 		},
 	}
-	baseFetcher := func(_ context.Context) ([]ActivityEntry, error) {
-		return []ActivityEntry{
-			{Name: "claude-s1", Timestamp: 1000},
-			{Name: "shell-s2", Timestamp: 2000},
-		}, nil
-	}
 
-	fetcher, refreshed := notifyingFetcher(baseFetcher)
-	mon := NewMonitor(lister, toucher, detector, fetcher)
+	before := time.Now().Unix()
+	mon := NewMonitor(lister, toucher, detector)
 	mon.Start(context.Background())
-	waitForRefresh(t, refreshed)
 	// Wait for both touches to complete before closing, since Close()
 	// cancels the context and the ctx.Err() guard skips remaining touches.
+	// Both sessions are touched on first refresh: s1 is active (running),
+	// s2 has a status change (first seen → idle).
 	waitForRefresh(t, toucher.ch)
 	waitForRefresh(t, toucher.ch)
 	mon.Close()
@@ -187,13 +168,13 @@ func TestMonitorSnapshot(t *testing.T) {
 		t.Errorf("s2 Status = %q, want %q", s2.Status, StatusIdle)
 	}
 
-	// Verify TouchSession was called with activity timestamps.
+	// Verify TouchSession was called with time.Now().Unix() timestamps.
 	touched := toucher.getTouched()
-	if touched["s1"] != 1000 {
-		t.Errorf("touched[s1] = %d, want 1000", touched["s1"])
+	if touched["s1"] < before {
+		t.Errorf("touched[s1] = %d, want >= %d", touched["s1"], before)
 	}
-	if touched["s2"] != 2000 {
-		t.Errorf("touched[s2] = %d, want 2000", touched["s2"])
+	if touched["s2"] < before {
+		t.Errorf("touched[s2] = %d, want >= %d", touched["s2"], before)
 	}
 
 	// Verify Cleanup was called.
@@ -208,17 +189,13 @@ func TestMonitorSnapshot(t *testing.T) {
 }
 
 func TestMonitorSnapshotEmpty(t *testing.T) {
-	lister := &fakeLister{sessions: nil}
+	lister := &fakeLister{sessions: nil, ch: make(chan struct{}, 1)}
 	toucher := &fakeToucher{}
 	detector := &fakeDetector{statuses: map[string]SessionStatus{}}
-	baseFetcher := func(_ context.Context) ([]ActivityEntry, error) {
-		return nil, nil
-	}
 
-	fetcher, refreshed := notifyingFetcher(baseFetcher)
-	mon := NewMonitor(lister, toucher, detector, fetcher)
+	mon := NewMonitor(lister, toucher, detector)
 	mon.Start(context.Background())
-	waitForRefresh(t, refreshed)
+	waitForRefresh(t, lister.ch)
 	mon.Close()
 
 	snap := mon.Snapshot()
@@ -236,45 +213,24 @@ func TestMonitorCloseWithoutStart(t *testing.T) {
 	lister := &fakeLister{}
 	toucher := &fakeToucher{}
 	detector := &fakeDetector{statuses: map[string]SessionStatus{}}
-	mon := NewMonitor(lister, toucher, detector, nil)
+	mon := NewMonitor(lister, toucher, detector)
 	mon.Close() // must not panic
 }
 
 func TestMonitorDoubleStartIsSafe(t *testing.T) {
-	calls := 0
-	var mu sync.Mutex
-	lister := &fakeLister{sessions: nil}
+	lister := &fakeLister{sessions: nil, ch: make(chan struct{}, 1)}
 	toucher := &fakeToucher{}
 	detector := &fakeDetector{statuses: map[string]SessionStatus{}}
 
-	ch := make(chan struct{}, 1)
-	fetcher := func(_ context.Context) ([]ActivityEntry, error) {
-		mu.Lock()
-		calls++
-		mu.Unlock()
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-		return nil, nil
-	}
-
-	mon := NewMonitor(lister, toucher, detector, fetcher)
+	mon := NewMonitor(lister, toucher, detector)
 	ctx := context.Background()
 	mon.Start(ctx)
 	mon.Start(ctx) // second call must be a no-op
-	waitForRefresh(t, ch)
+	waitForRefresh(t, lister.ch)
 	mon.Close()
 
-	mu.Lock()
-	c := calls
-	mu.Unlock()
-	// Assert at least 1 call (the initial refresh). We don't assert exactly 1
-	// because the ticker could fire on a very slow machine before Close().
 	// The test intent is that double-Start doesn't create two goroutines.
-	if c < 1 {
-		t.Errorf("expected fetchAct called at least once, got %d", c)
-	}
+	// If it did, we'd see panics or races under -race.
 }
 
 func TestMonitorSnapshotIsDefensiveCopy(t *testing.T) {
@@ -282,17 +238,18 @@ func TestMonitorSnapshotIsDefensiveCopy(t *testing.T) {
 		sessions: []*db.Session{
 			{ID: "s1", TmuxName: "claude-s1", AgentType: "claude"},
 		},
+		ch: make(chan struct{}, 1),
 	}
 	toucher := &fakeToucher{}
 	detector := &fakeDetector{
 		statuses: map[string]SessionStatus{"claude-s1": StatusRunning},
 	}
-	baseFetcher := func(_ context.Context) ([]ActivityEntry, error) { return nil, nil }
 
-	fetcher, refreshed := notifyingFetcher(baseFetcher)
-	mon := NewMonitor(lister, toucher, detector, fetcher)
+	mon := NewMonitor(lister, toucher, detector)
 	mon.Start(context.Background())
-	waitForRefresh(t, refreshed)
+	waitForSnapshot(t, mon, 5*time.Second, func(s Snapshot) bool {
+		return len(s.Statuses) == 1
+	})
 	mon.Close()
 
 	snap1 := mon.Snapshot()
@@ -311,9 +268,8 @@ func TestMonitorListError(t *testing.T) {
 	}
 	toucher := &fakeToucher{}
 	detector := &fakeDetector{statuses: map[string]SessionStatus{}}
-	fetcher := func(_ context.Context) ([]ActivityEntry, error) { return nil, nil }
 
-	mon := NewMonitor(lister, toucher, detector, fetcher)
+	mon := NewMonitor(lister, toucher, detector)
 	mon.Start(context.Background())
 	waitForRefresh(t, lister.ch)
 	mon.Close()
@@ -335,93 +291,76 @@ func TestMonitorListError(t *testing.T) {
 	}
 }
 
-func TestMonitorFetchActivityError(t *testing.T) {
-	lister := &fakeLister{
-		sessions: []*db.Session{
-			{ID: "s1", TmuxName: "claude-s1", AgentType: "claude"},
-		},
-	}
-	toucher := &fakeToucher{}
-	detector := &fakeDetector{
-		statuses: map[string]SessionStatus{"claude-s1": StatusRunning},
-	}
-	baseFetcher := func(_ context.Context) ([]ActivityEntry, error) {
-		return nil, errors.New("tmux unavailable")
-	}
-
-	fetcher, refreshed := notifyingFetcher(baseFetcher)
-	mon := NewMonitor(lister, toucher, detector, fetcher)
-	mon.Start(context.Background())
-	waitForRefresh(t, refreshed)
-	mon.Close()
-
-	// Snapshot should still be built (statuses come from detector).
-	snap := mon.Snapshot()
-	if len(snap.Statuses) != 1 {
-		t.Fatalf("expected 1 status, got %d", len(snap.Statuses))
-	}
-	if snap.Statuses["s1"].Status != StatusRunning {
-		t.Errorf("status = %q, want %q", snap.Statuses["s1"].Status, StatusRunning)
-	}
-
-	// No sessions should have been touched (no activity data).
-	if len(toucher.getTouched()) != 0 {
-		t.Error("expected no touches when activity fetch fails")
-	}
-}
-
 func TestMonitorCarriesForwardStatusOnDetectorOmission(t *testing.T) {
-	lister := &fakeLister{
-		sessions: []*db.Session{
-			{ID: "s1", TmuxName: "claude-s1", AgentType: "claude"},
-		},
+	// Use a counting lister that clears detector statuses on the second call.
+	sessions := []*db.Session{
+		{ID: "s1", TmuxName: "claude-s1", AgentType: "claude"},
 	}
-	toucher := &fakeToucher{}
-
-	// First refresh: detector returns Running.
-	// Second refresh: detector omits the session (simulates timeout).
-	callCount := 0
-	var detMu sync.Mutex
 	detector := &fakeDetector{
 		statuses: map[string]SessionStatus{"claude-s1": StatusRunning},
 	}
 
-	refreshDone := make(chan struct{}, 2)
-	fetcher := func(_ context.Context) ([]ActivityEntry, error) {
-		detMu.Lock()
-		callCount++
-		n := callCount
-		detMu.Unlock()
-		if n == 2 {
-			// On the second refresh, clear detector statuses to simulate
-			// timeout/omission.
-			detector.mu.Lock()
-			detector.statuses = map[string]SessionStatus{}
-			detector.mu.Unlock()
-		}
-		select {
-		case refreshDone <- struct{}{}:
-		default:
-		}
-		return nil, nil
+	callCount := 0
+	var countMu sync.Mutex
+	listCh := make(chan struct{}, 2)
+	lister := &countingLister{
+		sessions: sessions,
+		onList: func(n int) {
+			if n == 2 {
+				// On the second refresh, clear detector statuses to simulate
+				// timeout/omission.
+				detector.mu.Lock()
+				detector.statuses = map[string]SessionStatus{}
+				detector.mu.Unlock()
+			}
+		},
+		countMu:  &countMu,
+		count:    &callCount,
+		ch:       listCh,
 	}
+	toucher := &fakeToucher{}
 
-	mon := NewMonitor(lister, toucher, detector, fetcher)
+	mon := NewMonitor(lister, toucher, detector)
 	mon.Start(context.Background())
 
-	// Wait for first refresh signal, then poll until snapshot is committed.
-	waitForRefresh(t, refreshDone)
+	// Wait for first refresh, then poll until snapshot is committed.
+	waitForRefresh(t, listCh)
 	waitForSnapshot(t, mon, 5*time.Second, func(s Snapshot) bool {
 		return s.Statuses["s1"].Status == StatusRunning
 	})
 
 	// Wait for second refresh → detector omits s1, should carry forward Running.
-	waitForRefresh(t, refreshDone)
-	// Close to ensure the second refresh has fully completed.
+	waitForRefresh(t, listCh)
 	mon.Close()
 
 	snap2 := mon.Snapshot()
 	if snap2.Statuses["s1"].Status != StatusRunning {
 		t.Errorf("after detector omission: status = %q, want %q (should carry forward)", snap2.Statuses["s1"].Status, StatusRunning)
 	}
+}
+
+// countingLister is a SessionLister that counts calls and runs a callback.
+type countingLister struct {
+	sessions []*db.Session
+	onList   func(n int)
+	countMu  *sync.Mutex
+	count    *int
+	ch       chan struct{}
+}
+
+func (c *countingLister) List(_ context.Context) ([]*db.Session, error) {
+	c.countMu.Lock()
+	*c.count++
+	n := *c.count
+	c.countMu.Unlock()
+	if c.onList != nil {
+		c.onList(n)
+	}
+	if c.ch != nil {
+		select {
+		case c.ch <- struct{}{}:
+		default:
+		}
+	}
+	return c.sessions, nil
 }

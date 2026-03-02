@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/bxnlabs/argus/internal/agent/db"
-	agentsession "github.com/bxnlabs/argus/internal/agent/session"
 )
 
 // SessionLister lists sessions from the database.
@@ -26,16 +25,6 @@ type StatusDetector interface {
 	Cleanup(ctx context.Context)
 }
 
-// ActivityEntry holds a session name and its last activity timestamp.
-type ActivityEntry struct {
-	Name      string
-	Timestamp int64
-}
-
-// ActivityFetcher returns activity timestamps for all tmux sessions.
-// Pass nil to NewMonitor to use the default (session.GetSessionActivitiesContext).
-type ActivityFetcher func(ctx context.Context) ([]ActivityEntry, error)
-
 // SnapshotEntry holds the status data for a single session.
 type SnapshotEntry struct {
 	SessionName string
@@ -49,16 +38,15 @@ type Snapshot struct {
 	LastRefreshedAt time.Time                // when the last successful refresh completed
 }
 
-// Monitor runs a background loop that detects session statuses, fetches
-// tmux activity timestamps, and syncs updated_at to the DB. The GET
-// handler reads from the in-memory Snapshot with no side effects.
+// Monitor runs a background loop that detects session statuses and syncs
+// updated_at to the DB based on detected status. The GET handler reads
+// from the in-memory Snapshot with no side effects.
 //
 // Follows the RepoIndexer Start/Close pattern in internal/github/repos.go.
 type Monitor struct {
 	lister   SessionLister
 	toucher  SessionToucher
 	detector StatusDetector
-	fetchAct ActivityFetcher
 
 	mu       sync.RWMutex
 	snapshot Snapshot
@@ -69,17 +57,12 @@ type Monitor struct {
 	wg      sync.WaitGroup
 }
 
-// NewMonitor creates a Monitor. If fetchAct is nil, the default
-// (session.GetSessionActivitiesContext) is used.
-func NewMonitor(lister SessionLister, toucher SessionToucher, detector StatusDetector, fetchAct ActivityFetcher) *Monitor {
-	if fetchAct == nil {
-		fetchAct = defaultActivityFetcher
-	}
+// NewMonitor creates a Monitor.
+func NewMonitor(lister SessionLister, toucher SessionToucher, detector StatusDetector) *Monitor {
 	return &Monitor{
 		lister:   lister,
 		toucher:  toucher,
 		detector: detector,
-		fetchAct: fetchAct,
 		snapshot: Snapshot{Statuses: make(map[string]SnapshotEntry)},
 	}
 }
@@ -150,7 +133,6 @@ func (m *Monitor) refresh(ctx context.Context) {
 		return
 	}
 
-	// Collect tmux names.
 	names := make([]string, 0, len(sessions))
 	for _, s := range sessions {
 		names = append(names, s.TmuxName)
@@ -159,33 +141,18 @@ func (m *Monitor) refresh(ctx context.Context) {
 	statuses := m.detector.GetAllStatuses(ctx, names)
 	m.detector.Cleanup(ctx)
 
-	// Fetch activity timestamps with a 2s timeout.
-	actCtx, actCancel := context.WithTimeout(ctx, 2*time.Second)
-	activities, err := m.fetchAct(actCtx)
-	actCancel()
-	if err != nil {
-		log.Printf("status monitor: fetch activities: %v", err)
-	}
-
-	activityByName := make(map[string]int64, len(activities))
-	for _, a := range activities {
-		activityByName[a.Name] = a.Timestamp
-	}
-
-	// Read prior snapshot to carry forward statuses when the detector
-	// omits sessions (e.g. on timeout/cancellation).
+	// Read prior snapshot for status carryforward and transition detection.
 	m.mu.RLock()
 	prev := m.snapshot
 	m.mu.RUnlock()
 
-	// Build new snapshot and touch sessions.
+	now := time.Now()
+	nowUnix := now.Unix()
+
 	snap := Snapshot{Statuses: make(map[string]SnapshotEntry, len(sessions))}
 	for _, s := range sessions {
 		st, ok := statuses[s.TmuxName]
 		if !ok {
-			// Detector omitted this session (timeout/cancel). Carry
-			// forward the prior status; default to idle only when
-			// there is no prior value.
 			if prev, exists := prev.Statuses[s.ID]; exists {
 				st = prev.Status
 			} else {
@@ -198,30 +165,22 @@ func (m *Monitor) refresh(ctx context.Context) {
 			AgentType:   s.AgentType,
 		}
 		if ctx.Err() != nil {
-			continue // shutdown requested; skip remaining DB writes
+			continue
 		}
-		if ts, ok := activityByName[s.TmuxName]; ok {
-			if err := m.toucher.TouchSession(ctx, s.ID, ts); err != nil {
+		// Bump updated_at when the agent is active or status changed.
+		prevEntry, hadPrev := prev.Statuses[s.ID]
+		statusChanged := !hadPrev || prevEntry.Status != st
+		active := st == StatusRunning || st == StatusWaiting
+		if active || statusChanged {
+			if err := m.toucher.TouchSession(ctx, s.ID, nowUnix); err != nil {
 				log.Printf("status monitor: touch session %s: %v", s.ID, err)
 			}
 		}
 	}
 
-	snap.LastRefreshedAt = time.Now()
+	snap.LastRefreshedAt = now
 
 	m.mu.Lock()
 	m.snapshot = snap
 	m.mu.Unlock()
-}
-
-func defaultActivityFetcher(ctx context.Context) ([]ActivityEntry, error) {
-	activities, err := agentsession.GetSessionActivitiesContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	entries := make([]ActivityEntry, len(activities))
-	for i, a := range activities {
-		entries[i] = ActivityEntry{Name: a.Name, Timestamp: a.Timestamp}
-	}
-	return entries, nil
 }
