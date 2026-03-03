@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -37,6 +38,7 @@ type RepoIndexer struct {
 	// fetchFunc is the function used to fetch repos. Defaults to fetchAll
 	// and can be overridden for testing.
 	fetchFunc func(ctx context.Context) ([]string, error)
+	retryCfg  retryConfig // retry policy; tests override delay
 }
 
 const (
@@ -116,9 +118,85 @@ func (idx *RepoIndexer) loop(ctx context.Context) {
 	}
 }
 
+// retryConfig holds parameters for the retry loop.
+type retryConfig struct {
+	attempts int
+	delay    time.Duration
+	maxDelay time.Duration
+}
+
+// defaultRetryCfg is the baseline retry policy for refresh.
+var defaultRetryCfg = retryConfig{
+	attempts: 3,
+	delay:    2 * time.Second,
+	maxDelay: 10 * time.Second,
+}
+
+// permanentError wraps an error that should not be retried.
+type permanentError struct{ error }
+
+func (e permanentError) Unwrap() error { return e.error }
+
+// retryWithBackoff runs fn up to cfg.attempts times with exponential backoff.
+// It stops immediately on context cancellation or permanentError.
+func retryWithBackoff(ctx context.Context, cfg retryConfig, fn func() error) error {
+	c := cfg
+	if c.attempts <= 0 {
+		c.attempts = defaultRetryCfg.attempts
+	}
+	if c.delay <= 0 {
+		c.delay = defaultRetryCfg.delay
+	}
+	if c.maxDelay <= 0 {
+		c.maxDelay = defaultRetryCfg.maxDelay
+	}
+
+	var lastErr error
+	for i := range c.attempts {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return lastErr
+			}
+			return err
+		}
+
+		lastErr = fn()
+		if lastErr == nil {
+			return nil
+		}
+
+		var perm permanentError
+		if errors.As(lastErr, &perm) {
+			return perm.error
+		}
+
+		// Don't sleep after the last attempt.
+		if i < c.attempts-1 {
+			backoff := c.delay * time.Duration(1<<uint(i))
+			if backoff > c.maxDelay {
+				backoff = c.maxDelay
+			}
+			select {
+			case <-ctx.Done():
+				return lastErr
+			case <-time.After(backoff):
+			}
+		}
+	}
+	return lastErr
+}
+
 func (idx *RepoIndexer) refresh(ctx context.Context) {
 	_, _, _ = idx.group.Do("refresh", func() (any, error) {
-		repos, err := idx.fetchFunc(ctx)
+		cfg := idx.retryCfg
+
+		var repos []string
+		err := retryWithBackoff(ctx, cfg, func() error {
+			var fetchErr error
+			repos, fetchErr = idx.fetchFunc(ctx)
+			return fetchErr
+		})
+
 		if err != nil {
 			log.Printf("repo indexer: refresh failed: %v", err)
 			return nil, nil
@@ -137,55 +215,56 @@ func (idx *RepoIndexer) refresh(ctx context.Context) {
 // fetchAll fetches user repos and org repos in parallel via the gh CLI.
 func fetchAll(ctx context.Context) ([]string, error) {
 	if _, err := exec.LookPath("gh"); err != nil {
-		return nil, fmt.Errorf("gh CLI not found: %w", err)
-	}
-
-	type result struct {
-		lines []string
-		err   error
+		return nil, permanentError{fmt.Errorf("gh CLI not found: %w", err)}
 	}
 
 	// Fetch user repos and org list concurrently.
-	userCh := make(chan result, 1)
-	orgsCh := make(chan result, 1)
-
-	go func() {
-		lines, err := ghAPILines(ctx, "user/repos", ".[].full_name")
-		userCh <- result{lines, err}
-	}()
-	go func() {
-		lines, err := ghAPILines(ctx, "user/orgs", ".[].login")
-		orgsCh <- result{lines, err}
-	}()
-
-	userRes := <-userCh
-	if userRes.err != nil {
-		return nil, fmt.Errorf("listing user repos: %w", userRes.err)
+	// errgroup cancels gctx on first error so the other call is cleaned up.
+	var userLines, orgNames []string
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		lines, err := ghAPILines(gctx, "user/repos?per_page=100", ".[].full_name")
+		if err != nil {
+			return fmt.Errorf("listing user repos: %w", err)
+		}
+		userLines = lines
+		return nil
+	})
+	g.Go(func() error {
+		lines, err := ghAPILines(gctx, "user/orgs?per_page=100", ".[].login")
+		if err != nil {
+			return fmt.Errorf("listing orgs: %w", err)
+		}
+		orgNames = lines
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
-	orgsRes := <-orgsCh
-	if orgsRes.err != nil {
-		return nil, fmt.Errorf("listing orgs: %w", orgsRes.err)
-	}
 
-	allRepos := userRes.lines
+	allRepos := userLines
 
 	// Fan out org repo fetches with bounded concurrency.
-	if len(orgsRes.lines) > 0 {
-		orgResults := make([]result, len(orgsRes.lines))
-		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(8)
-		for i, org := range orgsRes.lines {
-			g.Go(func() error {
-				lines, err := ghAPILines(gctx, fmt.Sprintf("orgs/%s/repos", org), ".[].full_name")
+	if len(orgNames) > 0 {
+		type result struct {
+			lines []string
+			err   error
+		}
+		orgResults := make([]result, len(orgNames))
+		og, ogctx := errgroup.WithContext(ctx)
+		og.SetLimit(8)
+		for i, org := range orgNames {
+			og.Go(func() error {
+				lines, err := ghAPILines(ogctx, fmt.Sprintf("orgs/%s/repos?per_page=100", org), ".[].full_name")
 				orgResults[i] = result{lines, err}
 				return nil // errors collected per-org
 			})
 		}
-		g.Wait()
+		og.Wait()
 
 		for i, r := range orgResults {
 			if r.err != nil {
-				return nil, fmt.Errorf("listing repos for org %s: %w", orgsRes.lines[i], r.err)
+				return nil, fmt.Errorf("listing repos for org %s: %w", orgNames[i], r.err)
 			}
 			allRepos = append(allRepos, r.lines...)
 		}
