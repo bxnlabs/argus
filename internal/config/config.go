@@ -38,7 +38,8 @@ type GitConfig struct {
 }
 
 type TailscaleConfig struct {
-	Enabled bool `mapstructure:"enabled"`
+	Enabled bool   `mapstructure:"enabled"`
+	Tailnet string `mapstructure:"tailnet"`
 }
 
 // Options controls how config is loaded.
@@ -64,6 +65,7 @@ func Load(opts Options) (*Config, error) {
 	v.SetDefault("database.path", "~/.argus/agent.db")
 	v.SetDefault("git.branch_prefix", "")
 	v.SetDefault("tailscale.enabled", false)
+	v.SetDefault("tailscale.tailnet", "")
 
 	// Environment variables: ARGUS_SERVER_PORT, etc.
 	v.SetEnvPrefix("ARGUS")
@@ -123,6 +125,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Database.Path == "" {
 		return fmt.Errorf("database.path must not be empty")
+	}
+	if cfg.Tailscale.Enabled && cfg.Tailscale.Tailnet == "" {
+		return fmt.Errorf("tailscale.tailnet must be set when tailscale.enabled is true")
 	}
 	return nil
 }

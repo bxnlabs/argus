@@ -321,6 +321,7 @@ func TestTailscaleFromFile(t *testing.T) {
 	content := []byte(`
 [tailscale]
 enabled = true
+tailnet = "test.ts.net"
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
 		t.Fatal(err)
