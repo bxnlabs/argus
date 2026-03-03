@@ -42,7 +42,7 @@ func newRootCmd() *cobra.Command {
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCombined()
+			return runCombined(cmd.Context())
 		},
 		SilenceUsage: true,
 	}
@@ -68,7 +68,7 @@ func newServerCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mux := http.NewServeMux()
 			mux.Handle("/", web.NewSPAHandler(webDir))
-			return serve(listenAddrs(bindIPs(cfg.Server.BindAddress, tailscaleIPs()...), cfg.Server.Port), mux, "argus server", nil)
+			return serve(listenAddrs(bindIPs(cfg.Server.BindAddress, tailscaleIPs(cmd.Context())...), cfg.Server.Port), mux, "argus server", nil)
 		},
 	}
 
@@ -92,7 +92,7 @@ func newAgentCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-			return serve(listenAddrs(bindIPs(cfg.Agent.BindAddress, tailscaleIPs()...), cfg.Agent.Port), mux, "argus agent", func(a string) {
+			return serve(listenAddrs(bindIPs(cfg.Agent.BindAddress, tailscaleIPs(cmd.Context())...), cfg.Agent.Port), mux, "argus agent", func(a string) {
 				writeDiscovery(a)
 			})
 		},
@@ -130,14 +130,24 @@ func removeDiscovery() {
 }
 
 // tailscaleIPs returns Tailscale IPs as strings if Tailscale is enabled in config.
+// Only returns IPs if the node is connected to the configured tailnet.
 // Logs warnings and returns nil on failure — never fatal.
-func tailscaleIPs() []string {
+func tailscaleIPs(ctx context.Context) []string {
 	if !cfg.Tailscale.Enabled {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	addrs, err := ts.DetectIPs(ctx)
+	status, err := ts.FetchStatus(ctx)
+	if err != nil {
+		log.Printf("warning: tailscale enabled but status fetch failed: %v", err)
+		return nil
+	}
+	if err := ts.ValidateTailnet(status, cfg.Tailscale.Tailnet); err != nil {
+		log.Printf("warning: tailscale tailnet mismatch: %v", err)
+		return nil
+	}
+	addrs, err := ts.DetectIPs(status)
 	if err != nil {
 		log.Printf("warning: tailscale enabled but detection failed: %v", err)
 		return nil
@@ -154,7 +164,7 @@ func tailscaleIPs() []string {
 }
 
 // runCombined starts the agent and SPA on a single port.
-func runCombined() error {
+func runCombined(ctx context.Context) error {
 	agentHandler, cleanup, err := agent.Setup(cfg)
 	if err != nil {
 		return err
@@ -165,7 +175,7 @@ func runCombined() error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	return serve(listenAddrs(bindIPs(cfg.Server.BindAddress, tailscaleIPs()...), cfg.Server.Port), mux, "argus", func(a string) {
+	return serve(listenAddrs(bindIPs(cfg.Server.BindAddress, tailscaleIPs(ctx)...), cfg.Server.Port), mux, "argus", func(a string) {
 		writeDiscovery(a)
 	})
 }
