@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	retry "github.com/avast/retry-go/v4"
 )
 
 func TestFuzzySearch(t *testing.T) {
@@ -165,9 +167,58 @@ func TestDoubleStartIsSafe(t *testing.T) {
 	}
 }
 
+func TestRetrySucceedsAfterTransientFailure(t *testing.T) {
+	dir := t.TempDir()
+	idx := NewRepoIndexer(dir)
+	idx.retryOpts = []retry.Option{retry.Delay(time.Millisecond)}
+
+	calls := 0
+	idx.fetchFunc = func(ctx context.Context) ([]string, error) {
+		calls++
+		if calls <= 2 {
+			return nil, fmt.Errorf("user/repos: exit status 1 (stderr: invalid character '<' looking for beginning of value)")
+		}
+		return []string{"org/repo"}, nil
+	}
+
+	idx.refresh(context.Background())
+
+	got := idx.Search("")
+	if len(got) != 1 || got[0] != "org/repo" {
+		t.Errorf("expected [org/repo], got %v", got)
+	}
+	if calls != 3 {
+		t.Errorf("expected 3 fetch attempts, got %d", calls)
+	}
+}
+
+func TestRetryRespectsContextCancellation(t *testing.T) {
+	dir := t.TempDir()
+	idx := NewRepoIndexer(dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	idx.fetchFunc = func(_ context.Context) ([]string, error) {
+		calls++
+		cancel() // cancel after first call
+		return nil, fmt.Errorf("transient error")
+	}
+
+	idx.refresh(ctx)
+
+	got := idx.Search("")
+	if len(got) != 0 {
+		t.Errorf("expected empty repos after cancelled refresh, got %v", got)
+	}
+	if calls != 1 {
+		t.Errorf("expected 1 fetch attempt (no retry after cancel), got %d", calls)
+	}
+}
+
 func TestRefreshPreservesDataOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	idx := NewRepoIndexer(dir)
+	idx.retryOpts = []retry.Option{retry.Delay(time.Millisecond)}
 
 	// Seed with known data.
 	idx.mu.Lock()

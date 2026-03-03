@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	retry "github.com/avast/retry-go/v4"
 	"github.com/sahilm/fuzzy"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
@@ -37,6 +38,7 @@ type RepoIndexer struct {
 	// fetchFunc is the function used to fetch repos. Defaults to fetchAll
 	// and can be overridden for testing.
 	fetchFunc func(ctx context.Context) ([]string, error)
+	retryOpts []retry.Option // extra retry options; overridden in tests
 }
 
 const (
@@ -116,9 +118,26 @@ func (idx *RepoIndexer) loop(ctx context.Context) {
 	}
 }
 
+// defaultRetryOpts are the baseline retry options for refresh.
+var defaultRetryOpts = []retry.Option{
+	retry.Attempts(3),
+	retry.Delay(2 * time.Second),
+	retry.MaxDelay(10 * time.Second),
+	retry.DelayType(retry.BackOffDelay),
+}
+
 func (idx *RepoIndexer) refresh(ctx context.Context) {
 	_, _, _ = idx.group.Do("refresh", func() (any, error) {
-		repos, err := idx.fetchFunc(ctx)
+		opts := append(append([]retry.Option{}, defaultRetryOpts...), retry.Context(ctx))
+		opts = append(opts, idx.retryOpts...)
+
+		var repos []string
+		err := retry.Do(func() error {
+			var fetchErr error
+			repos, fetchErr = idx.fetchFunc(ctx)
+			return fetchErr
+		}, opts...)
+
 		if err != nil {
 			log.Printf("repo indexer: refresh failed: %v", err)
 			return nil, nil
@@ -150,11 +169,11 @@ func fetchAll(ctx context.Context) ([]string, error) {
 	orgsCh := make(chan result, 1)
 
 	go func() {
-		lines, err := ghAPILines(ctx, "user/repos", ".[].full_name")
+		lines, err := ghAPILines(ctx, "user/repos?per_page=100", ".[].full_name")
 		userCh <- result{lines, err}
 	}()
 	go func() {
-		lines, err := ghAPILines(ctx, "user/orgs", ".[].login")
+		lines, err := ghAPILines(ctx, "user/orgs?per_page=100", ".[].login")
 		orgsCh <- result{lines, err}
 	}()
 
@@ -176,7 +195,7 @@ func fetchAll(ctx context.Context) ([]string, error) {
 		g.SetLimit(8)
 		for i, org := range orgsRes.lines {
 			g.Go(func() error {
-				lines, err := ghAPILines(gctx, fmt.Sprintf("orgs/%s/repos", org), ".[].full_name")
+				lines, err := ghAPILines(gctx, fmt.Sprintf("orgs/%s/repos?per_page=100", org), ".[].full_name")
 				orgResults[i] = result{lines, err}
 				return nil // errors collected per-org
 			})
