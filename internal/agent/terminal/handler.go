@@ -280,5 +280,10 @@ func HandleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 		shell = "/bin/bash"
 	}
 	cmd := exec.Command(shell)
+	// Explicitly start in the user's home directory so the shell has a
+	// valid CWD regardless of where the agent process is running.
+	if home, err := os.UserHomeDir(); err == nil {
+		cmd.Dir = home
+	}
 	handleConnection(w, r, cmd, "")
 }
