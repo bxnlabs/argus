@@ -260,10 +260,10 @@ func (d *Detector) GetAllStatuses(ctx context.Context, names []string) map[strin
 }
 
 // Cleanup removes trackers for sessions that no longer exist.
-func (d *Detector) Cleanup() {
+func (d *Detector) Cleanup(ctx context.Context) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.refreshCache(context.Background())
+	d.refreshCache(ctx)
 	for name := range d.trackers {
 		if !d.sessionExists(name) {
 			delete(d.trackers, name)

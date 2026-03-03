@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 )
@@ -53,8 +54,8 @@ func (d *DB) GetSession(id string) (*Session, error) {
 	return s, err
 }
 
-func (d *DB) ListSessions() ([]*Session, error) {
-	rows, err := d.sql.Query(`SELECT ` + sessionColumns + ` FROM sessions ORDER BY updated_at DESC`)
+func (d *DB) ListSessions(ctx context.Context) ([]*Session, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT `+sessionColumns+` FROM sessions ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +138,18 @@ func (d *DB) CountSessionsByWorkingDir(excludeID, workingDir string) (int, error
 		excludeID, workingDir,
 	).Scan(&count)
 	return count, err
+}
+
+// TouchSession sets updated_at to the given Unix timestamp (seconds).
+// The WHERE guard skips the write when the stored value is already >= the
+// supplied timestamp, so repeated calls with the same value are no-ops.
+func (d *DB) TouchSession(ctx context.Context, id string, unixTS int64) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE sessions SET updated_at = datetime(?, 'unixepoch')
+		 WHERE id = ? AND updated_at < datetime(?, 'unixepoch')`,
+		unixTS, id, unixTS,
+	)
+	return err
 }
 
 func (d *DB) DeleteSession(id string) error {

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,7 +77,7 @@ func TestListSessions(t *testing.T) {
 		}
 	}
 
-	sessions, err := db.ListSessions()
+	sessions, err := db.ListSessions(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +140,76 @@ func TestDeleteSession(t *testing.T) {
 	got, _ := db.GetSession("s1")
 	if got != nil {
 		t.Fatal("expected nil after delete")
+	}
+}
+
+func TestTouchSession(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "x", TmuxName: "claude-s1",
+		WorkingDirectory: "~", AgentType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := db.GetSession("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalUpdatedAt := before.UpdatedAt
+
+	// Touch with a future timestamp should advance updated_at.
+	futureTS := int64(4102444800) // 2100-01-01 00:00:00 UTC
+	if err := db.TouchSession(context.Background(), "s1", futureTS); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := db.GetSession("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UpdatedAt == originalUpdatedAt {
+		t.Error("expected updated_at to change after touch with future timestamp")
+	}
+	if after.UpdatedAt != "2100-01-01 00:00:00" {
+		t.Errorf("updated_at = %q, want %q", after.UpdatedAt, "2100-01-01 00:00:00")
+	}
+
+	// Touch with an older timestamp should be a no-op (monotonic guard).
+	olderTS := int64(946684800) // 2000-01-01 00:00:00 UTC
+	if err := db.TouchSession(context.Background(), "s1", olderTS); err != nil {
+		t.Fatal(err)
+	}
+
+	afterOld, err := db.GetSession("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterOld.UpdatedAt != after.UpdatedAt {
+		t.Errorf("monotonic guard failed: updated_at changed from %q to %q", after.UpdatedAt, afterOld.UpdatedAt)
+	}
+
+	// Touch with the same timestamp should also be a no-op.
+	if err := db.TouchSession(context.Background(), "s1", futureTS); err != nil {
+		t.Fatal(err)
+	}
+
+	afterSame, err := db.GetSession("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSame.UpdatedAt != after.UpdatedAt {
+		t.Errorf("same-timestamp guard failed: updated_at changed from %q to %q", after.UpdatedAt, afterSame.UpdatedAt)
+	}
+}
+
+func TestTouchSessionNonexistent(t *testing.T) {
+	db := testDB(t)
+
+	// Touching a nonexistent session should not error (just 0 rows affected).
+	if err := db.TouchSession(context.Background(), "nonexistent", 1000000); err != nil {
+		t.Errorf("expected no error for nonexistent session, got: %v", err)
 	}
 }
 
