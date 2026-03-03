@@ -138,7 +138,16 @@ func tailscaleIPs(ctx context.Context) []string {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	addrs, err := ts.DetectIPs(ctx, cfg.Tailscale.Tailnet)
+	status, err := ts.FetchStatus(ctx)
+	if err != nil {
+		log.Printf("warning: tailscale enabled but status fetch failed: %v", err)
+		return nil
+	}
+	if err := ts.ValidateTailnet(status, cfg.Tailscale.Tailnet); err != nil {
+		log.Printf("warning: tailscale tailnet mismatch: %v", err)
+		return nil
+	}
+	addrs, err := ts.DetectIPs(status)
 	if err != nil {
 		log.Printf("warning: tailscale enabled but detection failed: %v", err)
 		return nil

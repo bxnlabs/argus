@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/config"
@@ -417,5 +418,43 @@ enabled = true
 	_, err := config.Load(config.Options{ConfigFile: path})
 	if err == nil {
 		t.Fatal("expected error when tailscale.enabled=true without tailnet, got nil")
+	}
+	if !strings.Contains(err.Error(), "tailscale.tailnet must be set") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestTailscaleEnabledWithoutTailnetEnvReturnsError(t *testing.T) {
+	clearArgusEnv(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("ARGUS_TAILSCALE_ENABLED", "true")
+
+	_, err := config.Load(config.Options{})
+	if err == nil {
+		t.Fatal("expected error when ARGUS_TAILSCALE_ENABLED=true without ARGUS_TAILSCALE_TAILNET, got nil")
+	}
+	if !strings.Contains(err.Error(), "tailscale.tailnet must be set") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestTailscaleWhitespaceOnlyTailnetReturnsError(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[tailscale]
+enabled = true
+tailnet = "   "
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(config.Options{ConfigFile: path})
+	if err == nil {
+		t.Fatal("expected error for whitespace-only tailnet, got nil")
+	}
+	if !strings.Contains(err.Error(), "tailscale.tailnet must be set") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }

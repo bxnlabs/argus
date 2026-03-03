@@ -6,26 +6,33 @@ import (
 	"net/netip"
 
 	"tailscale.com/client/local"
+	"tailscale.com/ipn/ipnstate"
 )
 
-// DetectIPs queries the local Tailscale daemon for this node's Tailscale IPs,
-// validating that the node is connected to the specified tailnet. Returns an
-// error if the daemon is unreachable, not connected to any tailnet, or connected
-// to a different tailnet than expected.
-func DetectIPs(ctx context.Context, tailnet string) ([]netip.Addr, error) {
-	status, err := local.Status(ctx)
-	if err != nil {
-		return nil, err
-	}
+// FetchStatus queries the local Tailscale daemon for the current node status.
+func FetchStatus(ctx context.Context) (*ipnstate.Status, error) {
+	return local.Status(ctx)
+}
+
+// DetectIPs extracts Tailscale IPs from a daemon status.
+// Returns an error if the status or self peer info is nil.
+func DetectIPs(status *ipnstate.Status) ([]netip.Addr, error) {
 	if status == nil || status.Self == nil {
-		return nil, nil
-	}
-	if status.CurrentTailnet == nil {
-		return nil, fmt.Errorf("not connected to any tailnet")
-	}
-	if status.CurrentTailnet.Name != tailnet {
-		return nil, fmt.Errorf("connected to tailnet %q, want %q",
-			status.CurrentTailnet.Name, tailnet)
+		return nil, fmt.Errorf("tailscale daemon returned no status")
 	}
 	return status.Self.TailscaleIPs, nil
+}
+
+// ValidateTailnet checks that the node is connected to the expected tailnet
+// by comparing against the MagicDNSSuffix. Returns an error if the node is
+// not connected to any tailnet or is connected to a different one.
+func ValidateTailnet(status *ipnstate.Status, expected string) error {
+	if status == nil || status.CurrentTailnet == nil {
+		return fmt.Errorf("not connected to any tailnet")
+	}
+	if status.CurrentTailnet.MagicDNSSuffix != expected {
+		return fmt.Errorf("connected to tailnet %q, want %q",
+			status.CurrentTailnet.MagicDNSSuffix, expected)
+	}
+	return nil
 }

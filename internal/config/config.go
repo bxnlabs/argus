@@ -126,6 +126,7 @@ func validate(cfg *Config) error {
 	if cfg.Database.Path == "" {
 		return fmt.Errorf("database.path must not be empty")
 	}
+	cfg.Tailscale.Tailnet = strings.TrimSpace(cfg.Tailscale.Tailnet)
 	if cfg.Tailscale.Enabled && cfg.Tailscale.Tailnet == "" {
 		return fmt.Errorf("tailscale.tailnet must be set when tailscale.enabled is true")
 	}
