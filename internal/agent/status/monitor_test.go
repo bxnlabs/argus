@@ -65,9 +65,8 @@ func (f *fakeToucher) getTouched() map[string]int64 {
 }
 
 type fakeDetector struct {
-	mu           sync.Mutex
-	statuses     map[string]SessionStatus
-	cleanupCalls int
+	mu       sync.Mutex
+	statuses map[string]SessionStatus
 }
 
 func (f *fakeDetector) GetAllStatuses(_ context.Context, names []string) map[string]SessionStatus {
@@ -80,18 +79,6 @@ func (f *fakeDetector) GetAllStatuses(_ context.Context, names []string) map[str
 		}
 	}
 	return result
-}
-
-func (f *fakeDetector) Cleanup(_ context.Context) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.cleanupCalls++
-}
-
-func (f *fakeDetector) getCleanupCalls() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.cleanupCalls
 }
 
 // waitForRefresh waits for the channel to signal or fails the test after 5s.
@@ -174,11 +161,6 @@ func TestMonitorSnapshot(t *testing.T) {
 	}
 	if _, ok := touched["s2"]; ok {
 		t.Errorf("idle session s2 should not be touched on first refresh, got %d", touched["s2"])
-	}
-
-	// Verify Cleanup was called.
-	if detector.getCleanupCalls() == 0 {
-		t.Error("expected Cleanup to be called at least once")
 	}
 
 	// Verify LastRefreshedAt is set.

@@ -22,7 +22,6 @@ type SessionToucher interface {
 // StatusDetector detects statuses for a set of session names.
 type StatusDetector interface {
 	GetAllStatuses(ctx context.Context, names []string) map[string]SessionStatus
-	Cleanup(ctx context.Context)
 }
 
 // SnapshotEntry holds the status data for a single session.
@@ -139,7 +138,6 @@ func (m *Monitor) refresh(ctx context.Context) {
 	}
 
 	statuses := m.detector.GetAllStatuses(ctx, names)
-	m.detector.Cleanup(ctx)
 
 	// Read prior snapshot for status carryforward and transition detection.
 	m.mu.RLock()

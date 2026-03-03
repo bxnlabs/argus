@@ -19,79 +19,85 @@ const (
 	StatusDead    SessionStatus = "dead"
 )
 
-// Configuration constants (match TypeScript implementation).
+// Configuration constants.
 const (
-	activityCooldownMS = 2000
-	spikeWindowMS      = 1000
-	sustainedThreshold = 2
-	cacheValidityMS    = 2000
+	cacheValidityMS = 2000
 )
 
-type stateTracker struct {
-	lastChangeTime        int64
-	lastActivityTimestamp int64
-	spikeWindowStart     *int64
-	spikeChangeCount     int
+// TmuxQuerier abstracts tmux interactions for testability.
+type TmuxQuerier interface {
+	GetSessionActivities(ctx context.Context) ([]agentsession.SessionActivity, error)
+	CapturePaneContent(ctx context.Context, name string) (string, error)
 }
 
+// prodTmux is the production implementation of TmuxQuerier.
+type prodTmux struct{}
+
+func (prodTmux) GetSessionActivities(ctx context.Context) ([]agentsession.SessionActivity, error) {
+	return agentsession.GetSessionActivitiesContext(ctx)
+}
+
+func (prodTmux) CapturePaneContent(ctx context.Context, name string) (string, error) {
+	return agentsession.CapturePaneContext(ctx, name)
+}
+
+// sessionCache tracks which tmux sessions exist.
 type sessionCache struct {
-	data      map[string]int64
+	names     map[string]struct{}
 	updatedAt int64
 }
 
-// Detector detects session statuses by analyzing tmux pane content and activity.
+// Detector detects session statuses by analyzing tmux pane content.
+//
+// tmux activity timestamps (session_activity, window_activity) are
+// intentionally NOT used — they report spurious changes when a client
+// attaches or the terminal resizes, causing the TUI to re-render
+// without any real agent activity.
 type Detector struct {
-	mu       sync.Mutex
-	trackers map[string]*stateTracker
-	cache    sessionCache
+	mu    sync.Mutex
+	cache sessionCache
+	tmux  TmuxQuerier
+	nowFn func() int64 // returns current time in unix millis; overridable for tests
 }
 
 // NewDetector creates a new status detector.
 func NewDetector() *Detector {
+	return newDetector(prodTmux{})
+}
+
+func newDetector(tmux TmuxQuerier) *Detector {
 	return &Detector{
-		trackers: make(map[string]*stateTracker),
-		cache:    sessionCache{data: make(map[string]int64)},
+		cache: sessionCache{names: make(map[string]struct{})},
+		tmux:  tmux,
+		nowFn: func() int64 { return time.Now().UnixMilli() },
 	}
 }
 
+func (d *Detector) now() int64 {
+	return d.nowFn()
+}
+
 func (d *Detector) refreshCache(ctx context.Context) {
-	now := time.Now().UnixMilli()
+	now := d.now()
 	if now-d.cache.updatedAt < cacheValidityMS {
 		return
 	}
 
-	activities, err := agentsession.GetSessionActivitiesContext(ctx)
+	activities, err := d.tmux.GetSessionActivities(ctx)
 	if err != nil {
 		return
 	}
 
-	newData := make(map[string]int64)
+	names := make(map[string]struct{}, len(activities))
 	for _, a := range activities {
-		newData[a.Name] = a.Timestamp
+		names[a.Name] = struct{}{}
 	}
-	d.cache = sessionCache{data: newData, updatedAt: now}
+	d.cache = sessionCache{names: names, updatedAt: now}
 }
 
 func (d *Detector) sessionExists(name string) bool {
-	_, ok := d.cache.data[name]
+	_, ok := d.cache.names[name]
 	return ok
-}
-
-func (d *Detector) getTimestamp(name string) int64 {
-	return d.cache.data[name]
-}
-
-func (d *Detector) getTracker(name string, timestamp int64) *stateTracker {
-	t, ok := d.trackers[name]
-	if !ok {
-		now := time.Now().UnixMilli()
-		t = &stateTracker{
-			lastChangeTime:        now - activityCooldownMS,
-			lastActivityTimestamp: timestamp,
-		}
-		d.trackers[name] = t
-	}
-	return t
 }
 
 // checkBusyIndicators checks if terminal content shows busy indicators.
@@ -134,9 +140,9 @@ func checkBusyIndicators(content string) bool {
 // checkWaitingPatterns checks if terminal content shows waiting patterns.
 func checkWaitingPatterns(content string) bool {
 	lines := strings.Split(content, "\n")
-	// Use last 10 lines (matching checkBusyIndicators) — plan approval
-	// prompts can span 6+ lines with numbered options and hints.
-	start := len(lines) - 10
+	// Use last 15 lines — plan approval prompts span 12+ lines on narrow
+	// terminals (header + 4 numbered options + hints, each potentially wrapped).
+	start := len(lines) - 15
 	if start < 0 {
 		start = 0
 	}
@@ -150,48 +156,15 @@ func checkWaitingPatterns(content string) bool {
 	return false
 }
 
-func (d *Detector) processSpikeDetection(tracker *stateTracker, currentTimestamp int64) SessionStatus {
-	now := time.Now().UnixMilli()
-	timestampChanged := tracker.lastActivityTimestamp != currentTimestamp
-
-	if timestampChanged {
-		tracker.lastActivityTimestamp = currentTimestamp
-
-		windowExpired := tracker.spikeWindowStart == nil ||
-			now-*tracker.spikeWindowStart > spikeWindowMS
-
-		if windowExpired {
-			tracker.spikeWindowStart = &now
-			tracker.spikeChangeCount = 1
-		} else {
-			tracker.spikeChangeCount++
-			if tracker.spikeChangeCount >= sustainedThreshold {
-				tracker.lastChangeTime = now
-				tracker.spikeWindowStart = nil
-				tracker.spikeChangeCount = 0
-				return StatusRunning
-			}
-		}
-	} else if tracker.spikeChangeCount == 1 && tracker.spikeWindowStart != nil {
-		if now-*tracker.spikeWindowStart > spikeWindowMS {
-			tracker.spikeWindowStart = nil
-			tracker.spikeChangeCount = 0
-		}
-	}
-
-	return ""
-}
-
-func (d *Detector) isInSpikeWindow(tracker *stateTracker) bool {
-	return tracker.spikeWindowStart != nil &&
-		time.Now().UnixMilli()-*tracker.spikeWindowStart < spikeWindowMS
-}
-
-func (d *Detector) isInCooldown(tracker *stateTracker) bool {
-	return time.Now().UnixMilli()-tracker.lastChangeTime < activityCooldownMS
-}
-
 // GetStatus returns the detected status for a single session.
+//
+// Detection is purely content-based:
+//  1. Session not in tmux → dead
+//  2. Capture pane content:
+//     - Busy indicators match → running
+//     - Waiting patterns match → waiting
+//     - Nothing matches → idle
+//  3. Capture error → idle (self-corrects on next poll)
 func (d *Detector) GetStatus(ctx context.Context, sessionName string) SessionStatus {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -199,45 +172,22 @@ func (d *Detector) GetStatus(ctx context.Context, sessionName string) SessionSta
 	d.refreshCache(ctx)
 
 	if !d.sessionExists(sessionName) {
-		delete(d.trackers, sessionName)
 		return StatusDead
 	}
 
-	timestamp := d.getTimestamp(sessionName)
-	tracker := d.getTracker(sessionName, timestamp)
+	content, err := d.tmux.CapturePaneContent(ctx, sessionName)
+	if err != nil {
+		return StatusIdle
+	}
 
-	content, _ := agentsession.CapturePaneContext(ctx, sessionName)
-
-	// 1. Busy indicators (highest priority)
 	if checkBusyIndicators(content) {
-		tracker.lastChangeTime = time.Now().UnixMilli()
 		return StatusRunning
 	}
 
-	// 2. Waiting patterns
 	if checkWaitingPatterns(content) {
 		return StatusWaiting
 	}
 
-	// 3. Spike detection
-	if spikeResult := d.processSpikeDetection(tracker, timestamp); spikeResult != "" {
-		return spikeResult
-	}
-
-	// 4. During spike window, maintain stable status
-	if d.isInSpikeWindow(tracker) {
-		if d.isInCooldown(tracker) {
-			return StatusRunning
-		}
-		return StatusIdle
-	}
-
-	// 5. Cooldown check
-	if d.isInCooldown(tracker) {
-		return StatusRunning
-	}
-
-	// 6. Cooldown expired
 	return StatusIdle
 }
 
@@ -259,14 +209,3 @@ func (d *Detector) GetAllStatuses(ctx context.Context, names []string) map[strin
 	return results
 }
 
-// Cleanup removes trackers for sessions that no longer exist.
-func (d *Detector) Cleanup(ctx context.Context) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.refreshCache(ctx)
-	for name := range d.trackers {
-		if !d.sessionExists(name) {
-			delete(d.trackers, name)
-		}
-	}
-}
