@@ -8,7 +8,10 @@ export function cn(...inputs: ClassValue[]) {
 export function formatRelativeTime(dateStr: string | null) {
   if (!dateStr) return "";
   const now = new Date();
-  const date = new Date(dateStr);
+  // SQLite datetime() returns UTC strings like "2025-03-03 15:04:05" with no
+  // timezone indicator. JS Date() would treat that as local time, so convert
+  // to ISO 8601 UTC format ("...T...Z") before parsing.
+  const date = new Date(dateStr.replace(" ", "T") + "Z");
   const diff = now.getTime() - date.getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
