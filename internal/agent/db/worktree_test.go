@@ -76,6 +76,61 @@ func TestWorktreeBranchNullable(t *testing.T) {
 	}
 }
 
+func TestGitParentDirColumn(t *testing.T) {
+	d := openTestDB(t)
+
+	branch := "jeev/feature"
+	parentDir := "/Users/jeevb/Workspace/repos/bxnlabs/argus"
+	s := &db.Session{
+		ID:               "sess_gpd_1",
+		Name:             "with parent dir",
+		TmuxName:         "claude-sess_gpd_1",
+		WorkingDirectory: "/tmp/wt/argus-feature",
+		AgentType:        "claude",
+		WorktreeBranch:   &branch,
+		GitParentDir:     &parentDir,
+	}
+
+	if err := d.CreateSession(s); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	got, err := d.GetSession("sess_gpd_1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.GitParentDir == nil {
+		t.Fatal("expected GitParentDir to be set")
+	}
+	if *got.GitParentDir != parentDir {
+		t.Errorf("expected GitParentDir %q, got %q", parentDir, *got.GitParentDir)
+	}
+}
+
+func TestGitParentDirNullable(t *testing.T) {
+	d := openTestDB(t)
+
+	s := &db.Session{
+		ID:               "sess_gpd_2",
+		Name:             "no parent dir",
+		TmuxName:         "claude-sess_gpd_2",
+		WorkingDirectory: "/tmp/plain",
+		AgentType:        "claude",
+	}
+
+	if err := d.CreateSession(s); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	got, err := d.GetSession("sess_gpd_2")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.GitParentDir != nil {
+		t.Errorf("expected nil GitParentDir, got %q", *got.GitParentDir)
+	}
+}
+
 func TestMigrationsIdempotent(t *testing.T) {
 	d := openTestDB(t)
 	// Running migrations a second time should not error
@@ -150,5 +205,27 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	}
 	if got.WorktreeBranch == nil || *got.WorktreeBranch != branch {
 		t.Errorf("expected WorktreeBranch %q, got %v", branch, got.WorktreeBranch)
+	}
+
+	// Verify git_parent_dir column also exists after migration.
+	parentDir := "/tmp/parent-repo"
+	s2 := &db.Session{
+		ID:               "sess_upgrade_gpd",
+		Name:             "upgrade gpd test",
+		TmuxName:         "claude-sess_upgrade_gpd",
+		WorkingDirectory: "/tmp/upgrade-wt",
+		AgentType:        "claude",
+		WorktreeBranch:   &branch,
+		GitParentDir:     &parentDir,
+	}
+	if err := d.CreateSession(s2); err != nil {
+		t.Fatalf("create session with git_parent_dir after migration: %v", err)
+	}
+	got2, err := d.GetSession("sess_upgrade_gpd")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got2.GitParentDir == nil || *got2.GitParentDir != parentDir {
+		t.Errorf("expected GitParentDir %q, got %v", parentDir, got2.GitParentDir)
 	}
 }
