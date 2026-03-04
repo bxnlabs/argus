@@ -106,6 +106,92 @@ func TestGetSessionActivitiesContext_CanceledContext(t *testing.T) {
 	}
 }
 
+func TestBuildStatusRight(t *testing.T) {
+	tests := []struct {
+		name       string
+		sessionID  string
+		dir        string
+		branch     string
+		home       string
+		wantExact  string   // if set, assert exact equality
+		wantParts  []string // substrings that must all appear
+		wantAbsent []string // substrings that must NOT appear
+	}{
+		{
+			name:      "git session with all fields",
+			sessionID: "sess_m2abc12_xyz789",
+			dir:       "/Users/jeevb/Workspace/repos/bxnlabs/argus",
+			branch:    "main",
+			home:      "/Users/jeevb",
+			wantParts: []string{"sess_m2abc12_xyz789", "main", "bxnlabs/argus"},
+		},
+		{
+			name:      "exact format for short git session",
+			sessionID: "sess_abc",
+			dir:       "/Users/jeevb/project",
+			branch:    "main",
+			home:      "/Users/jeevb",
+			wantExact: "#[fg=#a6adc8]sess_abc #[fg=#6c7086]| #[fg=#cba6f7] main #[fg=#6c7086]| #[fg=#89b4fa]~/project ",
+		},
+		{
+			name:       "non-git session omits branch segment",
+			sessionID:  "sess_m2abc12_xyz789",
+			dir:        "/Users/jeevb/projects/myapp",
+			branch:     "",
+			home:       "/Users/jeevb",
+			wantParts:  []string{"sess_m2abc12_xyz789", "~/projects/myapp"},
+			wantAbsent: []string{"#[fg=#cba6f7]"}, // branch color absent
+		},
+		{
+			name:      "long branch is truncated",
+			sessionID: "sess_abc",
+			dir:       "/tmp",
+			branch:    "feat/some-really-long-branch-name",
+			home:      "/Users/jeevb",
+			wantParts: []string{"feat/some-really-lo…"},
+		},
+		{
+			name:      "branch with hash is escaped",
+			sessionID: "sess_abc",
+			dir:       "/tmp",
+			branch:    "feat#(echo hacked)",
+			home:      "/Users/jeevb",
+			wantParts:  []string{"feat##(echo hacked)"},
+			wantAbsent: []string{"feat#(echo hacked)"},
+		},
+		{
+			name:      "dir with percent is escaped",
+			sessionID: "sess_abc",
+			dir:       "/tmp/100%done",
+			branch:    "main",
+			home:      "/Users/jeevb",
+			wantParts:  []string{"100%%done"},
+			wantAbsent: []string{"100%d"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildStatusRight(tt.sessionID, tt.dir, tt.branch, tt.home)
+			if tt.wantExact != "" {
+				if got != tt.wantExact {
+					t.Errorf("buildStatusRight() =\n  %q\nwant:\n  %q", got, tt.wantExact)
+				}
+				return
+			}
+			for _, part := range tt.wantParts {
+				if !strings.Contains(got, part) {
+					t.Errorf("buildStatusRight() = %q, want it to contain %q", got, part)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Errorf("buildStatusRight() = %q, should NOT contain %q", got, absent)
+				}
+			}
+		})
+	}
+}
+
 func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")

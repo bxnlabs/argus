@@ -47,7 +47,7 @@ func (d *DB) seedMigrations() error {
 	}
 	defer rows.Close()
 
-	var hasWorktreeBranch bool
+	var hasWorktreeBranch, hasGitParentDir bool
 	for rows.Next() {
 		var cid int
 		var name, colType string
@@ -56,8 +56,11 @@ func (d *DB) seedMigrations() error {
 		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
 			return err
 		}
-		if name == "worktree_branch" {
+		switch name {
+		case "worktree_branch":
 			hasWorktreeBranch = true
+		case "git_parent_dir":
+			hasGitParentDir = true
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -68,6 +71,14 @@ func (d *DB) seedMigrations() error {
 		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
 			"add_worktree_branch",
+		); err != nil {
+			return err
+		}
+	}
+	if hasGitParentDir {
+		if _, err := d.sql.Exec(
+			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
+			"add_git_parent_dir",
 		); err != nil {
 			return err
 		}

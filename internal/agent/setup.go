@@ -49,6 +49,7 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 	wtMgr := worktree.NewManager(stateDir, cfg)
 
 	mgr := session.NewManager(database, wtMgr)
+	mgr.BackfillGitParentDir()
 	detector := status.NewDetector()
 
 	statusMon := status.NewMonitor(mgr, mgr, detector)
