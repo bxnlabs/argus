@@ -47,17 +47,27 @@ const (
 	maxBranchWidth = 20
 )
 
+// escapeTmuxLiteral escapes characters that tmux interprets in format strings:
+// # -> ## (prevents #(...) command execution, #{...} variable expansion, #[...] style changes)
+// % -> %% (prevents strftime expansion like %H, %M)
+// Control characters are normalized to spaces to prevent malformed rendering.
+var tmuxEscaper = strings.NewReplacer("#", "##", "%", "%%", "\n", " ", "\r", " ", "\t", " ")
+
+func escapeTmuxLiteral(s string) string {
+	return tmuxEscaper.Replace(s)
+}
+
 // buildStatusRight formats the right side of the tmux status bar.
 // Layout with branch:    "{sessionID} | {branch} | {dir} "
 // Layout without branch: "{sessionID} | {dir} "
 func buildStatusRight(sessionID, dir, branch, home string) string {
-	displayDir := shared.CompressPath(dir, home, maxDirWidth)
-	displayID := sessionID
+	displayDir := escapeTmuxLiteral(shared.CompressPath(dir, home, maxDirWidth))
+	displayID := escapeTmuxLiteral(sessionID)
 
 	if branch == "" {
 		return fmt.Sprintf("#[fg=#a6adc8]%s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, displayDir)
 	}
-	displayBranch := shared.TruncateRight(branch, maxBranchWidth)
+	displayBranch := escapeTmuxLiteral(shared.TruncateRight(branch, maxBranchWidth))
 	return fmt.Sprintf("#[fg=#a6adc8]%s #[fg=#6c7086]| #[fg=#cba6f7] %s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, displayBranch, displayDir)
 }
 

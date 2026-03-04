@@ -6,13 +6,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { cn, formatRelativeTime, compressPath } from "@/lib/utils";
 import { Terminal, Clock, Check, X } from "lucide-react";
 import type { Session } from "@/types";
 import { useViewport } from "@/hooks/useViewport";
 
 interface QuickSwitcherProps {
   sessions: Session[];
+  homeDir: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectSession: (sessionId: string) => void;
@@ -25,6 +26,7 @@ interface QuickSwitcherProps {
  */
 export function QuickSwitcher({
   sessions,
+  homeDir,
   open,
   onOpenChange,
   onSelectSession,
@@ -43,6 +45,7 @@ export function QuickSwitcher({
     return (
       session.name?.toLowerCase().includes(q) ||
       session.working_directory?.toLowerCase().includes(q) ||
+      session.git_parent_dir?.toLowerCase().includes(q) ||
       session.agent_type?.toLowerCase().includes(q)
     );
   });
@@ -193,7 +196,10 @@ export function QuickSwitcher({
                       </div>
                       <div className="text-muted-foreground flex items-center gap-2 text-xs">
                         <span className="truncate">
-                          {session.working_directory?.split("/").pop() || "~"}
+                          {compressPath(
+                            session.git_parent_dir ?? session.working_directory ?? "~",
+                            homeDir,
+                          )}
                         </span>
                         <span>·</span>
                         <span className="capitalize">

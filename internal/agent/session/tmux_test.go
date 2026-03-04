@@ -113,6 +113,7 @@ func TestBuildStatusRight(t *testing.T) {
 		dir        string
 		branch     string
 		home       string
+		wantExact  string   // if set, assert exact equality
 		wantParts  []string // substrings that must all appear
 		wantAbsent []string // substrings that must NOT appear
 	}{
@@ -123,6 +124,14 @@ func TestBuildStatusRight(t *testing.T) {
 			branch:    "main",
 			home:      "/Users/jeevb",
 			wantParts: []string{"sess_m2abc12_xyz789", "main", "bxnlabs/argus"},
+		},
+		{
+			name:      "exact format for short git session",
+			sessionID: "sess_abc",
+			dir:       "/Users/jeevb/project",
+			branch:    "main",
+			home:      "/Users/jeevb",
+			wantExact: "#[fg=#a6adc8]sess_abc #[fg=#6c7086]| #[fg=#cba6f7] main #[fg=#6c7086]| #[fg=#89b4fa]~/project ",
 		},
 		{
 			name:       "non-git session omits branch segment",
@@ -141,10 +150,34 @@ func TestBuildStatusRight(t *testing.T) {
 			home:      "/Users/jeevb",
 			wantParts: []string{"feat/some-really-lo…"},
 		},
+		{
+			name:      "branch with hash is escaped",
+			sessionID: "sess_abc",
+			dir:       "/tmp",
+			branch:    "feat#(echo hacked)",
+			home:      "/Users/jeevb",
+			wantParts:  []string{"feat##(echo hacked)"},
+			wantAbsent: []string{"feat#(echo hacked)"},
+		},
+		{
+			name:      "dir with percent is escaped",
+			sessionID: "sess_abc",
+			dir:       "/tmp/100%done",
+			branch:    "main",
+			home:      "/Users/jeevb",
+			wantParts:  []string{"100%%done"},
+			wantAbsent: []string{"100%d"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := buildStatusRight(tt.sessionID, tt.dir, tt.branch, tt.home)
+			if tt.wantExact != "" {
+				if got != tt.wantExact {
+					t.Errorf("buildStatusRight() =\n  %q\nwant:\n  %q", got, tt.wantExact)
+				}
+				return
+			}
 			for _, part := range tt.wantParts {
 				if !strings.Contains(got, part) {
 					t.Errorf("buildStatusRight() = %q, want it to contain %q", got, part)

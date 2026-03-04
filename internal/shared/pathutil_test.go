@@ -54,11 +54,25 @@ func TestCompressPath(t *testing.T) {
 			want:      "/.../nested/project",
 		},
 		{
-			name:      "second stage with tilde prefix",
+			name:      "drops parent to preserve basename",
 			path:      "/Users/jeevb/Workspace/repos/bxnlabs/very-long-project-name",
 			home:      home,
 			threshold: 20,
-			want:      "~/.../bxnlabs/very-long-project-name",
+			want:      "~/.../very-long-pro…",
+		},
+		{
+			name:      "three_segment_drops_middle_to_preserve_basename",
+			path:      "/Users/jeevb/Workspace/long-parent/project",
+			home:      home,
+			threshold: 20,
+			want:      "~/.../project",
+		},
+		{
+			name:      "three_segment_fallback_when_basename_too_long",
+			path:      "/Users/jeevb/a/b/very-long-basename",
+			home:      home,
+			threshold: 15,
+			want:      "~/a/b/very-lon…",
 		},
 		{
 			name:      "three segments no compression needed",
@@ -73,6 +87,20 @@ func TestCompressPath(t *testing.T) {
 			home:      home,
 			threshold: 7,
 			want:      "~/short",
+		},
+		{
+			name:      "deep path with long tail preserves basename",
+			path:      "/Users/jeevb/a/b/very-very-very-long-segment/another-very-very-long-segment",
+			home:      home,
+			threshold: 30,
+			want:      "~/.../another-very-very-long-…",
+		},
+		{
+			name:      "shallow path truncated when over threshold",
+			path:      "/Users/jeevb/very-long-directory-name",
+			home:      home,
+			threshold: 15,
+			want:      "~/very-long-di…",
 		},
 		{
 			name:      "empty home falls back",
@@ -105,6 +133,9 @@ func TestTruncateRight(t *testing.T) {
 		{"at limit", "abcde", 5, "abcde"},
 		{"over limit", "abcdefghij", 5, "abcd…"},
 		{"max 1", "abcde", 1, "…"},
+		{"max 0 returns empty", "abcde", 0, ""},
+		{"negative max returns empty", "abcde", -1, ""},
+		{"unicode runes", "日本語テスト", 4, "日本語…"},
 		{"empty", "", 10, ""},
 	}
 	for _, tt := range tests {

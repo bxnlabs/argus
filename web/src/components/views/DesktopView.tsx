@@ -146,6 +146,7 @@ export function DesktopView({
       />
       <QuickSwitcher
         sessions={sessions}
+        homeDir={homeDir}
         open={showQuickSwitcher}
         onOpenChange={setShowQuickSwitcher}
         currentSessionId={activeTab?.sessionId ?? undefined}

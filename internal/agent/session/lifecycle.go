@@ -133,7 +133,10 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if worktreeBranch != nil {
 		configBranch = *worktreeBranch
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("resolve home dir: %v", err)
+	}
 	ConfigureSession(tmuxName, sessionID, configDir, configBranch, home)
 
 	// Insert into database
@@ -405,7 +408,10 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 	if session.WorktreeBranch != nil {
 		configBranch = *session.WorktreeBranch
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("resolve home dir: %v", err)
+	}
 	ConfigureSession(tmuxName, session.ID, configDir, configBranch, home)
 
 	return tmuxName, nil
