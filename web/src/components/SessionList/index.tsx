@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Plus, AlertCircle, Ellipsis, Pencil, Trash2 } from "lucide-react";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { cn, formatRelativeTime, compressPath } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
 function getStatusColor(status?: string) {
@@ -59,6 +59,7 @@ function getStatusLabel(status?: string) {
 
 interface SessionListProps {
   sessions: Session[];
+  homeDir: string;
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatusInfo>;
   isLoading?: boolean;
@@ -73,6 +74,7 @@ interface SessionListProps {
 
 export function SessionList({
   sessions,
+  homeDir,
   activeSessionId,
   sessionStatuses,
   isLoading,
@@ -241,6 +243,19 @@ export function SessionList({
                             {formatRelativeTime(session.updated_at)}
                           </span>
                         </div>
+                        {/* Line 3: Directory */}
+                        <span className="text-muted-foreground mt-0.5 block truncate text-xs">
+                          {compressPath(
+                            session.git_parent_dir ?? session.working_directory,
+                            homeDir,
+                          )}
+                        </span>
+                        {/* Line 4: Branch (worktree sessions only) */}
+                        {session.worktree_branch && (
+                          <span className="text-muted-foreground mt-0.5 block truncate text-xs">
+                            ↳ {session.worktree_branch}
+                          </span>
+                        )}
                       </>
                     )}
                   </div>

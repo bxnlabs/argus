@@ -7,6 +7,7 @@ import type { ViewProps } from "./types";
 
 export function MobileView({
   sessions,
+  homeDir,
   sessionStatuses,
   sidebarOpen,
   setSidebarOpen,
@@ -79,6 +80,7 @@ export function MobileView({
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <SessionList
                     sessions={sessions}
+                    homeDir={homeDir}
                     activeSessionId={activeTab?.sessionId || undefined}
                     sessionStatuses={sessionStatuses}
                     onAttachSession={(id) => {
