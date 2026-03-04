@@ -16,48 +16,56 @@ set statically at session creation time from database fields.
 **Git sessions:**
 
 ```
- Argus |                          main | ~/Workspace/repos/bxnlabs/argus
+ Argus |          sess_m2abc12_xyz789 | main | ~/Workspace/.../bxnlabs/argus
 ```
 
 **Non-git sessions (no branch):**
 
 ```
- Argus |                               ~/Workspace/repos/bxnlabs/argus
+ Argus |                    sess_m2abc12_xyz789 | ~/Workspace/.../bxnlabs/argus
 ```
 
 - Left side unchanged: ` Argus | ` in Catppuccin purple
-- Right side: `{branch} | {directory}` — branch in purple, divider in overlay0, directory in blue
-- Branch appears first (leftmost) so that on width reduction the directory (rightmost) remains visible
+- Right side: `{session_id} | {branch} | {directory}` — ID in subtext, branch in purple, divider in overlay0, directory in blue
+- Session ID leftmost (least important), directory rightmost (survives width reduction)
 
 ### Truncation
 
-Both values are truncated in Go before being set on tmux:
+Values are truncated in Go before being set on tmux:
 
-- **Directory (max 30 chars):** `$HOME` replaced with `~`, then left-truncated with `…` prefix
-  (e.g., `…repos/bxnlabs/argus`) since rightmost path components are most meaningful
+- **Session ID:** shown in full (e.g., `sess_m2abc12_xyz789`)
+- **Directory (max 30 chars):** uses `compressPath` (shared package) — `$HOME` replaced
+  with `~`, then smart segment compression with `/.../` (e.g., `~/Workspace/.../bxnlabs/argus`)
 - **Branch (max 20 chars):** right-truncated with `…` suffix
   (e.g., `feat/some-long-bran…`) since the prefix is most meaningful
 
 ### Approach
 
-Pass directory and branch strings into `ConfigureSession`. The caller already has
-`GitParentDir` and `WorktreeBranch` from the database. Format the status-right
-string in Go with truncation applied, then set it as a literal tmux option.
+Pass session ID, directory, branch, and home strings into `ConfigureSession`.
+The caller already has `GitParentDir`, `WorktreeBranch`, and session ID from
+the database. Format the status-right string in Go, then set it as a literal
+tmux option. Reuse `compressPath` from the shared package for directory display.
 
 No tmux format variables, environment variables, or status-interval scripts needed.
 
 ## Code Changes
 
-1. **`tmux.go`** — Change `ConfigureSession(name string)` to
-   `ConfigureSession(name, dir, branch string)`. Add `truncateDir` and
-   `truncateBranch` helper functions. Build `status-right` dynamically.
-2. **`lifecycle.go`** — Update both call sites (line ~128 in `Create`, line ~391
-   in `EnsureSession`) to pass `GitParentDir` and `WorktreeBranch`.
-3. **`tmux_test.go`** — Add tests for truncation helpers.
+1. **`shared/pathutil.go`** — Move `compressPath` from `cli` to `shared` package.
+   Add `TruncateRight` helper.
+2. **`cli/pathutil.go`** — Delegate to `shared.CompressPath`.
+3. **`tmux.go`** — Change `ConfigureSession(name string)` to
+   `ConfigureSession(name, sessionID, dir, branch, home string)`. Add
+   `buildStatusRight` that composes session ID, branch, and directory.
+4. **`lifecycle.go`** — Update both call sites (line ~128 in `Create`, line ~391
+   in `EnsureSession`) to pass all fields.
+5. **Tests** — Move `compressPath` tests to shared, add `TruncateRight` and
+   `buildStatusRight` tests.
 
 ## Decisions
 
 - **Static display** — set once at creation, not dynamically updated
 - **Approach A** — format strings in Go, bake into tmux option (simplest, no overhead)
-- **Branch first** — branch | directory ordering so directory survives width reduction
+- **Ordering** — session ID | branch | directory — directory rightmost survives width reduction
 - **`|` dividers** — consistent with existing Catppuccin styling
+- **Reuse `compressPath`** — moved from cli to shared package for smart path compression
+- **Full session ID** — shown untruncated as the canonical identifier for CLI commands
