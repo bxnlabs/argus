@@ -30,11 +30,11 @@ export function DesktopView({
 }: ViewProps) {
   return (
     <div className="bg-background flex h-app overflow-hidden">
-      {/* Sidebar — always visible, toggles between expanded (w-60) and collapsed (w-14) */}
+      {/* Sidebar — always visible, toggles between expanded (w-72) and collapsed (w-14) */}
       <div
         className={cn(
           "border-border bg-sidebar-background flex flex-shrink-0 flex-col border-r overflow-hidden transition-all duration-200",
-          sidebarOpen ? "w-60" : "w-14"
+          sidebarOpen ? "w-72" : "w-14"
         )}
       >
         {/* Header row: branding + toggle */}
