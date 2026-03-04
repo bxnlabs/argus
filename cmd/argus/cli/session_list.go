@@ -58,8 +58,10 @@ func newListCmd() *cobra.Command {
 				}
 			}
 
+			home, _ := os.UserHomeDir()
+
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tSTATUS\tPROVIDER\tBRANCH\tUPDATED")
+			fmt.Fprintln(w, "ID\tNAME\tSTATUS\tPROVIDER\tDIRECTORY\tBRANCH\tUPDATED")
 			for _, s := range resp.Sessions {
 				st := statuses[s.ID]
 				if st == "" {
@@ -69,8 +71,17 @@ func newListCmd() *cobra.Command {
 				if s.WorktreeBranch != nil {
 					branch = *s.WorktreeBranch
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-					s.ID, s.Name, st, s.AgentType, branch, relativeTime(s.UpdatedAt))
+				dir := s.WorkingDirectory
+				if s.GitParentDir != nil {
+					dir = *s.GitParentDir
+				}
+				if dir == "" {
+					dir = "-"
+				} else {
+					dir = compressPath(dir, home, 35)
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					s.ID, s.Name, st, s.AgentType, dir, branch, relativeTime(s.UpdatedAt))
 			}
 			w.Flush()
 			return nil
