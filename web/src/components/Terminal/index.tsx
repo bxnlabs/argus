@@ -6,7 +6,20 @@ import {
   useMemo,
 } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { WifiOff, Paperclip } from "lucide-react";
+import {
+  WifiOff,
+  Paperclip,
+  Terminal as TerminalIcon,
+  GitBranch,
+  FilePenLine,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { SidePanel } from "@/components/views/types";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { cn } from "@/lib/utils";
 import { SearchBar } from "./SearchBar";
@@ -39,11 +52,19 @@ interface TerminalProps {
   onAttachments?: () => void;
   /** Session working directory, used to anchor file search */
   workingDirectory?: string | null;
+  /** Active side panel (null = terminal view) */
+  activePanel: SidePanel;
+  /** Callback to switch the active panel */
+  onSetActivePanel: (panel: SidePanel) => void;
+  /** Whether the git panel is available */
+  isGitEnabled: boolean;
+  /** Whether the editor panel is available */
+  isEditorEnabled: boolean;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
-    { sessionName, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, onAttachments, workingDirectory },
+    { sessionName, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, onAttachments, workingDirectory, activePanel, onSetActivePanel, isGitEnabled, isEditorEnabled },
     ref
   ) {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -84,6 +105,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
 
     // Drag-and-drop file upload — disabled when not connected
     const isConnected = connectionState === "connected";
+    const isTerminalActive = activePanel === null;
+    const isGitActive = activePanel === "git";
+    const isEditorActive = activePanel === "editor";
     const { isDragging, dragHandlers } = useFileDrop(
       containerRef,
       (files) => onFilesDropped?.(files),
@@ -150,17 +174,95 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           onClose={closeSearch}
         />
 
-        {/* Terminal container - NO padding! FitAddon reads offsetHeight which includes padding */}
-        <div
-          ref={terminalRef}
-          className={cn(
-            "terminal-container min-h-0 w-full flex-1 overflow-hidden",
-            selectMode && "ring-primary ring-2 ring-inset"
-          )}
-          onClick={handleContainerClick}
-          onTouchStart={selectMode ? (e) => e.stopPropagation() : undefined}
-          onTouchEnd={selectMode ? (e) => e.stopPropagation() : undefined}
-        />
+        {/* Terminal + ghost column (desktop) or plain terminal (mobile) */}
+        {!isMobile ? (
+          <div className="flex min-h-0 flex-1">
+            {/* Terminal container - NO padding! FitAddon reads offsetHeight which includes padding */}
+            <div
+              ref={terminalRef}
+              className="terminal-container min-h-0 flex-1 overflow-hidden"
+              onClick={handleContainerClick}
+            />
+            {/* Ghost column — reserves space so xterm reflows around it */}
+            <div className="flex w-14 shrink-0 flex-col items-center gap-1 pt-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-lg"
+                    onClick={() => onSetActivePanel(null)}
+                    className={cn("h-12 w-12", isTerminalActive && "bg-accent")}
+                    aria-label="Terminal"
+                  >
+                    <TerminalIcon className={cn("h-6 w-6", isTerminalActive && "text-primary")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Terminal</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-lg"
+                    disabled={!isGitEnabled}
+                    onClick={() => onSetActivePanel("git")}
+                    className={cn("h-12 w-12", isGitActive && "bg-accent")}
+                    aria-label="Git"
+                  >
+                    <GitBranch className={cn("h-6 w-6", isGitActive && "text-primary")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Git</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-lg"
+                    disabled={!isEditorEnabled}
+                    onClick={() => onSetActivePanel("editor")}
+                    className={cn("h-12 w-12", isEditorActive && "bg-accent")}
+                    aria-label="Editor"
+                  >
+                    <FilePenLine className={cn("h-6 w-6", isEditorActive && "text-primary")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Editor</TooltipContent>
+              </Tooltip>
+
+              {onAttachments && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-lg"
+                      onClick={onAttachments}
+                      className="h-12 w-12"
+                      aria-label="Attachments"
+                    >
+                      <Paperclip className="h-6 w-6" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">Attachments</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Mobile: plain terminal, no ghost column */
+          <div
+            ref={terminalRef}
+            className={cn(
+              "terminal-container min-h-0 w-full flex-1 overflow-hidden",
+              selectMode && "ring-primary ring-2 ring-inset"
+            )}
+            onClick={handleContainerClick}
+            onTouchStart={selectMode ? (e) => e.stopPropagation() : undefined}
+            onTouchEnd={selectMode ? (e) => e.stopPropagation() : undefined}
+          />
+        )}
 
         {/* Select mode overlay - shows terminal text in a selectable format */}
         {selectMode && (
