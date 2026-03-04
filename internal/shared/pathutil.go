@@ -2,6 +2,18 @@ package shared
 
 import "strings"
 
+// TruncateRight right-truncates s to max runes, suffixing with "…" if truncated.
+func TruncateRight(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	return string(runes[:max-1]) + "…"
+}
+
 // CompressPath shortens a path for display:
 // 1. Replace home prefix with ~
 // 2. If longer than threshold, keep first + last 2 segments: ~/first/.../last2

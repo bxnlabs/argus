@@ -93,3 +93,25 @@ func TestCompressPath(t *testing.T) {
 		})
 	}
 }
+
+func TestTruncateRight(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		max  int
+		want string
+	}{
+		{"within limit", "main", 20, "main"},
+		{"at limit", "abcde", 5, "abcde"},
+		{"over limit", "abcdefghij", 5, "abcd…"},
+		{"max 1", "abcde", 1, "…"},
+		{"empty", "", 10, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := TruncateRight(tt.s, tt.max); got != tt.want {
+				t.Errorf("TruncateRight(%q, %d) = %q, want %q", tt.s, tt.max, got, tt.want)
+			}
+		})
+	}
+}
