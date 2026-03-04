@@ -57,7 +57,7 @@ func TestCompressPath(t *testing.T) {
 			name:      "exactly at threshold no compression",
 			path:      "/Users/jeevb/short",
 			home:      home,
-			threshold: 40,
+			threshold: 7,
 			want:      "~/short",
 		},
 		{
