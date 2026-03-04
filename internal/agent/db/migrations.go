@@ -2,8 +2,14 @@ package db
 
 // RunMigrations runs any pending schema migrations.
 func (d *DB) RunMigrations() error {
-	return d.migrate("add_worktree_branch", func() error {
+	if err := d.migrate("add_worktree_branch", func() error {
 		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN worktree_branch TEXT`)
+		return err
+	}); err != nil {
+		return err
+	}
+	return d.migrate("add_git_parent_dir", func() error {
+		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN git_parent_dir TEXT`)
 		return err
 	})
 }

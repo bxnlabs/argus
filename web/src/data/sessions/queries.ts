@@ -5,6 +5,7 @@ import { sessionKeys } from "./keys";
 
 interface SessionsResponse {
   sessions: Session[];
+  home_dir: string;
 }
 
 export function useSessionsQuery() {

@@ -9,6 +9,7 @@ import {
 export function useSessions() {
   const { data, isSuccess } = useSessionsQuery();
   const sessions: Session[] = data?.sessions ?? [];
+  const homeDir: string = data?.home_dir ?? "";
 
   const deleteMutation = useDeleteSession();
   const renameMutation = useRenameSession();
@@ -28,5 +29,5 @@ export function useSessions() {
     [renameMutation]
   );
 
-  return { sessions, isLoaded: isSuccess, deleteSession, renameSession };
+  return { sessions, homeDir, isLoaded: isSuccess, deleteSession, renameSession };
 }

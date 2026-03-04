@@ -7,6 +7,7 @@ export type SidePanel = "git" | "editor" | null;
 
 export interface ViewProps {
   sessions: Session[];
+  homeDir: string;
   sessionStatuses: Record<string, SessionStatusInfo>;
 
   // Sidebar
