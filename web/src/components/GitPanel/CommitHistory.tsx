@@ -14,9 +14,11 @@ import type { CommitFile } from "@/types";
 interface CommitHistoryProps {
   workingDirectory: string;
   header?: React.ReactNode;
+  listWidth?: number;
+  onResizeMouseDown?: (e: React.MouseEvent) => void;
 }
 
-export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) {
+export function CommitHistory({ workingDirectory, header, listWidth, onResizeMouseDown }: CommitHistoryProps) {
   const { isMobile } = useViewport();
   const {
     data: commits,
@@ -200,7 +202,7 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
   return (
     <div className="flex min-h-0 flex-1">
       {/* Commit list */}
-      <div className="flex w-[300px] flex-shrink-0 flex-col">
+      <div className="flex flex-shrink-0 flex-col" style={{ width: listWidth }}>
         {header}
         <div className="flex-1 overflow-y-auto">
           {commits.map((commit) => (
@@ -221,8 +223,11 @@ export function CommitHistory({ workingDirectory, header }: CommitHistoryProps) 
         </div>
       </div>
 
-      {/* Divider */}
-      <div className="bg-muted/50 w-1 flex-shrink-0" />
+      {/* Resize handle */}
+      <div
+        className="bg-muted/50 hover:bg-primary/50 active:bg-primary w-1 flex-shrink-0 cursor-col-resize transition-colors"
+        onMouseDown={onResizeMouseDown}
+      />
 
       {/* Diff view - stacked diffs */}
       <div className="bg-muted/20 flex min-w-0 flex-1 flex-col">

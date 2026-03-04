@@ -48,7 +48,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   const [loadingDiff, setLoadingDiff] = useState(false);
 
   // Resizable panel state (desktop)
-  const [listWidth, setListWidth] = useState(300);
+  const [listWidth, setListWidth] = useState(350);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
@@ -94,7 +94,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       if (!isDragging.current || !containerRef.current) return;
       const containerRect = containerRef.current.getBoundingClientRect();
       const newWidth = e.clientX - containerRect.left;
-      setListWidth(Math.max(200, Math.min(500, newWidth)));
+      setListWidth(Math.max(250, Math.min(600, newWidth)));
     };
 
     const handleMouseUp = () => {
@@ -288,11 +288,13 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   // Compare tab
   if (activeTab === "compare") {
     return (
-      <div className="bg-background flex h-full w-full flex-col">
+      <div ref={containerRef} className="bg-background flex h-full w-full flex-col">
         <CompareView
           workingDirectory={workingDirectory}
           currentBranch={status.branch}
           header={compareHeader}
+          listWidth={listWidth}
+          onResizeMouseDown={handleMouseDown}
         />
       </div>
     );
@@ -301,7 +303,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   // History tab
   if (activeTab === "history") {
     return (
-      <div className="bg-background flex h-full w-full flex-col">
+      <div ref={containerRef} className="bg-background flex h-full w-full flex-col">
         <CommitHistory
           workingDirectory={workingDirectory}
           header={
@@ -316,6 +318,8 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
               <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
             </>
           }
+          listWidth={listWidth}
+          onResizeMouseDown={handleMouseDown}
         />
       </div>
     );
