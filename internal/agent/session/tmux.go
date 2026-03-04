@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/bxnlabs/argus/internal/shared"
 )
 
 // HasSession checks if a tmux session exists.
@@ -40,14 +42,34 @@ func NewSession(name, cwd, command string) error {
 	return nil
 }
 
+const (
+	maxDirWidth    = 30
+	maxBranchWidth = 20
+)
+
+// buildStatusRight formats the right side of the tmux status bar.
+// Layout with branch:    "{sessionID} | {branch} | {dir} "
+// Layout without branch: "{sessionID} | {dir} "
+func buildStatusRight(sessionID, dir, branch, home string) string {
+	displayDir := shared.CompressPath(dir, home, maxDirWidth)
+	displayID := sessionID
+
+	if branch == "" {
+		return fmt.Sprintf("#[fg=#a6adc8]%s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, displayDir)
+	}
+	displayBranch := shared.TruncateRight(branch, maxBranchWidth)
+	return fmt.Sprintf("#[fg=#a6adc8]%s #[fg=#6c7086]| #[fg=#cba6f7] %s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, displayBranch, displayDir)
+}
+
 // ConfigureSession applies the standard Argus tmux status bar styling to a session.
-func ConfigureSession(name string) {
+func ConfigureSession(name, sessionID, dir, branch, home string) {
+	statusRight := buildStatusRight(sessionID, dir, branch, home)
 	options := []struct{ key, val string }{
 		{"status-style", "bg=#1e1e2e,fg=#cdd6f4"},
 		{"status-left", "#[fg=#cba6f7,bold] Argus #[fg=#6c7086]| "},
 		{"status-left-length", "20"},
-		{"status-right", "#[fg=#6c7086]| #[fg=#89b4fa]#S #[fg=#6c7086]| #[fg=#a6adc8]%H:%M "},
-		{"status-right-length", "40"},
+		{"status-right", statusRight},
+		{"status-right-length", "80"},
 		{"status-position", "bottom"},
 		{"mouse", "on"},
 	}

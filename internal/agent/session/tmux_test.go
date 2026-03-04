@@ -139,7 +139,7 @@ func TestBuildStatusRight(t *testing.T) {
 			dir:       "/tmp",
 			branch:    "feat/some-really-long-branch-name",
 			home:      "/Users/jeevb",
-			wantParts: []string{"feat/some-really-lon…"},
+			wantParts: []string{"feat/some-really-lo…"},
 		},
 	}
 	for _, tt := range tests {
