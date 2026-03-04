@@ -203,7 +203,7 @@ export function SessionList({
                   {isActive && (
                     <div className="bg-primary absolute right-0 top-1/2 h-4 w-1 -translate-y-1/2 rounded-full" />
                   )}
-                  {/* Session info — two lines */}
+                  {/* Session info — name, status, directory, branch */}
                   <div className="min-w-0 flex-1">
                     {isRenaming ? (
                       <Input
