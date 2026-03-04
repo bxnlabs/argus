@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import { shellEscape } from "@/lib/shell";
 import { MobileTabBar } from "./MobileTabBar";
 import { DesktopTabBar } from "./DesktopTabBar";
-import { RightSidebar } from "./RightSidebar";
 import { GitPanel } from "@/components/GitPanel";
 import { FileExplorer } from "@/components/FileExplorer";
 import { Terminal } from "@/components/Terminal";
@@ -242,6 +241,10 @@ export const Workspace = memo(function Workspace({
                     onFilesDropped={handleFilesDropped}
                     onAttachments={() => setShowFilePicker(true)}
                     workingDirectory={activeWorkingDirectory}
+                    activePanel={activePanel}
+                    onSetActivePanel={setActivePanel}
+                    isGitEnabled={isGitRepo}
+                    isEditorEnabled={!!activeWorkingDirectory}
                   />
                 </div>
               );
@@ -249,17 +252,6 @@ export const Workspace = memo(function Workspace({
           </div>
         </div>
       </div>
-
-      {/* Right sidebar — desktop only */}
-      {!isMobile && (
-        <RightSidebar
-          activePanel={activePanel}
-          onSetActivePanel={setActivePanel}
-          isGitEnabled={isGitRepo}
-          isEditorEnabled={!!activeWorkingDirectory}
-          onAttachments={() => setShowFilePicker(true)}
-        />
-      )}
 
       <FilePicker
         open={showFilePicker}
