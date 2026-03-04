@@ -9,7 +9,7 @@ import (
 // sessionColumns is the explicit column list matching scanSession's scan order.
 const sessionColumns = `id, name, tmux_name, created_at, updated_at,
 	working_directory, provider_session_id, model, system_prompt,
-	agent_type, auto_approve, worktree_branch`
+	agent_type, auto_approve, worktree_branch, git_parent_dir`
 
 func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var s Session
@@ -19,6 +19,7 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 		&s.WorkingDirectory,
 		&s.ProviderSessionID, &s.Model, &s.SystemPrompt,
 		&s.AgentType, &autoApprove, &s.WorktreeBranch,
+		&s.GitParentDir,
 	)
 	if err != nil {
 		return nil, err
@@ -33,11 +34,12 @@ func (d *DB) CreateSession(s *Session) error {
 		autoApprove = 1
 	}
 	_, err := d.sql.Exec(
-		`INSERT INTO sessions (id, name, tmux_name, working_directory, provider_session_id, model, system_prompt, agent_type, auto_approve, worktree_branch)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (id, name, tmux_name, working_directory, provider_session_id, model, system_prompt, agent_type, auto_approve, worktree_branch, git_parent_dir)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.Name, s.TmuxName, s.WorkingDirectory,
 		s.ProviderSessionID, s.Model, s.SystemPrompt,
 		s.AgentType, autoApprove, s.WorktreeBranch,
+		s.GitParentDir,
 	)
 	if err != nil {
 		return fmt.Errorf("create session %s: %w", s.ID, err)
