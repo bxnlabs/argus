@@ -43,8 +43,22 @@ func TestCompressPath(t *testing.T) {
 			name:      "non-home long path compressed",
 			path:      "/opt/data/very/deep/nested/project",
 			home:      home,
-			threshold: 20,
+			threshold: 25,
 			want:      "/opt/.../nested/project",
+		},
+		{
+			name:      "second stage drops first segment",
+			path:      "/opt/data/very/deep/nested/project",
+			home:      home,
+			threshold: 20,
+			want:      "/.../nested/project",
+		},
+		{
+			name:      "second stage with tilde prefix",
+			path:      "/Users/jeevb/Workspace/repos/bxnlabs/very-long-project-name",
+			home:      home,
+			threshold: 20,
+			want:      "~/.../bxnlabs/very-long-project-name",
 		},
 		{
 			name:      "three segments no compression needed",

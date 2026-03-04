@@ -33,6 +33,7 @@ func newListCmd() *cobra.Command {
 
 			var resp struct {
 				Sessions []sessionInfo `json:"sessions"`
+				HomeDir  string        `json:"home_dir"`
 			}
 			if err := json.Unmarshal(body, &resp); err != nil {
 				return fmt.Errorf("parse response: %w", err)
@@ -58,8 +59,6 @@ func newListCmd() *cobra.Command {
 				}
 			}
 
-			home, _ := os.UserHomeDir()
-
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(w, "ID\tNAME\tSTATUS\tPROVIDER\tDIRECTORY\tBRANCH\tUPDATED")
 			for _, s := range resp.Sessions {
@@ -78,7 +77,7 @@ func newListCmd() *cobra.Command {
 				if dir == "" {
 					dir = "-"
 				} else {
-					dir = compressPath(dir, home, 35)
+					dir = compressPath(dir, resp.HomeDir, 35)
 				}
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					s.ID, s.Name, st, s.AgentType, dir, branch, relativeTime(s.UpdatedAt))

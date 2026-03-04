@@ -63,5 +63,12 @@ export function compressPath(
 
   const first = segments[0];
   const tail = segments.slice(-2);
-  return `${prefix}/${first}/.../${tail.join("/")}`;
+  let result = `${prefix}/${first}/.../${tail.join("/")}`;
+
+  // Step 3: if still too long, drop the first segment
+  if (result.length > threshold) {
+    result = `${prefix}/.../${tail.join("/")}`;
+  }
+
+  return result;
 }

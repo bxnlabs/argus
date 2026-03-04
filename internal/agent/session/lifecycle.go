@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sync"
 
@@ -409,12 +410,15 @@ func (m *Manager) TouchSession(ctx context.Context, id string, unixTS int64) err
 // aren't inside a git repo are silently skipped.
 func (m *Manager) BackfillGitParentDir() {
 	sessions, err := m.db.ListSessionsForBackfill()
-	if err != nil || len(sessions) == 0 {
+	if err != nil {
+		log.Printf("backfill git_parent_dir: list sessions: %v", err)
 		return
 	}
 	for _, s := range sessions {
 		if dir, err := git.FindMainRepo(s.WorkingDirectory); err == nil {
-			_ = m.db.SetGitParentDir(s.ID, dir)
+			if err := m.db.SetGitParentDir(s.ID, dir); err != nil {
+				log.Printf("backfill git_parent_dir: set %s: %v", s.ID, err)
+			}
 		}
 	}
 }
