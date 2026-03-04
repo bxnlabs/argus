@@ -81,6 +81,16 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
 
+	// Resolve the parent (main) repository directory for worktree sessions.
+	// This is stored once at creation time so the API layer doesn't need to
+	// shell out to git on every request.
+	var gitParentDir *string
+	if worktreeBranch != nil {
+		if dir, err := git.FindMainRepo(cwd); err == nil {
+			gitParentDir = &dir
+		}
+	}
+
 	// If anything below fails before the DB commit, clean up the worktree.
 	success := false
 	defer func() {
@@ -132,6 +142,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		AutoApprove:       opts.AutoApprove,
 		ProviderSessionID: providerSessionID,
 		WorktreeBranch:    worktreeBranch,
+		GitParentDir:      gitParentDir,
 	}
 
 	if err := m.db.CreateSession(session); err != nil {
