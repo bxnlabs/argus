@@ -34,3 +34,34 @@ export function contractTilde(path: string, homePath: string): string {
   }
   return path;
 }
+
+/**
+ * Compress a path for display in constrained UI space.
+ * 1. Replace home prefix with ~
+ * 2. If longer than threshold, keep first + last 2 segments with /.../
+ */
+export function compressPath(
+  path: string,
+  homePath: string,
+  threshold: number = 30,
+): string {
+  // Step 1: tilde-shorten
+  let display = contractTilde(path, homePath);
+
+  // Step 2: compress if over threshold
+  if (display.length <= threshold) return display;
+
+  let prefix = "";
+  let rest = display;
+  if (display.startsWith("~/")) {
+    prefix = "~";
+    rest = display.slice(1); // "/Workspace/repos/..."
+  }
+
+  const segments = rest.split("/").filter(Boolean);
+  if (segments.length <= 3) return display;
+
+  const first = segments[0];
+  const tail = segments.slice(-2);
+  return `${prefix}/${first}/.../${tail.join("/")}`;
+}
