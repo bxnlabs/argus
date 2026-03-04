@@ -106,6 +106,59 @@ func TestGetSessionActivitiesContext_CanceledContext(t *testing.T) {
 	}
 }
 
+func TestBuildStatusRight(t *testing.T) {
+	tests := []struct {
+		name       string
+		sessionID  string
+		dir        string
+		branch     string
+		home       string
+		wantParts  []string // substrings that must all appear
+		wantAbsent []string // substrings that must NOT appear
+	}{
+		{
+			name:      "git session with all fields",
+			sessionID: "sess_m2abc12_xyz789",
+			dir:       "/Users/jeevb/Workspace/repos/bxnlabs/argus",
+			branch:    "main",
+			home:      "/Users/jeevb",
+			wantParts: []string{"sess_m2abc12_xyz789", "main", "bxnlabs/argus"},
+		},
+		{
+			name:       "non-git session omits branch segment",
+			sessionID:  "sess_m2abc12_xyz789",
+			dir:        "/Users/jeevb/projects/myapp",
+			branch:     "",
+			home:       "/Users/jeevb",
+			wantParts:  []string{"sess_m2abc12_xyz789", "~/projects/myapp"},
+			wantAbsent: []string{"#[fg=#cba6f7]"}, // branch color absent
+		},
+		{
+			name:      "long branch is truncated",
+			sessionID: "sess_abc",
+			dir:       "/tmp",
+			branch:    "feat/some-really-long-branch-name",
+			home:      "/Users/jeevb",
+			wantParts: []string{"feat/some-really-lon…"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildStatusRight(tt.sessionID, tt.dir, tt.branch, tt.home)
+			for _, part := range tt.wantParts {
+				if !strings.Contains(got, part) {
+					t.Errorf("buildStatusRight() = %q, want it to contain %q", got, part)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Errorf("buildStatusRight() = %q, should NOT contain %q", got, absent)
+				}
+			}
+		})
+	}
+}
+
 func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
