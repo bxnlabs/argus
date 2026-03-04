@@ -165,3 +165,34 @@ func (d *DB) DeleteSession(id string) error {
 	}
 	return nil
 }
+
+// ListSessionsForBackfill returns sessions that have a worktree branch
+// but no git_parent_dir set. Used for one-time backfill after migration.
+func (d *DB) ListSessionsForBackfill() ([]*Session, error) {
+	rows, err := d.sql.Query(
+		`SELECT ` + sessionColumns + ` FROM sessions WHERE worktree_branch IS NOT NULL AND git_parent_dir IS NULL`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []*Session
+	for rows.Next() {
+		s, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
+// SetGitParentDir sets the git_parent_dir for a session.
+func (d *DB) SetGitParentDir(id, dir string) error {
+	_, err := d.sql.Exec(
+		`UPDATE sessions SET git_parent_dir = ? WHERE id = ?`,
+		dir, id,
+	)
+	return err
+}

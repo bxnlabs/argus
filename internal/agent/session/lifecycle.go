@@ -403,6 +403,22 @@ func (m *Manager) TouchSession(ctx context.Context, id string, unixTS int64) err
 	return m.db.TouchSession(ctx, id, unixTS)
 }
 
+// BackfillGitParentDir populates git_parent_dir for existing worktree
+// sessions that were created before the column was added. This is
+// best-effort: sessions whose working directories no longer exist or
+// aren't inside a git repo are silently skipped.
+func (m *Manager) BackfillGitParentDir() {
+	sessions, err := m.db.ListSessionsForBackfill()
+	if err != nil || len(sessions) == 0 {
+		return
+	}
+	for _, s := range sessions {
+		if dir, err := git.FindMainRepo(s.WorkingDirectory); err == nil {
+			_ = m.db.SetGitParentDir(s.ID, dir)
+		}
+	}
+}
+
 func ptrStr(s *string) string {
 	if s == nil {
 		return ""
