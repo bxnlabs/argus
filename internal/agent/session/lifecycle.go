@@ -125,7 +125,16 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
 		return nil, fmt.Errorf("spawn tmux: %w", err)
 	}
-	ConfigureSession(tmuxName)
+	configDir := cwd
+	if gitParentDir != nil {
+		configDir = *gitParentDir
+	}
+	configBranch := ""
+	if worktreeBranch != nil {
+		configBranch = *worktreeBranch
+	}
+	home, _ := os.UserHomeDir()
+	ConfigureSession(tmuxName, sessionID, configDir, configBranch, home)
 
 	// Insert into database
 	var providerSessionID *string
@@ -388,7 +397,16 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
 		return "", fmt.Errorf("spawn tmux: %w", err)
 	}
-	ConfigureSession(tmuxName)
+	configDir := session.WorkingDirectory
+	if session.GitParentDir != nil {
+		configDir = *session.GitParentDir
+	}
+	configBranch := ""
+	if session.WorktreeBranch != nil {
+		configBranch = *session.WorktreeBranch
+	}
+	home, _ := os.UserHomeDir()
+	ConfigureSession(tmuxName, session.ID, configDir, configBranch, home)
 
 	return tmuxName, nil
 }
