@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2 } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, FolderGit2, GitBranch } from "lucide-react";
 import { cn, formatRelativeTime, compressPath } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
@@ -244,16 +244,20 @@ export function SessionList({
                           </span>
                         </div>
                         {/* Line 3: Directory */}
-                        <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-                          {compressPath(
-                            session.git_parent_dir ?? session.working_directory,
-                            homeDir,
-                          )}
+                        <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
+                          <FolderGit2 className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">
+                            {compressPath(
+                              session.git_parent_dir ?? session.working_directory,
+                              homeDir,
+                            )}
+                          </span>
                         </span>
                         {/* Line 4: Branch (worktree sessions only) */}
                         {session.worktree_branch && (
-                          <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-                            ↳ {session.worktree_branch}
+                          <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
+                            <GitBranch className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{session.worktree_branch}</span>
                           </span>
                         )}
                       </>
