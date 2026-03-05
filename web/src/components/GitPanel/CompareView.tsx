@@ -61,7 +61,13 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       branchData.defaultBase && branchData.defaultBase !== currentBranch
         ? branchData.defaultBase
         : null;
-    setBaseBranch(defaultBase || availableBranches[0] || null);
+    // Prefer main/master over first alphabetical branch
+    const fallback =
+      availableBranches.find((b) => b === "main") ??
+      availableBranches.find((b) => b === "master") ??
+      availableBranches[0] ??
+      null;
+    setBaseBranch(defaultBase || fallback);
   }, [branchData, baseBranch, currentBranch, availableBranches]);
 
   const {
