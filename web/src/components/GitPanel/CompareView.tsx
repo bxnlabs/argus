@@ -21,9 +21,11 @@ interface CompareViewProps {
   workingDirectory: string;
   currentBranch?: string;
   header?: React.ReactNode;
+  listWidth?: number;
+  onResizeMouseDown?: (e: React.MouseEvent) => void;
 }
 
-export function CompareView({ workingDirectory, currentBranch, header }: CompareViewProps) {
+export function CompareView({ workingDirectory, currentBranch, header, listWidth, onResizeMouseDown }: CompareViewProps) {
   const { isMobile } = useViewport();
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
@@ -59,7 +61,13 @@ export function CompareView({ workingDirectory, currentBranch, header }: Compare
       branchData.defaultBase && branchData.defaultBase !== currentBranch
         ? branchData.defaultBase
         : null;
-    setBaseBranch(defaultBase || availableBranches[0] || null);
+    // Prefer main/master over first alphabetical branch
+    const fallback =
+      availableBranches.find((b) => b === "main") ??
+      availableBranches.find((b) => b === "master") ??
+      availableBranches[0] ??
+      null;
+    setBaseBranch(defaultBase || fallback);
   }, [branchData, baseBranch, currentBranch, availableBranches]);
 
   const {
@@ -318,15 +326,18 @@ export function CompareView({ workingDirectory, currentBranch, header }: Compare
   return (
     <div className="flex min-h-0 flex-1">
       {/* Left sidebar */}
-      <div className="flex w-[300px] flex-shrink-0 flex-col">
+      <div className="flex h-full min-w-0 flex-col" style={{ width: listWidth }}>
         {header}
         {branchSelector}
         {summary}
         {fileList}
       </div>
 
-      {/* Divider */}
-      <div className="bg-muted/50 w-1 flex-shrink-0" />
+      {/* Resize handle */}
+      <div
+        className="bg-muted/50 hover:bg-primary/50 active:bg-primary w-1 flex-shrink-0 cursor-col-resize transition-colors"
+        onMouseDown={onResizeMouseDown}
+      />
 
       {/* Right pane */}
       <div className="bg-muted/20 flex min-w-0 flex-1 flex-col">

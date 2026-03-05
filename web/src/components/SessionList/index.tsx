@@ -8,8 +8,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2 } from "lucide-react";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch } from "lucide-react";
+import { cn, formatRelativeTime, compressPath } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
 function getStatusColor(status?: string) {
@@ -59,6 +59,7 @@ function getStatusLabel(status?: string) {
 
 interface SessionListProps {
   sessions: Session[];
+  homeDir: string;
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatusInfo>;
   isLoading?: boolean;
@@ -73,6 +74,7 @@ interface SessionListProps {
 
 export function SessionList({
   sessions,
+  homeDir,
   activeSessionId,
   sessionStatuses,
   isLoading,
@@ -201,7 +203,7 @@ export function SessionList({
                   {isActive && (
                     <div className="bg-primary absolute right-0 top-1/2 h-4 w-1 -translate-y-1/2 rounded-full" />
                   )}
-                  {/* Session info — two lines */}
+                  {/* Session info — name, status, directory, branch */}
                   <div className="min-w-0 flex-1">
                     {isRenaming ? (
                       <Input
@@ -241,6 +243,27 @@ export function SessionList({
                             {formatRelativeTime(session.updated_at)}
                           </span>
                         </div>
+                        {/* Line 3: Directory */}
+                        <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
+                          {session.git_parent_dir ? (
+                            <FolderGit2 className="h-3 w-3 flex-shrink-0" />
+                          ) : (
+                            <Folder className="h-3 w-3 flex-shrink-0" />
+                          )}
+                          <span className="truncate">
+                            {compressPath(
+                              session.git_parent_dir ?? session.working_directory,
+                              homeDir,
+                            )}
+                          </span>
+                        </span>
+                        {/* Line 4: Branch (worktree sessions only) */}
+                        {session.worktree_branch && (
+                          <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
+                            <GitBranch className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{session.worktree_branch}</span>
+                          </span>
+                        )}
                       </>
                     )}
                   </div>

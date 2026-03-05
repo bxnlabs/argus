@@ -18,6 +18,7 @@ type sessionInfo struct {
 	AutoApprove      bool    `json:"auto_approve"`
 	Model            *string `json:"model"`
 	WorktreeBranch   *string `json:"worktree_branch"`
+	GitParentDir     *string `json:"git_parent_dir"`
 }
 
 // fetchAndResolve fetches all sessions from the agent and resolves the query

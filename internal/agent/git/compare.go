@@ -210,28 +210,13 @@ func truncateRef(ref string) string {
 	return ref
 }
 
-// detectDefaultBase tries upstream tracking branch, then falls back to main/master.
-func detectDefaultBase(ctx context.Context, dir string, branches []string) string {
+// detectDefaultBase returns main or master as the default comparison base.
+func detectDefaultBase(_ context.Context, _ string, branches []string) string {
 	branchSet := make(map[string]bool, len(branches))
 	for _, b := range branches {
 		branchSet[b] = true
 	}
 
-	// Try upstream tracking branch
-	if upstream, err := runGit(ctx, dir, defaultMaxBuffer,
-		"rev-parse", "--abbrev-ref", "@{upstream}"); err == nil {
-		upstream = strings.TrimSpace(upstream)
-		if upstream != "" {
-			// If upstream is remote (e.g. "origin/main"), prefer the local
-			// branch name if it exists, so it matches the branch dropdown.
-			if _, local, ok := strings.Cut(upstream, "/"); ok && branchSet[local] {
-				return local
-			}
-			return upstream
-		}
-	}
-
-	// Fall back to main, then master
 	if branchSet["main"] {
 		return "main"
 	}

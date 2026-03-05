@@ -19,4 +19,5 @@ type Session struct {
 	AgentType        string  `json:"agent_type"`
 	AutoApprove      bool    `json:"auto_approve"`
 	WorktreeBranch   *string `json:"worktree_branch"`
+	GitParentDir     *string `json:"git_parent_dir"`
 }

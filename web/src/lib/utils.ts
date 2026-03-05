@@ -34,3 +34,72 @@ export function contractTilde(path: string, homePath: string): string {
   }
   return path;
 }
+
+/**
+ * Truncate a string to max characters, appending "…" if truncated.
+ */
+export function truncateRight(s: string, max: number): string {
+  if (max <= 0) return "";
+  if (s.length <= max) return s;
+  if (max === 1) return "…";
+  return s.slice(0, max - 1) + "…";
+}
+
+/**
+ * Compress a path for display in constrained UI space, prioritizing the
+ * basename (last segment) over parent directories when truncating.
+ *
+ * Compression stages:
+ * 1. Replace home prefix with ~
+ * 2. If ≤3 segments and over threshold, truncate the whole display string
+ * 3. Keep first + last 2 segments: ~/first/.../parent/basename
+ * 4. Drop first segment: ~/.../parent/basename
+ * 5. Drop parent segment: ~/.../basename
+ * 6. Truncate basename as last resort: ~/.../basen…
+ */
+export function compressPath(
+  path: string,
+  homePath: string,
+  threshold: number = 30,
+): string {
+  // Step 1: tilde-shorten
+  const display = contractTilde(path, homePath);
+
+  if (display.length <= threshold) return display;
+
+  let prefix = "";
+  let rest = display;
+  if (display.startsWith("~/")) {
+    prefix = "~";
+    rest = display.slice(1); // "/Workspace/repos/..."
+  }
+
+  const segments = rest.split("/").filter(Boolean);
+  const basename = segments[segments.length - 1];
+
+  if (segments.length <= 3) {
+    // For exactly 3 segments, try dropping the middle to preserve basename
+    if (segments.length === 3) {
+      const result = `${prefix}/.../${basename}`;
+      if (result.length <= threshold) return result;
+    }
+    return truncateRight(display, threshold);
+  }
+
+  // Try: ~/first/.../parent/basename
+  const first = segments[0];
+  const parent = segments[segments.length - 2];
+  let result = `${prefix}/${first}/.../${parent}/${basename}`;
+  if (result.length <= threshold) return result;
+
+  // Try: ~/.../parent/basename
+  result = `${prefix}/.../${parent}/${basename}`;
+  if (result.length <= threshold) return result;
+
+  // Try: ~/.../basename (drop parent, prioritize basename)
+  result = `${prefix}/.../${basename}`;
+  if (result.length <= threshold) return result;
+
+  // Last resort: truncate the basename itself
+  return truncateRight(result, threshold);
+}

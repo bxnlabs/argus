@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"os"
 
 	"github.com/bxnlabs/argus/internal/agent/db"
 	"github.com/bxnlabs/argus/internal/agent/provider"
@@ -24,7 +25,11 @@ func (h *sessionHandler) list(w http.ResponseWriter, r *http.Request) {
 	if sessions == nil {
 		sessions = []*db.Session{}
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+	home, _ := os.UserHomeDir()
+	respondJSON(w, http.StatusOK, map[string]any{
+		"sessions": sessions,
+		"home_dir": home,
+	})
 }
 
 // POST /api/sessions
@@ -41,7 +46,6 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 	if opts.Name == "" {
 		opts.Name = "New Session"
 	}
-	// opts.Source may be empty — lifecycle defaults to home directory
 
 	session, err := h.manager.Create(opts)
 	if err != nil {
@@ -60,8 +64,6 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	// EnsureSession revives the tmux session if it died, then we fetch
-	// the full DB record to return to the caller.
 	if _, err := h.manager.EnsureSession(id); err != nil {
 		if errors.Is(err, agentsession.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
@@ -95,7 +97,6 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If renaming, use the lifecycle rename (display name only)
 	if body.Name != nil {
 		if err := h.manager.Rename(id, *body.Name); err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -138,5 +139,3 @@ func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	respondJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
-
-

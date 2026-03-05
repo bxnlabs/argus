@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sync"
 
@@ -81,6 +82,16 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
 
+	// Resolve the parent (main) repository directory for worktree sessions.
+	// This is stored once at creation time so the API layer doesn't need to
+	// shell out to git on every request.
+	var gitParentDir *string
+	if worktreeBranch != nil {
+		if dir, err := git.FindMainRepo(cwd); err == nil {
+			gitParentDir = &dir
+		}
+	}
+
 	// If anything below fails before the DB commit, clean up the worktree.
 	success := false
 	defer func() {
@@ -114,7 +125,19 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
 		return nil, fmt.Errorf("spawn tmux: %w", err)
 	}
-	ConfigureSession(tmuxName)
+	configDir := cwd
+	if gitParentDir != nil {
+		configDir = *gitParentDir
+	}
+	configBranch := ""
+	if worktreeBranch != nil {
+		configBranch = *worktreeBranch
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("resolve home dir: %v", err)
+	}
+	ConfigureSession(tmuxName, sessionID, configDir, configBranch, home)
 
 	// Insert into database
 	var providerSessionID *string
@@ -132,6 +155,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		AutoApprove:       opts.AutoApprove,
 		ProviderSessionID: providerSessionID,
 		WorktreeBranch:    worktreeBranch,
+		GitParentDir:      gitParentDir,
 	}
 
 	if err := m.db.CreateSession(session); err != nil {
@@ -376,7 +400,19 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
 		return "", fmt.Errorf("spawn tmux: %w", err)
 	}
-	ConfigureSession(tmuxName)
+	configDir := session.WorkingDirectory
+	if session.GitParentDir != nil {
+		configDir = *session.GitParentDir
+	}
+	configBranch := ""
+	if session.WorktreeBranch != nil {
+		configBranch = *session.WorktreeBranch
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("resolve home dir: %v", err)
+	}
+	ConfigureSession(tmuxName, session.ID, configDir, configBranch, home)
 
 	return tmuxName, nil
 }
@@ -390,6 +426,25 @@ func (m *Manager) Update(id string, u db.SessionUpdate) error {
 // the most recent tmux activity for the session.
 func (m *Manager) TouchSession(ctx context.Context, id string, unixTS int64) error {
 	return m.db.TouchSession(ctx, id, unixTS)
+}
+
+// BackfillGitParentDir populates git_parent_dir for existing worktree
+// sessions that were created before the column was added. This is
+// best-effort: sessions whose working directories no longer exist or
+// aren't inside a git repo are silently skipped.
+func (m *Manager) BackfillGitParentDir() {
+	sessions, err := m.db.ListSessionsForBackfill()
+	if err != nil {
+		log.Printf("backfill git_parent_dir: list sessions: %v", err)
+		return
+	}
+	for _, s := range sessions {
+		if dir, err := git.FindMainRepo(s.WorkingDirectory); err == nil {
+			if err := m.db.SetGitParentDir(s.ID, dir); err != nil {
+				log.Printf("backfill git_parent_dir: set %s: %v", s.ID, err)
+			}
+		}
+	}
 }
 
 func ptrStr(s *string) string {

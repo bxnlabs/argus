@@ -27,7 +27,7 @@ function HomeContent() {
   const { isMobile, isHydrated } = useViewport();
 
   // Data hooks
-  const { sessions, isLoaded: sessionsLoaded, deleteSession, renameSession } = useSessions();
+  const { sessions, homeDir, isLoaded: sessionsLoaded, deleteSession, renameSession } = useSessions();
   const createSessionMutation = useCreateSession();
 
   const focusedSession = activeTab?.sessionId
@@ -180,6 +180,7 @@ function HomeContent() {
 
   const viewProps = {
     sessions,
+    homeDir,
     sessionStatuses,
     sidebarOpen,
     setSidebarOpen,
