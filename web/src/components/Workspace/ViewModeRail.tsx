@@ -66,9 +66,8 @@ export function ViewModeRail({
   const isEditorActive = activePanel === "editor";
 
   return (
-    <div
+    <nav
       className="flex w-14 shrink-0 flex-col items-center gap-1 pt-1"
-      role="toolbar"
       aria-label="View mode"
     >
       {/* View mode icons */}
@@ -107,6 +106,6 @@ export function ViewModeRail({
           <Paperclip className="h-6 w-6" />
         </RailButton>
       )}
-    </div>
+    </nav>
   );
 }
