@@ -46,6 +46,27 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   // Selected file for diff view
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [loadingDiff, setLoadingDiff] = useState(false);
+  const fetchIdRef = useRef(0);
+
+  // Clear selected file when working directory changes (e.g. session switch)
+  useEffect(() => {
+    setSelectedFile(null);
+    setLoadingDiff(false);
+    fetchIdRef.current++;
+  }, [workingDirectory]);
+
+  // Clear selected file when it's no longer present in the current status
+  useEffect(() => {
+    if (!selectedFile || !status) return;
+    const allFiles = [...status.staged, ...status.unstaged, ...status.untracked];
+    if (
+      !allFiles.some(
+        (f) => f.path === selectedFile.file.path && f.staged === selectedFile.file.staged,
+      )
+    ) {
+      setSelectedFile(null);
+    }
+  }, [status, selectedFile]);
 
   // Resizable panel state (desktop)
   const [listWidth, setListWidth] = useState(400);
@@ -57,6 +78,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   };
 
   const handleFileClick = async (file: GitFile) => {
+    const thisFetch = ++fetchIdRef.current;
     setLoadingDiff(true);
     try {
       const isUntracked = file.status === "untracked";
@@ -70,13 +92,17 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       const data = await apiFetch<{ diff: string }>(
         `/agent/api/git/diff?${params}`,
       );
+      if (thisFetch !== fetchIdRef.current) return;
       if (data.diff !== undefined) {
         setSelectedFile({ file, diff: data.diff });
       }
     } catch {
+      if (thisFetch !== fetchIdRef.current) return;
       toast.error("Failed to load diff");
     } finally {
-      setLoadingDiff(false);
+      if (thisFetch === fetchIdRef.current) {
+        setLoadingDiff(false);
+      }
     }
   };
 
