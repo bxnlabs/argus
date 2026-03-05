@@ -199,7 +199,7 @@ export const Workspace = memo(function Workspace({
         <div className="flex min-h-0 w-full flex-1">
           {/* Content panels */}
           <div
-            className="relative min-h-0 flex-1 pl-1"
+            className="relative min-h-0 min-w-0 flex-1 pl-1"
             onTouchStart={isMobile ? handleTouchStart : undefined}
             onTouchEnd={isMobile ? handleTouchEnd : undefined}
           >
