@@ -33,7 +33,7 @@ export function DesktopView({
       {/* Sidebar — always visible, toggles between expanded (w-72) and collapsed (w-14) */}
       <div
         className={cn(
-          "border-border bg-sidebar-background flex flex-shrink-0 flex-col border-r overflow-hidden transition-all duration-200",
+          "border-border bg-sidebar-background flex flex-shrink-0 flex-col border-r overflow-hidden",
           sidebarOpen ? "w-72" : "w-14"
         )}
       >
