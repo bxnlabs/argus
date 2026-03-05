@@ -85,7 +85,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     // Drag-and-drop file upload — disabled when not connected
     const isConnected = connectionState === "connected";
     const { isDragging, dragHandlers } = useFileDrop(
-      containerRef,
       (files) => onFilesDropped?.(files),
       { disabled: !onFilesDropped || !isConnected }
     );
@@ -133,7 +132,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       >
         {/* Drag-and-drop overlay */}
         {isDragging && (
-          <div className="bg-background/80 absolute inset-0 z-40 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-primary/50 backdrop-blur-sm">
+          <div className="bg-background/80 pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-primary/50 backdrop-blur-sm">
             <Paperclip className="text-primary h-8 w-8" />
             <span className="text-sm font-medium">Drop files to upload</span>
           </div>
