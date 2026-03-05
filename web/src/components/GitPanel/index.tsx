@@ -48,7 +48,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   const [loadingDiff, setLoadingDiff] = useState(false);
 
   // Resizable panel state (desktop)
-  const [listWidth, setListWidth] = useState(350);
+  const [listWidth, setListWidth] = useState(400);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
@@ -330,7 +330,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     <div ref={containerRef} className="bg-background flex h-full w-full flex-col">
       <div className="flex min-h-0 flex-1">
         {/* Left panel - file list */}
-        <div className="flex h-full flex-col" style={{ width: listWidth }}>
+        <div className="flex h-full min-w-0 flex-col" style={{ width: listWidth }}>
           <Header
             branch={status.branch}
             ahead={status.ahead}
