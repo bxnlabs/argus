@@ -40,7 +40,7 @@ function RailButton({
         <Button
           variant="ghost"
           size="icon"
-          onClick={onClick}
+          onClick={disabled ? undefined : onClick}
           disabled={disabled}
           className={cn("h-12 w-12", active && "bg-primary/10 hover:bg-primary/15")}
           aria-label={tooltip}
