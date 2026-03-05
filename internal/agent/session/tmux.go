@@ -43,8 +43,8 @@ func NewSession(name, cwd, command string) error {
 }
 
 const (
-	maxDirWidth    = 30
-	maxBranchWidth = 20
+	maxDirWidth    = 50
+	maxBranchWidth = 35
 )
 
 // escapeTmuxLiteral escapes characters that tmux interprets in format strings:
@@ -79,7 +79,7 @@ func ConfigureSession(name, sessionID, dir, branch, home string) {
 		{"status-left", "#[fg=#cba6f7,bold] Argus #[fg=#6c7086]| "},
 		{"status-left-length", "20"},
 		{"status-right", statusRight},
-		{"status-right-length", "80"},
+		{"status-right-length", "110"},
 		{"status-position", "bottom"},
 		{"mouse", "on"},
 	}

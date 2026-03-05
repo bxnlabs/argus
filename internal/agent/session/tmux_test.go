@@ -146,9 +146,9 @@ func TestBuildStatusRight(t *testing.T) {
 			name:      "long branch is truncated",
 			sessionID: "sess_abc",
 			dir:       "/tmp",
-			branch:    "feat/some-really-long-branch-name",
+			branch:    "feat/some-really-long-branch-name-that-keeps-going",
 			home:      "/Users/jeevb",
-			wantParts: []string{"feat/some-really-lo…"},
+			wantParts: []string{"feat/some-really-long-branch-name-…"},
 		},
 		{
 			name:      "branch with hash is escaped",
