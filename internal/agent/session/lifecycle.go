@@ -318,11 +318,27 @@ func (m *Manager) Delete(id string, force bool) error {
 		return fmt.Errorf("%w: %s", db.ErrNotFound, id)
 	}
 
-	// Remove worktree FIRST so a dirty-check failure leaves the session
-	// fully intact (tmux still alive, DB row untouched).
-	// Only remove argus-managed worktrees (those inside the state dir) and
-	// only when no other session references the same working directory.
-	// External worktrees (user-provided paths) are never deleted.
+	projectKey := ProjectKeyForSession(session)
+	profileName := ptrStr(session.Profile)
+
+	hookEnv := HookEnv{
+		SessionID:  session.ID,
+		WorkingDir: session.WorkingDirectory,
+		AgentType:  session.AgentType,
+		Profile:    profileName,
+	}
+
+	// pre_destroy: LIFO order (project first, then profile), best-effort
+	preDestroyPaths := m.hooks.ResolveHookPathsTeardown("pre_destroy.sh", profileName, projectKey)
+	m.hooks.RunHooksBestEffort(preDestroyPaths, hookEnv)
+
+	// Kill tmux (ignore error if already dead)
+	if HasSession(session.TmuxName) {
+		KillSession(session.TmuxName)
+	}
+
+	// Remove worktree — only argus-managed worktrees, only when no other
+	// session shares the same working directory.
 	if session.WorktreeBranch != nil && m.wt.IsManaged(session.WorkingDirectory) {
 		others, err := m.db.CountSessionsByWorkingDir(id, session.WorkingDirectory)
 		if err != nil {
@@ -330,21 +346,23 @@ func (m *Manager) Delete(id string, force bool) error {
 		}
 		if others == 0 {
 			if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
-				// Worktree was removed externally; skip git cleanup and
-				// proceed with deletion. The orphaned git worktree ref
-				// will be cleaned up by "git worktree prune".
+				// Worktree was removed externally; skip git cleanup.
 			} else if err := m.wt.RemoveWorktree(session.WorkingDirectory, force); err != nil {
 				return err
 			}
 		}
 	}
 
-	// Kill tmux (ignore error if already dead)
-	if HasSession(session.TmuxName) {
-		KillSession(session.TmuxName)
+	// Delete DB record
+	if err := m.db.DeleteSession(id); err != nil {
+		return err
 	}
 
-	return m.db.DeleteSession(id)
+	// post_destroy: LIFO order (project first, then profile), best-effort
+	postDestroyPaths := m.hooks.ResolveHookPathsTeardown("post_destroy.sh", profileName, projectKey)
+	m.hooks.RunHooksBestEffort(postDestroyPaths, hookEnv)
+
+	return nil
 }
 
 // Rename updates the display name of a session. The underlying tmux session
