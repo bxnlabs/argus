@@ -16,6 +16,7 @@ func newCreateCmd() *cobra.Command {
 		provider string
 		src      string
 		yolo     bool
+		profile  string
 	)
 
 	cmd := &cobra.Command{
@@ -53,6 +54,9 @@ func newCreateCmd() *cobra.Command {
 				"source":       src,
 				"auto_approve": yolo,
 			}
+			if profile != "" {
+				reqBody["profile"] = profile
+			}
 
 			data, err := json.Marshal(reqBody)
 			if err != nil {
@@ -81,6 +85,7 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "claude", "Agent type (claude, codex, gemini, shell)")
 	cmd.Flags().StringVar(&src, "src", "", "Source: local path or git URL/shorthand (defaults to current directory)")
 	cmd.Flags().BoolVar(&yolo, "yolo", false, "Enable auto-approve")
+	cmd.Flags().StringVar(&profile, "profile", "", "Profile name for lifecycle hooks")
 
 	return cmd
 }
