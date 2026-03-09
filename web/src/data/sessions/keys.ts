@@ -6,3 +6,8 @@ export const sessionKeys = {
 export const statusKeys = {
   all: ["session-statuses"] as const,
 };
+
+export const profileKeys = {
+  all: ["profiles"] as const,
+  list: () => [...profileKeys.all, "list"] as const,
+};

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/api/client";
 import type { Session, AgentType } from "@/types";
-import { sessionKeys } from "./keys";
+import { sessionKeys, profileKeys } from "./keys";
 
 interface SessionsResponse {
   sessions: Session[];
@@ -23,6 +23,7 @@ export interface CreateSessionInput {
   agent_type: AgentType;
   auto_approve: boolean;
   model?: string;
+  profile?: string;
 }
 
 interface CreateSessionResponse {
@@ -96,6 +97,18 @@ export function useRenameSession() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
     },
+  });
+}
+
+interface ProfilesResponse {
+  profiles: string[];
+}
+
+export function useProfilesQuery() {
+  return useQuery({
+    queryKey: profileKeys.list(),
+    queryFn: () => apiFetch<ProfilesResponse>("/agent/api/profiles"),
+    staleTime: 30000,
   });
 }
 

@@ -6,11 +6,19 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { AgentSelector } from "./AgentSelector";
 import { SourcePicker } from "@/components/SourcePicker";
+import { useProfilesQuery } from "@/data/sessions";
 import type { AgentType, CreateSessionParams } from "@/types";
 
 type SourceTab = "local" | "remote";
@@ -31,8 +39,11 @@ export function NewSessionDialog({
   const [source, setSource] = useState("");
   const [sourceTab, setSourceTab] = useState<SourceTab>("local");
   const [autoApprove, setAutoApprove] = useState(true);
+  const [profile, setProfile] = useState("");
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const sourcePickerClosingRef = useRef(false);
+  const { data: profilesData } = useProfilesQuery();
+  const profiles = profilesData?.profiles ?? [];
 
   useEffect(() => {
     if (open) {
@@ -41,6 +52,7 @@ export function NewSessionDialog({
       setSource("");
       setSourceTab("local");
       setAutoApprove(true);
+      setProfile("");
       setShowSourcePicker(false);
     }
   }, [open]);
@@ -62,6 +74,10 @@ export function NewSessionDialog({
 
     if (autoApprove) {
       params.auto_approve = true;
+    }
+
+    if (profile) {
+      params.profile = profile;
     }
 
     onCreateSession(params);
@@ -115,6 +131,27 @@ export function NewSessionDialog({
                 className="cursor-pointer"
               />
             </div>
+
+            {profiles.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Profile</label>
+                <Select
+                  value={profile || undefined}
+                  onValueChange={setProfile}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a profile..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">

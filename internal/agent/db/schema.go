@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   agent_type TEXT NOT NULL DEFAULT 'claude',
   auto_approve INTEGER NOT NULL DEFAULT 0,
   worktree_branch TEXT,
-  git_parent_dir TEXT
+  git_parent_dir TEXT,
+  profile TEXT
 );
 
 -- Migrations tracking

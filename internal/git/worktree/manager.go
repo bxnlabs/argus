@@ -213,6 +213,19 @@ func (m *Manager) uniqueBranch(repoDir, branch string) (string, error) {
 	return "", fmt.Errorf("could not find unique branch name for %s", branch)
 }
 
+// CheckWorktreeDirty returns ErrWorktreeDirty if the worktree has uncommitted
+// changes (modified, untracked, or staged files). Returns nil if clean.
+func (m *Manager) CheckWorktreeDirty(worktreePath string) error {
+	out, err := git.Output(worktreePath, "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("git status: %w", err)
+	}
+	if strings.TrimSpace(out) != "" {
+		return fmt.Errorf("%w: use --force to delete anyway", ErrWorktreeDirty)
+	}
+	return nil
+}
+
 // RemoveWorktree removes a git worktree directory. The branch is intentionally
 // preserved so the user can recover work.
 //

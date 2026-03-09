@@ -30,6 +30,10 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}", sh.get)
 	mux.HandleFunc("PATCH /api/sessions/{id}", sh.update)
 	mux.HandleFunc("DELETE /api/sessions/{id}", sh.delete)
+
+	// Profile routes
+	mux.HandleFunc("GET /api/profiles", sh.listProfiles)
+
 	// Git routes (read-only)
 	gh := &gitHandler{}
 	mux.HandleFunc("GET /api/git/status", gh.status)

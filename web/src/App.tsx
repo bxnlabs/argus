@@ -118,6 +118,7 @@ function HomeContent() {
           source: params.source,
           agent_type: params.agent_type,
           auto_approve: params.auto_approve || false,
+          profile: params.profile,
         });
 
         if (result.session) {

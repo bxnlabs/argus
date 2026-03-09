@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/bxnlabs/argus/internal/agent/api"
@@ -31,24 +30,24 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 		return nil, nil, fmt.Errorf("migrations: %w", err)
 	}
 
-	// Determine state dir from DB path (~/.argus)
-	expandedDBPath, expandErr := shared.ExpandPath(cfg.Database.Path)
-	if expandErr != nil {
-		expandedDBPath = cfg.Database.Path // fall back to literal path
+	// Determine state dir from DB path (~/.argus).
+	// Canonicalize with ExpandPath + filepath.Abs so relative paths
+	// (e.g. "agent.db") resolve to the same directory as sqlite.Open.
+	expandedDBPath, err := shared.ExpandPath(cfg.Database.Path)
+	if err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("expand db path: %w", err)
 	}
-	stateDir := filepath.Dir(expandedDBPath)
-	if stateDir == "." {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			database.Close()
-			return nil, nil, fmt.Errorf("home dir: %w", err)
-		}
-		stateDir = filepath.Join(home, ".argus")
+	absDBPath, err := filepath.Abs(expandedDBPath)
+	if err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("abs db path: %w", err)
 	}
+	stateDir := filepath.Dir(absDBPath)
 
 	wtMgr := worktree.NewManager(stateDir, cfg)
 
-	mgr := session.NewManager(database, wtMgr)
+	mgr := session.NewManager(database, wtMgr, stateDir)
 	mgr.BackfillGitParentDir()
 	detector := status.NewDetector()
 

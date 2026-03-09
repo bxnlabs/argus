@@ -127,6 +127,22 @@ func TestResolveInvalidInput(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsPathTraversalInHost(t *testing.T) {
+	cases := []string{
+		"git@../evil:org/repo",
+		"https://../evil/org/repo",
+		"http://../evil/org/repo",
+		"git@host/slash:org/repo",
+		"https://host/slash/org/repo.git",
+	}
+	for _, tc := range cases {
+		_, err := source.Resolve(tc)
+		if err == nil {
+			t.Errorf("expected error for host traversal input %q", tc)
+		}
+	}
+}
+
 func TestResolveHTTPURL(t *testing.T) {
 	src, err := source.Resolve("http://github.com/bxnlabs/argus.git")
 	if err != nil {

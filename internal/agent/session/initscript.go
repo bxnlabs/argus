@@ -4,13 +4,44 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
+// shellQuote returns a single-quoted shell string. Internal single quotes
+// are escaped as '\'' (end quote, escaped literal quote, reopen quote).
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// generateHookSourceBlock builds a bash snippet that sources each hook path
+// with error guards (set +e, || true) so that hook failures are non-fatal.
+// Returns an empty string when hookPaths is empty.
+func generateHookSourceBlock(hookPaths []string) string {
+	if len(hookPaths) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("# Source post_create hooks (errors are non-fatal)\n")
+	b.WriteString("set +e\n")
+	for _, p := range hookPaths {
+		fmt.Fprintf(&b, "source %s 2>&1 || true\n", shellQuote(p))
+	}
+	b.WriteString("set -e\n")
+	return b.String()
+}
+
 // GenerateInitScript returns a bash init script that shows the Argus banner,
-// runs the agent command, and captures the provider session ID on exit.
-// argusBin is the absolute path to the argus binary used for the post-exit
-// set-provider-id call; if empty, falls back to "argus" on PATH.
-func GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin string) string {
+// sources any post_create hooks, runs the agent command, and captures the
+// provider session ID on exit. argusBin is the absolute path to the argus
+// binary used for the post-exit set-provider-id call; if empty, falls back
+// to "argus" on PATH.
+func GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin string, hookPaths []string) string {
+	hookBlock := generateHookSourceBlock(hookPaths)
+	hookSection := ""
+	if hookBlock != "" {
+		hookSection = "\n" + hookBlock
+	}
+
 	script := "#!/bin/bash\n" +
 		"# Argus Session Init Script\n" +
 		"# Auto-generated - do not edit manually\n" +
@@ -41,6 +72,7 @@ func GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin stri
 		"\n" +
 		"# Ensure ~/.local/bin is in PATH (where claude is installed)\n" +
 		"export PATH=\"$HOME/.local/bin:$PATH\"\n" +
+		hookSection +
 		"\n" +
 		"# Start the agent (no exec — script continues after exit)\n" +
 		agentCommand + "\n"
@@ -64,14 +96,49 @@ func GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin stri
 	return script
 }
 
+// GenerateShellInitScript returns a bash init script that sources post_create
+// hooks and then exec's the user's login shell. Returns an empty string when
+// there are no hooks to source.
+func GenerateShellInitScript(hookPaths []string) string {
+	hookBlock := generateHookSourceBlock(hookPaths)
+	if hookBlock == "" {
+		return ""
+	}
+
+	return "#!/bin/bash\n" +
+		"# Shell Session Init Script\n" +
+		"# Auto-generated - do not edit manually\n" +
+		"\n" +
+		"# Self-cleanup: remove this temp script\n" +
+		"rm -f -- \"$0\"\n" +
+		"\n" +
+		hookBlock +
+		"\n" +
+		"exec $SHELL -l\n"
+}
+
 // WriteInitScript writes the init script to a temp file and returns the path.
 // The sessionID is used to make the filename unique across concurrent calls.
-func WriteInitScript(sessionID, agentCommand, sessionIDPattern string) (string, error) {
+func WriteInitScript(sessionID, agentCommand, sessionIDPattern string, hookPaths []string) (string, error) {
 	argusBin, _ := os.Executable()
-	content := GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin)
+	content := GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin, hookPaths)
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("argus-init-%s.sh", sessionID))
 	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
 		return "", fmt.Errorf("write init script: %w", err)
+	}
+	return path, nil
+}
+
+// WriteShellInitScript writes a shell init script that sources hooks and
+// exec's the user's login shell. Returns an empty path when there are no hooks.
+func WriteShellInitScript(sessionID string, hookPaths []string) (string, error) {
+	content := GenerateShellInitScript(hookPaths)
+	if content == "" {
+		return "", nil
+	}
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("argus-shell-init-%s.sh", sessionID))
+	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+		return "", fmt.Errorf("write shell init script: %w", err)
 	}
 	return path, nil
 }

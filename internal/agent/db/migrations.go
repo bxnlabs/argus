@@ -8,8 +8,14 @@ func (d *DB) RunMigrations() error {
 	}); err != nil {
 		return err
 	}
-	return d.migrate("add_git_parent_dir", func() error {
+	if err := d.migrate("add_git_parent_dir", func() error {
 		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN git_parent_dir TEXT`)
+		return err
+	}); err != nil {
+		return err
+	}
+	return d.migrate("add_profile", func() error {
+		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN profile TEXT`)
 		return err
 	})
 }

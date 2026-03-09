@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/bxnlabs/argus/internal/agent/db"
@@ -25,10 +26,12 @@ var ErrInvalidInput = errors.New("invalid input")
 
 // Manager handles session lifecycle (create, delete, rename, etc.).
 type Manager struct {
-	db      *db.DB
-	wt      *worktree.Manager
-	mu      sync.Mutex
-	sessLks map[string]*sync.Mutex
+	db       *db.DB
+	wt       *worktree.Manager
+	stateDir string
+	hooks    *HookRunner
+	mu       sync.Mutex
+	sessLks  map[string]*sync.Mutex
 }
 
 // sessionLock returns a per-session mutex, creating it if needed.
@@ -49,8 +52,8 @@ func (m *Manager) sessionLock(id string) *sync.Mutex {
 }
 
 // NewManager creates a new session manager.
-func NewManager(database *db.DB, wt *worktree.Manager) *Manager {
-	return &Manager{db: database, wt: wt}
+func NewManager(database *db.DB, wt *worktree.Manager, stateDir string) *Manager {
+	return &Manager{db: database, wt: wt, stateDir: stateDir, hooks: NewHookRunner(stateDir)}
 }
 
 // CreateOptions are the options for creating a new session.
@@ -62,12 +65,19 @@ type CreateOptions struct {
 	SystemPrompt    *string `json:"system_prompt,omitempty"`
 	AutoApprove     bool    `json:"auto_approve"`
 	ResumeSessionID string  `json:"resume_session_id,omitempty"`
+	Profile         *string `json:"profile,omitempty"`
 }
 
 // Create creates a new session: generates ID, builds CLI command, spawns tmux, inserts DB.
 func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if !provider.IsValid(provider.AgentType(opts.AgentType)) {
 		return nil, fmt.Errorf("%w: invalid agent type: %s", ErrInvalidInput, opts.AgentType)
+	}
+
+	// Resolve profile
+	resolvedProfile, err := m.resolveProfile(opts.Profile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
 
 	// Generate session ID (UUID format for tmux name)
@@ -77,7 +87,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// Resolve source → working directory (and optional worktree branch).
 	// cleanup removes the git worktree if a later step fails; it is a no-op
 	// for non-worktree sessions or reused worktrees.
-	cwd, worktreeBranch, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name, provider.AgentType(opts.AgentType))
+	cwd, worktreeBranch, worktreeCreated, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name, provider.AgentType(opts.AgentType))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
@@ -92,6 +102,14 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		}
 	}
 
+	// Derive project key for hook resolution
+	projectKey := ""
+	if gitParentDir != nil {
+		projectKey = source.ParentKeyFromPath(*gitParentDir)
+	} else {
+		projectKey = source.ParentKeyFromPath(cwd)
+	}
+
 	// If anything below fails before the DB commit, clean up the worktree.
 	success := false
 	defer func() {
@@ -99,6 +117,29 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 			cleanup()
 		}
 	}()
+
+	// Run pre_create hooks (blocking, abort on failure)
+	hookEnv := HookEnv{
+		SessionID: sessionID, WorkingDir: cwd,
+		AgentType: opts.AgentType, Profile: resolvedProfile,
+	}
+	preCreatePaths := m.hooks.ResolveHookPaths(HookPreCreate, resolvedProfile, projectKey)
+	for _, p := range preCreatePaths {
+		if err := m.hooks.RunHook(p, hookEnv); err != nil {
+			return nil, fmt.Errorf("pre_create hook: %w", err)
+		}
+	}
+
+	// Run on_create_worktree hooks if worktree was newly created
+	if worktreeCreated {
+		hookEnv.WorktreePath = cwd
+		wtPaths := m.hooks.ResolveHookPaths(HookOnCreateWorktree, resolvedProfile, projectKey)
+		for _, p := range wtPaths {
+			if err := m.hooks.RunHook(p, hookEnv); err != nil {
+				return nil, fmt.Errorf("on_create_worktree hook: %w", err)
+			}
+		}
+	}
 
 	// Build the agent command
 	agentCmd, err := provider.BuildCommand(provider.AgentType(opts.AgentType), provider.BuildCommandOptions{
@@ -110,16 +151,26 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, fmt.Errorf("build command: %w", err)
 	}
 
-	// For shell sessions (no command), start tmux with default shell
-	// For agent sessions, wrap with init script
+	// Resolve post_create hooks for init script sourcing
+	postCreatePaths := m.hooks.ResolvePostCreateHookPaths(resolvedProfile, projectKey)
+
 	var tmuxCmd string
 	if agentCmd != "" {
 		pattern := provider.GetSessionIDPattern(provider.AgentType(opts.AgentType))
-		scriptPath, err := WriteInitScript(sessionID, agentCmd, pattern)
+		scriptPath, err := WriteInitScript(sessionID, agentCmd, pattern, postCreatePaths)
 		if err != nil {
 			return nil, fmt.Errorf("write init script: %w", err)
 		}
 		tmuxCmd = "bash " + scriptPath
+	} else if len(postCreatePaths) > 0 {
+		// Shell session with hooks — need init wrapper to source them
+		scriptPath, err := WriteShellInitScript(sessionID, postCreatePaths)
+		if err != nil {
+			return nil, fmt.Errorf("write shell init script: %w", err)
+		}
+		if scriptPath != "" {
+			tmuxCmd = "bash " + scriptPath
+		}
 	}
 
 	// Spawn tmux session and apply standard styling
@@ -145,6 +196,11 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if opts.ResumeSessionID != "" {
 		providerSessionID = &opts.ResumeSessionID
 	}
+	// Persist resolved profile
+	var profilePtr *string
+	if resolvedProfile != "" {
+		profilePtr = &resolvedProfile
+	}
 	session := &db.Session{
 		ID:                sessionID,
 		Name:              opts.Name,
@@ -157,6 +213,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		ProviderSessionID: providerSessionID,
 		WorktreeBranch:    worktreeBranch,
 		GitParentDir:      gitParentDir,
+		Profile:           profilePtr,
 	}
 
 	if err := m.db.CreateSession(session); err != nil {
@@ -179,20 +236,20 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 // the worktree path, branch name, and a cleanup function that removes the
 // worktree if a subsequent step fails. For non-worktree or reused-worktree
 // sessions, cleanup is a no-op. If source is empty, defaults to home dir.
-func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider.AgentType) (cwd string, worktreeBranch *string, cleanup func(), err error) {
+func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider.AgentType) (cwd string, worktreeBranch *string, worktreeCreated bool, cleanup func(), err error) {
 	noop := func() {}
 
 	if src == "" {
 		home, err := shared.ExpandPath("~")
 		if err != nil {
-			return "", nil, noop, fmt.Errorf("expand home directory: %w", err)
+			return "", nil, false, noop, fmt.Errorf("expand home directory: %w", err)
 		}
-		return home, nil, noop, nil
+		return home, nil, false, noop, nil
 	}
 
 	resolved, err := source.Resolve(src)
 	if err != nil {
-		return "", nil, noop, err
+		return "", nil, false, noop, err
 	}
 
 	if resolved.IsRemote() {
@@ -202,48 +259,48 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 			// from other shell sessions sharing the same clone dir.
 			cloneDir, err := m.wt.EnsureClone(resolved, true)
 			if err != nil {
-				return "", nil, noop, err
+				return "", nil, false, noop, err
 			}
-			return cloneDir, nil, noop, nil
+			return cloneDir, nil, false, noop, nil
 		}
 		wtPath, branch, created, err := m.wt.CreateForRemoteRepo(resolved, sessionName)
 		if err != nil {
-			return "", nil, noop, err
+			return "", nil, false, noop, err
 		}
 		cleanup := noop
 		if created {
 			cleanup = func() { m.wt.Cleanup(wtPath) }
 		}
-		return wtPath, &branch, cleanup, nil
+		return wtPath, &branch, created, cleanup, nil
 	}
 
 	// Local path: check if it's inside a git repo.
 	gitRoot, err := git.FindMainRepo(resolved.LocalPath)
 	if err != nil {
 		// Not a git repo — use the path directly.
-		return resolved.LocalPath, nil, noop, nil
+		return resolved.LocalPath, nil, false, noop, nil
 	}
 
 	if agentType == provider.AgentShell {
 		// Shell sessions use the local path directly, no worktree.
-		return resolved.LocalPath, nil, noop, nil
+		return resolved.LocalPath, nil, false, noop, nil
 	}
 
 	// Check if the resolved path is already a worktree — reuse it.
 	existingBranch, err := m.wt.FindWorktreeByPath(resolved.LocalPath)
 	if err == nil && existingBranch != "" {
-		return resolved.LocalPath, &existingBranch, noop, nil
+		return resolved.LocalPath, &existingBranch, false, noop, nil
 	}
 
 	wtPath, branch, created, err := m.wt.CreateForLocalRepo(gitRoot, sessionName)
 	if err != nil {
-		return "", nil, noop, err
+		return "", nil, false, noop, err
 	}
 	cleanup2 := noop
 	if created {
 		cleanup2 = func() { m.wt.Cleanup(wtPath) }
 	}
-	return wtPath, &branch, cleanup2, nil
+	return wtPath, &branch, created, cleanup2, nil
 }
 
 // Delete kills the tmux session and removes from DB. For worktree-backed
@@ -262,11 +319,10 @@ func (m *Manager) Delete(id string, force bool) error {
 		return fmt.Errorf("%w: %s", db.ErrNotFound, id)
 	}
 
-	// Remove worktree FIRST so a dirty-check failure leaves the session
-	// fully intact (tmux still alive, DB row untouched).
-	// Only remove argus-managed worktrees (those inside the state dir) and
-	// only when no other session references the same working directory.
-	// External worktrees (user-provided paths) are never deleted.
+	// Preflight: check for dirty worktree BEFORE any side effects.
+	// This ensures that a failed delete (dirty worktree, force=false)
+	// leaves the session fully intact (tmux alive, DB row untouched).
+	needsWorktreeRemoval := false
 	if session.WorktreeBranch != nil && m.wt.IsManaged(session.WorkingDirectory) {
 		others, err := m.db.CountSessionsByWorkingDir(id, session.WorkingDirectory)
 		if err != nil {
@@ -274,21 +330,52 @@ func (m *Manager) Delete(id string, force bool) error {
 		}
 		if others == 0 {
 			if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
-				// Worktree was removed externally; skip git cleanup and
-				// proceed with deletion. The orphaned git worktree ref
-				// will be cleaned up by "git worktree prune".
-			} else if err := m.wt.RemoveWorktree(session.WorkingDirectory, force); err != nil {
-				return err
+				// Worktree was removed externally; skip git cleanup.
+			} else {
+				if !force {
+					if err := m.wt.CheckWorktreeDirty(session.WorkingDirectory); err != nil {
+						return err
+					}
+				}
+				needsWorktreeRemoval = true
 			}
 		}
 	}
+
+	projectKey := ProjectKeyForSession(session)
+	profileName := ptrStr(session.Profile)
+
+	hookEnv := HookEnv{
+		SessionID:  session.ID,
+		WorkingDir: session.WorkingDirectory,
+		AgentType:  session.AgentType,
+		Profile:    profileName,
+	}
+
+	// pre_destroy: LIFO order (project first, then profile), best-effort
+	preDestroyPaths := m.hooks.ResolveHookPathsTeardown(HookPreDestroy, profileName, projectKey)
+	m.hooks.RunHooksBestEffort(preDestroyPaths, hookEnv)
 
 	// Kill tmux (ignore error if already dead)
 	if HasSession(session.TmuxName) {
 		KillSession(session.TmuxName)
 	}
 
-	return m.db.DeleteSession(id)
+	// Remove worktree. The preflight dirty check already validated the
+	// user's intent (worktree was clean or force=true), so force-remove
+	// here to avoid TOCTOU issues (e.g. pre_destroy hooks writing files).
+	if needsWorktreeRemoval {
+		if err := m.wt.RemoveWorktree(session.WorkingDirectory, true); err != nil {
+			return err
+		}
+	}
+
+	// Delete DB record
+	if err := m.db.DeleteSession(id); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Rename updates the display name of a session. The underlying tmux session
@@ -317,6 +404,41 @@ func (m *Manager) Get(id string) (*db.Session, error) {
 // List returns all sessions.
 func (m *Manager) List(ctx context.Context) ([]*db.Session, error) {
 	return m.db.ListSessions(ctx)
+}
+
+// ListProfiles returns the names of all profile directories that contain
+// a hooks/ subdirectory under {stateDir}/profiles/.
+func (m *Manager) ListProfiles() ([]string, error) {
+	profilesDir := filepath.Join(m.stateDir, "profiles")
+	entries, err := os.ReadDir(profilesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("read profiles dir: %w", err)
+	}
+	names := make([]string, 0)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if ValidateProfileName(name) != nil {
+			continue
+		}
+		hooksDir := filepath.Join(profilesDir, name, "hooks")
+		info, statErr := os.Stat(hooksDir)
+		if statErr != nil {
+			if !os.IsNotExist(statErr) {
+				log.Printf("ListProfiles: stat %s: %v", hooksDir, statErr)
+			}
+			continue
+		}
+		if info.IsDir() {
+			names = append(names, name)
+		}
+	}
+	return names, nil
 }
 
 // getSession looks up a session by ID and checks whether its tmux
@@ -390,14 +512,27 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 		return "", fmt.Errorf("build command: %w", err)
 	}
 
+	// Resolve post_create hooks (empty profile falls back to "default" in HookRunner)
+	profileName := ptrStr(session.Profile)
+	projectKey := ProjectKeyForSession(session)
+	postCreatePaths := m.hooks.ResolvePostCreateHookPaths(profileName, projectKey)
+
 	var tmuxCmd string
 	if agentCmd != "" {
 		pattern := provider.GetSessionIDPattern(provider.AgentType(session.AgentType))
-		scriptPath, err := WriteInitScript(session.ID, agentCmd, pattern)
+		scriptPath, err := WriteInitScript(session.ID, agentCmd, pattern, postCreatePaths)
 		if err != nil {
 			return "", fmt.Errorf("write init script: %w", err)
 		}
 		tmuxCmd = "bash " + scriptPath
+	} else if len(postCreatePaths) > 0 {
+		scriptPath, err := WriteShellInitScript(session.ID, postCreatePaths)
+		if err != nil {
+			return "", fmt.Errorf("write shell init script: %w", err)
+		}
+		if scriptPath != "" {
+			tmuxCmd = "bash " + scriptPath
+		}
 	}
 
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
@@ -448,6 +583,29 @@ func (m *Manager) BackfillGitParentDir() {
 			}
 		}
 	}
+}
+
+// resolveProfile validates and resolves the profile name.
+// If profileOpt is non-nil, it validates the name and checks the profile dir exists.
+// If profileOpt is nil, returns "" — the HookRunner will fall back to "default"
+// at resolution time if the default profile directory exists.
+// Only explicitly specified profiles are stored in the DB.
+func (m *Manager) resolveProfile(profileOpt *string) (string, error) {
+	if profileOpt == nil {
+		return "", nil
+	}
+	name := *profileOpt
+	if err := ValidateProfileName(name); err != nil {
+		return "", err
+	}
+	dir := filepath.Join(m.stateDir, "profiles", name, "hooks")
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("profile %q not found", name)
+		}
+		return "", fmt.Errorf("check profile %q: %w", name, err)
+	}
+	return name, nil
 }
 
 func ptrStr(s *string) string {
