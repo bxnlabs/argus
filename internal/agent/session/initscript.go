@@ -85,7 +85,8 @@ func GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin stri
 		}
 		script += "\n" +
 			"# Capture provider session ID from terminal output\n" +
-			"PANE_CONTENT=$(tmux capture-pane -p -S -100 2>/dev/null)\n" +
+			"# -J joins wrapped lines so narrow terminals (e.g. phone) don't truncate the ID\n" +
+			"PANE_CONTENT=$(tmux capture-pane -pJ -S -100 2>/dev/null)\n" +
 			"PROVIDER_ID=$(echo \"$PANE_CONTENT\" | sed -nE 's/.*" + sessionIDPattern + ".*/\\1/p' | tail -1)\n" +
 			"\n" +
 			"if [ -n \"$PROVIDER_ID\" ]; then\n" +
