@@ -14,14 +14,14 @@ func TestHookIntegrationSetupOrder(t *testing.T) {
 
 	// Create profile hook that appends to marker file
 	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
-	os.MkdirAll(profileHookDir, 0755)
-	os.WriteFile(filepath.Join(profileHookDir, "pre_create.sh"), []byte(
+	mustMkdirAll(t, profileHookDir)
+	mustWriteFile(t, filepath.Join(profileHookDir, "pre_create.sh"), []byte(
 		"#!/bin/bash\necho profile >> "+markerFile+"\n"), 0755)
 
 	// Create project hook that appends to marker file
 	projectHookDir := filepath.Join(stateDir, "projects", "--test--repo", "hooks")
-	os.MkdirAll(projectHookDir, 0755)
-	os.WriteFile(filepath.Join(projectHookDir, "pre_create.sh"), []byte(
+	mustMkdirAll(t, projectHookDir)
+	mustWriteFile(t, filepath.Join(projectHookDir, "pre_create.sh"), []byte(
 		"#!/bin/bash\necho project >> "+markerFile+"\n"), 0755)
 
 	hr := NewHookRunner(stateDir)
@@ -55,13 +55,13 @@ func TestHookIntegrationTeardownOrder(t *testing.T) {
 	markerFile := filepath.Join(t.TempDir(), "teardown.txt")
 
 	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
-	os.MkdirAll(profileHookDir, 0755)
-	os.WriteFile(filepath.Join(profileHookDir, "pre_destroy.sh"), []byte(
+	mustMkdirAll(t, profileHookDir)
+	mustWriteFile(t, filepath.Join(profileHookDir, "pre_destroy.sh"), []byte(
 		"#!/bin/bash\necho profile >> "+markerFile+"\n"), 0755)
 
 	projectHookDir := filepath.Join(stateDir, "projects", "--test--repo", "hooks")
-	os.MkdirAll(projectHookDir, 0755)
-	os.WriteFile(filepath.Join(projectHookDir, "pre_destroy.sh"), []byte(
+	mustMkdirAll(t, projectHookDir)
+	mustWriteFile(t, filepath.Join(projectHookDir, "pre_destroy.sh"), []byte(
 		"#!/bin/bash\necho project >> "+markerFile+"\n"), 0755)
 
 	hr := NewHookRunner(stateDir)
@@ -75,7 +75,10 @@ func TestHookIntegrationTeardownOrder(t *testing.T) {
 		}
 	}
 
-	data, _ := os.ReadFile(markerFile)
+	data, err := os.ReadFile(markerFile)
+	if err != nil {
+		t.Fatal(err)
+	}
 	lines := strings.TrimSpace(string(data))
 	if lines != "project\nprofile" {
 		t.Errorf("expected teardown order 'project\\nprofile', got %q", lines)
@@ -87,8 +90,8 @@ func TestHookIntegrationEnvVars(t *testing.T) {
 	markerFile := filepath.Join(t.TempDir(), "env.txt")
 
 	hookDir := filepath.Join(stateDir, "profiles", "default", "hooks")
-	os.MkdirAll(hookDir, 0755)
-	os.WriteFile(filepath.Join(hookDir, "pre_create.sh"), []byte(
+	mustMkdirAll(t, hookDir)
+	mustWriteFile(t, filepath.Join(hookDir, "pre_create.sh"), []byte(
 		"#!/bin/bash\n"+
 			"echo \"SID=$ARGUS_SESSION_ID\" >> "+markerFile+"\n"+
 			"echo \"WD=$ARGUS_WORKING_DIR\" >> "+markerFile+"\n"+
@@ -108,7 +111,10 @@ func TestHookIntegrationEnvVars(t *testing.T) {
 		}
 	}
 
-	data, _ := os.ReadFile(markerFile)
+	data, err := os.ReadFile(markerFile)
+	if err != nil {
+		t.Fatal(err)
+	}
 	content := string(data)
 	if !strings.Contains(content, "SID=sess-abc") {
 		t.Error("missing ARGUS_SESSION_ID")
@@ -127,9 +133,9 @@ func TestHookIntegrationEnvVars(t *testing.T) {
 func TestHookIntegrationTimeout(t *testing.T) {
 	stateDir := t.TempDir()
 	hookDir := filepath.Join(stateDir, "profiles", "slow", "hooks")
-	os.MkdirAll(hookDir, 0755)
+	mustMkdirAll(t, hookDir)
 	// Use a loop instead of sleep so the process can be killed cleanly.
-	os.WriteFile(filepath.Join(hookDir, "pre_create.sh"), []byte(
+	mustWriteFile(t, filepath.Join(hookDir, "pre_create.sh"), []byte(
 		"#!/bin/bash\nwhile true; do sleep 0.1; done"), 0755)
 
 	hr := NewHookRunner(stateDir)
@@ -153,8 +159,8 @@ func TestHookIntegrationTimeout(t *testing.T) {
 func TestHookIntegrationNonZeroExit(t *testing.T) {
 	stateDir := t.TempDir()
 	hookDir := filepath.Join(stateDir, "profiles", "fail", "hooks")
-	os.MkdirAll(hookDir, 0755)
-	os.WriteFile(filepath.Join(hookDir, "pre_create.sh"), []byte(
+	mustMkdirAll(t, hookDir)
+	mustWriteFile(t, filepath.Join(hookDir, "pre_create.sh"), []byte(
 		"#!/bin/bash\necho 'something went wrong' >&2\nexit 1"), 0755)
 
 	hr := NewHookRunner(stateDir)
@@ -176,21 +182,21 @@ func TestHookIntegrationBestEffort(t *testing.T) {
 
 	// First hook (in teardown order = project) fails
 	projectHookDir := filepath.Join(stateDir, "projects", "--test--repo", "hooks")
-	os.MkdirAll(projectHookDir, 0755)
-	os.WriteFile(filepath.Join(projectHookDir, "post_destroy.sh"), []byte(
+	mustMkdirAll(t, projectHookDir)
+	mustWriteFile(t, filepath.Join(projectHookDir, "pre_destroy.sh"), []byte(
 		"#!/bin/bash\nexit 1"), 0755)
 
 	// Second hook (in teardown order = profile) should still run
 	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
-	os.MkdirAll(profileHookDir, 0755)
-	os.WriteFile(filepath.Join(profileHookDir, "post_destroy.sh"), []byte(
+	mustMkdirAll(t, profileHookDir)
+	mustWriteFile(t, filepath.Join(profileHookDir, "pre_destroy.sh"), []byte(
 		"#!/bin/bash\necho survived >> "+markerFile+"\n"), 0755)
 
 	hr := NewHookRunner(stateDir)
 	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", AgentType: "claude"}
 
 	// Teardown order: project first (fails), then profile (should still run)
-	paths := hr.ResolveHookPathsTeardown("post_destroy.sh", "work", "--test--repo")
+	paths := hr.ResolveHookPathsTeardown("pre_destroy.sh", "work", "--test--repo")
 	hr.RunHooksBestEffort(paths, env)
 
 	data, err := os.ReadFile(markerFile)

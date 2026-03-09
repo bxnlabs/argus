@@ -123,7 +123,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		SessionID: sessionID, WorkingDir: cwd,
 		AgentType: opts.AgentType, Profile: resolvedProfile,
 	}
-	preCreatePaths := m.hooks.ResolveHookPaths("pre_create.sh", resolvedProfile, projectKey)
+	preCreatePaths := m.hooks.ResolveHookPaths(HookPreCreate, resolvedProfile, projectKey)
 	for _, p := range preCreatePaths {
 		if err := m.hooks.RunHook(p, hookEnv); err != nil {
 			return nil, fmt.Errorf("pre_create hook: %w", err)
@@ -133,7 +133,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// Run on_create_worktree hooks if worktree was newly created
 	if worktreeCreated {
 		hookEnv.WorktreePath = cwd
-		wtPaths := m.hooks.ResolveHookPaths("on_create_worktree.sh", resolvedProfile, projectKey)
+		wtPaths := m.hooks.ResolveHookPaths(HookOnCreateWorktree, resolvedProfile, projectKey)
 		for _, p := range wtPaths {
 			if err := m.hooks.RunHook(p, hookEnv); err != nil {
 				return nil, fmt.Errorf("on_create_worktree hook: %w", err)
@@ -318,6 +318,29 @@ func (m *Manager) Delete(id string, force bool) error {
 		return fmt.Errorf("%w: %s", db.ErrNotFound, id)
 	}
 
+	// Preflight: check for dirty worktree BEFORE any side effects.
+	// This ensures that a failed delete (dirty worktree, force=false)
+	// leaves the session fully intact (tmux alive, DB row untouched).
+	needsWorktreeRemoval := false
+	if session.WorktreeBranch != nil && m.wt.IsManaged(session.WorkingDirectory) {
+		others, err := m.db.CountSessionsByWorkingDir(id, session.WorkingDirectory)
+		if err != nil {
+			return fmt.Errorf("check shared worktree: %w", err)
+		}
+		if others == 0 {
+			if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
+				// Worktree was removed externally; skip git cleanup.
+			} else {
+				if !force {
+					if err := m.wt.CheckWorktreeDirty(session.WorkingDirectory); err != nil {
+						return err
+					}
+				}
+				needsWorktreeRemoval = true
+			}
+		}
+	}
+
 	projectKey := ProjectKeyForSession(session)
 	profileName := ptrStr(session.Profile)
 
@@ -329,7 +352,7 @@ func (m *Manager) Delete(id string, force bool) error {
 	}
 
 	// pre_destroy: LIFO order (project first, then profile), best-effort
-	preDestroyPaths := m.hooks.ResolveHookPathsTeardown("pre_destroy.sh", profileName, projectKey)
+	preDestroyPaths := m.hooks.ResolveHookPathsTeardown(HookPreDestroy, profileName, projectKey)
 	m.hooks.RunHooksBestEffort(preDestroyPaths, hookEnv)
 
 	// Kill tmux (ignore error if already dead)
@@ -337,19 +360,12 @@ func (m *Manager) Delete(id string, force bool) error {
 		KillSession(session.TmuxName)
 	}
 
-	// Remove worktree — only argus-managed worktrees, only when no other
-	// session shares the same working directory.
-	if session.WorktreeBranch != nil && m.wt.IsManaged(session.WorkingDirectory) {
-		others, err := m.db.CountSessionsByWorkingDir(id, session.WorkingDirectory)
-		if err != nil {
-			return fmt.Errorf("check shared worktree: %w", err)
-		}
-		if others == 0 {
-			if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
-				// Worktree was removed externally; skip git cleanup.
-			} else if err := m.wt.RemoveWorktree(session.WorkingDirectory, force); err != nil {
-				return err
-			}
+	// Remove worktree. The preflight dirty check already validated the
+	// user's intent (worktree was clean or force=true), so force-remove
+	// here to avoid TOCTOU issues (e.g. pre_destroy hooks writing files).
+	if needsWorktreeRemoval {
+		if err := m.wt.RemoveWorktree(session.WorkingDirectory, true); err != nil {
+			return err
 		}
 	}
 
@@ -357,10 +373,6 @@ func (m *Manager) Delete(id string, force bool) error {
 	if err := m.db.DeleteSession(id); err != nil {
 		return err
 	}
-
-	// post_destroy: LIFO order (project first, then profile), best-effort
-	postDestroyPaths := m.hooks.ResolveHookPathsTeardown("post_destroy.sh", profileName, projectKey)
-	m.hooks.RunHooksBestEffort(postDestroyPaths, hookEnv)
 
 	return nil
 }
@@ -463,13 +475,10 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 		return "", fmt.Errorf("build command: %w", err)
 	}
 
-	// Resolve post_create hooks if session has a profile
-	var postCreatePaths []string
+	// Resolve post_create hooks (empty profile falls back to "default" in HookRunner)
 	profileName := ptrStr(session.Profile)
-	if profileName != "" {
-		projectKey := ProjectKeyForSession(session)
-		postCreatePaths = m.hooks.ResolvePostCreateHookPaths(profileName, projectKey)
-	}
+	projectKey := ProjectKeyForSession(session)
+	postCreatePaths := m.hooks.ResolvePostCreateHookPaths(profileName, projectKey)
 
 	var tmuxCmd string
 	if agentCmd != "" {
@@ -540,26 +549,25 @@ func (m *Manager) BackfillGitParentDir() {
 
 // resolveProfile validates and resolves the profile name.
 // If profileOpt is non-nil, it validates the name and checks the profile dir exists.
-// If profileOpt is nil, it checks for a "default" profile dir and uses that if present.
-// Returns the resolved profile name (may be empty if no profile applies).
+// If profileOpt is nil, returns "" — the HookRunner will fall back to "default"
+// at resolution time if the default profile directory exists.
+// Only explicitly specified profiles are stored in the DB.
 func (m *Manager) resolveProfile(profileOpt *string) (string, error) {
-	if profileOpt != nil {
-		name := *profileOpt
-		if err := ValidateProfileName(name); err != nil {
-			return "", err
-		}
-		dir := filepath.Join(m.stateDir, "profiles", name, "hooks")
-		if _, err := os.Stat(dir); err != nil {
+	if profileOpt == nil {
+		return "", nil
+	}
+	name := *profileOpt
+	if err := ValidateProfileName(name); err != nil {
+		return "", err
+	}
+	dir := filepath.Join(m.stateDir, "profiles", name, "hooks")
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
 			return "", fmt.Errorf("profile %q not found", name)
 		}
-		return name, nil
+		return "", fmt.Errorf("check profile %q: %w", name, err)
 	}
-	// Check for default profile
-	dir := filepath.Join(m.stateDir, "profiles", "default", "hooks")
-	if _, err := os.Stat(dir); err == nil {
-		return "default", nil
-	}
-	return "", nil
+	return name, nil
 }
 
 func ptrStr(s *string) string {

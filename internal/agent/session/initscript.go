@@ -4,7 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// shellQuote returns a single-quoted shell string. Internal single quotes
+// are escaped as '\'' (end quote, escaped literal quote, reopen quote).
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // generateHookSourceBlock builds a bash snippet that sources each hook path
 // with error guards (set +e, || true) so that hook failures are non-fatal.
@@ -13,13 +20,14 @@ func generateHookSourceBlock(hookPaths []string) string {
 	if len(hookPaths) == 0 {
 		return ""
 	}
-	block := "# Source post_create hooks (errors are non-fatal)\n" +
-		"set +e\n"
+	var b strings.Builder
+	b.WriteString("# Source post_create hooks (errors are non-fatal)\n")
+	b.WriteString("set +e\n")
 	for _, p := range hookPaths {
-		block += fmt.Sprintf("source \"%s\" 2>&1 || true\n", p)
+		fmt.Fprintf(&b, "source %s 2>&1 || true\n", shellQuote(p))
 	}
-	block += "set -e\n"
-	return block
+	b.WriteString("set -e\n")
+	return b.String()
 }
 
 // GenerateInitScript returns a bash init script that shows the Argus banner,

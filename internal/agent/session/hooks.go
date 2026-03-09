@@ -14,6 +14,14 @@ import (
 	"github.com/bxnlabs/argus/internal/source"
 )
 
+// Hook file name constants.
+const (
+	HookPreCreate        = "pre_create.sh"
+	HookPostCreate       = "post_create.sh"
+	HookOnCreateWorktree = "on_create_worktree.sh"
+	HookPreDestroy       = "pre_destroy.sh"
+)
+
 var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // ValidateProfileName checks that a profile name is safe for use as a
@@ -69,7 +77,7 @@ func (hr *HookRunner) ResolveHookPathsTeardown(hookName, profileName, projectKey
 // ResolvePostCreateHookPaths returns post_create hook paths in setup order.
 // Unlike other hooks, post_create does not require the executable bit.
 func (hr *HookRunner) ResolvePostCreateHookPaths(profileName, projectKey string) []string {
-	return hr.resolveHooks("post_create.sh", profileName, projectKey, false, false)
+	return hr.resolveHooks(HookPostCreate, profileName, projectKey, false, false)
 }
 
 func (hr *HookRunner) resolveHooks(hookName, profileName, projectKey string, teardown, requireExec bool) []string {

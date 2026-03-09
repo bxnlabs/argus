@@ -10,6 +10,22 @@ import (
 	"github.com/bxnlabs/argus/internal/agent/db"
 )
 
+// mustMkdirAll is a test helper that creates directories or fails the test.
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", path, err)
+	}
+}
+
+// mustWriteFile is a test helper that writes a file or fails the test.
+func mustWriteFile(t *testing.T, path string, data []byte, perm os.FileMode) {
+	t.Helper()
+	if err := os.WriteFile(path, data, perm); err != nil {
+		t.Fatalf("WriteFile(%q): %v", path, err)
+	}
+}
+
 func TestValidateProfileName(t *testing.T) {
 	valid := []string{"default", "work", "my-profile", "test_123", "A"}
 	for _, name := range valid {
@@ -53,15 +69,15 @@ func TestResolveHookPaths(t *testing.T) {
 
 	// Create profile hook
 	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
-	os.MkdirAll(profileHookDir, 0755)
+	mustMkdirAll(t, profileHookDir)
 	hookPath := filepath.Join(profileHookDir, "pre_create.sh")
-	os.WriteFile(hookPath, []byte("#!/bin/bash\necho hello"), 0755)
+	mustWriteFile(t, hookPath, []byte("#!/bin/bash\necho hello"), 0755)
 
 	// Create project hook
 	projectHookDir := filepath.Join(stateDir, "projects", "--test--repo", "hooks")
-	os.MkdirAll(projectHookDir, 0755)
+	mustMkdirAll(t, projectHookDir)
 	projHookPath := filepath.Join(projectHookDir, "pre_create.sh")
-	os.WriteFile(projHookPath, []byte("#!/bin/bash\necho world"), 0755)
+	mustWriteFile(t, projHookPath, []byte("#!/bin/bash\necho world"), 0755)
 
 	hr := NewHookRunner(stateDir)
 
@@ -83,12 +99,12 @@ func TestResolveHookPathsTeardownOrder(t *testing.T) {
 
 	// Create both hooks
 	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
-	os.MkdirAll(profileHookDir, 0755)
-	os.WriteFile(filepath.Join(profileHookDir, "pre_destroy.sh"), []byte("#!/bin/bash"), 0755)
+	mustMkdirAll(t, profileHookDir)
+	mustWriteFile(t, filepath.Join(profileHookDir, "pre_destroy.sh"), []byte("#!/bin/bash"), 0755)
 
 	projectHookDir := filepath.Join(stateDir, "projects", "--test--repo", "hooks")
-	os.MkdirAll(projectHookDir, 0755)
-	os.WriteFile(filepath.Join(projectHookDir, "pre_destroy.sh"), []byte("#!/bin/bash"), 0755)
+	mustMkdirAll(t, projectHookDir)
+	mustWriteFile(t, filepath.Join(projectHookDir, "pre_destroy.sh"), []byte("#!/bin/bash"), 0755)
 
 	hr := NewHookRunner(stateDir)
 
@@ -109,8 +125,8 @@ func TestResolveHookPathsDefaultProfile(t *testing.T) {
 	stateDir := t.TempDir()
 
 	defaultHookDir := filepath.Join(stateDir, "profiles", "default", "hooks")
-	os.MkdirAll(defaultHookDir, 0755)
-	os.WriteFile(filepath.Join(defaultHookDir, "pre_create.sh"), []byte("#!/bin/bash"), 0755)
+	mustMkdirAll(t, defaultHookDir)
+	mustWriteFile(t, filepath.Join(defaultHookDir, "pre_create.sh"), []byte("#!/bin/bash"), 0755)
 
 	hr := NewHookRunner(stateDir)
 
@@ -126,8 +142,8 @@ func TestResolveHookPathsSkipsMissingAndNonExecutable(t *testing.T) {
 
 	// Create a non-executable hook
 	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
-	os.MkdirAll(profileHookDir, 0755)
-	os.WriteFile(filepath.Join(profileHookDir, "pre_create.sh"), []byte("#!/bin/bash"), 0644) // not executable
+	mustMkdirAll(t, profileHookDir)
+	mustWriteFile(t, filepath.Join(profileHookDir, "pre_create.sh"), []byte("#!/bin/bash"), 0644) // not executable
 
 	hr := NewHookRunner(stateDir)
 
@@ -142,8 +158,8 @@ func TestResolvePostCreateHookPathsSkipsExecutableCheck(t *testing.T) {
 
 	// Create a non-executable post_create hook (sourced, so OK)
 	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
-	os.MkdirAll(profileHookDir, 0755)
-	os.WriteFile(filepath.Join(profileHookDir, "post_create.sh"), []byte("export FOO=bar"), 0644)
+	mustMkdirAll(t, profileHookDir)
+	mustWriteFile(t, filepath.Join(profileHookDir, "post_create.sh"), []byte("export FOO=bar"), 0644)
 
 	hr := NewHookRunner(stateDir)
 
@@ -157,9 +173,9 @@ func TestResolvePostCreateHookPathsSkipsExecutableCheck(t *testing.T) {
 func TestRunHookTimeout(t *testing.T) {
 	stateDir := t.TempDir()
 	hookDir := filepath.Join(stateDir, "profiles", "slow", "hooks")
-	os.MkdirAll(hookDir, 0755)
+	mustMkdirAll(t, hookDir)
 	hookPath := filepath.Join(hookDir, "pre_create.sh")
-	os.WriteFile(hookPath, []byte("#!/bin/bash\nsleep 60"), 0755)
+	mustWriteFile(t, hookPath, []byte("#!/bin/bash\nsleep 60"), 0755)
 
 	hr := NewHookRunner(stateDir)
 	hr.Timeout = 100 * time.Millisecond // very short for test
