@@ -146,6 +146,10 @@ func parseRemote(input string) (*Source, error) {
 		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
 		}
+		host := parts[0]
+		if err := validateHost(host, input); err != nil {
+			return nil, err
+		}
 		repo := strings.TrimSuffix(parts[2], ".git")
 		if repo == "" {
 			return nil, fmt.Errorf("not a valid path or git URL: %s", input)
@@ -154,8 +158,8 @@ func parseRemote(input string) (*Source, error) {
 			return nil, err
 		}
 		return &Source{
-			RemoteURL: "https://" + parts[0] + "/" + parts[1] + "/" + repo + ".git",
-			Host:      parts[0],
+			RemoteURL: "https://" + host + "/" + parts[1] + "/" + repo + ".git",
+			Host:      host,
 			Org:       parts[1],
 			Repo:      repo,
 		}, nil
