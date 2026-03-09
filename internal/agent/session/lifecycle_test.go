@@ -58,7 +58,7 @@ func TestResolveSourceToCWD_ShellSkipsWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Shell session with a local git repo as source — should NOT create worktree
-	cwd, branch, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.AgentShell)
+	cwd, branch, _, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.AgentShell)
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 	}
 
 	// Point an agent session at the worktree path — should reuse it
-	cwd, gotBranch, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.AgentClaude)
+	cwd, gotBranch, _, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.AgentClaude)
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestResolveSourceToCWD_AgentCreatesWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Agent session with a local git repo — SHOULD create worktree
-	cwd, branch, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.AgentClaude)
+	cwd, branch, _, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.AgentClaude)
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
