@@ -130,7 +130,7 @@ func (c *apiClient) patch(path string, body io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
 	}
-	return readResponse(resp, "rename")
+	return readResponse(resp, "update")
 }
 
 func (c *apiClient) delete(path string) ([]byte, error) {

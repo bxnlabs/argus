@@ -75,13 +75,13 @@ func (d *DB) ListSessions(ctx context.Context) ([]*Session, error) {
 }
 
 type SessionUpdate struct {
-	Name             *string `json:"name,omitempty"`
-	TmuxName         *string `json:"tmux_name,omitempty"`
-	ProviderSessionID  *string `json:"provider_session_id,omitempty"`
-	WorkingDirectory *string `json:"working_directory,omitempty"`
+	Name              *string `json:"name,omitempty"`
+	TmuxName          *string `json:"tmux_name,omitempty"`
+	ProviderSessionID *string `json:"provider_session_id,omitempty"`
+	WorkingDirectory  *string `json:"working_directory,omitempty"`
 }
 
-func (d *DB) UpdateSession(id string, u SessionUpdate) error {
+func (d *DB) UpdateSession(id string, u SessionUpdate) (*Session, error) {
 	// Build dynamic update
 	sets := []string{}
 	args := []any{}
@@ -104,7 +104,7 @@ func (d *DB) UpdateSession(id string, u SessionUpdate) error {
 	}
 
 	if len(sets) == 0 {
-		return nil
+		return d.GetSession(id)
 	}
 
 	sets = append(sets, "updated_at = datetime('now')")
@@ -117,17 +117,17 @@ func (d *DB) UpdateSession(id string, u SessionUpdate) error {
 		}
 		query += s
 	}
-	query += " WHERE id = ?"
+	query += " WHERE id = ? RETURNING " + sessionColumns
 
-	result, err := d.sql.Exec(query, args...)
+	row := d.sql.QueryRow(query, args...)
+	s, err := scanSession(row)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("%w: %s", ErrNotFound, id)
-	}
-	return nil
+	return s, nil
 }
 
 // CountSessionsByWorkingDir returns the number of sessions (excluding the

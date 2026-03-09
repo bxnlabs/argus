@@ -132,6 +132,114 @@ func TestBuildCommandEscapesModelAndSessionID(t *testing.T) {
 	}
 }
 
+func TestGetSessionIDPattern(t *testing.T) {
+	tests := []struct {
+		agent   AgentType
+		wantSet bool
+	}{
+		{AgentClaude, true},
+		{AgentCodex, true},
+		{AgentGemini, true},
+		{AgentShell, false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.agent), func(t *testing.T) {
+			pat := GetSessionIDPattern(tt.agent)
+			if tt.wantSet && pat == "" {
+				t.Errorf("expected pattern for %s", tt.agent)
+			}
+			if !tt.wantSet && pat != "" {
+				t.Errorf("unexpected pattern for %s: %s", tt.agent, pat)
+			}
+		})
+	}
+}
+
+func TestSessionIDPatternExtraction(t *testing.T) {
+	tests := []struct {
+		name   string
+		agent  AgentType
+		output string
+		wantID string
+	}{
+		{
+			name:  "claude exit output",
+			agent: AgentClaude,
+			output: ` ▐▛███▜▌   Claude Code v2.1.71
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/Workspace/repos/bxnlabs/argus
+
+────────────────────────────────────────────────────────────────────────────────────────────────────── ▪▪▪ Medium /model ─
+❯ Try "how do I log an error?"
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Press Ctrl-C again to exit
+
+Resume this session with:
+claude --resume e9ed7eb1-5fa8-40ca-b718-bc747ea4e38e`,
+			wantID: "e9ed7eb1-5fa8-40ca-b718-bc747ea4e38e",
+		},
+		{
+			name:  "codex exit output",
+			agent: AgentCodex,
+			output: `╭───────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.111.0)                        │
+│                                                   │
+│ model:     gpt-5.3-codex xhigh   /model to change │
+│ directory: ~/Workspace/repos/bxnlabs/argus        │
+╰───────────────────────────────────────────────────╯
+
+› this is a test
+
+
+• Ready. Tell me what you want to work on.
+Token usage: total=1,362 input=1,154 (+ 7,424 cached) output=208 (reasoning 191)
+To continue this session, run codex resume 019cce43-57d3-7842-9f1d-732711edbf25`,
+			wantID: "019cce43-57d3-7842-9f1d-732711edbf25",
+		},
+		{
+			name:  "gemini exit output",
+			agent: AgentGemini,
+			output: `╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                        │
+│  Agent powering down. Goodbye!                                                                                         │
+│                                                                                                                        │
+│  Interaction Summary                                                                                                   │
+│  Session ID:                 defacfa6-a9ae-477a-aff3-e5e89a581431                                                      │
+│  Tool Calls:                 0 ( ✓ 0 x 0 )                                                                             │
+│  Success Rate:               0.0%                                                                                      │
+│                                                                                                                        │
+│  Performance                                                                                                           │
+│  Wall Time:                  3.1s                                                                                      │
+│  Agent Active:               0s                                                                                        │
+│    » API Time:               0s (0.0%)                                                                                 │
+│    » Tool Time:              0s (0.0%)                                                                                 │
+│                                                                                                                        │
+│  Tip: Resume a previous session using gemini --resume or /resume                                                       │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯`,
+			wantID: "defacfa6-a9ae-477a-aff3-e5e89a581431",
+		},
+		{
+			name:   "no match in output",
+			agent:  AgentClaude,
+			output: "Some random output without a session ID",
+			wantID: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pattern := GetSessionIDPattern(tt.agent)
+			if pattern == "" {
+				t.Fatal("expected non-empty pattern")
+			}
+			got := extractSessionID(pattern, tt.output)
+			if got != tt.wantID {
+				t.Errorf("extractSessionID() = %q, want %q", got, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestShellEscapeEdgeCases(t *testing.T) {
 	tests := []struct {
 		name  string

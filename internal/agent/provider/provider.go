@@ -1,6 +1,9 @@
 package provider
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
 
 // AgentType identifies a supported agent provider.
 type AgentType string
@@ -14,13 +17,14 @@ const (
 
 // Provider defines an AI coding agent CLI.
 type Provider struct {
-	ID              AgentType
-	Name            string
-	CLI             string // command name (e.g. "claude")
-	AutoApproveFlag string // flag to skip permission prompts
-	SupportsResume  bool
-	ResumeArg       string
-	ModelFlag       string
+	ID               AgentType
+	Name             string
+	CLI              string // command name (e.g. "claude")
+	AutoApproveFlag  string // flag to skip permission prompts
+	SupportsResume   bool
+	ResumeArg        string
+	ModelFlag        string
+	SessionIDPattern string // regex with one capture group for extracting session ID from terminal output
 }
 
 // BuildCommandOptions are the options for building a CLI command string.
@@ -89,6 +93,34 @@ func BuildCommand(id AgentType, opts BuildCommandOptions) (string, error) {
 	}
 
 	return cmd, nil
+}
+
+// GetSessionIDPattern returns the session ID extraction regex for a provider.
+// Returns empty string for providers that don't support resume.
+func GetSessionIDPattern(id AgentType) string {
+	p, ok := providers[id]
+	if !ok || !p.SupportsResume {
+		return ""
+	}
+	return p.SessionIDPattern
+}
+
+// extractSessionID applies a provider's SessionIDPattern regex to terminal
+// output and returns the last captured session ID, or empty string if no match.
+func extractSessionID(pattern, output string) string {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return ""
+	}
+	matches := re.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	last := matches[len(matches)-1]
+	if len(last) < 2 {
+		return ""
+	}
+	return last[1]
 }
 
 func shellEscape(s string) string {
