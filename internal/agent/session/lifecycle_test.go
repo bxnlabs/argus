@@ -55,7 +55,7 @@ func TestResolveSourceToCWD_ShellSkipsWorktree(t *testing.T) {
 	defer database.Close()
 
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
-	mgr := NewManager(database, wt)
+	mgr := NewManager(database, wt, stateDir)
 
 	// Shell session with a local git repo as source — should NOT create worktree
 	cwd, branch, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.AgentShell)
@@ -81,7 +81,7 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 	defer database.Close()
 
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
-	mgr := NewManager(database, wt)
+	mgr := NewManager(database, wt, stateDir)
 
 	// Create a worktree externally
 	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "existing work")
@@ -117,7 +117,7 @@ func TestResolveSourceToCWD_AgentCreatesWorktree(t *testing.T) {
 	defer database.Close()
 
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
-	mgr := NewManager(database, wt)
+	mgr := NewManager(database, wt, stateDir)
 
 	// Agent session with a local git repo — SHOULD create worktree
 	cwd, branch, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.AgentClaude)
