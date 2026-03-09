@@ -53,6 +53,7 @@ func newRootCmd() *cobra.Command {
 		newServerCmd(),
 		newAgentCmd(),
 		cli.NewSessionCmd(),
+		cli.NewInternalCmd(),
 	)
 
 	return rootCmd
