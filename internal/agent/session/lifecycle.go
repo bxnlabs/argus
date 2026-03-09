@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/bxnlabs/argus/internal/agent/db"
@@ -73,6 +74,12 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, fmt.Errorf("%w: invalid agent type: %s", ErrInvalidInput, opts.AgentType)
 	}
 
+	// Resolve profile
+	resolvedProfile, err := m.resolveProfile(opts.Profile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	}
+
 	// Generate session ID (UUID format for tmux name)
 	sessionID := shared.GenerateID("sess")
 	tmuxName := fmt.Sprintf("%s-%s", opts.AgentType, sessionID)
@@ -95,6 +102,14 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		}
 	}
 
+	// Derive project key for hook resolution
+	projectKey := ""
+	if gitParentDir != nil {
+		projectKey = source.ParentKeyFromPath(*gitParentDir)
+	} else {
+		projectKey = source.ParentKeyFromPath(cwd)
+	}
+
 	// If anything below fails before the DB commit, clean up the worktree.
 	success := false
 	defer func() {
@@ -102,6 +117,29 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 			cleanup()
 		}
 	}()
+
+	// Run pre_create hooks (blocking, abort on failure)
+	hookEnv := HookEnv{
+		SessionID: sessionID, WorkingDir: cwd,
+		AgentType: opts.AgentType, Profile: resolvedProfile,
+	}
+	preCreatePaths := m.hooks.ResolveHookPaths("pre_create.sh", resolvedProfile, projectKey)
+	for _, p := range preCreatePaths {
+		if err := m.hooks.RunHook(p, hookEnv); err != nil {
+			return nil, fmt.Errorf("pre_create hook: %w", err)
+		}
+	}
+
+	// Run on_create_worktree hooks if worktree was newly created
+	if worktreeBranch != nil {
+		hookEnv.WorktreePath = cwd
+		wtPaths := m.hooks.ResolveHookPaths("on_create_worktree.sh", resolvedProfile, projectKey)
+		for _, p := range wtPaths {
+			if err := m.hooks.RunHook(p, hookEnv); err != nil {
+				return nil, fmt.Errorf("on_create_worktree hook: %w", err)
+			}
+		}
+	}
 
 	// Build the agent command
 	agentCmd, err := provider.BuildCommand(provider.AgentType(opts.AgentType), provider.BuildCommandOptions{
@@ -113,15 +151,25 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, fmt.Errorf("build command: %w", err)
 	}
 
-	// For shell sessions (no command), start tmux with default shell
-	// For agent sessions, wrap with init script
+	// Resolve post_create hooks for init script sourcing
+	postCreatePaths := m.hooks.ResolvePostCreateHookPaths(resolvedProfile, projectKey)
+
 	var tmuxCmd string
 	if agentCmd != "" {
-		scriptPath, err := WriteInitScript(sessionID, agentCmd, nil)
+		scriptPath, err := WriteInitScript(sessionID, agentCmd, postCreatePaths)
 		if err != nil {
 			return nil, fmt.Errorf("write init script: %w", err)
 		}
 		tmuxCmd = "bash " + scriptPath
+	} else if len(postCreatePaths) > 0 {
+		// Shell session with hooks — need init wrapper to source them
+		scriptPath, err := WriteShellInitScript(sessionID, postCreatePaths)
+		if err != nil {
+			return nil, fmt.Errorf("write shell init script: %w", err)
+		}
+		if scriptPath != "" {
+			tmuxCmd = "bash " + scriptPath
+		}
 	}
 
 	// Spawn tmux session and apply standard styling
@@ -147,6 +195,11 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if opts.ResumeSessionID != "" {
 		providerSessionID = &opts.ResumeSessionID
 	}
+	// Persist resolved profile
+	var profilePtr *string
+	if resolvedProfile != "" {
+		profilePtr = &resolvedProfile
+	}
 	session := &db.Session{
 		ID:                sessionID,
 		Name:              opts.Name,
@@ -159,6 +212,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		ProviderSessionID: providerSessionID,
 		WorktreeBranch:    worktreeBranch,
 		GitParentDir:      gitParentDir,
+		Profile:           profilePtr,
 	}
 
 	if err := m.db.CreateSession(session); err != nil {
@@ -448,6 +502,30 @@ func (m *Manager) BackfillGitParentDir() {
 			}
 		}
 	}
+}
+
+// resolveProfile validates and resolves the profile name.
+// If profileOpt is non-nil, it validates the name and checks the profile dir exists.
+// If profileOpt is nil, it checks for a "default" profile dir and uses that if present.
+// Returns the resolved profile name (may be empty if no profile applies).
+func (m *Manager) resolveProfile(profileOpt *string) (string, error) {
+	if profileOpt != nil {
+		name := *profileOpt
+		if err := ValidateProfileName(name); err != nil {
+			return "", err
+		}
+		dir := filepath.Join(m.stateDir, "profiles", name, "hooks")
+		if _, err := os.Stat(dir); err != nil {
+			return "", fmt.Errorf("profile %q not found", name)
+		}
+		return name, nil
+	}
+	// Check for default profile
+	dir := filepath.Join(m.stateDir, "profiles", "default", "hooks")
+	if _, err := os.Stat(dir); err == nil {
+		return "default", nil
+	}
+	return "", nil
 }
 
 func ptrStr(s *string) string {
