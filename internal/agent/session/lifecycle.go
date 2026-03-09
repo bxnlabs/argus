@@ -25,10 +25,12 @@ var ErrInvalidInput = errors.New("invalid input")
 
 // Manager handles session lifecycle (create, delete, rename, etc.).
 type Manager struct {
-	db      *db.DB
-	wt      *worktree.Manager
-	mu      sync.Mutex
-	sessLks map[string]*sync.Mutex
+	db       *db.DB
+	wt       *worktree.Manager
+	stateDir string
+	hooks    *HookRunner
+	mu       sync.Mutex
+	sessLks  map[string]*sync.Mutex
 }
 
 // sessionLock returns a per-session mutex, creating it if needed.
@@ -49,8 +51,8 @@ func (m *Manager) sessionLock(id string) *sync.Mutex {
 }
 
 // NewManager creates a new session manager.
-func NewManager(database *db.DB, wt *worktree.Manager) *Manager {
-	return &Manager{db: database, wt: wt}
+func NewManager(database *db.DB, wt *worktree.Manager, stateDir string) *Manager {
+	return &Manager{db: database, wt: wt, stateDir: stateDir, hooks: NewHookRunner(stateDir)}
 }
 
 // CreateOptions are the options for creating a new session.
@@ -62,6 +64,7 @@ type CreateOptions struct {
 	SystemPrompt    *string `json:"system_prompt,omitempty"`
 	AutoApprove     bool    `json:"auto_approve"`
 	ResumeSessionID string  `json:"resume_session_id,omitempty"`
+	Profile         *string `json:"profile,omitempty"`
 }
 
 // Create creates a new session: generates ID, builds CLI command, spawns tmux, inserts DB.
@@ -114,7 +117,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// For agent sessions, wrap with init script
 	var tmuxCmd string
 	if agentCmd != "" {
-		scriptPath, err := WriteInitScript(sessionID, agentCmd)
+		scriptPath, err := WriteInitScript(sessionID, agentCmd, nil)
 		if err != nil {
 			return nil, fmt.Errorf("write init script: %w", err)
 		}
@@ -390,7 +393,7 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 
 	var tmuxCmd string
 	if agentCmd != "" {
-		scriptPath, err := WriteInitScript(session.ID, agentCmd)
+		scriptPath, err := WriteInitScript(session.ID, agentCmd, nil)
 		if err != nil {
 			return "", fmt.Errorf("write init script: %w", err)
 		}
