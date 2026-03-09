@@ -84,7 +84,7 @@ func newCreateCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&provider, "provider", "claude", "Agent type (claude, codex, gemini, shell)")
 	cmd.Flags().StringVar(&src, "src", "", "Source: local path or git URL/shorthand (defaults to current directory)")
-	cmd.Flags().BoolVar(&yolo, "yolo", false, "Enable auto-approve")
+	cmd.Flags().BoolVar(&yolo, "yolo", true, "Auto-approve tool calls (use --yolo=false to disable)")
 	cmd.Flags().StringVar(&profile, "profile", "", "Profile name for lifecycle hooks")
 
 	return cmd

@@ -31,17 +31,18 @@ func generateHookSourceBlock(hookPaths []string) string {
 }
 
 // GenerateInitScript returns a bash init script that shows the Argus banner,
-// configures tmux, sources any post_create hooks, and runs the agent command.
-func GenerateInitScript(agentCommand string, hookPaths []string) string {
+// sources any post_create hooks, runs the agent command, and captures the
+// provider session ID on exit. argusBin is the absolute path to the argus
+// binary used for the post-exit set-provider-id call; if empty, falls back
+// to "argus" on PATH.
+func GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin string, hookPaths []string) string {
 	hookBlock := generateHookSourceBlock(hookPaths)
 	hookSection := ""
 	if hookBlock != "" {
 		hookSection = "\n" + hookBlock
 	}
 
-	// Use fmt.Sprintf with double-quoted Go string since the script contains backticks
-	// that would conflict with Go raw string literals.
-	return "#!/bin/bash\n" +
+	script := "#!/bin/bash\n" +
 		"# Argus Session Init Script\n" +
 		"# Auto-generated - do not edit manually\n" +
 		"\n" +
@@ -73,8 +74,26 @@ func GenerateInitScript(agentCommand string, hookPaths []string) string {
 		"export PATH=\"$HOME/.local/bin:$PATH\"\n" +
 		hookSection +
 		"\n" +
-		"# Start the agent\n" +
-		"exec " + agentCommand + "\n"
+		"# Start the agent (no exec — script continues after exit)\n" +
+		agentCommand + "\n"
+
+	// If the provider supports session ID capture, add post-exit logic
+	if sessionIDPattern != "" {
+		bin := argusBin
+		if bin == "" {
+			bin = "argus"
+		}
+		script += "\n" +
+			"# Capture provider session ID from terminal output\n" +
+			"PANE_CONTENT=$(tmux capture-pane -p -S -100 2>/dev/null)\n" +
+			"PROVIDER_ID=$(echo \"$PANE_CONTENT\" | sed -nE 's/.*" + sessionIDPattern + ".*/\\1/p' | tail -1)\n" +
+			"\n" +
+			"if [ -n \"$PROVIDER_ID\" ]; then\n" +
+			"  '" + bin + "' internal session set-provider-id '" + sessionID + "' \"$PROVIDER_ID\"\n" +
+			"fi\n"
+	}
+
+	return script
 }
 
 // GenerateShellInitScript returns a bash init script that sources post_create
@@ -100,8 +119,9 @@ func GenerateShellInitScript(hookPaths []string) string {
 
 // WriteInitScript writes the init script to a temp file and returns the path.
 // The sessionID is used to make the filename unique across concurrent calls.
-func WriteInitScript(sessionID, agentCommand string, hookPaths []string) (string, error) {
-	content := GenerateInitScript(agentCommand, hookPaths)
+func WriteInitScript(sessionID, agentCommand, sessionIDPattern string, hookPaths []string) (string, error) {
+	argusBin, _ := os.Executable()
+	content := GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin, hookPaths)
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("argus-init-%s.sh", sessionID))
 	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
 		return "", fmt.Errorf("write init script: %w", err)

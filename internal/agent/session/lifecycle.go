@@ -11,9 +11,9 @@ import (
 
 	"github.com/bxnlabs/argus/internal/agent/db"
 	"github.com/bxnlabs/argus/internal/agent/provider"
-	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
 
@@ -156,7 +156,8 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 
 	var tmuxCmd string
 	if agentCmd != "" {
-		scriptPath, err := WriteInitScript(sessionID, agentCmd, postCreatePaths)
+		pattern := provider.GetSessionIDPattern(provider.AgentType(opts.AgentType))
+		scriptPath, err := WriteInitScript(sessionID, agentCmd, pattern, postCreatePaths)
 		if err != nil {
 			return nil, fmt.Errorf("write init script: %w", err)
 		}
@@ -389,9 +390,10 @@ func (m *Manager) Rename(id, newName string) error {
 		return fmt.Errorf("%w: %s", db.ErrNotFound, id)
 	}
 
-	return m.db.UpdateSession(id, db.SessionUpdate{
+	_, err = m.db.UpdateSession(id, db.SessionUpdate{
 		Name: &newName,
 	})
+	return err
 }
 
 // Get returns a session by ID.
@@ -482,7 +484,8 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 
 	var tmuxCmd string
 	if agentCmd != "" {
-		scriptPath, err := WriteInitScript(session.ID, agentCmd, postCreatePaths)
+		pattern := provider.GetSessionIDPattern(provider.AgentType(session.AgentType))
+		scriptPath, err := WriteInitScript(session.ID, agentCmd, pattern, postCreatePaths)
 		if err != nil {
 			return "", fmt.Errorf("write init script: %w", err)
 		}
@@ -517,8 +520,8 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 	return tmuxName, nil
 }
 
-// Update updates session fields.
-func (m *Manager) Update(id string, u db.SessionUpdate) error {
+// Update updates session fields and returns the updated session.
+func (m *Manager) Update(id string, u db.SessionUpdate) (*db.Session, error) {
 	return m.db.UpdateSession(id, u)
 }
 

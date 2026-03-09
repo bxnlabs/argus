@@ -90,31 +90,25 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var body struct {
-		Name *string `json:"name"`
+		Name              *string `json:"name"`
+		ProviderSessionID *string `json:"provider_session_id"`
 	}
 	if err := parseBody(w, r, &body); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if body.Name != nil {
-		if err := h.manager.Rename(id, *body.Name); err != nil {
-			if errors.Is(err, db.ErrNotFound) {
-				respondError(w, http.StatusNotFound, "session not found")
-				return
-			}
-			respondInternalError(w, err)
+	update := db.SessionUpdate{
+		Name:              body.Name,
+		ProviderSessionID: body.ProviderSessionID,
+	}
+	session, err := h.manager.Update(id, update)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			respondError(w, http.StatusNotFound, "session not found")
 			return
 		}
-	}
-
-	session, err := h.manager.Get(id)
-	if err != nil {
 		respondInternalError(w, err)
-		return
-	}
-	if session == nil {
-		respondError(w, http.StatusNotFound, "session not found")
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"session": session})
