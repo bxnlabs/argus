@@ -35,6 +35,7 @@ export interface CreateSessionParams {
   agent_type: AgentType;
   source?: string;
   auto_approve?: boolean;
+  profile?: string;
 }
 
 // File system types (matches internal/agent/files/types.go)

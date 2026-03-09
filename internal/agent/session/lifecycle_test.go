@@ -289,6 +289,75 @@ func TestDeleteForceBypassesDirtyCheck(t *testing.T) {
 	}
 }
 
+func TestListProfiles(t *testing.T) {
+	stateDir := t.TempDir()
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	// No profiles directory — should return empty slice, no error
+	profiles, err := mgr.ListProfiles()
+	if err != nil {
+		t.Fatalf("ListProfiles (no dir): %v", err)
+	}
+	if len(profiles) != 0 {
+		t.Errorf("expected empty profiles, got %v", profiles)
+	}
+
+	// Empty profiles directory — should return empty slice (not nil)
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles"))
+	profiles, err = mgr.ListProfiles()
+	if err != nil {
+		t.Fatalf("ListProfiles (empty dir): %v", err)
+	}
+	if profiles == nil {
+		t.Error("expected non-nil empty slice, got nil")
+	}
+	if len(profiles) != 0 {
+		t.Errorf("expected empty profiles, got %v", profiles)
+	}
+
+	// Create profiles directory with valid and invalid entries
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "work", "hooks"))
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "default", "hooks"))
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "has space", "hooks"))  // invalid name
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "..evil", "hooks"))     // invalid name
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "no-hooks-dir"))        // no hooks/ subdir
+	mustWriteFile(t, filepath.Join(stateDir, "profiles", "a-file"), []byte("not a dir"), 0644)
+
+	profiles, err = mgr.ListProfiles()
+	if err != nil {
+		t.Fatalf("ListProfiles: %v", err)
+	}
+
+	// Should only contain valid profile names with hooks/ subdirs
+	want := map[string]bool{"work": true, "default": true}
+	got := map[string]bool{}
+	for _, p := range profiles {
+		got[p] = true
+	}
+	if len(got) != len(want) {
+		t.Errorf("expected profiles %v, got %v", want, got)
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("missing expected profile %q in %v", name, profiles)
+		}
+	}
+	// Verify invalid names are excluded
+	for _, p := range profiles {
+		if p == "has space" || p == "..evil" || p == "no-hooks-dir" || p == "a-file" {
+			t.Errorf("unexpected profile %q should have been filtered", p)
+		}
+	}
+}
+
 func TestResolveSourceToCWD_AgentCreatesWorktree(t *testing.T) {
 	gitRoot := initTestGitRepo(t)
 	stateDir := t.TempDir()

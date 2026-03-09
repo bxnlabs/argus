@@ -114,6 +114,16 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"session": session})
 }
 
+// GET /api/profiles
+func (h *sessionHandler) listProfiles(w http.ResponseWriter, r *http.Request) {
+	profiles, err := h.manager.ListProfiles()
+	if err != nil {
+		respondInternalError(w, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"profiles": profiles})
+}
+
 // DELETE /api/sessions/{id}
 func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

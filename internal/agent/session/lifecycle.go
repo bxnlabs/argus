@@ -406,6 +406,41 @@ func (m *Manager) List(ctx context.Context) ([]*db.Session, error) {
 	return m.db.ListSessions(ctx)
 }
 
+// ListProfiles returns the names of all profile directories that contain
+// a hooks/ subdirectory under {stateDir}/profiles/.
+func (m *Manager) ListProfiles() ([]string, error) {
+	profilesDir := filepath.Join(m.stateDir, "profiles")
+	entries, err := os.ReadDir(profilesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("read profiles dir: %w", err)
+	}
+	names := make([]string, 0)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if ValidateProfileName(name) != nil {
+			continue
+		}
+		hooksDir := filepath.Join(profilesDir, name, "hooks")
+		info, statErr := os.Stat(hooksDir)
+		if statErr != nil {
+			if !os.IsNotExist(statErr) {
+				log.Printf("ListProfiles: stat %s: %v", hooksDir, statErr)
+			}
+			continue
+		}
+		if info.IsDir() {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
 // getSession looks up a session by ID and checks whether its tmux
 // process is still alive. Returns ErrNotFound if the session doesn't exist
 // in the database. The alive flag indicates whether the tmux session is running.
