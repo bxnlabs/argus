@@ -463,13 +463,29 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 		return "", fmt.Errorf("build command: %w", err)
 	}
 
+	// Resolve post_create hooks if session has a profile
+	var postCreatePaths []string
+	profileName := ptrStr(session.Profile)
+	if profileName != "" {
+		projectKey := ProjectKeyForSession(session)
+		postCreatePaths = m.hooks.ResolvePostCreateHookPaths(profileName, projectKey)
+	}
+
 	var tmuxCmd string
 	if agentCmd != "" {
-		scriptPath, err := WriteInitScript(session.ID, agentCmd, nil)
+		scriptPath, err := WriteInitScript(session.ID, agentCmd, postCreatePaths)
 		if err != nil {
 			return "", fmt.Errorf("write init script: %w", err)
 		}
 		tmuxCmd = "bash " + scriptPath
+	} else if len(postCreatePaths) > 0 {
+		scriptPath, err := WriteShellInitScript(session.ID, postCreatePaths)
+		if err != nil {
+			return "", fmt.Errorf("write shell init script: %w", err)
+		}
+		if scriptPath != "" {
+			tmuxCmd = "bash " + scriptPath
+		}
 	}
 
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
