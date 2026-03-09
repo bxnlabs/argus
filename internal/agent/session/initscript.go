@@ -8,7 +8,9 @@ import (
 
 // GenerateInitScript returns a bash init script that shows the Argus banner,
 // runs the agent command, and captures the provider session ID on exit.
-func GenerateInitScript(sessionID, agentCommand, sessionIDPattern string) string {
+// argusBin is the absolute path to the argus binary used for the post-exit
+// set-provider-id call; if empty, falls back to "argus" on PATH.
+func GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin string) string {
 	script := "#!/bin/bash\n" +
 		"# Argus Session Init Script\n" +
 		"# Auto-generated - do not edit manually\n" +
@@ -45,13 +47,17 @@ func GenerateInitScript(sessionID, agentCommand, sessionIDPattern string) string
 
 	// If the provider supports session ID capture, add post-exit logic
 	if sessionIDPattern != "" {
+		bin := argusBin
+		if bin == "" {
+			bin = "argus"
+		}
 		script += "\n" +
 			"# Capture provider session ID from terminal output\n" +
 			"PANE_CONTENT=$(tmux capture-pane -p -S -100 2>/dev/null)\n" +
 			"PROVIDER_ID=$(echo \"$PANE_CONTENT\" | sed -nE 's/.*" + sessionIDPattern + ".*/\\1/p' | tail -1)\n" +
 			"\n" +
 			"if [ -n \"$PROVIDER_ID\" ]; then\n" +
-			"  argus internal session set-provider-id '" + sessionID + "' \"$PROVIDER_ID\" 2>/dev/null\n" +
+			"  '" + bin + "' internal session set-provider-id '" + sessionID + "' \"$PROVIDER_ID\"\n" +
 			"fi\n"
 	}
 
@@ -61,7 +67,8 @@ func GenerateInitScript(sessionID, agentCommand, sessionIDPattern string) string
 // WriteInitScript writes the init script to a temp file and returns the path.
 // The sessionID is used to make the filename unique across concurrent calls.
 func WriteInitScript(sessionID, agentCommand, sessionIDPattern string) (string, error) {
-	content := GenerateInitScript(sessionID, agentCommand, sessionIDPattern)
+	argusBin, _ := os.Executable()
+	content := GenerateInitScript(sessionID, agentCommand, sessionIDPattern, argusBin)
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("argus-init-%s.sh", sessionID))
 	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
 		return "", fmt.Errorf("write init script: %w", err)

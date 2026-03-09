@@ -98,14 +98,14 @@ func TestUpdateSession(t *testing.T) {
 
 	newName := "renamed"
 	newTmux := "claude-renamed"
-	if err := db.UpdateSession("s1", SessionUpdate{
+	got, err := db.UpdateSession("s1", SessionUpdate{
 		Name:     &newName,
 		TmuxName: &newTmux,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, _ := db.GetSession("s1")
 	if got.Name != "renamed" {
 		t.Errorf("name = %q, want %q", got.Name, "renamed")
 	}
@@ -117,9 +117,50 @@ func TestUpdateSession(t *testing.T) {
 func TestUpdateSessionNotFound(t *testing.T) {
 	db := testDB(t)
 	name := "x"
-	err := db.UpdateSession("missing", SessionUpdate{Name: &name})
+	_, err := db.UpdateSession("missing", SessionUpdate{Name: &name})
 	if err == nil {
 		t.Fatal("expected error for missing session")
+	}
+}
+
+func TestUpdateSessionProviderSessionID(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "~", AgentType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Initially nil
+	s, _ := db.GetSession("s1")
+	if s.ProviderSessionID != nil {
+		t.Fatal("expected nil provider_session_id initially")
+	}
+
+	// Set it
+	pid := "e9ed7eb1-5fa8-40ca-b718-bc747ea4e38e"
+	got, err := db.UpdateSession("s1", SessionUpdate{
+		ProviderSessionID: &pid,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProviderSessionID == nil || *got.ProviderSessionID != pid {
+		t.Errorf("provider_session_id = %v, want %q", got.ProviderSessionID, pid)
+	}
+
+	// Overwrite with a new value
+	pid2 := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	got2, err := db.UpdateSession("s1", SessionUpdate{
+		ProviderSessionID: &pid2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.ProviderSessionID == nil || *got2.ProviderSessionID != pid2 {
+		t.Errorf("provider_session_id = %v, want %q", got2.ProviderSessionID, pid2)
 	}
 }
 

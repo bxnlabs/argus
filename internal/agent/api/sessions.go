@@ -102,22 +102,13 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 		Name:              body.Name,
 		ProviderSessionID: body.ProviderSessionID,
 	}
-	if err := h.manager.Update(id, update); err != nil {
+	session, err := h.manager.Update(id, update)
+	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
 			return
 		}
 		respondInternalError(w, err)
-		return
-	}
-
-	session, err := h.manager.Get(id)
-	if err != nil {
-		respondInternalError(w, err)
-		return
-	}
-	if session == nil {
-		respondError(w, http.StatusNotFound, "session not found")
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"session": session})

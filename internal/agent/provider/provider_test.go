@@ -155,6 +155,60 @@ func TestGetSessionIDPattern(t *testing.T) {
 	}
 }
 
+func TestSessionIDPatternExtraction(t *testing.T) {
+	tests := []struct {
+		name   string
+		agent  AgentType
+		output string
+		wantID string
+	}{
+		{
+			name:  "claude exit output",
+			agent: AgentClaude,
+			output: `╭──────────────────────────────────────────╮
+│ Session: abc123                          │
+│ Cost: $0.15                              │
+╰──────────────────────────────────────────╯
+ To resume this conversation, run:
+  claude --resume e9ed7eb1-5fa8-40ca-b718-bc747ea4e38e`,
+			wantID: "e9ed7eb1-5fa8-40ca-b718-bc747ea4e38e",
+		},
+		{
+			name:  "codex exit output",
+			agent: AgentCodex,
+			output: `Session complete. To resume:
+  codex resume 019cd28b-37cd-70e3-9492-4e9281813547`,
+			wantID: "019cd28b-37cd-70e3-9492-4e9281813547",
+		},
+		{
+			name:  "gemini exit output",
+			agent: AgentGemini,
+			output: `Goodbye!
+Session ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890`,
+			wantID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		},
+		{
+			name:   "no match in output",
+			agent:  AgentClaude,
+			output: "Some random output without a session ID",
+			wantID: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pattern := GetSessionIDPattern(tt.agent)
+			if pattern == "" {
+				t.Fatal("expected non-empty pattern")
+			}
+			got := extractSessionID(pattern, tt.output)
+			if got != tt.wantID {
+				t.Errorf("extractSessionID() = %q, want %q", got, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestShellEscapeEdgeCases(t *testing.T) {
 	tests := []struct {
 		name  string

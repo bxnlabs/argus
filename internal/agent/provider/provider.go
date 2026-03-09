@@ -1,6 +1,9 @@
 package provider
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
 
 // AgentType identifies a supported agent provider.
 type AgentType string
@@ -100,6 +103,24 @@ func GetSessionIDPattern(id AgentType) string {
 		return ""
 	}
 	return p.SessionIDPattern
+}
+
+// extractSessionID applies a provider's SessionIDPattern regex to terminal
+// output and returns the last captured session ID, or empty string if no match.
+func extractSessionID(pattern, output string) string {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return ""
+	}
+	matches := re.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	last := matches[len(matches)-1]
+	if len(last) < 2 {
+		return ""
+	}
+	return last[1]
 }
 
 func shellEscape(s string) string {
