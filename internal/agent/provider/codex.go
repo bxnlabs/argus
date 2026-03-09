@@ -8,6 +8,7 @@ func init() {
 		AutoApproveFlag: "--approval-mode full-auto",
 		SupportsResume:  true,
 		ResumeArg:       "resume",
-		ModelFlag:       "--model",
+		ModelFlag:        "--model",
+		SessionIDPattern: `codex resume ([0-9a-f-]+)`,
 	})
 }

@@ -132,6 +132,29 @@ func TestBuildCommandEscapesModelAndSessionID(t *testing.T) {
 	}
 }
 
+func TestGetSessionIDPattern(t *testing.T) {
+	tests := []struct {
+		agent   AgentType
+		wantSet bool
+	}{
+		{AgentClaude, true},
+		{AgentCodex, true},
+		{AgentGemini, true},
+		{AgentShell, false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.agent), func(t *testing.T) {
+			pat := GetSessionIDPattern(tt.agent)
+			if tt.wantSet && pat == "" {
+				t.Errorf("expected pattern for %s", tt.agent)
+			}
+			if !tt.wantSet && pat != "" {
+				t.Errorf("unexpected pattern for %s: %s", tt.agent, pat)
+			}
+		})
+	}
+}
+
 func TestShellEscapeEdgeCases(t *testing.T) {
 	tests := []struct {
 		name  string

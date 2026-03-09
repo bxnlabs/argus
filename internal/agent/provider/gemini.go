@@ -8,6 +8,7 @@ func init() {
 		AutoApproveFlag: "--yolomode",
 		SupportsResume:  true,
 		ResumeArg:       "--resume",
-		ModelFlag:       "-m",
+		ModelFlag:        "-m",
+		SessionIDPattern: `Session ID:[[:space:]]+([0-9a-f-]+)`,
 	})
 }

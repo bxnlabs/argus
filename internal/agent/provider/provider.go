@@ -14,13 +14,14 @@ const (
 
 // Provider defines an AI coding agent CLI.
 type Provider struct {
-	ID              AgentType
-	Name            string
-	CLI             string // command name (e.g. "claude")
-	AutoApproveFlag string // flag to skip permission prompts
-	SupportsResume  bool
-	ResumeArg       string
-	ModelFlag       string
+	ID               AgentType
+	Name             string
+	CLI              string // command name (e.g. "claude")
+	AutoApproveFlag  string // flag to skip permission prompts
+	SupportsResume   bool
+	ResumeArg        string
+	ModelFlag        string
+	SessionIDPattern string // regex with one capture group for extracting session ID from terminal output
 }
 
 // BuildCommandOptions are the options for building a CLI command string.
@@ -89,6 +90,16 @@ func BuildCommand(id AgentType, opts BuildCommandOptions) (string, error) {
 	}
 
 	return cmd, nil
+}
+
+// GetSessionIDPattern returns the session ID extraction regex for a provider.
+// Returns empty string for providers that don't support resume.
+func GetSessionIDPattern(id AgentType) string {
+	p, ok := providers[id]
+	if !ok || !p.SupportsResume {
+		return ""
+	}
+	return p.SessionIDPattern
 }
 
 func shellEscape(s string) string {
