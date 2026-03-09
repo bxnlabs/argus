@@ -136,14 +136,13 @@ export function NewSessionDialog({
               <div className="space-y-2">
                 <label className="text-sm font-medium">Profile</label>
                 <Select
-                  value={profile}
-                  onValueChange={(v) => setProfile(v === "." ? "" : v)}
+                  value={profile || undefined}
+                  onValueChange={setProfile}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Default" />
+                    <SelectValue placeholder="Select a profile..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value=".">Default</SelectItem>
                     {profiles.map((p) => (
                       <SelectItem key={p} value={p}>
                         {p}
