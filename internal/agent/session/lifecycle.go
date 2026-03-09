@@ -114,7 +114,8 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// For agent sessions, wrap with init script
 	var tmuxCmd string
 	if agentCmd != "" {
-		scriptPath, err := WriteInitScript(sessionID, agentCmd)
+		pattern := provider.GetSessionIDPattern(provider.AgentType(opts.AgentType))
+		scriptPath, err := WriteInitScript(sessionID, agentCmd, pattern)
 		if err != nil {
 			return nil, fmt.Errorf("write init script: %w", err)
 		}
@@ -390,7 +391,8 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 
 	var tmuxCmd string
 	if agentCmd != "" {
-		scriptPath, err := WriteInitScript(session.ID, agentCmd)
+		pattern := provider.GetSessionIDPattern(provider.AgentType(session.AgentType))
+		scriptPath, err := WriteInitScript(session.ID, agentCmd, pattern)
 		if err != nil {
 			return "", fmt.Errorf("write init script: %w", err)
 		}
