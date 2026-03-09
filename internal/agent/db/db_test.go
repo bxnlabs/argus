@@ -246,6 +246,48 @@ func TestSessionAutoApprove(t *testing.T) {
 	}
 }
 
+func TestSessionProfile(t *testing.T) {
+	db := testDB(t)
+
+	profile := "work"
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "profiled", TmuxName: "claude-s1",
+		WorkingDirectory: "~", AgentType: "claude", Profile: &profile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := db.GetSession("s1")
+	if got.Profile == nil || *got.Profile != "work" {
+		t.Errorf("expected profile %q, got %v", "work", got.Profile)
+	}
+}
+
+func TestSessionProfileNull(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "legacy", TmuxName: "claude-s1",
+		WorkingDirectory: "~", AgentType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := db.GetSession("s1")
+	if got.Profile != nil {
+		t.Errorf("expected nil profile, got %v", got.Profile)
+	}
+}
+
+func TestMigrationAddProfile(t *testing.T) {
+	db := testDB(t)
+
+	// Running migrations a second time should not error (idempotent)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatalf("re-run migrations: %v", err)
+	}
+}
+
 func TestSessionNullableFields(t *testing.T) {
 	db := testDB(t)
 
