@@ -1,5 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { toast } from "sonner";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import {
   GitBranch,
   RefreshCw,
@@ -15,19 +14,18 @@ import { FileChanges } from "./FileChanges";
 import { GitPanelTabs, type GitTab } from "./GitPanelTabs";
 import { CommitHistory } from "./CommitHistory";
 import { CompareView } from "./CompareView";
-import { DiffView } from "@/components/DiffViewer";
+import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
+import {
+  parseMultiFileDiff,
+  getDiffFileName,
+  getDiffPathKey,
+} from "@/lib/diff-parser";
 import { useViewport } from "@/hooks/useViewport";
-import { useGitStatusQuery } from "@/data/git";
-import { apiFetch } from "@/api/client";
+import { useGitStatusQuery, useWorkingDiffQuery } from "@/data/git";
 import type { GitFile } from "@/types";
 
 interface GitPanelProps {
   workingDirectory: string;
-}
-
-interface SelectedFile {
-  file: GitFile;
-  diff: string;
 }
 
 export function GitPanel({ workingDirectory }: GitPanelProps) {
@@ -43,30 +41,57 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     refetch,
   } = useGitStatusQuery(workingDirectory);
 
-  // Selected file for diff view
-  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
-  const [loadingDiff, setLoadingDiff] = useState(false);
-  const fetchIdRef = useRef(0);
+  // Working-tree diff (full stacked diff for all changes)
+  const {
+    data: workingDiffData,
+    isLoading: loadingDiff,
+    isError: isDiffError,
+    error: diffError,
+    refetch: refetchDiff,
+  } = useWorkingDiffQuery(workingDirectory, {
+    enabled: activeTab === "changes",
+  });
 
-  // Clear selected file when working directory changes (e.g. session switch)
+  const parsedDiffs = useMemo(() => {
+    if (!workingDiffData?.diff) return [];
+    return parseMultiFileDiff(workingDiffData.diff);
+  }, [workingDiffData?.diff]);
+
+  // Scroll-to-file state
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
+
+  const setDiffRef = useCallback(
+    (path: string) => (el: HTMLDivElement | null) => {
+      if (el) {
+        diffRefs.current.set(path, el);
+      } else {
+        diffRefs.current.delete(path);
+      }
+    },
+    [],
+  );
+
+  // Clear state when working directory changes
   useEffect(() => {
-    setSelectedFile(null);
-    setLoadingDiff(false);
-    fetchIdRef.current++;
+    setSelectedPath(null);
+    setMobileShowDiffs(false);
+    diffRefs.current.clear();
   }, [workingDirectory]);
 
-  // Clear selected file when it's no longer present in the current status
+  // Clear stale selection when file disappears from status
   useEffect(() => {
-    if (!selectedFile || !status) return;
-    const allFiles = [...status.staged, ...status.unstaged, ...status.untracked];
-    if (
-      !allFiles.some(
-        (f) => f.path === selectedFile.file.path && f.staged === selectedFile.file.staged,
-      )
-    ) {
-      setSelectedFile(null);
+    if (!selectedPath || !status) return;
+    const allPaths = new Set([
+      ...status.staged.map((f: GitFile) => f.path),
+      ...status.unstaged.map((f: GitFile) => f.path),
+      ...status.untracked.map((f: GitFile) => f.path),
+    ]);
+    if (!allPaths.has(selectedPath)) {
+      setSelectedPath(null);
     }
-  }, [status, selectedFile]);
+  }, [selectedPath, status]);
 
   // Resizable panel state (desktop)
   const [listWidth, setListWidth] = useState(400);
@@ -75,36 +100,35 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
 
   const handleRefresh = async () => {
     await refetch();
-  };
-
-  const handleFileClick = async (file: GitFile) => {
-    const thisFetch = ++fetchIdRef.current;
-    setLoadingDiff(true);
-    try {
-      const isUntracked = file.status === "untracked";
-      const params = new URLSearchParams({
-        path: workingDirectory,
-        file: file.path,
-        staged: file.staged.toString(),
-        ...(isUntracked && { untracked: "true" }),
-      });
-
-      const data = await apiFetch<{ diff: string }>(
-        `/agent/api/git/diff?${params}`,
-      );
-      if (thisFetch !== fetchIdRef.current) return;
-      if (data.diff !== undefined) {
-        setSelectedFile({ file, diff: data.diff });
-      }
-    } catch {
-      if (thisFetch !== fetchIdRef.current) return;
-      toast.error("Failed to load diff");
-    } finally {
-      if (thisFetch === fetchIdRef.current) {
-        setLoadingDiff(false);
-      }
+    if (activeTab === "changes") {
+      refetchDiff();
     }
   };
+
+  const handleFileClick = useCallback(
+    (file: GitFile) => {
+      setSelectedPath(file.path);
+      if (isMobile) {
+        setMobileShowDiffs(true);
+      } else {
+        const el = diffRefs.current.get(file.path);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+    },
+    [isMobile],
+  );
+
+  // Scroll to selected file once diffs are rendered (mobile + desktop fallback)
+  useEffect(() => {
+    if (!selectedPath) return;
+    if (isMobile && !mobileShowDiffs) return;
+    const el = diffRefs.current.get(selectedPath);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedPath, parsedDiffs, isMobile, mobileShowDiffs]);
 
   // Resize handle for desktop
   const handleMouseMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
@@ -156,7 +180,13 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   if (loading) {
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <Header branch="" ahead={0} behind={0} onRefresh={handleRefresh} refreshing={false} />
+        <Header
+          branch=""
+          ahead={0}
+          behind={0}
+          onRefresh={handleRefresh}
+          refreshing={false}
+        />
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
         </div>
@@ -167,7 +197,13 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   if (isError) {
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <Header branch="" ahead={0} behind={0} onRefresh={handleRefresh} refreshing={isRefetching} />
+        <Header
+          branch=""
+          ahead={0}
+          behind={0}
+          onRefresh={handleRefresh}
+          refreshing={isRefetching}
+        />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
           <AlertCircle className="text-muted-foreground mb-2 h-8 w-8" />
           <p className="text-muted-foreground text-center text-sm">
@@ -196,6 +232,20 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       />
       <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
     </>
+  );
+
+  const stackedDiffs = (
+    <div className="space-y-3 p-3">
+      {parsedDiffs.map((diff) => {
+        const pathKey = getDiffPathKey(diff);
+        const fileName = getDiffFileName(diff);
+        return (
+          <div key={pathKey} ref={setDiffRef(pathKey)}>
+            <UnifiedDiff diff={diff} fileName={fileName} expanded />
+          </div>
+        );
+      })}
+    </div>
   );
 
   // --- Mobile layout ---
@@ -228,7 +278,10 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
                   onRefresh={handleRefresh}
                   refreshing={isRefetching}
                 />
-                <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
+                <GitPanelTabs
+                  activeTab={activeTab}
+                  onTabChange={setActiveTab}
+                />
               </>
             }
           />
@@ -236,34 +289,50 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       );
     }
 
-    // Diff view when file is selected
-    if (selectedFile) {
+    // Changes tab: full-screen stacked diff view when user taps a file
+    if (mobileShowDiffs) {
       return (
         <div className="bg-background flex h-full w-full flex-col">
           <div className="bg-muted/30 flex items-center gap-2 p-2">
-            <Button variant="ghost" size="icon-sm" onClick={() => setSelectedFile(null)}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setMobileShowDiffs(false)}
+              aria-label="Back to file list"
+            >
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                {selectedFile.file.path}
-              </p>
+              <p className="truncate text-sm font-medium">Working Changes</p>
+              {workingDiffData && (
+                <p className="text-muted-foreground text-xs">
+                  {workingDiffData.files.length} file
+                  {workingDiffData.files.length !== 1 ? "s" : ""} changed
+                </p>
+              )}
             </div>
           </div>
-          <div className="safe-area-bottom flex-1 overflow-auto p-3">
+          <div className="safe-area-bottom flex-1 overflow-auto">
             {loadingDiff ? (
               <div className="flex h-32 items-center justify-center">
                 <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
               </div>
+            ) : isDiffError ? (
+              <div className="flex h-32 flex-col items-center justify-center p-4">
+                <AlertCircle className="text-muted-foreground mb-2 h-6 w-6" />
+                <p className="text-muted-foreground text-center text-sm">
+                  {diffError?.message ?? "Failed to load diff"}
+                </p>
+              </div>
             ) : (
-              <DiffView diff={selectedFile.diff} fileName={selectedFile.file.path} />
+              stackedDiffs
             )}
           </div>
         </div>
       );
     }
 
-    // File list (Changes tab)
+    // Changes tab: file list (default mobile)
     return (
       <div className="bg-background flex h-full w-full flex-col">
         <Header
@@ -285,6 +354,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
                 <FileChanges
                   files={status.staged}
                   title="Staged Changes"
+                  selectedPath={selectedPath ?? undefined}
                   onFileClick={handleFileClick}
                 />
               )}
@@ -292,6 +362,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
                 <FileChanges
                   files={status.unstaged}
                   title="Changes"
+                  selectedPath={selectedPath ?? undefined}
                   onFileClick={handleFileClick}
                 />
               )}
@@ -299,6 +370,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
                 <FileChanges
                   files={status.untracked}
                   title="Untracked Files"
+                  selectedPath={selectedPath ?? undefined}
                   onFileClick={handleFileClick}
                 />
               )}
@@ -351,7 +423,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     );
   }
 
-  // Changes tab: side-by-side
+  // Changes tab: side-by-side with stacked diffs
   return (
     <div ref={containerRef} className="bg-background flex h-full w-full flex-col">
       <div className="flex min-h-0 flex-1">
@@ -377,7 +449,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
                   <FileChanges
                     files={status.staged}
                     title="Staged Changes"
-                    selectedPath={selectedFile?.file.path}
+                    selectedPath={selectedPath ?? undefined}
                     onFileClick={handleFileClick}
                   />
                 )}
@@ -385,7 +457,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
                   <FileChanges
                     files={status.unstaged}
                     title="Changes"
-                    selectedPath={selectedFile?.file.path}
+                    selectedPath={selectedPath ?? undefined}
                     onFileClick={handleFileClick}
                   />
                 )}
@@ -393,7 +465,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
                   <FileChanges
                     files={status.untracked}
                     title="Untracked Files"
-                    selectedPath={selectedFile?.file.path}
+                    selectedPath={selectedPath ?? undefined}
                     onFileClick={handleFileClick}
                   />
                 )}
@@ -408,28 +480,29 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
           onMouseDown={handleMouseDown}
         />
 
-        {/* Right panel - diff viewer */}
+        {/* Right panel - stacked diffs */}
         <div className="bg-muted/20 flex h-full min-w-0 flex-1 flex-col">
           {loadingDiff ? (
             <div className="flex flex-1 items-center justify-center">
               <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
             </div>
-          ) : selectedFile ? (
-            <>
-              <div className="bg-background/50 flex items-center gap-2 p-3">
-                <FileCode className="text-muted-foreground h-4 w-4" />
-                <span className="flex-1 truncate text-sm font-medium">
-                  {selectedFile.file.path}
-                </span>
-              </div>
-              <div className="flex-1 overflow-auto p-3">
-                <DiffView diff={selectedFile.diff} fileName={selectedFile.file.path} />
-              </div>
-            </>
+          ) : isDiffError ? (
+            <div className="flex flex-1 flex-col items-center justify-center p-4">
+              <AlertCircle className="text-muted-foreground mb-2 h-8 w-8" />
+              <p className="text-muted-foreground text-center text-sm">
+                {diffError?.message ?? "Failed to load diff"}
+              </p>
+            </div>
+          ) : parsedDiffs.length > 0 ? (
+            <div className="flex-1 overflow-auto">{stackedDiffs}</div>
           ) : (
             <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center">
               <FileCode className="mb-4 h-12 w-12 opacity-50" />
-              <p className="text-sm">Select a file to view diff</p>
+              <p className="text-sm">
+                {hasChanges
+                  ? "Loading changes..."
+                  : "No changes to display"}
+              </p>
             </div>
           )}
         </div>
