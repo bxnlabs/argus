@@ -303,9 +303,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                {selectedPath ?? "Working Changes"}
-              </p>
+              <p className="truncate text-sm font-medium">Working Changes</p>
               {workingDiffData && (
                 <p className="text-muted-foreground text-xs">
                   {workingDiffData.files.length} file
