@@ -36,8 +36,9 @@ func GetStatus(dir string) (*GitStatus, error) {
 		}
 	}
 
-	// Get porcelain status
-	out, err := runGit(ctx, dir, defaultMaxBuffer, "status", "--porcelain=v1")
+	// Get porcelain status. -uall enumerates individual files inside untracked
+	// directories rather than collapsing them to a single directory entry.
+	out, err := runGit(ctx, dir, defaultMaxBuffer, "status", "--porcelain=v1", "-uall")
 	if err != nil {
 		return nil, err
 	}

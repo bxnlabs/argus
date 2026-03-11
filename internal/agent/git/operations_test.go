@@ -1,7 +1,9 @@
 package git
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -75,6 +77,36 @@ func TestGetStatus(t *testing.T) {
 		}
 		if !hasUnstagedFile {
 			t.Errorf("expected initial.txt in unstaged list, got %+v", status.Unstaged)
+		}
+	})
+
+	t.Run("untracked directory shows individual files", func(t *testing.T) {
+		dir := initTestRepo(t)
+		commitFile(t, dir, "existing.txt", "hello", "initial commit")
+
+		if err := os.MkdirAll(filepath.Join(dir, "newdir", "sub"), 0755); err != nil {
+			t.Fatalf("failed to create test directory: %v", err)
+		}
+		writeTestFile(dir, "newdir/file1.txt", "content1")
+		writeTestFile(dir, "newdir/file2.txt", "content2")
+		writeTestFile(dir, "newdir/sub/deep.txt", "deep content")
+
+		status, err := GetStatus(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		paths := make(map[string]bool)
+		for _, f := range status.Untracked {
+			paths[f.Path] = true
+		}
+		for _, want := range []string{"newdir/file1.txt", "newdir/file2.txt", "newdir/sub/deep.txt"} {
+			if !paths[want] {
+				t.Errorf("expected untracked file %q, got paths: %v", want, paths)
+			}
+		}
+		if paths["newdir/"] {
+			t.Error("should not have bare directory entry newdir/")
 		}
 	})
 
