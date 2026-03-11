@@ -1,9 +1,8 @@
 import { useState } from "react";
 import {
-  File,
-  Edit3,
-  Plus,
-  Minus,
+  FileText,
+  FilePlus,
+  FileX,
   ArrowRight,
   ChevronRight,
 } from "lucide-react";
@@ -70,49 +69,45 @@ interface FileItemProps {
 }
 
 function FileItem({ file, isSelected, onClick }: FileItemProps) {
-  const statusIcon = getStatusIcon(file.status);
-  const statusColor = getStatusColor(file.status);
-  const fileName = file.path.split("/").pop() || file.path;
-  const filePath = file.path.includes("/")
-    ? file.path.slice(0, file.path.lastIndexOf("/"))
-    : "";
+  const StatusIcon = getStatusIcon(file.status);
 
   return (
     <button
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors",
-        "min-h-[44px]",
-        isSelected ? "bg-accent" : "hover:bg-accent/50",
+        "hover:bg-muted/70 flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors",
+        isSelected && "bg-primary/10 hover:bg-primary/20",
       )}
     >
-      <span className={cn("flex-shrink-0", statusColor)}>{statusIcon}</span>
-      <div className="min-w-0 flex-1 text-left">
-        <span className="block truncate">{fileName}</span>
-        {filePath && (
-          <span className="text-muted-foreground block truncate text-xs">
-            {filePath}
+      <StatusIcon
+        className={cn("h-4 w-4 flex-shrink-0", getStatusColor(file.status))}
+      />
+      <span className="flex-1 truncate text-sm">
+        {file.oldPath ? (
+          <span className="flex items-center gap-1">
+            <span className="text-muted-foreground">{file.oldPath}</span>
+            <ArrowRight className="h-3 w-3" />
+            <span>{file.path}</span>
           </span>
+        ) : (
+          file.path
         )}
-      </div>
-      <ArrowRight className="text-muted-foreground h-4 w-4 flex-shrink-0" />
+      </span>
     </button>
   );
 }
 
 function getStatusIcon(status: FileStatus) {
   switch (status) {
-    case "modified":
-      return <Edit3 className="h-4 w-4" />;
     case "added":
     case "untracked":
-      return <Plus className="h-4 w-4" />;
+      return FilePlus;
     case "deleted":
-      return <Minus className="h-4 w-4" />;
+      return FileX;
     case "renamed":
-      return <ArrowRight className="h-4 w-4" />;
+      return ArrowRight;
     default:
-      return <File className="h-4 w-4" />;
+      return FileText;
   }
 }
 
@@ -126,7 +121,7 @@ function getStatusColor(status: FileStatus): string {
     case "deleted":
       return "text-red-500";
     case "renamed":
-      return "text-blue-500";
+      return "text-yellow-500";
     default:
       return "text-muted-foreground";
   }
