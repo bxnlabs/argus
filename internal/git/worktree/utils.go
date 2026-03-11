@@ -50,3 +50,23 @@ func listWorktrees(repoDir string) ([]worktreeEntry, error) {
 	}
 	return entries, nil
 }
+
+// mainWorktreeBranch returns the branch checked out in the main working tree.
+// Returns empty string if the main worktree has a detached HEAD.
+func mainWorktreeBranch(repoDir string) (string, error) {
+	out, err := git.Output(repoDir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return "", fmt.Errorf("git worktree list: %w", err)
+	}
+
+	// The first entry in porcelain output is always the main working tree.
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			break // end of first entry
+		}
+		if strings.HasPrefix(line, "branch refs/heads/") {
+			return line[len("branch refs/heads/"):], nil
+		}
+	}
+	return "", nil
+}

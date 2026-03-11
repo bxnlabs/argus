@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/config"
@@ -255,34 +256,48 @@ func TestFindWorktreeFromWorktreeDir(t *testing.T) {
 }
 
 func TestCreateForLocalRepoReusesExistingWorktree(t *testing.T) {
-	gitRoot := initGitRepo(t)
-	stateDir := t.TempDir()
+	for _, tc := range []struct {
+		name   string
+		prefix string
+		want   string
+	}{
+		{"with prefix", "jeev", "jeev/my-feature"},
+		{"no prefix", "", "my-feature"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gitRoot := initGitRepo(t)
+			stateDir := t.TempDir()
 
-	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
+			mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: tc.prefix}})
 
-	// First creation
-	wtPath1, branch1, created1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
-	if err != nil {
-		t.Fatalf("first CreateForLocalRepo: %v", err)
-	}
-	if !created1 {
-		t.Error("expected created=true for first worktree")
-	}
+			// First creation
+			wtPath1, branch1, created1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+			if err != nil {
+				t.Fatalf("first CreateForLocalRepo: %v", err)
+			}
+			if branch1 != tc.want {
+				t.Fatalf("expected branch %q, got %q", tc.want, branch1)
+			}
+			if !created1 {
+				t.Error("expected created=true for first worktree")
+			}
 
-	// Second creation with same name — should reuse, not create "-2"
-	wtPath2, branch2, created2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
-	if err != nil {
-		t.Fatalf("second CreateForLocalRepo: %v", err)
-	}
+			// Second creation with same name — should reuse existing worktree.
+			wtPath2, branch2, created2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+			if err != nil {
+				t.Fatalf("second CreateForLocalRepo: %v", err)
+			}
 
-	if branch2 != branch1 {
-		t.Errorf("expected reused branch %q, got %q", branch1, branch2)
-	}
-	if created2 {
-		t.Error("expected created=false for reused worktree")
-	}
-	if realPath(t, wtPath2) != realPath(t, wtPath1) {
-		t.Errorf("expected reused path %q, got %q", realPath(t, wtPath1), realPath(t, wtPath2))
+			if branch2 != branch1 {
+				t.Errorf("expected reused branch %q, got %q", branch1, branch2)
+			}
+			if created2 {
+				t.Error("expected created=false for reused worktree")
+			}
+			if realPath(t, wtPath2) != realPath(t, wtPath1) {
+				t.Errorf("expected reused path %q, got %q", realPath(t, wtPath1), realPath(t, wtPath2))
+			}
+		})
 	}
 }
 
@@ -319,6 +334,80 @@ func TestFindWorktreeByPathMainWorktree(t *testing.T) {
 	}
 	if got != "" {
 		t.Errorf("FindWorktreeByPath on main = %q, want empty", got)
+	}
+}
+
+func TestCreateForLocalRepoReusesExistingBranch(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		prefix string
+		want   string
+	}{
+		{"with prefix", "jeev", "jeev/my-feature"},
+		{"no prefix", "", "my-feature"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gitRoot := initGitRepo(t)
+			stateDir := t.TempDir()
+
+			mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: tc.prefix}})
+
+			// Create a worktree.
+			wtPath1, branch1, created1, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+			if err != nil {
+				t.Fatalf("first CreateForLocalRepo: %v", err)
+			}
+			if branch1 != tc.want {
+				t.Fatalf("expected branch %q, got %q", tc.want, branch1)
+			}
+			if !created1 {
+				t.Fatal("expected created=true for first worktree")
+			}
+
+			// Remove the worktree but preserve the branch (mirrors session delete behavior).
+			if err := mgr.RemoveWorktree(wtPath1, true); err != nil {
+				t.Fatalf("RemoveWorktree: %v", err)
+			}
+
+			// Create again with the same name. The branch still exists but has no
+			// worktree. Should reuse the branch, NOT create a suffixed variant.
+			_, branch2, created2, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+			if err != nil {
+				t.Fatalf("second CreateForLocalRepo: %v", err)
+			}
+			if branch2 != tc.want {
+				t.Errorf("expected reused branch %q, got %q", tc.want, branch2)
+			}
+			if !created2 {
+				t.Error("expected created=true for newly created worktree (reusing existing branch)")
+			}
+		})
+	}
+}
+
+func TestCreateForLocalRepoExistingBranchCheckedOutInMain(t *testing.T) {
+	gitRoot := initGitRepo(t)
+	stateDir := t.TempDir()
+
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
+
+	// Create branch "jeev/my-feature" directly in the main worktree.
+	if err := exec.Command("git", "-C", gitRoot, "checkout", "-b", "jeev/my-feature").Run(); err != nil {
+		t.Fatalf("create branch in main worktree: %v", err)
+	}
+
+	// Attempting to create a session with the same name should fail with a
+	// clear error because the branch is checked out in the main worktree.
+	wtPath, _, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature")
+	if err == nil {
+		t.Fatal("expected error when branch is checked out in main worktree, got nil")
+	}
+	if !strings.Contains(err.Error(), "currently checked out in the main working tree") {
+		t.Errorf("expected main-worktree error, got: %v", err)
+	}
+	// No worktree directory should have been created.
+	if wtPath != "" {
+		t.Errorf("expected empty worktree path on error, got %q", wtPath)
 	}
 }
 
