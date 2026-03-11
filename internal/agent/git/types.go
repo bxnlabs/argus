@@ -76,3 +76,12 @@ type BranchList struct {
 	Branches    []string `json:"branches"`
 	DefaultBase string   `json:"defaultBase"`
 }
+
+// WorkingDiffResult holds the combined diff and per-file metadata for
+// all working-tree changes (staged + unstaged + untracked).
+type WorkingDiffResult struct {
+	Diff           string       `json:"diff"`
+	Files          []CommitFile `json:"files"`
+	TotalAdditions int          `json:"totalAdditions"`
+	TotalDeletions int          `json:"totalDeletions"`
+}
