@@ -38,6 +38,7 @@ func NewRouter(deps Deps) http.Handler {
 	gh := &gitHandler{}
 	mux.HandleFunc("GET /api/git/status", gh.status)
 	mux.HandleFunc("GET /api/git/diff", gh.diff)
+	mux.HandleFunc("GET /api/git/working-diff", gh.workingDiff)
 	mux.HandleFunc("GET /api/git/history", gh.history)
 	mux.HandleFunc("GET /api/git/history/{hash}", gh.commitDetail)
 	mux.HandleFunc("GET /api/git/history/{hash}/full-diff", gh.commitFullDiff)

@@ -8,4 +8,5 @@ export {
   useCompareBranchesQuery,
   useCompareQuery,
   useCommitFullDiffQuery,
+  useWorkingDiffQuery,
 } from "./queries";

@@ -118,6 +118,27 @@ func (h *gitHandler) diff(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"diff": diff})
 }
 
+// GET /api/git/working-diff?path=...
+func (h *gitHandler) workingDiff(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		respondError(w, http.StatusBadRequest, "path parameter is required")
+		return
+	}
+	expandedPath, err := shared.SafeExpandPath(path)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, err := git.GetWorkingDiff(expandedPath)
+	if err != nil {
+		respondGitError(w, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
 // GET /api/git/history?path=...&limit=...
 func (h *gitHandler) history(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
