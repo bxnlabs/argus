@@ -83,7 +83,7 @@ func (m *Manager) EnsureClone(src *source.Source, fetchOnly bool) (string, error
 	} else {
 		defaultBranch, err := git.DefaultBranch(cloneDir)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("resolve default branch: %w", err)
 		}
 		if err := git.Run(cloneDir, "fetch", "origin"); err != nil {
 			return "", fmt.Errorf("fetch: %w", err)
@@ -162,27 +162,48 @@ func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktr
 		return existing, baseBranch, false, nil
 	}
 
-	branch, err = m.uniqueBranch(repoDir, baseBranch)
+	// Check if the branch already exists (e.g. worktree was removed but the
+	// branch was preserved after a session delete). If so, create a worktree
+	// for the existing branch instead of minting a new suffixed branch.
+	branchExists, err := git.BranchExists(repoDir, baseBranch)
 	if err != nil {
-		return "", "", false, err
+		return "", "", false, fmt.Errorf("check branch exists: %w", err)
 	}
 
-	defaultBranch, err := git.DefaultBranch(repoDir)
-	if err != nil {
-		return "", "", false, err
-	}
-
-	worktreePath = filepath.Join(m.stateDir, "projects", parentKey, "worktrees", worktreeDirName(branch))
+	worktreePath = filepath.Join(m.stateDir, "projects", parentKey, "worktrees", worktreeDirName(baseBranch))
 
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 		return "", "", false, fmt.Errorf("create worktrees dir: %w", err)
 	}
 
-	if err := git.Run(repoDir, "worktree", "add", worktreePath, "-b", branch, defaultBranch); err != nil {
+	if branchExists {
+		mainBranch, err := mainWorktreeBranch(repoDir)
+		if err != nil {
+			return "", "", false, err
+		}
+		if mainBranch == baseBranch {
+			return "", "", false, fmt.Errorf(
+				"branch %q is currently checked out in the main working tree at %s; "+
+					"switch to a different branch there before starting this session",
+				baseBranch, repoDir,
+			)
+		}
+		if err := git.Run(repoDir, "worktree", "add", worktreePath, baseBranch); err != nil {
+			return "", "", false, fmt.Errorf("git worktree add: %w", err)
+		}
+		return worktreePath, baseBranch, true, nil
+	}
+
+	defaultBranch, err := git.DefaultBranch(repoDir)
+	if err != nil {
+		return "", "", false, fmt.Errorf("resolve default branch: %w", err)
+	}
+
+	if err := git.Run(repoDir, "worktree", "add", worktreePath, "-b", baseBranch, defaultBranch); err != nil {
 		return "", "", false, fmt.Errorf("git worktree add: %w", err)
 	}
 
-	return worktreePath, branch, true, nil
+	return worktreePath, baseBranch, true, nil
 }
 
 func (m *Manager) branchName(slug string) string {
@@ -190,27 +211,6 @@ func (m *Manager) branchName(slug string) string {
 		return m.cfg.Git.BranchPrefix + "/" + slug
 	}
 	return slug
-}
-
-func (m *Manager) uniqueBranch(repoDir, branch string) (string, error) {
-	exists, err := git.BranchExists(repoDir, branch)
-	if err != nil {
-		return "", err
-	}
-	if !exists {
-		return branch, nil
-	}
-	for i := 2; i <= 100; i++ {
-		candidate := fmt.Sprintf("%s-%d", branch, i)
-		exists, err := git.BranchExists(repoDir, candidate)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("could not find unique branch name for %s", branch)
 }
 
 // CheckWorktreeDirty returns ErrWorktreeDirty if the worktree has uncommitted
