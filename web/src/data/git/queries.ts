@@ -6,6 +6,7 @@ import type {
   CommitDetail,
   CompareResult,
   BranchList,
+  WorkingDiffResult,
 } from "@/types";
 import { gitKeys } from "./keys";
 
@@ -179,5 +180,25 @@ export function useCommitFullDiffQuery(path: string, hash: string | null) {
     },
     staleTime: Infinity,
     enabled: path.trim().length > 0 && !!hash,
+  });
+}
+
+// --- Working Diff (full working-tree diff) ---
+
+export function useWorkingDiffQuery(
+  path: string,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: gitKeys.workingDiff(path),
+    queryFn: async () => {
+      const data = await apiFetch<WorkingDiffResult>(
+        `/agent/api/git/working-diff?path=${encodeURIComponent(path)}`,
+      );
+      return data;
+    },
+    staleTime: 5_000,
+    refetchInterval: 5_000,
+    enabled: path.trim().length > 0 && (options?.enabled ?? true),
   });
 }

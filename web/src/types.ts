@@ -146,6 +146,13 @@ export interface CompareResult {
   headRef: string;
 }
 
+export interface WorkingDiffResult {
+  diff: string;
+  files: CommitFile[];
+  totalAdditions: number;
+  totalDeletions: number;
+}
+
 export interface BranchList {
   branches: string[];
   defaultBase: string;

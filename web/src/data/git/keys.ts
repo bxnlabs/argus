@@ -15,4 +15,5 @@ export const gitKeys = {
     [...gitKeys.all, "compare", path, base] as const,
   commitFullDiff: (path: string, hash: string) =>
     [...gitKeys.all, "commit-full-diff", path, hash] as const,
+  workingDiff: (path: string) => [...gitKeys.all, "working-diff", path] as const,
 };
