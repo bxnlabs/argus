@@ -75,22 +75,22 @@ function FileItem({ file, isSelected, onClick }: FileItemProps) {
     <button
       onClick={onClick}
       className={cn(
-        "hover:bg-muted/70 flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors",
+        "hover:bg-muted/70 flex min-h-[44px] w-full items-center gap-2 px-3 py-1.5 text-left transition-colors",
         isSelected && "bg-primary/10 hover:bg-primary/20",
       )}
     >
       <StatusIcon
         className={cn("h-4 w-4 flex-shrink-0", getStatusColor(file.status))}
       />
-      <span className="flex-1 truncate text-sm">
+      <span className="min-w-0 flex-1 text-sm">
         {file.oldPath ? (
-          <span className="flex items-center gap-1">
-            <span className="text-muted-foreground">{file.oldPath}</span>
-            <ArrowRight className="h-3 w-3" />
-            <span>{file.path}</span>
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="text-muted-foreground truncate">{file.oldPath}</span>
+            <ArrowRight className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{file.path}</span>
           </span>
         ) : (
-          file.path
+          <span className="block truncate">{file.path}</span>
         )}
       </span>
     </button>
@@ -121,7 +121,7 @@ function getStatusColor(status: FileStatus): string {
     case "deleted":
       return "text-red-500";
     case "renamed":
-      return "text-yellow-500";
+      return "text-blue-500";
     default:
       return "text-muted-foreground";
   }

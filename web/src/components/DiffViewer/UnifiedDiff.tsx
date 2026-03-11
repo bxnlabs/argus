@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, Plus, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
@@ -17,6 +17,9 @@ export function UnifiedDiff({
   onToggle,
 }: UnifiedDiffProps) {
   const [localExpanded, setLocalExpanded] = useState(expanded);
+  useEffect(() => {
+    if (!onToggle) setLocalExpanded(expanded);
+  }, [expanded, onToggle]);
   const isExpanded = onToggle ? expanded : localExpanded;
 
   const handleToggle = () => {

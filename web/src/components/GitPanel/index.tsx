@@ -241,7 +241,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
         const fileName = getDiffFileName(diff);
         return (
           <div key={pathKey} ref={setDiffRef(pathKey)}>
-            <UnifiedDiff diff={diff} fileName={fileName} expanded />
+            <UnifiedDiff diff={diff} fileName={fileName} expanded={selectedPath === pathKey} />
           </div>
         );
       })}
@@ -303,7 +303,9 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">Working Changes</p>
+              <p className="truncate text-sm font-medium">
+                {selectedPath ?? "Working Changes"}
+              </p>
               {workingDiffData && (
                 <p className="text-muted-foreground text-xs">
                   {workingDiffData.files.length} file
@@ -324,8 +326,13 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
                   {diffError?.message ?? "Failed to load diff"}
                 </p>
               </div>
-            ) : (
+            ) : parsedDiffs.length > 0 ? (
               stackedDiffs
+            ) : (
+              <div className="text-muted-foreground flex h-32 flex-col items-center justify-center p-4">
+                <FileCode className="mb-2 h-6 w-6 opacity-60" />
+                <p className="text-sm">No diff content to display</p>
+              </div>
             )}
           </div>
         </div>
