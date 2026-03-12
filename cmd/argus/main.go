@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -197,9 +198,31 @@ func listenAddr(bindAddress string, port int) string {
 	return net.JoinHostPort(bindAddress, strconv.Itoa(port))
 }
 
+// sanitizeDNSCompliantHostname normalises s into a valid DNS label:
+// strips the domain part (after first dot), lowercases, keeps only [a-z0-9-],
+// trims leading/trailing hyphens, and caps length at 63 characters.
+func sanitizeDNSCompliantHostname(s string) string {
+	if i := strings.IndexByte(s, '.'); i != -1 {
+		s = s[:i]
+	}
+	s = strings.ToLower(s)
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	s = strings.Trim(b.String(), "-")
+	if len(s) > 63 {
+		s = strings.TrimRight(s[:63], "-")
+	}
+	return s
+}
+
 // deriveHostname builds the Tailscale node hostname from prefix and mode.
 // In split mode (server/agent), a mode suffix is appended.
 // If prefix is empty, defaults to "argus-<os.Hostname()>".
+// The result is sanitised to a DNS-compliant label.
 func deriveHostname(prefix, mode string) string {
 	hostname := prefix
 	if hostname == "" {
@@ -207,12 +230,12 @@ func deriveHostname(prefix, mode string) string {
 		if err != nil {
 			return ""
 		}
-		hostname = "argus-" + h
+		hostname = "argus-" + sanitizeDNSCompliantHostname(h)
 	}
 	if mode == "server" || mode == "agent" {
 		hostname = hostname + "-" + mode
 	}
-	return hostname
+	return sanitizeDNSCompliantHostname(hostname)
 }
 
 func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddress string, port int, mode string) (listeners []net.Listener, discoveryAddr string, tsCloser func() error, err error) {

@@ -146,6 +146,46 @@ func TestMakeListeners_HostnameSuffix(t *testing.T) {
 	}
 }
 
+func TestSanitizeDNSCompliantHostname(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "simple", in: "bumblebee", want: "bumblebee"},
+		{name: "fqdn local", in: "bumblebee.local", want: "bumblebee"},
+		{name: "fqdn corporate", in: "host.corp.example.com", want: "host"},
+		{name: "uppercase", in: "BUMBLEBEE", want: "bumblebee"},
+		{name: "uppercase fqdn", in: "BUMBLEBEE.LOCAL", want: "bumblebee"},
+		{name: "with underscores", in: "my_host", want: "myhost"},
+		{name: "with spaces", in: "my host", want: "myhost"},
+		{name: "leading hyphens", in: "--myhost", want: "myhost"},
+		{name: "trailing hyphens", in: "myhost--", want: "myhost"},
+		{name: "both hyphens", in: "--myhost--", want: "myhost"},
+		{name: "interior hyphens preserved", in: "my-cool-host", want: "my-cool-host"},
+		{name: "mixed invalid chars", in: "my@host!name#1", want: "myhostname1"},
+		{name: "dots only in domain", in: "ok.not.this", want: "ok"},
+		{name: "empty", in: "", want: ""},
+		{name: "all invalid", in: "!!!...", want: ""},
+		{name: "path traversal", in: "../../etc/passwd", want: ""},
+		{name: "numeric", in: "12345", want: "12345"},
+		{name: "63 char limit", in: strings.Repeat("a", 70), want: strings.Repeat("a", 63)},
+		{name: "truncation removes trailing hyphen", in: strings.Repeat("a", 62) + "-b", want: strings.Repeat("a", 62) + "-"},
+		// After truncation at 63 chars we get 62×a + "-", trailing hyphen should be trimmed.
+	}
+	// Fix the truncation test expectation: trailing hyphen trimmed.
+	tests[len(tests)-1].want = strings.Repeat("a", 62)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeDNSCompliantHostname(tt.in)
+			if got != tt.want {
+				t.Errorf("sanitizeDNSCompliantHostname(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeriveHostname(t *testing.T) {
 	tests := []struct {
 		name     string
