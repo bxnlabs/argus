@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -69,7 +70,16 @@ func newServerCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mux := http.NewServeMux()
 			mux.Handle("/", web.NewSPAHandler(webDir))
-			return serve(listenAddrs(bindIPs(cfg.Server.BindAddress, tailscaleIPs(cmd.Context())...), cfg.Server.Port), mux, "argus server", nil)
+
+			listeners, _, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port)
+			if err != nil {
+				return err
+			}
+			if tsCloser != nil {
+				defer tsCloser()
+			}
+
+			return serve(listeners, "", mux, "argus server")
 		},
 	}
 
@@ -93,9 +103,15 @@ func newAgentCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-			return serve(listenAddrs(bindIPs(cfg.Agent.BindAddress, tailscaleIPs(cmd.Context())...), cfg.Agent.Port), mux, "argus agent", func(a string) {
-				writeDiscovery(a)
-			})
+			listeners, discoveryAddr, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Agent.BindAddress, cfg.Agent.Port)
+			if err != nil {
+				return err
+			}
+			if tsCloser != nil {
+				defer tsCloser()
+			}
+
+			return serve(listeners, discoveryAddr, mux, "argus agent")
 		},
 	}
 
@@ -103,21 +119,12 @@ func newAgentCmd() *cobra.Command {
 }
 
 func writeDiscovery(addr string) {
-	// Always write a loopback address so the CLI can reach the agent
-	// regardless of the configured bind address.
-	_, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		log.Printf("warning: cannot parse listen address: %v", err)
-		return
-	}
-	loopback := net.JoinHostPort("127.0.0.1", port)
-
 	dp, err := agent.DefaultDiscoveryPath()
 	if err != nil {
 		log.Printf("warning: cannot determine discovery path: %v", err)
 		return
 	}
-	if err := agent.WriteDiscoveryFile(dp, loopback); err != nil {
+	if err := agent.WriteDiscoveryFile(dp, addr); err != nil {
 		log.Printf("warning: cannot write discovery file: %v", err)
 	}
 }
@@ -128,40 +135,6 @@ func removeDiscovery() {
 		return
 	}
 	agent.RemoveDiscoveryFile(dp)
-}
-
-// tailscaleIPs returns Tailscale IPs as strings if Tailscale is enabled in config.
-// Only returns IPs if the node is connected to the configured tailnet.
-// Logs warnings and returns nil on failure — never fatal.
-func tailscaleIPs(ctx context.Context) []string {
-	if !cfg.Tailscale.Enabled {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	status, err := ts.FetchStatus(ctx)
-	if err != nil {
-		log.Printf("warning: tailscale enabled but status fetch failed: %v", err)
-		return nil
-	}
-	if err := ts.ValidateTailnet(status, cfg.Tailscale.Tailnet); err != nil {
-		log.Printf("warning: tailscale tailnet mismatch: %v", err)
-		return nil
-	}
-	addrs, err := ts.DetectIPs(status)
-	if err != nil {
-		log.Printf("warning: tailscale enabled but detection failed: %v", err)
-		return nil
-	}
-	if len(addrs) == 0 {
-		log.Printf("warning: tailscale enabled but no IPs found")
-		return nil
-	}
-	strs := make([]string, len(addrs))
-	for i, a := range addrs {
-		strs[i] = a.String()
-	}
-	return strs
 }
 
 // runCombined starts the agent and SPA on a single port.
@@ -176,74 +149,101 @@ func runCombined(ctx context.Context) error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	return serve(listenAddrs(bindIPs(cfg.Server.BindAddress, tailscaleIPs(ctx)...), cfg.Server.Port), mux, "argus", func(a string) {
-		writeDiscovery(a)
-	})
+	listeners, discoveryAddr, tsCloser, err := makeListeners(ctx, cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port)
+	if err != nil {
+		return err
+	}
+	if tsCloser != nil {
+		defer tsCloser()
+	}
+
+	return serve(listeners, discoveryAddr, mux, "argus")
 }
 
-// bindIPs builds the list of IPs to bind to. It always includes the primary
-// bind address. If the primary is a specific non-loopback IP, it appends
-// 127.0.0.1 so the CLI can always reach via loopback. When the primary is
-// unspecified (0.0.0.0 or ::), same-family extras are skipped since they're
-// redundant, but opposite-family extras are kept (e.g. 0.0.0.0 + Tailscale IPv6).
-func bindIPs(bindAddr string, extra ...string) []string {
-	ips := []string{bindAddr}
-	ip := net.ParseIP(bindAddr)
-	if ip == nil {
-		return append(ips, extra...)
-	}
-	if !ip.IsLoopback() && !ip.IsUnspecified() {
-		ips = append(ips, "127.0.0.1")
-	}
-	if !ip.IsUnspecified() {
-		return append(ips, extra...)
-	}
-	// Unspecified: only keep extras from the other address family.
-	isV4 := ip.To4() != nil
-	for _, e := range extra {
-		if eip := net.ParseIP(e); eip != nil && (eip.To4() != nil) == isV4 {
-			continue
-		}
-		ips = append(ips, e)
-	}
-	return ips
-}
-
-// listenAddrs formats each IP with the given port into host:port addresses,
-// deduplicating any repeated entries.
-func listenAddrs(ips []string, port int) []string {
-	portStr := strconv.Itoa(port)
-	seen := make(map[string]bool)
-	var addrs []string
-	for _, ip := range ips {
-		addr := net.JoinHostPort(ip, portStr)
-		if !seen[addr] {
-			seen[addr] = true
-			addrs = append(addrs, addr)
-		}
-	}
-	return addrs
-}
-
-// serve starts an HTTP server on the given addresses with graceful shutdown.
-// The first address is treated as the primary; its resolved listen address is
-// passed to the onListening callback (used to write the discovery file).
-func serve(addrs []string, handler http.Handler, name string, onListening func(addr string)) error {
+// buildListeners creates TCP listeners for each address.
+// On failure, any already-opened listeners are closed.
+func buildListeners(addrs []string) ([]net.Listener, error) {
 	if len(addrs) == 0 {
-		return fmt.Errorf("listen: no addresses provided")
+		return nil, fmt.Errorf("listen: no addresses provided")
 	}
-
 	var listeners []net.Listener
 	for _, a := range addrs {
 		ln, err := net.Listen("tcp", a)
 		if err != nil {
-			// Clean up any listeners we already opened.
 			for _, l := range listeners {
 				l.Close()
 			}
-			return fmt.Errorf("listen on %s: %w", a, err)
+			return nil, fmt.Errorf("listen on %s: %w", a, err)
 		}
 		listeners = append(listeners, ln)
+	}
+	return listeners, nil
+}
+
+func listenAddr(bindAddress string, port int) string {
+	return net.JoinHostPort(bindAddress, strconv.Itoa(port))
+}
+
+func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddress string, port int) (listeners []net.Listener, discoveryAddr string, tsCloser func() error, err error) {
+	if !tsCfg.Enabled {
+		addr := listenAddr(bindAddress, port)
+		lns, err := buildListeners([]string{addr})
+		if err != nil {
+			return nil, "", nil, err
+		}
+		discoveryAddr = lns[0].Addr().String()
+		return lns, discoveryAddr, nil, nil
+	}
+
+	// Tailscale enabled: loopback + tsnet listeners
+	hostname := tsCfg.Hostname
+	if hostname == "" {
+		h, err := os.Hostname()
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("determine hostname: %w", err)
+		}
+		hostname = "argus-" + h
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("determine home directory: %w", err)
+	}
+	stateDir := filepath.Join(home, ".argus", "tailscale", hostname)
+
+	tsServer := ts.New(hostname, tsCfg.AuthKey, stateDir)
+
+	upCtx, upCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer upCancel()
+
+	if err := tsServer.Up(upCtx); err != nil {
+		return nil, "", nil, fmt.Errorf("tailscale: %w", err)
+	}
+
+	// Loopback listener for CLI access
+	loopbackAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	loopbackLn, err := net.Listen("tcp", loopbackAddr)
+	if err != nil {
+		tsServer.Close()
+		return nil, "", nil, fmt.Errorf("listen on %s: %w", loopbackAddr, err)
+	}
+
+	// tsnet listener for tailnet access
+	tsLn, err := tsServer.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		loopbackLn.Close()
+		tsServer.Close()
+		return nil, "", nil, fmt.Errorf("tailscale listen: %w", err)
+	}
+
+	discoveryAddr = loopbackLn.Addr().String()
+	return []net.Listener{loopbackLn, tsLn}, discoveryAddr, tsServer.Close, nil
+}
+
+// serve starts an HTTP server on the given listeners with graceful shutdown.
+func serve(listeners []net.Listener, discoveryAddr string, handler http.Handler, name string) error {
+	if len(listeners) == 0 {
+		return fmt.Errorf("serve: no listeners provided")
 	}
 
 	srv := &http.Server{
@@ -264,8 +264,8 @@ func serve(addrs []string, handler http.Handler, name string, onListening func(a
 		}(ln)
 	}
 
-	if onListening != nil {
-		onListening(listeners[0].Addr().String())
+	if discoveryAddr != "" {
+		writeDiscovery(discoveryAddr)
 		defer removeDiscovery()
 	}
 

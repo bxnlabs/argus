@@ -1,139 +1,71 @@
 package main
 
 import (
+	"context"
 	"testing"
+
+	"github.com/bxnlabs/argus/internal/config"
 )
 
-func TestListenAddrs(t *testing.T) {
+func TestBuildListeners(t *testing.T) {
 	tests := []struct {
-		name string
-		ips  []string
-		port int
-		want []string
+		name  string
+		addrs []string
 	}{
-		{
-			name: "single loopback",
-			ips:  []string{"127.0.0.1"},
-			port: 3000,
-			want: []string{"127.0.0.1:3000"},
-		},
-		{
-			name: "IPv6 loopback",
-			ips:  []string{"::1"},
-			port: 3000,
-			want: []string{"[::1]:3000"},
-		},
-		{
-			name: "multiple IPs",
-			ips:  []string{"192.168.1.10", "127.0.0.1"},
-			port: 3000,
-			want: []string{"192.168.1.10:3000", "127.0.0.1:3000"},
-		},
-		{
-			name: "with tailscale IPs",
-			ips:  []string{"127.0.0.1", "100.64.0.1", "fd7a:115c:a1e0::1"},
-			port: 3000,
-			want: []string{"127.0.0.1:3000", "100.64.0.1:3000", "[fd7a:115c:a1e0::1]:3000"},
-		},
-		{
-			name: "deduplicates",
-			ips:  []string{"127.0.0.1", "127.0.0.1"},
-			port: 3000,
-			want: []string{"127.0.0.1:3000"},
-		},
-		{
-			name: "unspecified IPv4",
-			ips:  []string{"0.0.0.0"},
-			port: 3000,
-			want: []string{"0.0.0.0:3000"},
-		},
-		{
-			name: "unspecified IPv6",
-			ips:  []string{"::"},
-			port: 3000,
-			want: []string{"[::]:3000"},
-		},
+		{name: "single loopback", addrs: []string{"127.0.0.1:0"}},
+		{name: "multiple addrs", addrs: []string{"127.0.0.1:0", "[::1]:0"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := listenAddrs(tt.ips, tt.port)
-			if len(got) != len(tt.want) {
-				t.Fatalf("listenAddrs(%v, %d) = %v, want %v", tt.ips, tt.port, got, tt.want)
+			lns, err := buildListeners(tt.addrs)
+			if err != nil {
+				t.Fatalf("buildListeners(%v): %v", tt.addrs, err)
 			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("listenAddrs(%v, %d)[%d] = %q, want %q", tt.ips, tt.port, i, got[i], tt.want[i])
+			defer func() {
+				for _, ln := range lns {
+					ln.Close()
 				}
+			}()
+			if len(lns) != len(tt.addrs) {
+				t.Errorf("got %d listeners, want %d", len(lns), len(tt.addrs))
 			}
 		})
 	}
 }
 
-func TestBindIPs(t *testing.T) {
-	tests := []struct {
-		name     string
-		bindAddr string
-		extra    []string
-		want     []string
-	}{
-		{
-			name:     "loopback only",
-			bindAddr: "127.0.0.1",
-			want:     []string{"127.0.0.1"},
-		},
-		{
-			name:     "specific non-loopback adds loopback",
-			bindAddr: "192.168.1.10",
-			want:     []string{"192.168.1.10", "127.0.0.1"},
-		},
-		{
-			name:     "unspecified does not add loopback",
-			bindAddr: "0.0.0.0",
-			want:     []string{"0.0.0.0"},
-		},
-		{
-			name:     "IPv6 loopback",
-			bindAddr: "::1",
-			want:     []string{"::1"},
-		},
-		{
-			name:     "with extra tailscale IPs",
-			bindAddr: "127.0.0.1",
-			extra:    []string{"100.64.0.1", "fd7a:115c:a1e0::1"},
-			want:     []string{"127.0.0.1", "100.64.0.1", "fd7a:115c:a1e0::1"},
-		},
-		{
-			name:     "non-loopback with extra IPs",
-			bindAddr: "192.168.1.10",
-			extra:    []string{"100.64.0.1"},
-			want:     []string{"192.168.1.10", "127.0.0.1", "100.64.0.1"},
-		},
-		{
-			name:     "unspecified IPv4 skips same-family extras",
-			bindAddr: "0.0.0.0",
-			extra:    []string{"100.64.0.1", "fd7a:115c:a1e0::1"},
-			want:     []string{"0.0.0.0", "fd7a:115c:a1e0::1"},
-		},
-		{
-			name:     "unspecified IPv6 skips same-family extras",
-			bindAddr: "::",
-			extra:    []string{"fd7a:115c:a1e0::1", "100.64.0.1"},
-			want:     []string{"::", "100.64.0.1"},
-		},
+func TestBuildListeners_Empty(t *testing.T) {
+	_, err := buildListeners(nil)
+	if err == nil {
+		t.Fatal("expected error for empty addrs, got nil")
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := bindIPs(tt.bindAddr, tt.extra...)
-			if len(got) != len(tt.want) {
-				t.Fatalf("bindIPs(%q, %v) = %v, want %v", tt.bindAddr, tt.extra, got, tt.want)
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("bindIPs(%q, %v)[%d] = %q, want %q", tt.bindAddr, tt.extra, i, got[i], tt.want[i])
-				}
-			}
-		})
+func TestBuildListeners_InvalidAddr(t *testing.T) {
+	_, err := buildListeners([]string{"127.0.0.1:0", "invalid-addr"})
+	if err == nil {
+		t.Fatal("expected error for invalid addr, got nil")
+	}
+}
+
+func TestMakeListeners_Disabled(t *testing.T) {
+	tsCfg := config.TailscaleConfig{Enabled: false}
+	lns, disc, closer, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0)
+	if err != nil {
+		t.Fatalf("makeListeners (disabled): %v", err)
+	}
+	defer func() {
+		for _, ln := range lns {
+			ln.Close()
+		}
+	}()
+	if len(lns) != 1 {
+		t.Errorf("got %d listeners, want 1", len(lns))
+	}
+	if disc == "" {
+		t.Error("discoveryAddr is empty")
+	}
+	if closer != nil {
+		t.Error("tsCloser should be nil when Tailscale is disabled")
 	}
 }
