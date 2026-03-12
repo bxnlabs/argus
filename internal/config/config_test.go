@@ -1,9 +1,9 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/config"
@@ -18,7 +18,8 @@ func clearArgusEnv(t *testing.T) {
 		"ARGUS_AGENT_PORT", "ARGUS_AGENT_BIND_ADDRESS",
 		"ARGUS_DATABASE_PATH", "ARGUS_GIT_BRANCH_PREFIX",
 		"ARGUS_TAILSCALE_ENABLED",
-		"ARGUS_TAILSCALE_TAILNET",
+		"ARGUS_TAILSCALE_HOSTNAME_PREFIX",
+		"ARGUS_TAILSCALE_AUTH_KEY",
 	} {
 		if v, ok := os.LookupEnv(key); ok {
 			t.Cleanup(func() { os.Setenv(key, v) })
@@ -313,6 +314,12 @@ func TestTailscaleDefaults(t *testing.T) {
 	if cfg.Tailscale.Enabled {
 		t.Errorf("Tailscale.Enabled = true, want false")
 	}
+	if cfg.Tailscale.HostnamePrefix != "" {
+		t.Errorf("Tailscale.HostnamePrefix = %q, want empty", cfg.Tailscale.HostnamePrefix)
+	}
+	if cfg.Tailscale.AuthKey != "" {
+		t.Errorf("Tailscale.AuthKey = %q, want empty", cfg.Tailscale.AuthKey)
+	}
 }
 
 func TestTailscaleFromFile(t *testing.T) {
@@ -322,7 +329,8 @@ func TestTailscaleFromFile(t *testing.T) {
 	content := []byte(`
 [tailscale]
 enabled = true
-tailnet = "test.ts.net"
+hostname_prefix = "my-argus"
+auth_key = "tskey-auth-xxx"
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
 		t.Fatal(err)
@@ -335,13 +343,20 @@ tailnet = "test.ts.net"
 	if !cfg.Tailscale.Enabled {
 		t.Errorf("Tailscale.Enabled = false, want true")
 	}
+	if cfg.Tailscale.HostnamePrefix != "my-argus" {
+		t.Errorf("Tailscale.HostnamePrefix = %q, want %q", cfg.Tailscale.HostnamePrefix, "my-argus")
+	}
+	if cfg.Tailscale.AuthKey != "tskey-auth-xxx" {
+		t.Errorf("Tailscale.AuthKey = %q, want %q", cfg.Tailscale.AuthKey, "tskey-auth-xxx")
+	}
 }
 
 func TestTailscaleEnvOverride(t *testing.T) {
 	clearArgusEnv(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("ARGUS_TAILSCALE_ENABLED", "true")
-	t.Setenv("ARGUS_TAILSCALE_TAILNET", "test.ts.net")
+	t.Setenv("ARGUS_TAILSCALE_HOSTNAME_PREFIX", "env-argus")
+	t.Setenv("ARGUS_TAILSCALE_AUTH_KEY", "tskey-auth-env")
 
 	cfg, err := config.Load(config.Options{})
 	if err != nil {
@@ -350,33 +365,25 @@ func TestTailscaleEnvOverride(t *testing.T) {
 	if !cfg.Tailscale.Enabled {
 		t.Errorf("Tailscale.Enabled = false, want true (env override)")
 	}
-}
-
-func TestTailscaleTailnetDefault(t *testing.T) {
-	clearArgusEnv(t)
-	t.Setenv("HOME", t.TempDir())
-	cfg, err := config.Load(config.Options{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if cfg.Tailscale.HostnamePrefix != "env-argus" {
+		t.Errorf("Tailscale.HostnamePrefix = %q, want %q", cfg.Tailscale.HostnamePrefix, "env-argus")
 	}
-	if cfg.Tailscale.Tailnet != "" {
-		t.Errorf("Tailscale.Tailnet = %q, want empty", cfg.Tailscale.Tailnet)
+	if cfg.Tailscale.AuthKey != "tskey-auth-env" {
+		t.Errorf("Tailscale.AuthKey = %q, want %q", cfg.Tailscale.AuthKey, "tskey-auth-env")
 	}
 }
 
-func TestTailscaleTailnetFromFile(t *testing.T) {
+func TestTailscaleEnabledWithoutHostnameOrAuthKey(t *testing.T) {
 	clearArgusEnv(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
 [tailscale]
 enabled = true
-tailnet = "example.com"
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
 		t.Fatal(err)
 	}
-
 	cfg, err := config.Load(config.Options{ConfigFile: path})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -384,77 +391,62 @@ tailnet = "example.com"
 	if !cfg.Tailscale.Enabled {
 		t.Errorf("Tailscale.Enabled = false, want true")
 	}
-	if cfg.Tailscale.Tailnet != "example.com" {
-		t.Errorf("Tailscale.Tailnet = %q, want %q", cfg.Tailscale.Tailnet, "example.com")
+	if cfg.Tailscale.HostnamePrefix != "" {
+		t.Errorf("Tailscale.HostnamePrefix = %q, want empty", cfg.Tailscale.HostnamePrefix)
+	}
+	if cfg.Tailscale.AuthKey != "" {
+		t.Errorf("Tailscale.AuthKey = %q, want empty", cfg.Tailscale.AuthKey)
 	}
 }
 
-func TestTailscaleTailnetEnvOverride(t *testing.T) {
+func TestValidation_TailscaleHostnamePathTraversal(t *testing.T) {
 	clearArgusEnv(t)
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("ARGUS_TAILSCALE_ENABLED", "true")
-	t.Setenv("ARGUS_TAILSCALE_TAILNET", "my-tailnet.ts.net")
+	tests := []struct {
+		name     string
+		hostname string
+	}{
+		{name: "forward slash", hostname: "../escape"},
+		{name: "backslash", hostname: `host\name`},
+		{name: "dot dot", hostname: "host..name"},
+		{name: "absolute path", hostname: "/etc/evil"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.toml")
+			content := fmt.Sprintf(`
+[tailscale]
+enabled = true
+hostname_prefix = %q
+`, tt.hostname)
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := config.Load(config.Options{ConfigFile: path})
+			if err == nil {
+				t.Fatalf("expected validation error for hostname_prefix %q, got nil", tt.hostname)
+			}
+		})
+	}
+}
 
-	cfg, err := config.Load(config.Options{})
+func TestValidation_TailscaleHostnameValid(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[tailscale]
+enabled = true
+hostname_prefix = "my-argus-node"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.Options{ConfigFile: path})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Tailscale.Tailnet != "my-tailnet.ts.net" {
-		t.Errorf("Tailscale.Tailnet = %q, want %q (env override)", cfg.Tailscale.Tailnet, "my-tailnet.ts.net")
-	}
-}
-
-func TestTailscaleEnabledWithoutTailnetReturnsError(t *testing.T) {
-	clearArgusEnv(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	content := []byte(`
-[tailscale]
-enabled = true
-`)
-	if err := os.WriteFile(path, content, 0644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := config.Load(config.Options{ConfigFile: path})
-	if err == nil {
-		t.Fatal("expected error when tailscale.enabled=true without tailnet, got nil")
-	}
-	if !strings.Contains(err.Error(), "tailscale.tailnet must be set") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestTailscaleEnabledWithoutTailnetEnvReturnsError(t *testing.T) {
-	clearArgusEnv(t)
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("ARGUS_TAILSCALE_ENABLED", "true")
-
-	_, err := config.Load(config.Options{})
-	if err == nil {
-		t.Fatal("expected error when ARGUS_TAILSCALE_ENABLED=true without ARGUS_TAILSCALE_TAILNET, got nil")
-	}
-	if !strings.Contains(err.Error(), "tailscale.tailnet must be set") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestTailscaleWhitespaceOnlyTailnetReturnsError(t *testing.T) {
-	clearArgusEnv(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	content := []byte(`
-[tailscale]
-enabled = true
-tailnet = "   "
-`)
-	if err := os.WriteFile(path, content, 0644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := config.Load(config.Options{ConfigFile: path})
-	if err == nil {
-		t.Fatal("expected error for whitespace-only tailnet, got nil")
-	}
-	if !strings.Contains(err.Error(), "tailscale.tailnet must be set") {
-		t.Errorf("unexpected error message: %v", err)
+	if cfg.Tailscale.HostnamePrefix != "my-argus-node" {
+		t.Errorf("Tailscale.HostnamePrefix = %q, want %q", cfg.Tailscale.HostnamePrefix, "my-argus-node")
 	}
 }
