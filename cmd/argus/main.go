@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -71,12 +72,16 @@ func newServerCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/", web.NewSPAHandler(webDir))
 
-			listeners, _, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port)
+			listeners, _, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port, "server")
 			if err != nil {
 				return err
 			}
 			if tsCloser != nil {
-				defer tsCloser()
+				defer func() {
+					if err := tsCloser(); err != nil {
+						log.Printf("warning: tailscale shutdown: %v", err)
+					}
+				}()
 			}
 
 			return serve(listeners, "", mux, "argus server")
@@ -103,12 +108,16 @@ func newAgentCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-			listeners, discoveryAddr, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Agent.BindAddress, cfg.Agent.Port)
+			listeners, discoveryAddr, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Agent.BindAddress, cfg.Agent.Port, "agent")
 			if err != nil {
 				return err
 			}
 			if tsCloser != nil {
-				defer tsCloser()
+				defer func() {
+					if err := tsCloser(); err != nil {
+						log.Printf("warning: tailscale shutdown: %v", err)
+					}
+				}()
 			}
 
 			return serve(listeners, discoveryAddr, mux, "argus agent")
@@ -149,12 +158,16 @@ func runCombined(ctx context.Context) error {
 	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
-	listeners, discoveryAddr, tsCloser, err := makeListeners(ctx, cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port)
+	listeners, discoveryAddr, tsCloser, err := makeListeners(ctx, cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port, "combined")
 	if err != nil {
 		return err
 	}
 	if tsCloser != nil {
-		defer tsCloser()
+		defer func() {
+			if err := tsCloser(); err != nil {
+				log.Printf("warning: tailscale shutdown: %v", err)
+			}
+		}()
 	}
 
 	return serve(listeners, discoveryAddr, mux, "argus")
@@ -184,25 +197,59 @@ func listenAddr(bindAddress string, port int) string {
 	return net.JoinHostPort(bindAddress, strconv.Itoa(port))
 }
 
-func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddress string, port int) (listeners []net.Listener, discoveryAddr string, tsCloser func() error, err error) {
+// deriveHostname builds the Tailscale node hostname from prefix and mode.
+// In split mode (server/agent), a mode suffix is appended.
+// If prefix is empty, defaults to "argus-<os.Hostname()>".
+func deriveHostname(prefix, mode string) string {
+	hostname := prefix
+	if hostname == "" {
+		h, err := os.Hostname()
+		if err != nil {
+			return ""
+		}
+		hostname = "argus-" + h
+	}
+	if mode == "server" || mode == "agent" {
+		hostname = hostname + "-" + mode
+	}
+	return hostname
+}
+
+func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddress string, port int, mode string) (listeners []net.Listener, discoveryAddr string, tsCloser func() error, err error) {
 	if !tsCfg.Enabled {
+		ip := net.ParseIP(bindAddress)
+
+		if ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+			// Specific non-loopback IP: add a loopback listener so CLI can reach the agent.
+			addr := listenAddr(bindAddress, port)
+			loopback := listenAddr("127.0.0.1", port)
+			lns, err := buildListeners([]string{addr, loopback})
+			if err != nil {
+				return nil, "", nil, err
+			}
+			return lns, lns[1].Addr().String(), nil, nil
+		}
+
 		addr := listenAddr(bindAddress, port)
 		lns, err := buildListeners([]string{addr})
 		if err != nil {
 			return nil, "", nil, err
 		}
-		discoveryAddr = lns[0].Addr().String()
-		return lns, discoveryAddr, nil, nil
+
+		if ip != nil && ip.IsUnspecified() {
+			// Wildcard covers loopback; normalize discovery to 127.0.0.1.
+			_, actualPort, _ := net.SplitHostPort(lns[0].Addr().String())
+			return lns, net.JoinHostPort("127.0.0.1", actualPort), nil, nil
+		}
+
+		// Loopback bind: discovery is the listener's actual address.
+		return lns, lns[0].Addr().String(), nil, nil
 	}
 
 	// Tailscale enabled: loopback + tsnet listeners
-	hostname := tsCfg.Hostname
+	hostname := deriveHostname(tsCfg.HostnamePrefix, mode)
 	if hostname == "" {
-		h, err := os.Hostname()
-		if err != nil {
-			return nil, "", nil, fmt.Errorf("determine hostname: %w", err)
-		}
-		hostname = "argus-" + h
+		return nil, "", nil, fmt.Errorf("determine hostname: failed to resolve OS hostname")
 	}
 
 	home, err := os.UserHomeDir()
@@ -217,6 +264,9 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 	defer upCancel()
 
 	if err := tsServer.Up(upCtx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, "", nil, fmt.Errorf("tailscale: timed out waiting for node to start (30s). If this is a first run, set ARGUS_TAILSCALE_AUTH_KEY or tailscale.auth_key. Hostname: %s, state dir: %s", hostname, stateDir)
+		}
 		return nil, "", nil, fmt.Errorf("tailscale: %w", err)
 	}
 

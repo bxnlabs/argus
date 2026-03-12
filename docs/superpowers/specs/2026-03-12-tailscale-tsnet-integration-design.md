@@ -13,24 +13,24 @@ Replace the host-IP-detection approach with `tsnet` from the Tailscale Go SDK. W
 ```toml
 [tailscale]
 enabled = false
-hostname = ""     # defaults to "argus-<os.Hostname()>"
-auth_key = ""     # one-time key; prefer ARGUS_TAILSCALE_AUTH_KEY env var
+hostname_prefix = ""     # defaults to "argus-<os.Hostname()>"
+auth_key = ""            # one-time key; prefer ARGUS_TAILSCALE_AUTH_KEY env var
 ```
 
 - `enabled` — gates all Tailscale behavior. Default: `false`. Env: `ARGUS_TAILSCALE_ENABLED`.
-- `hostname` — device name in the tailnet. Default: `argus-<os.Hostname()>`. Env: `ARGUS_TAILSCALE_HOSTNAME`.
+- `hostname_prefix` — base device name in the tailnet. Default: `argus-<os.Hostname()>`. Env: `ARGUS_TAILSCALE_HOSTNAME_PREFIX`. In split mode (`argus server` / `argus agent`), `-server` or `-agent` is appended automatically. In combined mode (`argus`), the prefix is used as-is.
 - `auth_key` — Tailscale auth key for initial join. Env: `ARGUS_TAILSCALE_AUTH_KEY`. Only needed on first run or re-authentication; `tsnet` persists node state across restarts. Note: if stored in `config.toml`, the key is plaintext on disk — prefer the env var for production use. `tsnet` also reads `TS_AUTHKEY` from the environment if `AuthKey` is empty; Argus will not suppress this behavior.
 
-All new config keys (`tailscale.hostname`, `tailscale.auth_key`) must be registered via `v.SetDefault(...)` for Viper env var mapping to work correctly.
+All new config keys (`tailscale.hostname_prefix`, `tailscale.auth_key`) must be registered via `v.SetDefault(...)` for Viper env var mapping to work correctly.
 
 Removed fields:
 - `tailnet` — no longer needed; the auth key determines which tailnet is joined.
 
 ```go
 type TailscaleConfig struct {
-    Enabled  bool   `mapstructure:"enabled"`
-    Hostname string `mapstructure:"hostname"`
-    AuthKey  string `mapstructure:"auth_key"`
+    Enabled        bool   `mapstructure:"enabled"`
+    HostnamePrefix string `mapstructure:"hostname_prefix"`
+    AuthKey        string `mapstructure:"auth_key"`
 }
 ```
 
@@ -51,7 +51,7 @@ func (s *Server) Close() error
 ```
 
 - `tsnet.Server.Dir` = `<userHomeDir>/.argus/tailscale/<hostname>/` — per-hostname isolation prevents state conflicts if multiple Argus instances run with different hostnames. Created via `os.MkdirAll(..., 0o700)` before startup.
-- `tsnet.Server.Hostname` = configured hostname or `argus-<os.Hostname()>`
+- `tsnet.Server.Hostname` = configured hostname_prefix (with `-server`/`-agent` suffix in split mode) or `argus-<os.Hostname()>`
 - `tsnet.Server.AuthKey` = from config (only consumed on first join)
 
 ### Startup Sequence
@@ -99,7 +99,7 @@ Node state persists in `~/.argus/tailscale/<hostname>/` so the node reconnects w
 ## Config Validation
 
 - No config-level validation for `auth_key` — whether it's required depends on runtime state (first run vs. subsequent). Validation is deferred to `tsnet` `Up()`, which produces a clear error if auth fails.
-- `hostname` needs no validation — empty string triggers the `argus-<hostname>` default at runtime.
+- `hostname_prefix` is validated to reject path separators and `..` sequences when `tailscale.enabled` is true. Empty string triggers the `argus-<hostname>` default at runtime.
 - Remove the existing `tailscale.tailnet` validation rule.
 
 ## Error Handling
@@ -128,7 +128,7 @@ Node state persists in `~/.argus/tailscale/<hostname>/` so the node reconnects w
 
 | File | Change |
 |------|--------|
-| `internal/config/config.go` | Update `TailscaleConfig` — remove `Tailnet`, add `Hostname`, `AuthKey`; add `SetDefault` for new keys; update validation |
+| `internal/config/config.go` | Update `TailscaleConfig` — remove `Tailnet`, add `HostnamePrefix`, `AuthKey`; add `SetDefault` for new keys; update validation |
 | `internal/config/config_test.go` | Update tests for new fields, remove tailnet validation tests |
 | `internal/tailscale/detect.go` | Delete |
 | `internal/tailscale/detect_test.go` | Delete |

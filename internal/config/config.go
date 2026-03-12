@@ -39,7 +39,7 @@ type GitConfig struct {
 
 type TailscaleConfig struct {
 	Enabled  bool   `mapstructure:"enabled"`
-	Hostname string `mapstructure:"hostname"`
+	HostnamePrefix string `mapstructure:"hostname_prefix"`
 	AuthKey  string `mapstructure:"auth_key"`
 }
 
@@ -66,7 +66,7 @@ func Load(opts Options) (*Config, error) {
 	v.SetDefault("database.path", "~/.argus/agent.db")
 	v.SetDefault("git.branch_prefix", "")
 	v.SetDefault("tailscale.enabled", false)
-	v.SetDefault("tailscale.hostname", "")
+	v.SetDefault("tailscale.hostname_prefix", "")
 	v.SetDefault("tailscale.auth_key", "")
 
 	// Environment variables: ARGUS_SERVER_PORT, etc.
@@ -127,6 +127,11 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Database.Path == "" {
 		return fmt.Errorf("database.path must not be empty")
+	}
+	if cfg.Tailscale.Enabled && cfg.Tailscale.HostnamePrefix != "" {
+		if strings.ContainsAny(cfg.Tailscale.HostnamePrefix, "/\\") || strings.Contains(cfg.Tailscale.HostnamePrefix, "..") {
+			return fmt.Errorf("tailscale.hostname_prefix must not contain path separators or '..'")
+		}
 	}
 	return nil
 }
