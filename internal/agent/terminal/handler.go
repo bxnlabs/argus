@@ -198,6 +198,40 @@ func (s *session) resize(cols, rows int) {
 	})
 }
 
+// readHello reads the mandatory opening "hello" frame and returns the terminal
+// dimensions it carries and ok=true. Returns ok=false on any failure:
+// timeout, read error, non-text frame, bad JSON, or wrong message type.
+// Callers must close the WebSocket and not start the PTY when ok=false.
+//
+// The client sends hello synchronously in ws.onopen before any PTY data is
+// needed, so this normally returns in milliseconds. Requiring a well-formed
+// hello before starting the PTY means tmux always attaches at the correct
+// size — the root cause of the A→B→A garbled-output bug (BXN-54).
+//
+// Note: Gorilla permanently marks a connection corrupt after a read deadline
+// fires, so there is no recovery path — only close.
+func readHello(ws *websocket.Conn) (cols, rows uint16, ok bool) {
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	defer ws.SetReadDeadline(time.Time{})
+
+	msgType, data, err := ws.ReadMessage()
+	if err != nil || msgType != websocket.TextMessage {
+		return 0, 0, false
+	}
+	var msg controlMessage
+	if err := json.Unmarshal(data, &msg); err != nil || msg.Type != "hello" {
+		return 0, 0, false
+	}
+	// Both dimensions must be valid together (mirrors readWS hello handling).
+	// If only one is valid the hello is malformed; fall back to defaults but
+	// still treat the connection as usable.
+	cols, rows = 80, 24
+	if msg.Cols >= 1 && msg.Cols <= 500 && msg.Rows >= 1 && msg.Rows <= 200 {
+		cols, rows = uint16(msg.Cols), uint16(msg.Rows)
+	}
+	return cols, rows, true
+}
+
 // handleConnection is the shared WebSocket-to-PTY bridge logic.
 func handleConnection(w http.ResponseWriter, r *http.Request, cmd *exec.Cmd, sessionName string) {
 	cmd.Env = append(os.Environ(),
@@ -212,7 +246,17 @@ func handleConnection(w http.ResponseWriter, r *http.Request, cmd *exec.Cmd, ses
 		return
 	}
 
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
+	// Block until the client sends its initial hello with actual terminal
+	// dimensions. This guarantees tmux always attaches at the correct size —
+	// no spurious 80×24 phase, no garbled scrollback.
+	// Fail closed on any handshake error: the connection is either corrupt
+	// (timeout) or the client sent an unexpected first frame (protocol error).
+	initCols, initRows, ok := readHello(ws)
+	if !ok {
+		ws.Close()
+		return
+	}
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: initCols, Rows: initRows})
 	if err != nil {
 		log.Printf("pty start: %v", err)
 		ws.WriteJSON(controlMessage{Version: 1, Type: "error", Message: err.Error()})
