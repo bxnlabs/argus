@@ -109,7 +109,7 @@ func newAgentCmd() *cobra.Command {
 			mux := http.NewServeMux()
 			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
 
-			listeners, discoveryAddr, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Agent.BindAddress, cfg.Agent.Port, "agent")
+			listeners, discoveryAddr, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Node.BindAddress, cfg.Node.Port, "agent")
 			if err != nil {
 				return err
 			}

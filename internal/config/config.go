@@ -13,7 +13,7 @@ import (
 // Config holds all Argus configuration.
 type Config struct {
 	Server    ServerConfig    `mapstructure:"server"`
-	Agent     AgentConfig     `mapstructure:"agent"`
+	Node      NodeConfig      `mapstructure:"node"`
 	Database  DatabaseConfig  `mapstructure:"database"`
 	Git       GitConfig       `mapstructure:"git"`
 	Tailscale TailscaleConfig `mapstructure:"tailscale"`
@@ -24,7 +24,7 @@ type ServerConfig struct {
 	BindAddress string `mapstructure:"bind_address"`
 }
 
-type AgentConfig struct {
+type NodeConfig struct {
 	Port        int    `mapstructure:"port"`
 	BindAddress string `mapstructure:"bind_address"`
 }
@@ -61,9 +61,9 @@ func Load(opts Options) (*Config, error) {
 	// Defaults
 	v.SetDefault("server.port", 3000)
 	v.SetDefault("server.bind_address", "127.0.0.1")
-	v.SetDefault("agent.port", 3011)
-	v.SetDefault("agent.bind_address", "127.0.0.1")
-	v.SetDefault("database.path", "~/.argus/agent.db")
+	v.SetDefault("node.port", 3011)
+	v.SetDefault("node.bind_address", "127.0.0.1")
+	v.SetDefault("database.path", "~/.argus/node.db")
 	v.SetDefault("git.branch_prefix", "")
 	v.SetDefault("tailscale.enabled", false)
 	v.SetDefault("tailscale.hostname_prefix", "")
@@ -116,13 +116,13 @@ func validate(cfg *Config) error {
 	if err := validatePort("server.port", cfg.Server.Port); err != nil {
 		return err
 	}
-	if err := validatePort("agent.port", cfg.Agent.Port); err != nil {
+	if err := validatePort("node.port", cfg.Node.Port); err != nil {
 		return err
 	}
 	if err := validateIP("server.bind_address", cfg.Server.BindAddress); err != nil {
 		return err
 	}
-	if err := validateIP("agent.bind_address", cfg.Agent.BindAddress); err != nil {
+	if err := validateIP("node.bind_address", cfg.Node.BindAddress); err != nil {
 		return err
 	}
 	if cfg.Database.Path == "" {
