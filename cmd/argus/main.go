@@ -100,14 +100,14 @@ func newNodeCmd() *cobra.Command {
 		Short:        "Start only the node API",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agentHandler, cleanup, err := node.Setup(cfg)
+			nodeHandler, cleanup, err := node.Setup(cfg)
 			if err != nil {
 				return err
 			}
 			defer cleanup()
 
 			mux := http.NewServeMux()
-			mux.Handle("/node/", http.StripPrefix("/node", agentHandler))
+			mux.Handle("/node/", http.StripPrefix("/node", nodeHandler))
 
 			listeners, discoveryAddr, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Node.BindAddress, cfg.Node.Port, "node")
 			if err != nil {
@@ -149,14 +149,14 @@ func removeDiscovery() {
 
 // runCombined starts the node and SPA on a single port.
 func runCombined(ctx context.Context) error {
-	agentHandler, cleanup, err := node.Setup(cfg)
+	nodeHandler, cleanup, err := node.Setup(cfg)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
 	mux := http.NewServeMux()
-	mux.Handle("/node/", http.StripPrefix("/node", agentHandler))
+	mux.Handle("/node/", http.StripPrefix("/node", nodeHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
 	listeners, discoveryAddr, tsCloser, err := makeListeners(ctx, cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port, "combined")
