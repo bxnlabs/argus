@@ -16,11 +16,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/agent/api": {
+      "/node/api": {
         target: "http://localhost:3000",
         changeOrigin: true,
       },
-      "/agent/ws": {
+      "/node/ws": {
         target: "ws://localhost:3000",
         ws: true,
       },

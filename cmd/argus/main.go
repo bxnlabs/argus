@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/bxnlabs/argus/cmd/argus/cli"
-	"github.com/bxnlabs/argus/internal/agent"
+	"github.com/bxnlabs/argus/internal/node"
 	"github.com/bxnlabs/argus/internal/config"
 	ts "github.com/bxnlabs/argus/internal/tailscale"
 	"github.com/bxnlabs/argus/internal/web"
@@ -37,8 +37,8 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd := &cobra.Command{
 		Use:   "argus",
-		Short: "Argus — agent session manager",
-		Long:  "Argus runs a combined web server and agent API, or individual components.",
+		Short: "Argus — node session manager",
+		Long:  "Argus runs a combined web server and node API, or individual components.",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			cfg, err = config.Load(config.Options{ConfigFile: configFile})
@@ -54,7 +54,7 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(
 		newServerCmd(),
-		newAgentCmd(),
+		newNodeCmd(),
 		cli.NewSessionCmd(),
 		cli.NewInternalCmd(),
 	)
@@ -94,22 +94,22 @@ func newServerCmd() *cobra.Command {
 	return cmd
 }
 
-func newAgentCmd() *cobra.Command {
+func newNodeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "agent",
-		Short:        "Start only the agent API",
+		Use:          "node",
+		Short:        "Start only the node API",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agentHandler, cleanup, err := agent.Setup(cfg)
+			nodeHandler, cleanup, err := node.Setup(cfg)
 			if err != nil {
 				return err
 			}
 			defer cleanup()
 
 			mux := http.NewServeMux()
-			mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
+			mux.Handle("/node/", http.StripPrefix("/node", nodeHandler))
 
-			listeners, discoveryAddr, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Agent.BindAddress, cfg.Agent.Port, "agent")
+			listeners, discoveryAddr, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Node.BindAddress, cfg.Node.Port, "node")
 			if err != nil {
 				return err
 			}
@@ -121,7 +121,7 @@ func newAgentCmd() *cobra.Command {
 				}()
 			}
 
-			return serve(listeners, discoveryAddr, mux, "argus agent")
+			return serve(listeners, discoveryAddr, mux, "argus node")
 		},
 	}
 
@@ -129,34 +129,34 @@ func newAgentCmd() *cobra.Command {
 }
 
 func writeDiscovery(addr string) {
-	dp, err := agent.DefaultDiscoveryPath()
+	dp, err := node.DefaultDiscoveryPath()
 	if err != nil {
 		log.Printf("warning: cannot determine discovery path: %v", err)
 		return
 	}
-	if err := agent.WriteDiscoveryFile(dp, addr); err != nil {
+	if err := node.WriteDiscoveryFile(dp, addr); err != nil {
 		log.Printf("warning: cannot write discovery file: %v", err)
 	}
 }
 
 func removeDiscovery() {
-	dp, err := agent.DefaultDiscoveryPath()
+	dp, err := node.DefaultDiscoveryPath()
 	if err != nil {
 		return
 	}
-	agent.RemoveDiscoveryFile(dp)
+	node.RemoveDiscoveryFile(dp)
 }
 
-// runCombined starts the agent and SPA on a single port.
+// runCombined starts the node and SPA on a single port.
 func runCombined(ctx context.Context) error {
-	agentHandler, cleanup, err := agent.Setup(cfg)
+	nodeHandler, cleanup, err := node.Setup(cfg)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
 	mux := http.NewServeMux()
-	mux.Handle("/agent/", http.StripPrefix("/agent", agentHandler))
+	mux.Handle("/node/", http.StripPrefix("/node", nodeHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
 	listeners, discoveryAddr, tsCloser, err := makeListeners(ctx, cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port, "combined")
@@ -220,7 +220,7 @@ func sanitizeDNSCompliantHostname(s string) string {
 }
 
 // deriveHostname builds the Tailscale node hostname from prefix and mode.
-// In split mode (server/agent), a mode suffix is appended.
+// In split mode (server/node), a mode suffix is appended.
 // If prefix is empty, defaults to "argus-<os.Hostname()>".
 // The result is sanitised to a DNS-compliant label.
 func deriveHostname(prefix, mode string) string {
@@ -232,7 +232,7 @@ func deriveHostname(prefix, mode string) string {
 		}
 		hostname = "argus-" + sanitizeDNSCompliantHostname(h)
 	}
-	if mode == "server" || mode == "agent" {
+	if mode == "server" || mode == "node" {
 		hostname = hostname + "-" + mode
 	}
 	return sanitizeDNSCompliantHostname(hostname)
@@ -243,7 +243,7 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 		ip := net.ParseIP(bindAddress)
 
 		if ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
-			// Specific non-loopback IP: add a loopback listener so CLI can reach the agent.
+			// Specific non-loopback IP: add a loopback listener so CLI can reach the node.
 			addr := listenAddr(bindAddress, port)
 			loopback := listenAddr("127.0.0.1", port)
 			lns, err := buildListeners([]string{addr, loopback})

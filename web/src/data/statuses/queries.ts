@@ -28,7 +28,7 @@ export function useSessionStatusesQuery({
 }: UseSessionStatusesOptions) {
   const query = useQuery({
     queryKey: statusKeys.all,
-    queryFn: () => apiFetch<StatusResponse>("/agent/api/sessions/status"),
+    queryFn: () => apiFetch<StatusResponse>("/node/api/sessions/status"),
     enabled: sessions.length > 0,
     staleTime: 2000,
     refetchInterval: sessions.length > 0 ? 2000 : false,

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/api/client";
-import type { Session, AgentType } from "@/types";
+import type { Session, ProviderType } from "@/types";
 import { sessionKeys, profileKeys } from "./keys";
 
 interface SessionsResponse {
@@ -11,7 +11,7 @@ interface SessionsResponse {
 export function useSessionsQuery() {
   return useQuery({
     queryKey: sessionKeys.list(),
-    queryFn: () => apiFetch<SessionsResponse>("/agent/api/sessions"),
+    queryFn: () => apiFetch<SessionsResponse>("/node/api/sessions"),
     staleTime: 5000,
     refetchInterval: 10000,
   });
@@ -20,7 +20,7 @@ export function useSessionsQuery() {
 export interface CreateSessionInput {
   name?: string;
   source?: string;
-  agent_type: AgentType;
+  provider_type: ProviderType;
   auto_approve: boolean;
   model?: string;
   profile?: string;
@@ -35,7 +35,7 @@ export function useCreateSession() {
 
   return useMutation({
     mutationFn: (input: CreateSessionInput) =>
-      apiFetch<CreateSessionResponse>("/agent/api/sessions", {
+      apiFetch<CreateSessionResponse>("/node/api/sessions", {
         method: "POST",
         body: JSON.stringify(input),
       }),
@@ -50,7 +50,7 @@ export function useDeleteSession() {
 
   return useMutation({
     mutationFn: (sessionId: string) =>
-      apiFetch(`/agent/api/sessions/${sessionId}?force=true`, { method: "DELETE" }),
+      apiFetch(`/node/api/sessions/${sessionId}?force=true`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
     },
@@ -68,7 +68,7 @@ export function useRenameSession() {
       sessionId: string;
       newName: string;
     }) =>
-      apiFetch(`/agent/api/sessions/${sessionId}`, {
+      apiFetch(`/node/api/sessions/${sessionId}`, {
         method: "PATCH",
         body: JSON.stringify({ name: newName }),
       }),
@@ -107,7 +107,7 @@ interface ProfilesResponse {
 export function useProfilesQuery() {
   return useQuery({
     queryKey: profileKeys.list(),
-    queryFn: () => apiFetch<ProfilesResponse>("/agent/api/profiles"),
+    queryFn: () => apiFetch<ProfilesResponse>("/node/api/profiles"),
     staleTime: 30000,
   });
 }

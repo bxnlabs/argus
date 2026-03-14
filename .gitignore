@@ -8,7 +8,7 @@ web/dist/
 internal/web/dist/
 bin/
 /argus
-/argus-agent
+/argus-node
 
 # Tauri build output
 src-tauri/target/

@@ -116,14 +116,14 @@ function HomeContent() {
         const result = await createSessionMutation.mutateAsync({
           name: params.name,
           source: params.source,
-          agent_type: params.agent_type,
+          provider_type: params.provider_type,
           auto_approve: params.auto_approve || false,
           profile: params.profile,
         });
 
         if (result.session) {
           // Attach to the newly created session — Terminal will auto-connect
-          // via WebSocket to /agent/ws/sessions/{id}. Session list refreshes
+          // via WebSocket to /node/ws/sessions/{id}. Session list refreshes
           // automatically via TanStack Query's onSuccess invalidation.
           attachToSession(result.session);
         }

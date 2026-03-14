@@ -15,7 +15,7 @@ func clearArgusEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"ARGUS_SERVER_PORT", "ARGUS_SERVER_BIND_ADDRESS",
-		"ARGUS_AGENT_PORT", "ARGUS_AGENT_BIND_ADDRESS",
+		"ARGUS_NODE_PORT", "ARGUS_NODE_BIND_ADDRESS",
 		"ARGUS_DATABASE_PATH", "ARGUS_GIT_BRANCH_PREFIX",
 		"ARGUS_TAILSCALE_ENABLED",
 		"ARGUS_TAILSCALE_HOSTNAME_PREFIX",
@@ -43,14 +43,14 @@ func TestDefaults(t *testing.T) {
 	if cfg.Server.BindAddress != "127.0.0.1" {
 		t.Errorf("Server.BindAddress = %q, want 127.0.0.1", cfg.Server.BindAddress)
 	}
-	if cfg.Agent.Port != 3011 {
-		t.Errorf("Agent.Port = %d, want 3011", cfg.Agent.Port)
+	if cfg.Node.Port != 3011 {
+		t.Errorf("Node.Port = %d, want 3011", cfg.Node.Port)
 	}
-	if cfg.Agent.BindAddress != "127.0.0.1" {
-		t.Errorf("Agent.BindAddress = %q, want 127.0.0.1", cfg.Agent.BindAddress)
+	if cfg.Node.BindAddress != "127.0.0.1" {
+		t.Errorf("Node.BindAddress = %q, want 127.0.0.1", cfg.Node.BindAddress)
 	}
-	if cfg.Database.Path != "~/.argus/agent.db" {
-		t.Errorf("Database.Path = %q, want ~/.argus/agent.db", cfg.Database.Path)
+	if cfg.Database.Path != "~/.argus/node.db" {
+		t.Errorf("Database.Path = %q, want ~/.argus/node.db", cfg.Database.Path)
 	}
 	if cfg.Git.BranchPrefix != "" {
 		t.Errorf("Git.BranchPrefix = %q, want empty", cfg.Git.BranchPrefix)
@@ -65,7 +65,7 @@ func TestLoadFromFile(t *testing.T) {
 port = 4000
 bind_address = "0.0.0.0"
 
-[agent]
+[node]
 port = 5000
 bind_address = "192.168.1.1"
 
@@ -90,11 +90,11 @@ branch_prefix = "jeev"
 	if cfg.Server.BindAddress != "0.0.0.0" {
 		t.Errorf("Server.BindAddress = %q, want 0.0.0.0", cfg.Server.BindAddress)
 	}
-	if cfg.Agent.Port != 5000 {
-		t.Errorf("Agent.Port = %d, want 5000", cfg.Agent.Port)
+	if cfg.Node.Port != 5000 {
+		t.Errorf("Node.Port = %d, want 5000", cfg.Node.Port)
 	}
-	if cfg.Agent.BindAddress != "192.168.1.1" {
-		t.Errorf("Agent.BindAddress = %q, want 192.168.1.1", cfg.Agent.BindAddress)
+	if cfg.Node.BindAddress != "192.168.1.1" {
+		t.Errorf("Node.BindAddress = %q, want 192.168.1.1", cfg.Node.BindAddress)
 	}
 	if cfg.Database.Path != "/tmp/test.db" {
 		t.Errorf("Database.Path = %q, want /tmp/test.db", cfg.Database.Path)
@@ -171,8 +171,8 @@ func TestEmptyFileUsesDefaults(t *testing.T) {
 	if cfg.Server.BindAddress != "127.0.0.1" {
 		t.Errorf("Server.BindAddress = %q, want 127.0.0.1", cfg.Server.BindAddress)
 	}
-	if cfg.Agent.BindAddress != "127.0.0.1" {
-		t.Errorf("Agent.BindAddress = %q, want 127.0.0.1", cfg.Agent.BindAddress)
+	if cfg.Node.BindAddress != "127.0.0.1" {
+		t.Errorf("Node.BindAddress = %q, want 127.0.0.1", cfg.Node.BindAddress)
 	}
 }
 
@@ -285,7 +285,7 @@ func TestIPv6BindAddress(t *testing.T) {
 [server]
 bind_address = "::1"
 
-[agent]
+[node]
 bind_address = "::1"
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
@@ -299,8 +299,8 @@ bind_address = "::1"
 	if cfg.Server.BindAddress != "::1" {
 		t.Errorf("Server.BindAddress = %q, want ::1", cfg.Server.BindAddress)
 	}
-	if cfg.Agent.BindAddress != "::1" {
-		t.Errorf("Agent.BindAddress = %q, want ::1", cfg.Agent.BindAddress)
+	if cfg.Node.BindAddress != "::1" {
+		t.Errorf("Node.BindAddress = %q, want ::1", cfg.Node.BindAddress)
 	}
 }
 

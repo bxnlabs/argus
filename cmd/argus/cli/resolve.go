@@ -14,14 +14,14 @@ type sessionInfo struct {
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
 	WorkingDirectory string  `json:"working_directory"`
-	AgentType        string  `json:"agent_type"`
+	ProviderType     string  `json:"provider_type"`
 	AutoApprove      bool    `json:"auto_approve"`
 	Model            *string `json:"model"`
 	WorktreeBranch   *string `json:"worktree_branch"`
 	GitParentDir     *string `json:"git_parent_dir"`
 }
 
-// fetchAndResolve fetches all sessions from the agent and resolves the query
+// fetchAndResolve fetches all sessions from the node and resolves the query
 // to a single session by name or ID prefix.
 func fetchAndResolve(c *apiClient, query string) (*sessionInfo, error) {
 	body, err := c.get("/api/sessions")

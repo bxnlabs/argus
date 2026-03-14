@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// discoveryInfo mirrors agent.DiscoveryInfo without importing internal/.
+// discoveryInfo mirrors node.DiscoveryInfo without importing internal/.
 type discoveryInfo struct {
 	PID     int    `json:"pid"`
 	Address string `json:"address"`
@@ -22,7 +22,7 @@ func discover(path string) (*discoveryInfo, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("Argus agent is not running.\nStart it with: argus")
+			return nil, fmt.Errorf("Argus node is not running.\nStart it with: argus")
 		}
 		return nil, fmt.Errorf("read discovery file: %w", err)
 	}
@@ -36,26 +36,26 @@ func discover(path string) (*discoveryInfo, error) {
 	// entire process group, letting a crafted discovery file pass validation.
 	if info.PID <= 0 {
 		os.Remove(path)
-		return nil, fmt.Errorf("Argus agent is not running (invalid PID in state file, cleaning up).\nStart it with: argus")
+		return nil, fmt.Errorf("Argus node is not running (invalid PID in state file, cleaning up).\nStart it with: argus")
 	}
 
 	// Check if the PID is still alive using kill(pid, 0).
 	if err := syscall.Kill(info.PID, 0); err != nil {
 		if errors.Is(err, syscall.EPERM) {
-			// Process exists but is owned by another user — agent is running.
+			// Process exists but is owned by another user — node is running.
 			return &info, nil
 		}
 		// ESRCH or other error: process is gone.
 		os.Remove(path)
-		return nil, fmt.Errorf("Argus agent is not running (stale state detected, cleaning up).\nStart it with: argus")
+		return nil, fmt.Errorf("Argus node is not running (stale state detected, cleaning up).\nStart it with: argus")
 	}
 
 	return &info, nil
 }
 
-// apiClient makes HTTP requests to the Argus agent API.
+// apiClient makes HTTP requests to the Argus node API.
 type apiClient struct {
-	baseURL string // e.g. "http://127.0.0.1:3000/agent"
+	baseURL string // e.g. "http://127.0.0.1:3000/node"
 	http    http.Client
 }
 
@@ -67,7 +67,7 @@ func newClient(discoveryPath string) (*apiClient, error) {
 	}
 
 	c := &apiClient{
-		baseURL: "http://" + info.Address + "/agent",
+		baseURL: "http://" + info.Address + "/node",
 		http: http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -107,7 +107,7 @@ func readResponse(resp *http.Response, op string) ([]byte, error) {
 func (c *apiClient) get(path string) ([]byte, error) {
 	resp, err := c.http.Get(c.baseURL + path)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
+		return nil, fmt.Errorf("Cannot reach Argus node at %s.\nCheck if the node is running.", c.baseURL)
 	}
 	return readResponse(resp, "get")
 }
@@ -115,7 +115,7 @@ func (c *apiClient) get(path string) ([]byte, error) {
 func (c *apiClient) post(path string, body io.Reader) ([]byte, error) {
 	resp, err := c.http.Post(c.baseURL+path, "application/json", body)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
+		return nil, fmt.Errorf("Cannot reach Argus node at %s.\nCheck if the node is running.", c.baseURL)
 	}
 	return readResponse(resp, "create")
 }
@@ -128,7 +128,7 @@ func (c *apiClient) patch(path string, body io.Reader) ([]byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
+		return nil, fmt.Errorf("Cannot reach Argus node at %s.\nCheck if the node is running.", c.baseURL)
 	}
 	return readResponse(resp, "update")
 }
@@ -140,7 +140,7 @@ func (c *apiClient) delete(path string) ([]byte, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Cannot reach Argus agent at %s.\nCheck if the agent is running.", c.baseURL)
+		return nil, fmt.Errorf("Cannot reach Argus node at %s.\nCheck if the node is running.", c.baseURL)
 	}
 	return readResponse(resp, "delete")
 }

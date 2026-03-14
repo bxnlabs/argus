@@ -1,6 +1,6 @@
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { WS_RECONNECT_BASE_DELAY, WS_RECONNECT_MAX_DELAY } from "../constants";
-import { getAgentWsUrl } from "@/api/client";
+import { getNodeWsUrl } from "@/api/client";
 
 export interface WebSocketCallbacks {
   onConnected?: () => void;
@@ -30,7 +30,7 @@ export function createWebSocketConnection(
   reconnectDelayRef: React.MutableRefObject<number>,
   intentionalCloseRef: React.MutableRefObject<boolean>
 ): WebSocketManager {
-  const wsUrl = getAgentWsUrl(sessionName);
+  const wsUrl = getNodeWsUrl(sessionName);
   const ws = new WebSocket(wsUrl);
   ws.binaryType = "arraybuffer";
   wsRef.current = ws;
