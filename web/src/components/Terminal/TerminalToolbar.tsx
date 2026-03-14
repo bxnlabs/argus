@@ -17,6 +17,7 @@ const SPECIAL_KEYS = {
   CTRL_D: "\x04",
   SHIFT_TAB: "\x1b[Z",
   CTRL_B: "\x02",
+  CTRL_Y: "\x19",
   CTRL_Z: "\x1a",
   CTRL_L: "\x0c",
   RETURN: "\r",
@@ -32,7 +33,7 @@ const TOOLBAR_BUTTONS: ToolbarButton[] = [
   {
     label: "more",
     icon: Globe,
-    menu: [{ label: "\u21e7-tab", key: SPECIAL_KEYS.SHIFT_TAB }],
+    menu: [{ label: "\u21e7-tab", key: SPECIAL_KEYS.SHIFT_TAB }, { label: "^Y", key: SPECIAL_KEYS.CTRL_Y }],
   },
   { label: "esc", key: SPECIAL_KEYS.ESC },
   {
