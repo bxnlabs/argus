@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bxnlabs/argus/internal/agent/search"
+	"github.com/bxnlabs/argus/internal/node/search"
 	"github.com/bxnlabs/argus/internal/shared"
 )
 

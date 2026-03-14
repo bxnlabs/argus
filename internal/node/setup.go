@@ -1,4 +1,4 @@
-package agent
+package node
 
 import (
 	"context"
@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/bxnlabs/argus/internal/agent/api"
-	"github.com/bxnlabs/argus/internal/agent/db"
-	"github.com/bxnlabs/argus/internal/agent/session"
-	"github.com/bxnlabs/argus/internal/agent/status"
+	"github.com/bxnlabs/argus/internal/node/api"
+	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/session"
+	"github.com/bxnlabs/argus/internal/node/status"
 	"github.com/bxnlabs/argus/internal/config"
 	ghsvc "github.com/bxnlabs/argus/internal/github"
 	"github.com/bxnlabs/argus/internal/shared"

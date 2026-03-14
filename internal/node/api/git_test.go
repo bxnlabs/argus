@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bxnlabs/argus/internal/agent/git"
+	"github.com/bxnlabs/argus/internal/node/git"
 )
 
 func TestRespondGitError(t *testing.T) {

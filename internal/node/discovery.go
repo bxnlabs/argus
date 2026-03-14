@@ -1,4 +1,4 @@
-package agent
+package node
 
 import (
 	"encoding/json"
@@ -7,19 +7,19 @@ import (
 	"path/filepath"
 )
 
-// DiscoveryInfo is the content of ~/.argus/agent.json.
+// DiscoveryInfo is the content of ~/.argus/node.json.
 type DiscoveryInfo struct {
 	PID     int    `json:"pid"`
 	Address string `json:"address"`
 }
 
-// DefaultDiscoveryPath returns ~/.argus/agent.json.
+// DefaultDiscoveryPath returns ~/.argus/node.json.
 func DefaultDiscoveryPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("home dir: %w", err)
 	}
-	return filepath.Join(home, ".argus", "agent.json"), nil
+	return filepath.Join(home, ".argus", "node.json"), nil
 }
 
 // WriteDiscoveryFile writes the agent discovery file.

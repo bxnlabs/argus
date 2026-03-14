@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bxnlabs/argus/internal/agent/git"
+	"github.com/bxnlabs/argus/internal/node/git"
 	"github.com/bxnlabs/argus/internal/shared"
 )
 

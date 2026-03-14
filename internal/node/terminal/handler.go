@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	agentsession "github.com/bxnlabs/argus/internal/agent/session"
+	agentsession "github.com/bxnlabs/argus/internal/node/session"
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 )

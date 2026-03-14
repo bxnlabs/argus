@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bxnlabs/argus/internal/agent/db"
+	"github.com/bxnlabs/argus/internal/node/db"
 )
 
 // mustMkdirAll is a test helper that creates directories or fails the test.

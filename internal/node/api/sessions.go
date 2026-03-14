@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/bxnlabs/argus/internal/agent/db"
-	"github.com/bxnlabs/argus/internal/agent/provider"
-	agentsession "github.com/bxnlabs/argus/internal/agent/session"
+	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/provider"
+	agentsession "github.com/bxnlabs/argus/internal/node/session"
 	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 

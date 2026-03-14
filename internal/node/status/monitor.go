@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bxnlabs/argus/internal/agent/db"
+	"github.com/bxnlabs/argus/internal/node/db"
 )
 
 // SessionLister lists sessions from the database.

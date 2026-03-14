@@ -3,9 +3,9 @@ package api
 import (
 	"net/http"
 
-	"github.com/bxnlabs/argus/internal/agent/session"
-	"github.com/bxnlabs/argus/internal/agent/status"
-	"github.com/bxnlabs/argus/internal/agent/terminal"
+	"github.com/bxnlabs/argus/internal/node/session"
+	"github.com/bxnlabs/argus/internal/node/status"
+	"github.com/bxnlabs/argus/internal/node/terminal"
 	ghservice "github.com/bxnlabs/argus/internal/github"
 )
 

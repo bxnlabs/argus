@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bxnlabs/argus/internal/agent/files"
-	"github.com/bxnlabs/argus/internal/agent/filesearch"
+	"github.com/bxnlabs/argus/internal/node/files"
+	"github.com/bxnlabs/argus/internal/node/filesearch"
 	"github.com/bxnlabs/argus/internal/shared"
 )
 

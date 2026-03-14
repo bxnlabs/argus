@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	agentsession "github.com/bxnlabs/argus/internal/agent/session"
+	nodesession "github.com/bxnlabs/argus/internal/node/session"
 )
 
 // SessionStatus is the detected status of a session.
@@ -26,19 +26,19 @@ const (
 
 // TmuxQuerier abstracts tmux interactions for testability.
 type TmuxQuerier interface {
-	GetSessionActivities(ctx context.Context) ([]agentsession.SessionActivity, error)
+	GetSessionActivities(ctx context.Context) ([]nodesession.SessionActivity, error)
 	CapturePaneContent(ctx context.Context, name string) (string, error)
 }
 
 // prodTmux is the production implementation of TmuxQuerier.
 type prodTmux struct{}
 
-func (prodTmux) GetSessionActivities(ctx context.Context) ([]agentsession.SessionActivity, error) {
-	return agentsession.GetSessionActivitiesContext(ctx)
+func (prodTmux) GetSessionActivities(ctx context.Context) ([]nodesession.SessionActivity, error) {
+	return nodesession.GetSessionActivitiesContext(ctx)
 }
 
 func (prodTmux) CapturePaneContent(ctx context.Context, name string) (string, error) {
-	return agentsession.CapturePaneContext(ctx, name)
+	return nodesession.CapturePaneContext(ctx, name)
 }
 
 // sessionCache tracks which tmux sessions exist.

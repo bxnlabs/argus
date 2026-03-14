@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/bxnlabs/argus/internal/agent/status"
+	"github.com/bxnlabs/argus/internal/node/status"
 )
 
 // handleStatus returns a handler for GET /api/sessions/status.

@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	agentsession "github.com/bxnlabs/argus/internal/agent/session"
+	agentsession "github.com/bxnlabs/argus/internal/node/session"
 )
 
 // mockTmux implements TmuxQuerier for tests.

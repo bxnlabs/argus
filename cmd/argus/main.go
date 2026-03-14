@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/bxnlabs/argus/cmd/argus/cli"
-	"github.com/bxnlabs/argus/internal/agent"
+	"github.com/bxnlabs/argus/internal/node"
 	"github.com/bxnlabs/argus/internal/config"
 	ts "github.com/bxnlabs/argus/internal/tailscale"
 	"github.com/bxnlabs/argus/internal/web"
@@ -100,7 +100,7 @@ func newAgentCmd() *cobra.Command {
 		Short:        "Start only the agent API",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agentHandler, cleanup, err := agent.Setup(cfg)
+			agentHandler, cleanup, err := node.Setup(cfg)
 			if err != nil {
 				return err
 			}
@@ -129,27 +129,27 @@ func newAgentCmd() *cobra.Command {
 }
 
 func writeDiscovery(addr string) {
-	dp, err := agent.DefaultDiscoveryPath()
+	dp, err := node.DefaultDiscoveryPath()
 	if err != nil {
 		log.Printf("warning: cannot determine discovery path: %v", err)
 		return
 	}
-	if err := agent.WriteDiscoveryFile(dp, addr); err != nil {
+	if err := node.WriteDiscoveryFile(dp, addr); err != nil {
 		log.Printf("warning: cannot write discovery file: %v", err)
 	}
 }
 
 func removeDiscovery() {
-	dp, err := agent.DefaultDiscoveryPath()
+	dp, err := node.DefaultDiscoveryPath()
 	if err != nil {
 		return
 	}
-	agent.RemoveDiscoveryFile(dp)
+	node.RemoveDiscoveryFile(dp)
 }
 
 // runCombined starts the agent and SPA on a single port.
 func runCombined(ctx context.Context) error {
-	agentHandler, cleanup, err := agent.Setup(cfg)
+	agentHandler, cleanup, err := node.Setup(cfg)
 	if err != nil {
 		return err
 	}
