@@ -25,7 +25,7 @@ func ExpandPath(p string) (string, error) {
 // CleanPath expands ~ and resolves the path to an absolute, cleaned form.
 // Unlike SafeExpandPath, it does not restrict paths to the home directory.
 // OS-level permissions are the sole access guard. This is acceptable under
-// the assumption that the agent runs behind Tailscale or a private network
+// the assumption that the node runs behind Tailscale or a private network
 // with no unauthenticated public exposure. See TODOS.md for hardening items
 // (auth middleware, localhost-only binding) before any broader deployment.
 func CleanPath(p string) (string, error) {

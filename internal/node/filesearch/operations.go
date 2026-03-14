@@ -232,7 +232,7 @@ type entry struct {
 // entrySource implements fuzzy.Source for fuzzy matching.
 // Case-insensitive matching is handled natively by sahilm/fuzzy via equalFold.
 // Returning the relative path lets queries span directory components
-// (e.g. "internalsearch" matches "internal/agent/filesearch/operations.go").
+// (e.g. "internalsearch" matches "internal/node/filesearch/operations.go").
 type entrySource []entry
 
 func (s entrySource) String(i int) string { return s[i].rel }

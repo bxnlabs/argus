@@ -9,7 +9,7 @@ import (
 
 func TestWriteDiscoveryFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "agent.json")
+	path := filepath.Join(dir, "node.json")
 
 	if err := WriteDiscoveryFile(path, "127.0.0.1:3000"); err != nil {
 		t.Fatalf("WriteDiscoveryFile: %v", err)
@@ -35,7 +35,7 @@ func TestWriteDiscoveryFile(t *testing.T) {
 
 func TestRemoveDiscoveryFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "agent.json")
+	path := filepath.Join(dir, "node.json")
 
 	if err := WriteDiscoveryFile(path, "127.0.0.1:3000"); err != nil {
 		t.Fatalf("WriteDiscoveryFile: %v", err)

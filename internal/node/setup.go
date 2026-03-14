@@ -16,8 +16,8 @@ import (
 	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
-// Setup initializes the agent: opens the database, runs migrations, and
-// returns an HTTP handler with all agent API routes. The returned cleanup
+// Setup initializes the node: opens the database, runs migrations, and
+// returns an HTTP handler with all node API routes. The returned cleanup
 // function closes the database and should be called on shutdown.
 func Setup(cfg *config.Config) (http.Handler, func(), error) {
 	database, err := db.Open(cfg.Database.Path)
@@ -32,7 +32,7 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 
 	// Determine state dir from DB path (~/.argus).
 	// Canonicalize with ExpandPath + filepath.Abs so relative paths
-	// (e.g. "agent.db") resolve to the same directory as sqlite.Open.
+	// (e.g. "node.db") resolve to the same directory as sqlite.Open.
 	expandedDBPath, err := shared.ExpandPath(cfg.Database.Path)
 	if err != nil {
 		database.Close()
