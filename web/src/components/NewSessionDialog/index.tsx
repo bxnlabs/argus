@@ -16,10 +16,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { AgentSelector } from "./AgentSelector";
+import { ProviderSelector } from "./ProviderSelector";
 import { SourcePicker } from "@/components/SourcePicker";
 import { useProfilesQuery } from "@/data/sessions";
-import type { AgentType, CreateSessionParams } from "@/types";
+import type { ProviderType, CreateSessionParams } from "@/types";
 
 type SourceTab = "local" | "remote";
 
@@ -35,7 +35,7 @@ export function NewSessionDialog({
   onCreateSession,
 }: NewSessionDialogProps) {
   const [name, setName] = useState("");
-  const [agentType, setAgentType] = useState<AgentType>("claude");
+  const [providerType, setProviderType] = useState<ProviderType>("claude");
   const [source, setSource] = useState("");
   const [sourceTab, setSourceTab] = useState<SourceTab>("local");
   const [autoApprove, setAutoApprove] = useState(true);
@@ -48,7 +48,7 @@ export function NewSessionDialog({
   useEffect(() => {
     if (open) {
       setName("");
-      setAgentType("claude");
+      setProviderType("claude");
       setSource("");
       setSourceTab("local");
       setAutoApprove(true);
@@ -65,7 +65,7 @@ export function NewSessionDialog({
 
     const params: CreateSessionParams = {
       name: trimmedName,
-      agent_type: agentType,
+      provider_type: providerType,
     };
 
     if (source) {
@@ -109,7 +109,7 @@ export function NewSessionDialog({
             <DialogTitle>New Session</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <AgentSelector value={agentType} onChange={setAgentType} />
+            <ProviderSelector value={providerType} onChange={setProviderType} />
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Name</label>

@@ -5,24 +5,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AGENT_OPTIONS } from "@/types";
-import type { AgentType } from "@/types";
+import { PROVIDER_OPTIONS } from "@/types";
+import type { ProviderType } from "@/types";
 
-interface AgentSelectorProps {
-  value: AgentType;
-  onChange: (value: AgentType) => void;
+interface ProviderSelectorProps {
+  value: ProviderType;
+  onChange: (value: ProviderType) => void;
 }
 
-export function AgentSelector({ value, onChange }: AgentSelectorProps) {
+export function ProviderSelector({ value, onChange }: ProviderSelectorProps) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">Agent</label>
-      <Select value={value} onValueChange={(v) => onChange(v as AgentType)}>
+      <label className="text-sm font-medium">Provider</label>
+      <Select value={value} onValueChange={(v) => onChange(v as ProviderType)}>
         <SelectTrigger>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {AGENT_OPTIONS.map((option) => (
+          {PROVIDER_OPTIONS.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               <span className="font-medium">{option.label}</span>
               <span className="text-muted-foreground ml-2 text-xs">

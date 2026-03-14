@@ -37,7 +37,7 @@ export function FileTree({
       setLoadingDirs((prev) => new Set(prev).add(dirPath));
       try {
         const data = await apiFetch<FilesResponse>(
-          `/agent/api/files?path=${encodeURIComponent(dirPath)}`,
+          `/node/api/files?path=${encodeURIComponent(dirPath)}`,
         );
         if (data.files) {
           setLoadedChildren((prev) => new Map(prev).set(dirPath, data.files));

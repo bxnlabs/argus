@@ -46,7 +46,7 @@ export function QuickSwitcher({
       session.name?.toLowerCase().includes(q) ||
       session.working_directory?.toLowerCase().includes(q) ||
       session.git_parent_dir?.toLowerCase().includes(q) ||
-      session.agent_type?.toLowerCase().includes(q)
+      session.provider_type?.toLowerCase().includes(q)
     );
   });
 
@@ -203,7 +203,7 @@ export function QuickSwitcher({
                         </span>
                         <span>·</span>
                         <span className="capitalize">
-                          {session.agent_type}
+                          {session.provider_type}
                         </span>
                       </div>
                     </div>
