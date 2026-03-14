@@ -5,7 +5,7 @@ func init() {
 		ID:               AgentGemini,
 		Name:             "Gemini CLI",
 		CLI:              "gemini",
-		AutoApproveFlag:  "--yolomode",
+		AutoApproveFlag:  "--yolo",
 		SupportsResume:   true,
 		ResumeArg:        "--resume",
 		ModelFlag:        "-m",

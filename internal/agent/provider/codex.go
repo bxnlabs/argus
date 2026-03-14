@@ -5,7 +5,7 @@ func init() {
 		ID:               AgentCodex,
 		Name:             "Codex",
 		CLI:              "codex",
-		AutoApproveFlag:  "--approval-mode full-auto",
+		AutoApproveFlag:  "--full-auto",
 		SupportsResume:   true,
 		ResumeArg:        "resume",
 		ModelFlag:        "--model",

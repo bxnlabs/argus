@@ -63,8 +63,8 @@ func TestBuildCommandCodex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(cmd, "--approval-mode full-auto") {
-		t.Errorf("got %q, want --approval-mode", cmd)
+	if !strings.Contains(cmd, "--full-auto") {
+		t.Errorf("got %q, want --full-auto", cmd)
 	}
 	if !strings.Contains(cmd, "--model 'gpt-4'") {
 		t.Errorf("got %q, want --model 'gpt-4'", cmd)
@@ -79,8 +79,8 @@ func TestBuildCommandGemini(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(cmd, "--yolomode") {
-		t.Errorf("got %q, want --yolomode", cmd)
+	if !strings.Contains(cmd, "--yolo") {
+		t.Errorf("got %q, want --yolo", cmd)
 	}
 	if !strings.Contains(cmd, "-m 'gemini-pro'") {
 		t.Errorf("got %q, want -m 'gemini-pro'", cmd)
