@@ -14,8 +14,26 @@ func (d *DB) RunMigrations() error {
 	}); err != nil {
 		return err
 	}
-	return d.migrate("add_profile", func() error {
+	if err := d.migrate("add_profile", func() error {
 		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN profile TEXT`)
+		return err
+	}); err != nil {
+		return err
+	}
+	return d.migrate("rename_agent_type_to_provider_type", func() error {
+		// Only rename if the old column still exists (no-op for fresh databases
+		// created with provider_type directly).
+		var hasOldColumn int
+		row := d.sql.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'agent_type'`,
+		)
+		if err := row.Scan(&hasOldColumn); err != nil {
+			return err
+		}
+		if hasOldColumn == 0 {
+			return nil // already using provider_type
+		}
+		_, err := d.sql.Exec(`ALTER TABLE sessions RENAME COLUMN agent_type TO provider_type`)
 		return err
 	})
 }

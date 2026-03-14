@@ -2,7 +2,7 @@ package provider
 
 func init() {
 	register(&Provider{
-		ID:               AgentClaude,
+		ID:               ProviderClaude,
 		Name:             "Claude Code",
 		CLI:              "claude",
 		AutoApproveFlag:  "--dangerously-skip-permissions",

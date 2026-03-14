@@ -47,7 +47,7 @@ func (d *DB) seedMigrations() error {
 	}
 	defer rows.Close()
 
-	var hasWorktreeBranch, hasGitParentDir, hasProfile bool
+	var hasWorktreeBranch, hasGitParentDir, hasProfile, hasProviderType bool
 	for rows.Next() {
 		var cid int
 		var name, colType string
@@ -63,6 +63,8 @@ func (d *DB) seedMigrations() error {
 			hasGitParentDir = true
 		case "profile":
 			hasProfile = true
+		case "provider_type":
+			hasProviderType = true
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -89,6 +91,14 @@ func (d *DB) seedMigrations() error {
 		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
 			"add_profile",
+		); err != nil {
+			return err
+		}
+	}
+	if hasProviderType {
+		if _, err := d.sql.Exec(
+			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
+			"rename_agent_type_to_provider_type",
 		); err != nil {
 			return err
 		}

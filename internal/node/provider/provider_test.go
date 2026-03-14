@@ -10,11 +10,11 @@ func TestAllProviders(t *testing.T) {
 	if len(all) != 4 {
 		t.Errorf("len = %d, want 4", len(all))
 	}
-	ids := map[AgentType]bool{}
+	ids := map[ProviderType]bool{}
 	for _, p := range all {
 		ids[p.ID] = true
 	}
-	for _, want := range []AgentType{AgentClaude, AgentCodex, AgentGemini, AgentShell} {
+	for _, want := range []ProviderType{ProviderClaude, ProviderCodex, ProviderGemini, ProviderShell} {
 		if !ids[want] {
 			t.Errorf("missing provider: %s", want)
 		}
@@ -22,16 +22,16 @@ func TestAllProviders(t *testing.T) {
 }
 
 func TestIsValid(t *testing.T) {
-	if !IsValid(AgentClaude) {
+	if !IsValid(ProviderClaude) {
 		t.Error("claude should be valid")
 	}
-	if IsValid(AgentType("opencode")) {
+	if IsValid(ProviderType("opencode")) {
 		t.Error("opencode should not be valid")
 	}
 }
 
 func TestBuildCommandClaude(t *testing.T) {
-	cmd, err := BuildCommand(AgentClaude, BuildCommandOptions{
+	cmd, err := BuildCommand(ProviderClaude, BuildCommandOptions{
 		AutoApprove: true,
 	})
 	if err != nil {
@@ -43,7 +43,7 @@ func TestBuildCommandClaude(t *testing.T) {
 }
 
 func TestBuildCommandClaudeResume(t *testing.T) {
-	cmd, err := BuildCommand(AgentClaude, BuildCommandOptions{
+	cmd, err := BuildCommand(ProviderClaude, BuildCommandOptions{
 		AutoApprove: true,
 		SessionID:   "abc123",
 	})
@@ -56,7 +56,7 @@ func TestBuildCommandClaudeResume(t *testing.T) {
 }
 
 func TestBuildCommandCodex(t *testing.T) {
-	cmd, err := BuildCommand(AgentCodex, BuildCommandOptions{
+	cmd, err := BuildCommand(ProviderCodex, BuildCommandOptions{
 		AutoApprove: true,
 		Model:       "gpt-4",
 	})
@@ -72,7 +72,7 @@ func TestBuildCommandCodex(t *testing.T) {
 }
 
 func TestBuildCommandGemini(t *testing.T) {
-	cmd, err := BuildCommand(AgentGemini, BuildCommandOptions{
+	cmd, err := BuildCommand(ProviderGemini, BuildCommandOptions{
 		AutoApprove: true,
 		Model:       "gemini-pro",
 	})
@@ -88,7 +88,7 @@ func TestBuildCommandGemini(t *testing.T) {
 }
 
 func TestBuildCommandShell(t *testing.T) {
-	cmd, err := BuildCommand(AgentShell, BuildCommandOptions{})
+	cmd, err := BuildCommand(ProviderShell, BuildCommandOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,14 +98,14 @@ func TestBuildCommandShell(t *testing.T) {
 }
 
 func TestBuildCommandUnknown(t *testing.T) {
-	_, err := BuildCommand(AgentType("unknown"), BuildCommandOptions{})
+	_, err := BuildCommand(ProviderType("unknown"), BuildCommandOptions{})
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
 }
 
 func TestBuildCommandClaudeModel(t *testing.T) {
-	cmd, err := BuildCommand(AgentClaude, BuildCommandOptions{
+	cmd, err := BuildCommand(ProviderClaude, BuildCommandOptions{
 		Model: "opus",
 	})
 	if err != nil {
@@ -117,7 +117,7 @@ func TestBuildCommandClaudeModel(t *testing.T) {
 }
 
 func TestBuildCommandEscapesModelAndSessionID(t *testing.T) {
-	cmd, err := BuildCommand(AgentClaude, BuildCommandOptions{
+	cmd, err := BuildCommand(ProviderClaude, BuildCommandOptions{
 		SessionID: "; rm -rf /",
 		Model:     "$(whoami)",
 	})
@@ -134,13 +134,13 @@ func TestBuildCommandEscapesModelAndSessionID(t *testing.T) {
 
 func TestGetSessionIDPattern(t *testing.T) {
 	tests := []struct {
-		agent   AgentType
+		agent   ProviderType
 		wantSet bool
 	}{
-		{AgentClaude, true},
-		{AgentCodex, true},
-		{AgentGemini, true},
-		{AgentShell, false},
+		{ProviderClaude, true},
+		{ProviderCodex, true},
+		{ProviderGemini, true},
+		{ProviderShell, false},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.agent), func(t *testing.T) {
@@ -158,13 +158,13 @@ func TestGetSessionIDPattern(t *testing.T) {
 func TestSessionIDPatternExtraction(t *testing.T) {
 	tests := []struct {
 		name   string
-		agent  AgentType
+		agent  ProviderType
 		output string
 		wantID string
 	}{
 		{
 			name:  "claude exit output",
-			agent: AgentClaude,
+			agent: ProviderClaude,
 			output: ` ▐▛███▜▌   Claude Code v2.1.71
 ▝▜█████▛▘  Opus 4.6 · Claude Max
   ▘▘ ▝▝    ~/Workspace/repos/bxnlabs/argus
@@ -180,7 +180,7 @@ claude --resume e9ed7eb1-5fa8-40ca-b718-bc747ea4e38e`,
 		},
 		{
 			name:  "codex exit output",
-			agent: AgentCodex,
+			agent: ProviderCodex,
 			output: `╭───────────────────────────────────────────────────╮
 │ >_ OpenAI Codex (v0.111.0)                        │
 │                                                   │
@@ -198,7 +198,7 @@ To continue this session, run codex resume 019cce43-57d3-7842-9f1d-732711edbf25`
 		},
 		{
 			name:  "gemini exit output",
-			agent: AgentGemini,
+			agent: ProviderGemini,
 			output: `╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                                        │
 │  Agent powering down. Goodbye!                                                                                         │
@@ -220,7 +220,7 @@ To continue this session, run codex resume 019cce43-57d3-7842-9f1d-732711edbf25`
 		},
 		{
 			name:   "no match in output",
-			agent:  AgentClaude,
+			agent:  ProviderClaude,
 			output: "Some random output without a session ID",
 			wantID: "",
 		},

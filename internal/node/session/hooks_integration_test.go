@@ -25,7 +25,7 @@ func TestHookIntegrationSetupOrder(t *testing.T) {
 		"#!/bin/bash\necho project >> "+markerFile+"\n"), 0755)
 
 	hr := NewHookRunner(stateDir)
-	env := HookEnv{SessionID: "test-1", WorkingDir: "/tmp", AgentType: "claude", Profile: "work"}
+	env := HookEnv{SessionID: "test-1", WorkingDir: "/tmp", ProviderType: "claude", Profile: "work"}
 
 	// Run in setup order
 	paths := hr.ResolveHookPaths("pre_create.sh", "work", "--test--repo")
@@ -65,7 +65,7 @@ func TestHookIntegrationTeardownOrder(t *testing.T) {
 		"#!/bin/bash\necho project >> "+markerFile+"\n"), 0755)
 
 	hr := NewHookRunner(stateDir)
-	env := HookEnv{SessionID: "test-1", WorkingDir: "/tmp", AgentType: "claude", Profile: "work"}
+	env := HookEnv{SessionID: "test-1", WorkingDir: "/tmp", ProviderType: "claude", Profile: "work"}
 
 	// Run in teardown order (LIFO: project first, then profile)
 	paths := hr.ResolveHookPathsTeardown("pre_destroy.sh", "work", "--test--repo")
@@ -95,13 +95,13 @@ func TestHookIntegrationEnvVars(t *testing.T) {
 		"#!/bin/bash\n"+
 			"echo \"SID=$ARGUS_SESSION_ID\" >> "+markerFile+"\n"+
 			"echo \"WD=$ARGUS_WORKING_DIR\" >> "+markerFile+"\n"+
-			"echo \"AT=$ARGUS_AGENT_TYPE\" >> "+markerFile+"\n"+
+			"echo \"AT=$ARGUS_PROVIDER_TYPE\" >> "+markerFile+"\n"+
 			"echo \"PROF=$ARGUS_PROFILE\" >> "+markerFile+"\n"), 0755)
 
 	hr := NewHookRunner(stateDir)
 	env := HookEnv{
 		SessionID: "sess-abc", WorkingDir: t.TempDir(),
-		AgentType: "claude", Profile: "default",
+		ProviderType: "claude", Profile: "default",
 	}
 
 	paths := hr.ResolveHookPaths("pre_create.sh", "default", "")
@@ -123,7 +123,7 @@ func TestHookIntegrationEnvVars(t *testing.T) {
 		t.Error("missing ARGUS_WORKING_DIR")
 	}
 	if !strings.Contains(content, "AT=claude") {
-		t.Error("missing ARGUS_AGENT_TYPE")
+		t.Error("missing ARGUS_PROVIDER_TYPE")
 	}
 	if !strings.Contains(content, "PROF=default") {
 		t.Error("missing ARGUS_PROFILE")
@@ -141,7 +141,7 @@ func TestHookIntegrationTimeout(t *testing.T) {
 	hr := NewHookRunner(stateDir)
 	hr.Timeout = 500 * time.Millisecond
 
-	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", AgentType: "shell"}
+	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", ProviderType: "shell"}
 	paths := hr.ResolveHookPaths("pre_create.sh", "slow", "")
 	if len(paths) != 1 {
 		t.Fatalf("expected 1 hook, got %d", len(paths))
@@ -164,7 +164,7 @@ func TestHookIntegrationNonZeroExit(t *testing.T) {
 		"#!/bin/bash\necho 'something went wrong' >&2\nexit 1"), 0755)
 
 	hr := NewHookRunner(stateDir)
-	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", AgentType: "claude"}
+	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", ProviderType: "claude"}
 
 	paths := hr.ResolveHookPaths("pre_create.sh", "fail", "")
 	err := hr.RunHook(paths[0], env)
@@ -193,7 +193,7 @@ func TestHookIntegrationBestEffort(t *testing.T) {
 		"#!/bin/bash\necho survived >> "+markerFile+"\n"), 0755)
 
 	hr := NewHookRunner(stateDir)
-	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", AgentType: "claude"}
+	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", ProviderType: "claude"}
 
 	// Teardown order: project first (fails), then profile (should still run)
 	paths := hr.ResolveHookPathsTeardown("pre_destroy.sh", "work", "--test--repo")

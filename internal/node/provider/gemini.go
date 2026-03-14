@@ -2,7 +2,7 @@ package provider
 
 func init() {
 	register(&Provider{
-		ID:               AgentGemini,
+		ID:               ProviderGemini,
 		Name:             "Gemini CLI",
 		CLI:              "gemini",
 		AutoApproveFlag:  "--yolomode",

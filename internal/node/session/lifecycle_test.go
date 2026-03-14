@@ -60,7 +60,7 @@ func TestResolveSourceToCWD_ShellSkipsWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Shell session with a local git repo as source — should NOT create worktree
-	cwd, branch, _, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.AgentShell)
+	cwd, branch, _, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.ProviderShell)
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 	}
 
 	// Point an agent session at the worktree path — should reuse it
-	cwd, gotBranch, _, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.AgentClaude)
+	cwd, gotBranch, _, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.ProviderClaude)
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestDeleteDirtyWorktreeBlocksBeforeSideEffects(t *testing.T) {
 		Name:             "dirty-test",
 		TmuxName:         "claude-sess-dirty-test",
 		WorkingDirectory: wtPath,
-		AgentType:        "claude",
+		ProviderType:        "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -208,7 +208,7 @@ func TestDeletePreDestroyHookDirtyingWorktreeStillSucceeds(t *testing.T) {
 		Name:             "hook-dirty",
 		TmuxName:         "claude-sess-hook-dirty",
 		WorkingDirectory: wtPath,
-		AgentType:        "claude",
+		ProviderType:        "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -261,7 +261,7 @@ func TestDeleteForceBypassesDirtyCheck(t *testing.T) {
 		Name:             "force-test",
 		TmuxName:         "claude-sess-force-test",
 		WorkingDirectory: wtPath,
-		AgentType:        "claude",
+		ProviderType:        "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -372,7 +372,7 @@ func TestResolveSourceToCWD_AgentCreatesWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Agent session with a local git repo — SHOULD create worktree
-	cwd, branch, _, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.AgentClaude)
+	cwd, branch, _, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.ProviderClaude)
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}

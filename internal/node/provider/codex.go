@@ -2,7 +2,7 @@ package provider
 
 func init() {
 	register(&Provider{
-		ID:               AgentCodex,
+		ID:               ProviderCodex,
 		Name:             "Codex",
 		CLI:              "codex",
 		AutoApproveFlag:  "--approval-mode full-auto",

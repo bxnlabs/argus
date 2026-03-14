@@ -180,7 +180,7 @@ func TestRunHookTimeout(t *testing.T) {
 	hr := NewHookRunner(stateDir)
 	hr.Timeout = 100 * time.Millisecond // very short for test
 
-	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", AgentType: "shell"}
+	env := HookEnv{SessionID: "test", WorkingDir: "/tmp", ProviderType: "shell"}
 	err := hr.RunHook(hookPath, env)
 	if err == nil {
 		t.Fatal("expected timeout error")

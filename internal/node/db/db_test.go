@@ -29,7 +29,7 @@ func TestCreateAndGetSession(t *testing.T) {
 		Name:             "Test Session",
 		TmuxName:         "claude-sess-1",
 		WorkingDirectory: "~/code",
-		AgentType:        "claude",
+		ProviderType:        "claude",
 		Model:            &model,
 	}
 	if err := db.CreateSession(s); err != nil {
@@ -49,8 +49,8 @@ func TestCreateAndGetSession(t *testing.T) {
 	if got.TmuxName != "claude-sess-1" {
 		t.Errorf("tmux_name = %q, want %q", got.TmuxName, "claude-sess-1")
 	}
-	if got.AgentType != "claude" {
-		t.Errorf("agent_type = %q, want %q", got.AgentType, "claude")
+	if got.ProviderType != "claude" {
+		t.Errorf("provider_type = %q, want %q", got.ProviderType, "claude")
 	}
 }
 
@@ -71,7 +71,7 @@ func TestListSessions(t *testing.T) {
 	for _, id := range []string{"a", "b", "c"} {
 		if err := db.CreateSession(&Session{
 			ID: id, Name: id, TmuxName: "claude-" + id,
-			WorkingDirectory: "~", AgentType: "claude",
+			WorkingDirectory: "~", ProviderType: "claude",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -91,7 +91,7 @@ func TestUpdateSession(t *testing.T) {
 
 	if err := db.CreateSession(&Session{
 		ID: "s1", Name: "orig", TmuxName: "claude-s1",
-		WorkingDirectory: "~", AgentType: "claude",
+		WorkingDirectory: "~", ProviderType: "claude",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestUpdateSessionProviderSessionID(t *testing.T) {
 
 	if err := db.CreateSession(&Session{
 		ID: "s1", Name: "test", TmuxName: "claude-s1",
-		WorkingDirectory: "~", AgentType: "claude",
+		WorkingDirectory: "~", ProviderType: "claude",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestDeleteSession(t *testing.T) {
 
 	if err := db.CreateSession(&Session{
 		ID: "s1", Name: "x", TmuxName: "claude-s1",
-		WorkingDirectory: "~", AgentType: "claude",
+		WorkingDirectory: "~", ProviderType: "claude",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestTouchSession(t *testing.T) {
 
 	if err := db.CreateSession(&Session{
 		ID: "s1", Name: "x", TmuxName: "claude-s1",
-		WorkingDirectory: "~", AgentType: "claude",
+		WorkingDirectory: "~", ProviderType: "claude",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestSessionAutoApprove(t *testing.T) {
 
 	if err := db.CreateSession(&Session{
 		ID: "s1", Name: "auto", TmuxName: "claude-s1",
-		WorkingDirectory: "~", AgentType: "claude", AutoApprove: true,
+		WorkingDirectory: "~", ProviderType: "claude", AutoApprove: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestSessionProfile(t *testing.T) {
 	profile := "work"
 	if err := db.CreateSession(&Session{
 		ID: "s1", Name: "profiled", TmuxName: "claude-s1",
-		WorkingDirectory: "~", AgentType: "claude", Profile: &profile,
+		WorkingDirectory: "~", ProviderType: "claude", Profile: &profile,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestSessionProfileNull(t *testing.T) {
 
 	if err := db.CreateSession(&Session{
 		ID: "s1", Name: "legacy", TmuxName: "claude-s1",
-		WorkingDirectory: "~", AgentType: "claude",
+		WorkingDirectory: "~", ProviderType: "claude",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestSessionNullableFields(t *testing.T) {
 	// Create with all nullable fields as nil
 	if err := db.CreateSession(&Session{
 		ID: "s1", Name: "minimal", TmuxName: "shell-s1",
-		WorkingDirectory: "~", AgentType: "shell",
+		WorkingDirectory: "~", ProviderType: "shell",
 	}); err != nil {
 		t.Fatal(err)
 	}

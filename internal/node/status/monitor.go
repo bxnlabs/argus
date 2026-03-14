@@ -26,9 +26,9 @@ type StatusDetector interface {
 
 // SnapshotEntry holds the status data for a single session.
 type SnapshotEntry struct {
-	SessionName string
-	Status      SessionStatus
-	AgentType   string
+	SessionName  string
+	Status       SessionStatus
+	ProviderType string
 }
 
 // Snapshot is the in-memory status snapshot read by the API handler.
@@ -158,9 +158,9 @@ func (m *Monitor) refresh(ctx context.Context) {
 			}
 		}
 		snap.Statuses[s.ID] = SnapshotEntry{
-			SessionName: s.TmuxName,
-			Status:      st,
-			AgentType:   s.AgentType,
+			SessionName:  s.TmuxName,
+			Status:       st,
+			ProviderType: s.ProviderType,
 		}
 		if ctx.Err() != nil {
 			continue

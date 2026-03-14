@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   provider_session_id TEXT,
   model TEXT DEFAULT 'sonnet',
   system_prompt TEXT,
-  agent_type TEXT NOT NULL DEFAULT 'claude',
+  provider_type TEXT NOT NULL DEFAULT 'claude',
   auto_approve INTEGER NOT NULL DEFAULT 0,
   worktree_branch TEXT,
   git_parent_dir TEXT,

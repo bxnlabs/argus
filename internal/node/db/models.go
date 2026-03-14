@@ -16,7 +16,7 @@ type Session struct {
 	ProviderSessionID  *string `json:"provider_session_id"`
 	Model            *string `json:"model"`
 	SystemPrompt     *string `json:"system_prompt"`
-	AgentType        string  `json:"agent_type"`
+	ProviderType     string  `json:"provider_type"`
 	AutoApprove      bool    `json:"auto_approve"`
 	WorktreeBranch   *string `json:"worktree_branch"`
 	GitParentDir     *string `json:"git_parent_dir"`

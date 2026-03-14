@@ -13,9 +13,9 @@ func handleStatus(mon *status.Monitor) http.HandlerFunc {
 		result := make(map[string]any, len(snap.Statuses))
 		for id, entry := range snap.Statuses {
 			result[id] = map[string]any{
-				"sessionName": entry.SessionName,
-				"status":      string(entry.Status),
-				"agentType":   entry.AgentType,
+				"sessionName":  entry.SessionName,
+				"status":       string(entry.Status),
+				"providerType": entry.ProviderType,
 			}
 		}
 		respondJSON(w, http.StatusOK, map[string]any{

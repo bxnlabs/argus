@@ -59,7 +59,7 @@ func NewManager(database *db.DB, wt *worktree.Manager, stateDir string) *Manager
 // CreateOptions are the options for creating a new session.
 type CreateOptions struct {
 	Name            string  `json:"name"`
-	AgentType       string  `json:"agent_type"`
+	ProviderType    string  `json:"provider_type"`
 	Source          string  `json:"source"`
 	Model           *string `json:"model,omitempty"`
 	SystemPrompt    *string `json:"system_prompt,omitempty"`
@@ -70,8 +70,8 @@ type CreateOptions struct {
 
 // Create creates a new session: generates ID, builds CLI command, spawns tmux, inserts DB.
 func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
-	if !provider.IsValid(provider.AgentType(opts.AgentType)) {
-		return nil, fmt.Errorf("%w: invalid agent type: %s", ErrInvalidInput, opts.AgentType)
+	if !provider.IsValid(provider.ProviderType(opts.ProviderType)) {
+		return nil, fmt.Errorf("%w: invalid provider type: %s", ErrInvalidInput, opts.ProviderType)
 	}
 
 	// Resolve profile
@@ -82,12 +82,12 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 
 	// Generate session ID (UUID format for tmux name)
 	sessionID := shared.GenerateID("sess")
-	tmuxName := fmt.Sprintf("%s-%s", opts.AgentType, sessionID)
+	tmuxName := fmt.Sprintf("%s-%s", opts.ProviderType, sessionID)
 
 	// Resolve source → working directory (and optional worktree branch).
 	// cleanup removes the git worktree if a later step fails; it is a no-op
 	// for non-worktree sessions or reused worktrees.
-	cwd, worktreeBranch, worktreeCreated, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name, provider.AgentType(opts.AgentType))
+	cwd, worktreeBranch, worktreeCreated, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name, provider.ProviderType(opts.ProviderType))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
@@ -121,7 +121,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// Run pre_create hooks (blocking, abort on failure)
 	hookEnv := HookEnv{
 		SessionID: sessionID, WorkingDir: cwd,
-		AgentType: opts.AgentType, Profile: resolvedProfile,
+		ProviderType: opts.ProviderType, Profile: resolvedProfile,
 	}
 	preCreatePaths := m.hooks.ResolveHookPaths(HookPreCreate, resolvedProfile, projectKey)
 	for _, p := range preCreatePaths {
@@ -142,7 +142,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	}
 
 	// Build the agent command
-	agentCmd, err := provider.BuildCommand(provider.AgentType(opts.AgentType), provider.BuildCommandOptions{
+	agentCmd, err := provider.BuildCommand(provider.ProviderType(opts.ProviderType), provider.BuildCommandOptions{
 		AutoApprove: opts.AutoApprove,
 		SessionID:   opts.ResumeSessionID,
 		Model:       ptrStr(opts.Model),
@@ -156,7 +156,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 
 	var tmuxCmd string
 	if agentCmd != "" {
-		pattern := provider.GetSessionIDPattern(provider.AgentType(opts.AgentType))
+		pattern := provider.GetSessionIDPattern(provider.ProviderType(opts.ProviderType))
 		scriptPath, err := WriteInitScript(sessionID, agentCmd, pattern, postCreatePaths)
 		if err != nil {
 			return nil, fmt.Errorf("write init script: %w", err)
@@ -206,7 +206,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		Name:              opts.Name,
 		TmuxName:          tmuxName,
 		WorkingDirectory:  cwd,
-		AgentType:         opts.AgentType,
+		ProviderType:      opts.ProviderType,
 		Model:             opts.Model,
 		SystemPrompt:      opts.SystemPrompt,
 		AutoApprove:       opts.AutoApprove,
@@ -236,7 +236,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 // the worktree path, branch name, and a cleanup function that removes the
 // worktree if a subsequent step fails. For non-worktree or reused-worktree
 // sessions, cleanup is a no-op. If source is empty, defaults to home dir.
-func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider.AgentType) (cwd string, worktreeBranch *string, worktreeCreated bool, cleanup func(), err error) {
+func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider.ProviderType) (cwd string, worktreeBranch *string, worktreeCreated bool, cleanup func(), err error) {
 	noop := func() {}
 
 	if src == "" {
@@ -253,7 +253,7 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 	}
 
 	if resolved.IsRemote() {
-		if agentType == provider.AgentShell {
+		if agentType == provider.ProviderShell {
 			// Shell sessions clone but don't create a worktree.
 			// Use fetchOnly=true to avoid resetting uncommitted work
 			// from other shell sessions sharing the same clone dir.
@@ -281,7 +281,7 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 		return resolved.LocalPath, nil, false, noop, nil
 	}
 
-	if agentType == provider.AgentShell {
+	if agentType == provider.ProviderShell {
 		// Shell sessions use the local path directly, no worktree.
 		return resolved.LocalPath, nil, false, noop, nil
 	}
@@ -346,10 +346,10 @@ func (m *Manager) Delete(id string, force bool) error {
 	profileName := ptrStr(session.Profile)
 
 	hookEnv := HookEnv{
-		SessionID:  session.ID,
-		WorkingDir: session.WorkingDirectory,
-		AgentType:  session.AgentType,
-		Profile:    profileName,
+		SessionID:    session.ID,
+		WorkingDir:   session.WorkingDirectory,
+		ProviderType: session.ProviderType,
+		Profile:      profileName,
 	}
 
 	// pre_destroy: LIFO order (project first, then profile), best-effort
@@ -503,7 +503,7 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 		return "", fmt.Errorf("working directory no longer exists: %s", cwd)
 	}
 
-	agentCmd, err := provider.BuildCommand(provider.AgentType(session.AgentType), provider.BuildCommandOptions{
+	agentCmd, err := provider.BuildCommand(provider.ProviderType(session.ProviderType), provider.BuildCommandOptions{
 		AutoApprove: session.AutoApprove,
 		SessionID:   ptrStr(session.ProviderSessionID),
 		Model:       ptrStr(session.Model),
@@ -519,7 +519,7 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 
 	var tmuxCmd string
 	if agentCmd != "" {
-		pattern := provider.GetSessionIDPattern(provider.AgentType(session.AgentType))
+		pattern := provider.GetSessionIDPattern(provider.ProviderType(session.ProviderType))
 		scriptPath, err := WriteInitScript(session.ID, agentCmd, pattern, postCreatePaths)
 		if err != nil {
 			return "", fmt.Errorf("write init script: %w", err)

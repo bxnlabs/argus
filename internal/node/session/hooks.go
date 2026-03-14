@@ -46,7 +46,7 @@ func ProjectKeyForSession(sess *db.Session) string {
 type HookEnv struct {
 	SessionID    string
 	WorkingDir   string
-	AgentType    string
+	ProviderType string
 	WorktreePath string
 	Profile      string
 }
@@ -128,7 +128,7 @@ func (hr *HookRunner) RunHook(hookPath string, env HookEnv) error {
 	cmd.Env = append(os.Environ(),
 		"ARGUS_SESSION_ID="+env.SessionID,
 		"ARGUS_WORKING_DIR="+env.WorkingDir,
-		"ARGUS_AGENT_TYPE="+env.AgentType,
+		"ARGUS_PROVIDER_TYPE="+env.ProviderType,
 		"ARGUS_WORKTREE_PATH="+env.WorktreePath,
 		"ARGUS_PROFILE="+env.Profile,
 	)

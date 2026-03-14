@@ -79,7 +79,7 @@ func NewRouter(deps Deps) http.Handler {
 
 func handleInfo(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{
-		"name":    "argus-agent",
+		"name":    "argus-node",
 		"version": "2.0.0",
 	})
 }

@@ -5,19 +5,19 @@ import (
 	"regexp"
 )
 
-// AgentType identifies a supported agent provider.
-type AgentType string
+// ProviderType identifies a supported AI provider.
+type ProviderType string
 
 const (
-	AgentClaude AgentType = "claude"
-	AgentCodex  AgentType = "codex"
-	AgentGemini AgentType = "gemini"
-	AgentShell  AgentType = "shell"
+	ProviderClaude ProviderType = "claude"
+	ProviderCodex  ProviderType = "codex"
+	ProviderGemini ProviderType = "gemini"
+	ProviderShell  ProviderType = "shell"
 )
 
 // Provider defines an AI coding agent CLI.
 type Provider struct {
-	ID               AgentType
+	ID               ProviderType
 	Name             string
 	CLI              string // command name (e.g. "claude")
 	AutoApproveFlag  string // flag to skip permission prompts
@@ -34,14 +34,14 @@ type BuildCommandOptions struct {
 	Model       string
 }
 
-var providers = map[AgentType]*Provider{}
+var providers = map[ProviderType]*Provider{}
 
 func register(p *Provider) {
 	providers[p.ID] = p
 }
 
 // Get returns a provider by ID.
-func Get(id AgentType) (*Provider, error) {
+func Get(id ProviderType) (*Provider, error) {
 	p, ok := providers[id]
 	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", id)
@@ -52,7 +52,7 @@ func Get(id AgentType) (*Provider, error) {
 // All returns all registered providers.
 func All() []*Provider {
 	out := make([]*Provider, 0, len(providers))
-	for _, id := range []AgentType{AgentClaude, AgentCodex, AgentGemini, AgentShell} {
+	for _, id := range []ProviderType{ProviderClaude, ProviderCodex, ProviderGemini, ProviderShell} {
 		if p, ok := providers[id]; ok {
 			out = append(out, p)
 		}
@@ -61,13 +61,13 @@ func All() []*Provider {
 }
 
 // IsValid checks if a provider ID is registered.
-func IsValid(id AgentType) bool {
+func IsValid(id ProviderType) bool {
 	_, ok := providers[id]
 	return ok
 }
 
 // BuildCommand constructs the full CLI command string for a provider.
-func BuildCommand(id AgentType, opts BuildCommandOptions) (string, error) {
+func BuildCommand(id ProviderType, opts BuildCommandOptions) (string, error) {
 	p, err := Get(id)
 	if err != nil {
 		return "", err
@@ -97,7 +97,7 @@ func BuildCommand(id AgentType, opts BuildCommandOptions) (string, error) {
 
 // GetSessionIDPattern returns the session ID extraction regex for a provider.
 // Returns empty string for providers that don't support resume.
-func GetSessionIDPattern(id AgentType) string {
+func GetSessionIDPattern(id ProviderType) string {
 	p, ok := providers[id]
 	if !ok || !p.SupportsResume {
 		return ""

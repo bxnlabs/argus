@@ -40,8 +40,8 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if opts.AgentType == "" {
-		opts.AgentType = string(provider.AgentClaude)
+	if opts.ProviderType == "" {
+		opts.ProviderType = string(provider.ProviderClaude)
 	}
 	if opts.Name == "" {
 		opts.Name = "New Session"

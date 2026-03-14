@@ -111,8 +111,8 @@ func waitForSnapshot(t *testing.T, mon *Monitor, timeout time.Duration, check fu
 func TestMonitorSnapshot(t *testing.T) {
 	lister := &fakeLister{
 		sessions: []*db.Session{
-			{ID: "s1", TmuxName: "claude-s1", AgentType: "claude"},
-			{ID: "s2", TmuxName: "shell-s2", AgentType: "shell"},
+			{ID: "s1", TmuxName: "claude-s1", ProviderType: "claude"},
+			{ID: "s2", TmuxName: "shell-s2", ProviderType: "shell"},
 		},
 	}
 	toucher := &fakeToucher{ch: make(chan struct{}, 2)}
@@ -145,8 +145,8 @@ func TestMonitorSnapshot(t *testing.T) {
 	if s1.Status != StatusRunning {
 		t.Errorf("s1 Status = %q, want %q", s1.Status, StatusRunning)
 	}
-	if s1.AgentType != "claude" {
-		t.Errorf("s1 AgentType = %q, want %q", s1.AgentType, "claude")
+	if s1.ProviderType != "claude" {
+		t.Errorf("s1 ProviderType = %q, want %q", s1.ProviderType, "claude")
 	}
 
 	s2 := snap.Statuses["s2"]
@@ -217,7 +217,7 @@ func TestMonitorDoubleStartIsSafe(t *testing.T) {
 func TestMonitorSnapshotIsDefensiveCopy(t *testing.T) {
 	lister := &fakeLister{
 		sessions: []*db.Session{
-			{ID: "s1", TmuxName: "claude-s1", AgentType: "claude"},
+			{ID: "s1", TmuxName: "claude-s1", ProviderType: "claude"},
 		},
 		ch: make(chan struct{}, 1),
 	}
@@ -275,7 +275,7 @@ func TestMonitorListError(t *testing.T) {
 func TestMonitorCarriesForwardStatusOnDetectorOmission(t *testing.T) {
 	// Use a counting lister that clears detector statuses on the second call.
 	sessions := []*db.Session{
-		{ID: "s1", TmuxName: "claude-s1", AgentType: "claude"},
+		{ID: "s1", TmuxName: "claude-s1", ProviderType: "claude"},
 	}
 	detector := &fakeDetector{
 		statuses: map[string]SessionStatus{"claude-s1": StatusRunning},
