@@ -11,7 +11,7 @@ import (
 
 func writeTestDiscovery(t *testing.T, dir string, pid int, address string) string {
 	t.Helper()
-	path := filepath.Join(dir, "agent.json")
+	path := filepath.Join(dir, "node.json")
 	data, _ := json.Marshal(map[string]any{"pid": pid, "address": address})
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
@@ -58,15 +58,15 @@ func TestDiscover_StalePID(t *testing.T) {
 
 func TestAPIClient_Get(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/agent/api/sessions" {
-			t.Errorf("path = %q, want /agent/api/sessions", r.URL.Path)
+		if r.URL.Path != "/node/api/sessions" {
+			t.Errorf("path = %q, want /node/api/sessions", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"sessions":[]}`))
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/agent"}
+	c := &apiClient{baseURL: srv.URL + "/node"}
 	body, err := c.get("/api/sessions")
 	if err != nil {
 		t.Fatalf("get: %v", err)

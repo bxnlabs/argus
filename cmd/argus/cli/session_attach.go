@@ -33,7 +33,7 @@ func newAttachCmd() *cobra.Command {
 			}
 
 			// Call EnsureSession via the GET /api/sessions/{id} endpoint
-			// so the agent revives the tmux session if it died.
+			// so the node revives the tmux session if it died.
 			_, err = c.get("/api/sessions/" + session.ID)
 			if err != nil {
 				return fmt.Errorf("ensure session: %w", err)

@@ -10,20 +10,20 @@ export interface Session {
   provider_session_id: string | null;
   model: string | null;
   system_prompt: string | null;
-  agent_type: AgentType;
+  provider_type: ProviderType;
   auto_approve: boolean;
 }
 
 export interface SessionStatusInfo {
   sessionName: string;
   status: "running" | "waiting" | "idle" | "dead" | "error";
-  agentType: AgentType;
+  providerType: ProviderType;
   lastLine?: string;
 }
 
-export type AgentType = "claude" | "codex" | "gemini" | "shell";
+export type ProviderType = "claude" | "codex" | "gemini" | "shell";
 
-export const AGENT_OPTIONS: { value: AgentType; label: string; description: string }[] = [
+export const PROVIDER_OPTIONS: { value: ProviderType; label: string; description: string }[] = [
   { value: "claude", label: "Claude Code", description: "Anthropic's official CLI" },
   { value: "codex", label: "Codex", description: "OpenAI's CLI" },
   { value: "gemini", label: "Gemini CLI", description: "Google's AI CLI" },
@@ -32,13 +32,13 @@ export const AGENT_OPTIONS: { value: AgentType; label: string; description: stri
 
 export interface CreateSessionParams {
   name?: string;
-  agent_type: AgentType;
+  provider_type: ProviderType;
   source?: string;
   auto_approve?: boolean;
   profile?: string;
 }
 
-// File system types (matches internal/agent/files/types.go)
+// File system types (matches internal/node/files/types.go)
 export interface FileNode {
   name: string;
   path: string;
@@ -53,7 +53,7 @@ export interface FilesResponse {
   path: string; // expanded absolute path
 }
 
-// File metadata (matches GET /agent/api/files/meta response)
+// File metadata (matches GET /node/api/files/meta response)
 export interface FileMetaResponse {
   size: number;
   isBinary: boolean;
@@ -61,7 +61,7 @@ export interface FileMetaResponse {
   path: string;
 }
 
-// File search types (matches internal/agent/filesearch/types.go)
+// File search types (matches internal/node/filesearch/types.go)
 export interface FileSearchResult {
   name: string;
   path: string;
@@ -74,7 +74,7 @@ export interface FileSearchResponse {
   count: number;
 }
 
-// File upload types (matches POST /agent/api/files/upload response)
+// File upload types (matches POST /node/api/files/upload response)
 export interface UploadedFile {
   path: string;
   name: string;
@@ -85,7 +85,7 @@ export interface UploadResponse {
   files: UploadedFile[];
 }
 
-// Git types (matches internal/agent/git/types.go)
+// Git types (matches internal/node/git/types.go)
 export type FileStatus =
   | "modified"
   | "added"

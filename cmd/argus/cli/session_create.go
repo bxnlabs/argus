@@ -49,8 +49,8 @@ func newCreateCmd() *cobra.Command {
 			}
 
 			reqBody := map[string]any{
-				"name":         name,
-				"agent_type":   provider,
+				"name":          name,
+				"provider_type": provider,
 				"source":       src,
 				"auto_approve": yolo,
 			}
@@ -76,13 +76,13 @@ func newCreateCmd() *cobra.Command {
 			}
 
 			s := resp.Session
-			fmt.Fprintf(os.Stderr, "Created session %q (%s)\n", s.Name, s.AgentType)
+			fmt.Fprintf(os.Stderr, "Created session %q (%s)\n", s.Name, s.ProviderType)
 
 			return attachTmux(s.TmuxName)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "claude", "Agent type (claude, codex, gemini, shell)")
+	cmd.Flags().StringVar(&provider, "provider", "claude", "Provider type (claude, codex, gemini, shell)")
 	cmd.Flags().StringVar(&src, "src", "", "Source: local path or git URL/shorthand (defaults to current directory)")
 	cmd.Flags().BoolVar(&yolo, "yolo", true, "Auto-approve tool calls (use --yolo=false to disable)")
 	cmd.Flags().StringVar(&profile, "profile", "", "Profile name for lifecycle hooks")

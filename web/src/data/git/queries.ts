@@ -21,7 +21,7 @@ export function useGitCheckQuery(path: string | null) {
     queryKey: gitKeys.check(path ?? ""),
     queryFn: async () => {
       const data = await apiFetch<GitCheckResponse>(
-        `/agent/api/git/check?path=${encodeURIComponent(path!)}`,
+        `/node/api/git/check?path=${encodeURIComponent(path!)}`,
       );
       return data.isGitRepo;
     },
@@ -44,7 +44,7 @@ export function useGitStatusQuery(
     queryKey: gitKeys.status(path),
     queryFn: async () => {
       const data = await apiFetch<GitStatusResponse>(
-        `/agent/api/git/status?path=${encodeURIComponent(path)}`,
+        `/node/api/git/status?path=${encodeURIComponent(path)}`,
       );
       return data.status;
     },
@@ -75,7 +75,7 @@ export function useFileDiffQuery(
       if (staged) params.set("staged", "true");
       if (untracked) params.set("untracked", "true");
       const data = await apiFetch<DiffResponse>(
-        `/agent/api/git/diff?${params}`,
+        `/node/api/git/diff?${params}`,
       );
       return data.diff;
     },
@@ -103,7 +103,7 @@ export function useGitHistoryQuery(
     queryKey: gitKeys.history(path),
     queryFn: async () => {
       const data = await apiFetch<HistoryResponse>(
-        `/agent/api/git/history?path=${encodeURIComponent(path)}&limit=${limit}`,
+        `/node/api/git/history?path=${encodeURIComponent(path)}&limit=${limit}`,
       );
       return data.commits ?? [];
     },
@@ -126,7 +126,7 @@ export function useCommitDetailQuery(
     queryKey: gitKeys.commitDetail(path, hash ?? ""),
     queryFn: async () => {
       const data = await apiFetch<CommitDetailResponse>(
-        `/agent/api/git/history/${hash}?path=${encodeURIComponent(path)}`,
+        `/node/api/git/history/${hash}?path=${encodeURIComponent(path)}`,
       );
       return data.commit;
     },
@@ -142,7 +142,7 @@ export function useCompareBranchesQuery(path: string) {
     queryKey: gitKeys.compareBranches(path),
     queryFn: async () => {
       const data = await apiFetch<BranchList>(
-        `/agent/api/git/compare/branches?path=${encodeURIComponent(path)}`,
+        `/node/api/git/compare/branches?path=${encodeURIComponent(path)}`,
       );
       return data;
     },
@@ -158,7 +158,7 @@ export function useCompareQuery(path: string, base: string | null) {
     queryKey: gitKeys.compare(path, base ?? ""),
     queryFn: async () => {
       const data = await apiFetch<CompareResult>(
-        `/agent/api/git/compare?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base!)}`,
+        `/node/api/git/compare?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base!)}`,
       );
       return data;
     },
@@ -174,7 +174,7 @@ export function useCommitFullDiffQuery(path: string, hash: string | null) {
     queryKey: gitKeys.commitFullDiff(path, hash ?? ""),
     queryFn: async () => {
       const data = await apiFetch<DiffResponse>(
-        `/agent/api/git/history/${hash}/full-diff?path=${encodeURIComponent(path)}`,
+        `/node/api/git/history/${hash}/full-diff?path=${encodeURIComponent(path)}`,
       );
       return data.diff ?? "";
     },
@@ -193,7 +193,7 @@ export function useWorkingDiffQuery(
     queryKey: gitKeys.workingDiff(path),
     queryFn: async () => {
       const data = await apiFetch<WorkingDiffResult>(
-        `/agent/api/git/working-diff?path=${encodeURIComponent(path)}`,
+        `/node/api/git/working-diff?path=${encodeURIComponent(path)}`,
       );
       return data;
     },

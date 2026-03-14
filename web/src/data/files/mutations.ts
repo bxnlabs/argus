@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { apiFetch, getAgentBaseUrl } from "@/api/client";
+import { apiFetch, getNodeBaseUrl } from "@/api/client";
 import type { UploadResponse } from "@/types";
 import { filesKeys } from "./keys";
 
@@ -10,7 +10,7 @@ export function useWriteFileMutation() {
   return useMutation({
     mutationFn: async ({ path, content }: { path: string; content: string }) => {
       return apiFetch<{ path: string; size: number }>(
-        `/agent/api/files/content?path=${encodeURIComponent(path)}`,
+        `/node/api/files/content?path=${encodeURIComponent(path)}`,
         {
           method: "PUT",
           headers: { "Content-Type": "text/plain" },
@@ -43,8 +43,8 @@ export function useFileUpload() {
         formData.append("files", file);
       }
 
-      const base = getAgentBaseUrl();
-      const res = await fetch(`${base}/agent/api/files/upload`, {
+      const base = getNodeBaseUrl();
+      const res = await fetch(`${base}/node/api/files/upload`, {
         method: "POST",
         body: formData,
       });
