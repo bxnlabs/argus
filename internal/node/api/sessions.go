@@ -7,12 +7,12 @@ import (
 
 	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/provider"
-	agentsession "github.com/bxnlabs/argus/internal/node/session"
+	"github.com/bxnlabs/argus/internal/node/session"
 	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
 type sessionHandler struct {
-	manager *agentsession.Manager
+	manager *session.Manager
 }
 
 // GET /api/sessions
@@ -34,7 +34,7 @@ func (h *sessionHandler) list(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/sessions
 func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
-	var opts agentsession.CreateOptions
+	var opts session.CreateOptions
 	if err := parseBody(w, r, &opts); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -47,9 +47,9 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 		opts.Name = "New Session"
 	}
 
-	session, err := h.manager.Create(opts)
+	sess, err := h.manager.Create(opts)
 	if err != nil {
-		if errors.Is(err, agentsession.ErrInvalidInput) {
+		if errors.Is(err, session.ErrInvalidInput) {
 			respondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -57,7 +57,7 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusCreated, map[string]any{"session": session})
+	respondJSON(w, http.StatusCreated, map[string]any{"session": sess})
 }
 
 // GET /api/sessions/{id}
@@ -65,7 +65,7 @@ func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	if _, err := h.manager.EnsureSession(id); err != nil {
-		if errors.Is(err, agentsession.ErrNotFound) {
+		if errors.Is(err, session.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
 			return
 		}

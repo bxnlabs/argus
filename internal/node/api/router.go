@@ -17,7 +17,7 @@ type Deps struct {
 	UploadDirOverride  string // override upload directory (for testing)
 }
 
-// NewRouter creates the HTTP router with all agent API routes.
+// NewRouter creates the HTTP router with all node API routes.
 func NewRouter(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 

@@ -2,14 +2,14 @@
 
 ## Status Detection
 
-- [ ] Add structured/debug logging for silent error paths in `refreshCache` (detector.go:65) and `CapturePaneContext` (detector.go:221). Both discard errors, which is self-correcting but makes debugging tmux failures invisible. Address when introducing structured logging across the agent.
+- [ ] Add structured/debug logging for silent error paths in `refreshCache` (detector.go:65) and `CapturePaneContext` (detector.go:221). Both discard errors, which is self-correcting but makes debugging tmux failures invisible. Address when introducing structured logging across the node.
 - [ ] Add tests for the spike detection state machine, cooldown transitions, and acknowledged/unacknowledged flows in `internal/node/status/`. Requires injectable clock and tmux interface to test temporal logic without real subprocesses.
 - [ ] Restructure `GetStatus` mutex scope to exclude tmux subprocess calls (`CapturePaneContext`, `refreshCache`). Currently the mutex is held during external I/O, serializing all status checks. Operationally fine at 1-10 sessions but will degrade beyond ~30. Fix by gathering tmux data outside the lock, then acquiring it only for in-memory state updates.
 - [ ] Wire up `Detector.Acknowledge()` (`detector.go:254`). The method exists but is never called — no API endpoint, no frontend trigger. Without it, sessions that finish running stay yellow (waiting/unacknowledged) forever and never transition to grey (idle). Need to add a `POST /api/sessions/{name}/acknowledge` endpoint and call it from the frontend when the user views/selects a session.
 
 ## Terminal WebSocket
 
-- [ ] Set `ws.SetReadLimit(64 * 1024)` on the WebSocket connection in `handleConnection` (`internal/node/terminal/handler.go`). Gorilla's default read limit is effectively unlimited (`MaxInt64`). A misbehaving client on the tailnet could send a multi-GB frame and exhaust agent memory. One-line fix.
+- [ ] Set `ws.SetReadLimit(64 * 1024)` on the WebSocket connection in `handleConnection` (`internal/node/terminal/handler.go`). Gorilla's default read limit is effectively unlimited (`MaxInt64`). A misbehaving client on the tailnet could send a multi-GB frame and exhaust node memory. One-line fix.
 - [ ] Replace raw `err.Error()` in the PTY error path (`handler.go:190`) with a generic error message. Currently sends Go error strings (filesystem paths, binary names) to the WebSocket client. Log the detail server-side instead.
 - [ ] Add connection counting or a semaphore to limit concurrent WebSocket-PTY sessions in `handleConnection` (`internal/node/terminal/handler.go`). Each connection allocates a PTY fd pair + spawns a process. No limit means runaway reconnect loops could exhaust file descriptors (default 1024). Operationally fine at 1-10 sessions but needs a safety net (e.g., cap at 50) before wider use.
 
@@ -47,10 +47,10 @@
 
 ## API Security
 
-- [ ] Revisit `CleanPath` filesystem-wide access scope. File browse/read/write handlers use `CleanPath` (no home-directory restriction), relying on OS permissions and private network (Tailscale) as the sole access guards. If the agent is ever exposed beyond private networks, add application-level auth or scope restrictions to write operations (`writeContent` in `internal/node/api/files.go`).
+- [ ] Revisit `CleanPath` filesystem-wide access scope. File browse/read/write handlers use `CleanPath` (no home-directory restriction), relying on OS permissions and private network (Tailscale) as the sole access guards. If the node is ever exposed beyond private networks, add application-level auth or scope restrictions to write operations (`writeContent` in `internal/node/api/files.go`).
 
-- [ ] Replace `Access-Control-Allow-Origin: *` with a scoped CORS policy. The wildcard header is set globally in the API router and allows any origin to make requests to the agent. While the agent runs on a private tailnet, tightening CORS prevents a malicious page from issuing authenticated requests to `localhost:<port>` if the user visits it in the same browser.
-- [ ] Bind the agent API to `127.0.0.1` by default instead of all interfaces (`:3011`). Combined with the wildcard CORS and no auth, this exposes file read/write, session control, and terminal attach to the network. Add authentication (token/session) before binding to non-loopback interfaces.
+- [ ] Replace `Access-Control-Allow-Origin: *` with a scoped CORS policy. The wildcard header is set globally in the API router and allows any origin to make requests to the node. While the node runs on a private tailnet, tightening CORS prevents a malicious page from issuing authenticated requests to `localhost:<port>` if the user visits it in the same browser.
+- [ ] Bind the node API to `127.0.0.1` by default instead of all interfaces (`:3011`). Combined with the wildcard CORS and no auth, this exposes file read/write, session control, and terminal attach to the network. Add authentication (token/session) before binding to non-loopback interfaces.
 - [ ] `/api/code-search` in `internal/node/api/search.go:30` uses `ExpandPath` instead of `SafeExpandPath`, allowing callers to search arbitrary host paths (e.g., `/etc`). Use `shared.SafeExpandPath` to enforce the same root policy as other file endpoints.
 - [ ] User query in `internal/node/filesearch/operations.go:56` is appended to `fd` args without a `--` separator. Queries starting with `-` are parsed as flags, enabling option injection (`--search-path`, `--exec`). Append `--` before the query arg.
 

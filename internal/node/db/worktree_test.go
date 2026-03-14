@@ -171,6 +171,14 @@ CREATE TABLE IF NOT EXISTS _migrations (
 		rawDB.Close()
 		t.Fatalf("create old schema: %v", err)
 	}
+	// Insert a row using the old agent_type column to verify the migration
+	// preserves pre-existing data when it renames the column to provider_type.
+	if _, err := rawDB.Exec(
+		`INSERT INTO sessions (id, name, tmux_name, working_directory, agent_type, auto_approve) VALUES ('sess_pre_migration', 'pre-migration', 'gemini-sess_pre_migration', '/tmp', 'gemini', 0)`,
+	); err != nil {
+		rawDB.Close()
+		t.Fatalf("insert pre-migration row: %v", err)
+	}
 	rawDB.Close()
 
 	// Now open it with the current db.Open (which will run seedMigrations).
@@ -183,6 +191,16 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	// RunMigrations must add the column.
 	if err := d.RunMigrations(); err != nil {
 		t.Fatalf("RunMigrations: %v", err)
+	}
+
+	// Verify that the pre-migration row's agent_type value was preserved as
+	// provider_type after the column rename migration.
+	preMigration, err := d.GetSession("sess_pre_migration")
+	if err != nil {
+		t.Fatalf("get pre-migration session: %v", err)
+	}
+	if preMigration.ProviderType != "gemini" {
+		t.Errorf("ProviderType = %q, want %q", preMigration.ProviderType, "gemini")
 	}
 
 	// Verify the column exists by creating a session with a worktree branch.
