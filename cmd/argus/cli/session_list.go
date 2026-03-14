@@ -80,7 +80,7 @@ func newListCmd() *cobra.Command {
 					dir = compressPath(dir, resp.HomeDir, 35)
 				}
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					s.ID, s.Name, st, s.AgentType, dir, branch, relativeTime(s.UpdatedAt))
+					s.ID, s.Name, st, s.ProviderType, dir, branch, relativeTime(s.UpdatedAt))
 			}
 			w.Flush()
 			return nil
