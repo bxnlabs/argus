@@ -4,7 +4,7 @@ build: build-web
 	go build -o bin/argus ./cmd/argus
 
 build-web:
-	cd web && npm run build
+	cd web && npm install && npm run build
 
 dev: build-web
 	go run ./cmd/argus
