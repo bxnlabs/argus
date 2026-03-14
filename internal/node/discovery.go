@@ -22,7 +22,7 @@ func DefaultDiscoveryPath() (string, error) {
 	return filepath.Join(home, ".argus", "node.json"), nil
 }
 
-// WriteDiscoveryFile writes the agent discovery file.
+// WriteDiscoveryFile writes the node discovery file.
 func WriteDiscoveryFile(path, address string) error {
 	info := DiscoveryInfo{
 		PID:     os.Getpid(),
