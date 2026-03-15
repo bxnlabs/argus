@@ -20,6 +20,7 @@ func clearArgusEnv(t *testing.T) {
 		"ARGUS_TAILSCALE_ENABLED",
 		"ARGUS_TAILSCALE_HOSTNAME_PREFIX",
 		"ARGUS_TAILSCALE_AUTH_KEY",
+		"ARGUS_TAILSCALE_PORT",
 	} {
 		if v, ok := os.LookupEnv(key); ok {
 			t.Cleanup(func() { os.Setenv(key, v) })
@@ -320,6 +321,9 @@ func TestTailscaleDefaults(t *testing.T) {
 	if cfg.Tailscale.AuthKey != "" {
 		t.Errorf("Tailscale.AuthKey = %q, want empty", cfg.Tailscale.AuthKey)
 	}
+	if cfg.Tailscale.Port != 0 {
+		t.Errorf("Tailscale.Port = %d, want 0", cfg.Tailscale.Port)
+	}
 }
 
 func TestTailscaleFromFile(t *testing.T) {
@@ -331,6 +335,7 @@ func TestTailscaleFromFile(t *testing.T) {
 enabled = true
 hostname_prefix = "my-argus"
 auth_key = "tskey-auth-xxx"
+port = 41642
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
 		t.Fatal(err)
@@ -349,6 +354,9 @@ auth_key = "tskey-auth-xxx"
 	if cfg.Tailscale.AuthKey != "tskey-auth-xxx" {
 		t.Errorf("Tailscale.AuthKey = %q, want %q", cfg.Tailscale.AuthKey, "tskey-auth-xxx")
 	}
+	if cfg.Tailscale.Port != 41642 {
+		t.Errorf("Tailscale.Port = %d, want 41642", cfg.Tailscale.Port)
+	}
 }
 
 func TestTailscaleEnvOverride(t *testing.T) {
@@ -357,6 +365,7 @@ func TestTailscaleEnvOverride(t *testing.T) {
 	t.Setenv("ARGUS_TAILSCALE_ENABLED", "true")
 	t.Setenv("ARGUS_TAILSCALE_HOSTNAME_PREFIX", "env-argus")
 	t.Setenv("ARGUS_TAILSCALE_AUTH_KEY", "tskey-auth-env")
+	t.Setenv("ARGUS_TAILSCALE_PORT", "41642")
 
 	cfg, err := config.Load(config.Options{})
 	if err != nil {
@@ -370,6 +379,9 @@ func TestTailscaleEnvOverride(t *testing.T) {
 	}
 	if cfg.Tailscale.AuthKey != "tskey-auth-env" {
 		t.Errorf("Tailscale.AuthKey = %q, want %q", cfg.Tailscale.AuthKey, "tskey-auth-env")
+	}
+	if cfg.Tailscale.Port != 41642 {
+		t.Errorf("Tailscale.Port = %d, want 41642 (env override)", cfg.Tailscale.Port)
 	}
 }
 
@@ -396,6 +408,23 @@ enabled = true
 	}
 	if cfg.Tailscale.AuthKey != "" {
 		t.Errorf("Tailscale.AuthKey = %q, want empty", cfg.Tailscale.AuthKey)
+	}
+}
+
+func TestValidation_TailscalePortOutOfRange(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[tailscale]
+port = 99999
+`)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(config.Options{ConfigFile: path})
+	if err == nil {
+		t.Fatal("expected validation error for tailscale.port = 99999, got nil")
 	}
 }
 
