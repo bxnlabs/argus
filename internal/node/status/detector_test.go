@@ -247,6 +247,11 @@ func TestCheckBusyIndicators(t *testing.T) {
 		{"mobile: background tasks on long logical line", "output\n※ Brewed for 53s · 3 background tasks still running (↓ to manage)\n", true},
 		{"mobile: status line on long logical line", "output\n✶ Tinkering… (2m 31s · thinking)\n", true},
 		{"mobile: height-clipped no indicators present", "some truncated output\npartial content here\n", false},
+		// Narrow terminal: compact background task count (Claude Code abbreviates on mobile)
+		{"mobile: compact 2 bashes", "output\n\u25b8\u25b8 bypass permissions on \u00b7 2 bashes \u00b7 \u2193 to \u2026\n", true},
+		{"mobile: compact 1 bash", "output\n\u25b8\u25b8 bypass permissions on \u00b7 1 bash \u00b7 \u2193 to ma\u2026\n", true},
+		{"mobile: compact 3 bashes truncated", "output\n\u25b8\u25b8 auto-approve \u00b7 3 bashes\n", true},
+		{"no false positive on bare bash word", "output\nrun bash script\n", false},
 	}
 
 	for _, tt := range tests {

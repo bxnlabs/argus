@@ -122,6 +122,11 @@ func checkBusyIndicators(content string) bool {
 		return true
 	}
 
+	// Check for compact background-task count (narrow/mobile terminals)
+	if CompactTaskPattern.MatchString(recentContent) {
+		return true
+	}
+
 	// Check spinners in last 5 lines
 	spinnerStart := len(lines) - 5
 	if spinnerStart < 0 {

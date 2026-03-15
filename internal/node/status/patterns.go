@@ -24,6 +24,14 @@ var SpinnerChars = []string{
 // Applied against lowercased content so it matches regardless of case.
 var StatusLinePattern = regexp.MustCompile(`\w+\x{2026}\s*\(`)
 
+// CompactTaskPattern matches the abbreviated background-task indicator that
+// Claude Code renders on narrow terminals (mobile). On wide terminals the
+// status bar reads "N background tasks still running (↓ to manage)" which
+// matches the BusyIndicators list above. On narrow terminals it is compacted
+// to "N bashes" / "1 bash" (or other tool names like "N reads", "1 write").
+// Applied against lowercased content so it matches regardless of case.
+var CompactTaskPattern = regexp.MustCompile(`\d+\s+bash(es)?\b`)
+
 // WaitingPatterns are regex patterns that indicate the agent is waiting for user input.
 var WaitingPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\[Y/n\]`),
