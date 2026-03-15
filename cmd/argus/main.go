@@ -281,7 +281,7 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 	}
 	stateDir := filepath.Join(home, ".argus", "tailscale", hostname)
 
-	tsServer := ts.New(hostname, tsCfg.AuthKey, stateDir)
+	tsServer := ts.New(hostname, tsCfg.AuthKey, stateDir, uint16(tsCfg.Port))
 
 	upCtx, upCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer upCancel()

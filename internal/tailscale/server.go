@@ -16,12 +16,14 @@ type Server struct {
 
 // New creates a Server configured to join the tailnet with the given hostname.
 // stateDir is created with 0o700 permissions if it does not exist.
-func New(hostname, authKey, stateDir string) *Server {
+// port sets the WireGuard UDP port; 0 means auto-select.
+func New(hostname, authKey, stateDir string, port uint16) *Server {
 	return &Server{
 		ts: &tsnet.Server{
 			Hostname: hostname,
 			AuthKey:  authKey,
 			Dir:      stateDir,
+			Port:     port,
 		},
 	}
 }

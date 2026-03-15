@@ -38,9 +38,10 @@ type GitConfig struct {
 }
 
 type TailscaleConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
+	Enabled        bool   `mapstructure:"enabled"`
 	HostnamePrefix string `mapstructure:"hostname_prefix"`
-	AuthKey  string `mapstructure:"auth_key"`
+	AuthKey        string `mapstructure:"auth_key"`
+	Port           int    `mapstructure:"port"`
 }
 
 // Options controls how config is loaded.
@@ -68,6 +69,7 @@ func Load(opts Options) (*Config, error) {
 	v.SetDefault("tailscale.enabled", false)
 	v.SetDefault("tailscale.hostname_prefix", "")
 	v.SetDefault("tailscale.auth_key", "")
+	v.SetDefault("tailscale.port", 0)
 
 	// Environment variables: ARGUS_SERVER_PORT, etc.
 	v.SetEnvPrefix("ARGUS")
@@ -127,6 +129,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Database.Path == "" {
 		return fmt.Errorf("database.path must not be empty")
+	}
+	if cfg.Tailscale.Port < 0 || cfg.Tailscale.Port > 65535 {
+		return fmt.Errorf("tailscale.port must be 0-65535, got %d", cfg.Tailscale.Port)
 	}
 	if cfg.Tailscale.Enabled && cfg.Tailscale.HostnamePrefix != "" {
 		if strings.ContainsAny(cfg.Tailscale.HostnamePrefix, "/\\") || strings.Contains(cfg.Tailscale.HostnamePrefix, "..") {
