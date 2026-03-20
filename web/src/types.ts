@@ -158,3 +158,10 @@ export interface BranchList {
   branches: string[];
   defaultBase: string;
 }
+
+export type {
+  LineRange,
+  InlineComment,
+  GeneralComment,
+  CommentsFile,
+} from "./types/comments";
