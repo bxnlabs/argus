@@ -42,11 +42,12 @@ export function NewSessionDialog({
   const [profile, setProfile] = useState("");
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const sourcePickerClosingRef = useRef(false);
-  const { data: profilesData } = useProfilesQuery();
+  const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
 
   useEffect(() => {
     if (open) {
+      refetchProfiles();
       setName("");
       setProviderType("claude");
       setSource("");
