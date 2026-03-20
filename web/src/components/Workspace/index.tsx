@@ -214,7 +214,7 @@ export const Workspace = memo(function Workspace({
             )}
             {activePanel === "editor" && (
               activeWorkingDirectory ? (
-                <FileExplorer workingDirectory={activeWorkingDirectory} />
+                <FileExplorer key={activeTab?.sessionId ?? activeTabId} workingDirectory={activeWorkingDirectory} />
               ) : (
                 <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
                   Attach a session to browse files
