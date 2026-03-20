@@ -151,11 +151,14 @@ func (s *session) readWS() {
 					// (old clients don't send the field).
 					// Write \r as a separate PTY write so the TUI sees
 					// Enter as a distinct input event (not part of a
-					// pasted text chunk). The 1ms sleep ensures the
-					// kernel delivers them as separate read()s.
+					// pasted text chunk). The sleep must be long enough
+					// for text to traverse the dual-PTY path (our PTY →
+					// tmux client → tmux server → pane PTY) before \r
+					// arrives, preventing coalescing that causes TUIs
+					// like Claude Code to swallow the Return.
 					submit := msg.Submit == nil || *msg.Submit
 					if submit {
-						time.Sleep(time.Millisecond)
+						time.Sleep(10 * time.Millisecond)
 						if _, err := s.ptmx.Write([]byte("\r")); err != nil {
 							return
 						}
