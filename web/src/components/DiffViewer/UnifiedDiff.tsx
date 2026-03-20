@@ -1,13 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { ChevronDown, ChevronRight, Plus, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
+import type { InlineComment } from "@/types";
+import { InlineCommentForm } from "./InlineCommentForm";
+import { InlineCommentCard } from "./InlineCommentCard";
 
 interface UnifiedDiffProps {
   diff: ParsedDiff;
   fileName: string;
   expanded?: boolean;
   onToggle?: () => void;
+  // Comment props (optional — when absent, commenting is disabled)
+  comments?: InlineComment[];
+  activeCommentLine?: { from: number; to: number } | null;
+  onLineClick?: (line: number, shiftKey: boolean) => void;
+  onAddComment?: (body: string) => void;
+  onCancelComment?: () => void;
+  onDeleteComment?: (id: string) => void;
 }
 
 export function UnifiedDiff({
@@ -15,6 +25,12 @@ export function UnifiedDiff({
   fileName,
   expanded = true,
   onToggle,
+  comments,
+  activeCommentLine,
+  onLineClick,
+  onAddComment,
+  onCancelComment,
+  onDeleteComment,
 }: UnifiedDiffProps) {
   const [localExpanded, setLocalExpanded] = useState(expanded);
   useEffect(() => {
@@ -29,6 +45,8 @@ export function UnifiedDiff({
       setLocalExpanded(!localExpanded);
     }
   };
+
+  const commentingEnabled = !!onLineClick;
 
   return (
     <div className="border-border overflow-hidden rounded-lg border">
@@ -78,7 +96,17 @@ export function UnifiedDiff({
           ) : (
             <div className="w-fit min-w-full font-mono text-xs">
               {diff.hunks.map((hunk, index) => (
-                <Hunk key={index} hunk={hunk} />
+                <Hunk
+                  key={index}
+                  hunk={hunk}
+                  comments={comments ?? []}
+                  activeCommentLine={activeCommentLine ?? null}
+                  onLineClick={onLineClick}
+                  onAddComment={onAddComment}
+                  onCancelComment={onCancelComment}
+                  onDeleteComment={onDeleteComment}
+                  commentingEnabled={commentingEnabled}
+                />
               ))}
             </div>
           )}
@@ -88,7 +116,25 @@ export function UnifiedDiff({
   );
 }
 
-function Hunk({ hunk }: { hunk: DiffHunk }) {
+function Hunk({
+  hunk,
+  comments,
+  activeCommentLine,
+  onLineClick,
+  onAddComment,
+  onCancelComment,
+  onDeleteComment,
+  commentingEnabled,
+}: {
+  hunk: DiffHunk;
+  comments: InlineComment[];
+  activeCommentLine: { from: number; to: number } | null;
+  onLineClick?: (line: number, shiftKey: boolean) => void;
+  onAddComment?: (body: string) => void;
+  onCancelComment?: () => void;
+  onDeleteComment?: (id: string) => void;
+  commentingEnabled: boolean;
+}) {
   return (
     <div className="min-w-full">
       <div className="border-border border-y bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
@@ -96,16 +142,67 @@ function Hunk({ hunk }: { hunk: DiffHunk }) {
       </div>
       <table className="min-w-full border-collapse">
         <tbody>
-          {hunk.lines.map((line, index) => (
-            <DiffLineRow key={index} line={line} />
-          ))}
+          {hunk.lines.map((line, index) => {
+            const newLine = line.newLineNumber;
+            const isInActiveRange =
+              activeCommentLine != null &&
+              newLine != null &&
+              newLine >= activeCommentLine.from &&
+              newLine <= activeCommentLine.to;
+
+            const lineComments =
+              newLine != null
+                ? comments.filter((c) => c.line.to === newLine)
+                : [];
+
+            const showForm =
+              activeCommentLine != null && newLine === activeCommentLine.to;
+
+            return (
+              <Fragment key={index}>
+                <DiffLineRow
+                  line={line}
+                  isInActiveRange={isInActiveRange}
+                  onLineClick={onLineClick}
+                  commentingEnabled={commentingEnabled}
+                />
+                {lineComments.map((c) => (
+                  <tr key={c.id}>
+                    <td colSpan={4}>
+                      <InlineCommentCard comment={c} onDelete={onDeleteComment!} />
+                    </td>
+                  </tr>
+                ))}
+                {showForm && onAddComment && onCancelComment && (
+                  <tr>
+                    <td colSpan={4}>
+                      <InlineCommentForm
+                        onSubmit={onAddComment}
+                        onCancel={onCancelComment}
+                      />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-function DiffLineRow({ line }: { line: DiffLine }) {
+function DiffLineRow({
+  line,
+  isInActiveRange,
+  onLineClick,
+  commentingEnabled,
+}: {
+  line: DiffLine;
+  isInActiveRange: boolean;
+  onLineClick?: (line: number, shiftKey: boolean) => void;
+  commentingEnabled: boolean;
+}) {
   if (line.type === "header") return null;
 
   const bgColor =
@@ -125,12 +222,27 @@ function DiffLineRow({ line }: { line: DiffLine }) {
   const marker =
     line.type === "addition" ? "+" : line.type === "deletion" ? "-" : "";
 
+  const isCommentable =
+    commentingEnabled &&
+    line.type !== "deletion" &&
+    line.newLineNumber != null;
+
   return (
-    <tr className={cn("hover:bg-muted/30", bgColor)}>
+    <tr className={cn("hover:bg-muted/30", bgColor, isInActiveRange && "bg-blue-500/10")}>
       <td className="text-muted-foreground border-border/50 w-12 border-r px-2 py-0.5 text-right tabular-nums select-none">
         {line.oldLineNumber ?? ""}
       </td>
-      <td className="text-muted-foreground border-border/50 w-12 border-r px-2 py-0.5 text-right tabular-nums select-none">
+      <td
+        className={cn(
+          "text-muted-foreground border-border/50 w-12 border-r px-2 py-0.5 text-right tabular-nums select-none",
+          isCommentable && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
+        )}
+        onClick={
+          isCommentable
+            ? (e) => onLineClick?.(line.newLineNumber!, e.shiftKey)
+            : undefined
+        }
+      >
         {line.newLineNumber ?? ""}
       </td>
       <td className={cn("w-6 px-1 py-0.5 text-center select-none", textColor)}>
