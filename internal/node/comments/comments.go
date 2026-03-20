@@ -162,9 +162,6 @@ func findSnippet(fileText, snippet string, priorLine int) int {
 	if len(matchLines) == 0 {
 		return -1
 	}
-	if len(matchLines) == 1 {
-		return matchLines[0]
-	}
 	best := -1
 	bestDist := math.MaxInt
 	for _, line := range matchLines {

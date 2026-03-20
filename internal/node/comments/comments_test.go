@@ -179,6 +179,23 @@ func TestDetectStaleness_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestFindSnippet_SingleMatch_TooFar(t *testing.T) {
+	// Single match on line 100, prior line was 1 — distance is 99, exceeds 50
+	var lines []string
+	for i := 1; i <= 100; i++ {
+		if i == 100 {
+			lines = append(lines, "target line")
+		} else {
+			lines = append(lines, fmt.Sprintf("line %d", i))
+		}
+	}
+	fileText := strings.Join(lines, "\n") + "\n"
+	result := findSnippet(fileText, "target line", 1)
+	if result != -1 {
+		t.Errorf("expected -1 for single match too far away, got %d", result)
+	}
+}
+
 func TestLoadSaveDelete(t *testing.T) {
 	projectDir := t.TempDir()
 	repoDir := t.TempDir()
