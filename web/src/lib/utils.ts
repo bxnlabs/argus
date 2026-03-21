@@ -103,3 +103,42 @@ export function compressPath(
   // Last resort: truncate the basename itself
   return truncateRight(result, threshold);
 }
+
+/**
+ * Extract "org/repo" (or deeper path for subgroups) from a git remote URL.
+ * Supports HTTPS (https://host/path) and SSH (git@host:path) formats.
+ * Returns null if the URL doesn't match expected patterns.
+ */
+export function parseRepoFromRemoteURL(url: string): string | null {
+  if (!url) return null;
+
+  let path: string | undefined;
+
+  // SSH: git@host:path[.git]
+  const sshMatch = url.match(/^git@[^:]+:(.+)$/);
+  if (sshMatch) {
+    path = sshMatch[1];
+  }
+
+  // HTTPS/HTTP: https://host/path[.git]
+  if (!path) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.pathname && parsed.pathname.length > 1) {
+        path = parsed.pathname.slice(1); // remove leading "/"
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  if (!path) return null;
+
+  // Strip trailing .git
+  path = path.replace(/\.git$/, "");
+
+  // Must have at least org/repo (two segments)
+  if (!path || !path.includes("/")) return null;
+
+  return path;
+}

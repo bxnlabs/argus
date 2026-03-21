@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { contractTilde, compressPath, truncateRight } from "./utils";
+import { contractTilde, compressPath, truncateRight, parseRepoFromRemoteURL } from "./utils";
 
 describe("contractTilde", () => {
   const home = "/Users/jeevb";
@@ -136,5 +136,47 @@ describe("compressPath", () => {
     expect(
       compressPath("/Users/jeevb/Workspace/repos/bxnlabs/argus", "", 30),
     ).toBe("/Users/.../bxnlabs/argus");
+  });
+});
+
+describe("parseRepoFromRemoteURL", () => {
+  it("parses HTTPS URL with .git suffix", () => {
+    expect(parseRepoFromRemoteURL("https://github.com/org/repo.git")).toBe("org/repo");
+  });
+
+  it("parses HTTPS URL without .git suffix", () => {
+    expect(parseRepoFromRemoteURL("https://github.com/org/repo")).toBe("org/repo");
+  });
+
+  it("parses SSH URL with .git suffix", () => {
+    expect(parseRepoFromRemoteURL("git@github.com:org/repo.git")).toBe("org/repo");
+  });
+
+  it("parses SSH URL without .git suffix", () => {
+    expect(parseRepoFromRemoteURL("git@github.com:org/repo")).toBe("org/repo");
+  });
+
+  it("parses non-GitHub HTTPS URL", () => {
+    expect(parseRepoFromRemoteURL("https://gitlab.com/org/repo.git")).toBe("org/repo");
+  });
+
+  it("parses GitLab subgroup URL", () => {
+    expect(parseRepoFromRemoteURL("https://gitlab.com/group/subgroup/repo.git")).toBe("group/subgroup/repo");
+  });
+
+  it("parses SSH URL for non-GitHub host", () => {
+    expect(parseRepoFromRemoteURL("git@gitlab.com:group/subgroup/repo.git")).toBe("group/subgroup/repo");
+  });
+
+  it("returns null for empty string", () => {
+    expect(parseRepoFromRemoteURL("")).toBeNull();
+  });
+
+  it("returns null for unparseable input", () => {
+    expect(parseRepoFromRemoteURL("not-a-url")).toBeNull();
+  });
+
+  it("returns null for URL with no path", () => {
+    expect(parseRepoFromRemoteURL("https://github.com/")).toBeNull();
   });
 });
