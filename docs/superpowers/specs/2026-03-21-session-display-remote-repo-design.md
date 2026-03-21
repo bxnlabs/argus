@@ -12,20 +12,27 @@ Store the git remote origin URL on every git-backed session. The frontend parses
 
 ### Database
 
-- Add nullable `git_remote_url TEXT` column to the `sessions` table via migration.
+- Add nullable `git_remote_url TEXT` column to the `sessions` table:
+  - Add the column to the `CREATE TABLE` statement in `schema.go`.
+  - Add an `add_git_remote_url` migration in `migrations.go` (`ALTER TABLE sessions ADD COLUMN git_remote_url TEXT`).
+  - Add a seed entry in `db.go` `seedMigrations()` so fresh databases skip the migration.
 - Existing sessions get `NULL` — they continue showing the compressed path.
 
 ### Session Creation (`internal/node/session/lifecycle.go`)
 
 - Applies to **all sessions where `cwd` is inside a git repo**, regardless of provider type (claude, codex, gemini, shell) or whether a worktree was created.
 - After resolving the working directory and `git_parent_dir`, run `git remote get-url origin` on the repo directory (`git_parent_dir` if set, otherwise `cwd`).
-- Store the result (full URL — HTTPS or SSH) in the new column. If the command fails (no remote, not a git repo), leave it `NULL`.
+- Strip any userinfo (credentials/tokens) from the URL before storing. For HTTPS URLs, remove the `user:pass@` portion. SSH URLs (`git@host:org/repo`) are safe as-is.
+- Store the sanitized URL in the new column. If the command fails (no remote, not a git repo), leave it `NULL`.
+- Only the `origin` remote is checked. Repos with remotes named differently get `NULL`.
 
 ### Backfill (`internal/node/session/lifecycle.go`)
 
 - Add `BackfillGitRemoteURL()` following the existing `BackfillGitParentDir()` pattern.
-- For sessions with `git_remote_url IS NULL` that have a `working_directory` inside a git repo, resolve and populate the remote URL.
+- Add `ListSessionsForGitRemoteBackfill()` in `sessions.go` — query sessions with `git_remote_url IS NULL AND (git_parent_dir IS NOT NULL OR worktree_branch IS NOT NULL)`. This targets only sessions known to be in git repos, avoiding perpetual re-probing of non-git sessions.
+- For each candidate, resolve the remote URL from `git_parent_dir` (when set) or `working_directory`.
 - Best-effort: silently skip sessions whose directories no longer exist or have no remote.
+- Call `BackfillGitRemoteURL()` from `setup.go` after `BackfillGitParentDir()`.
 
 ### Model (`internal/node/db/models.go`)
 
@@ -33,11 +40,13 @@ Store the git remote origin URL on every git-backed session. The frontend parses
 
 ### DB Layer (`internal/node/db/sessions.go`)
 
-- Include `git_remote_url` in INSERT, SELECT, and UPDATE queries.
+- Add `git_remote_url` to `sessionColumns` (used by SELECT queries) and the `CreateSession` INSERT.
+- Add a dedicated `SetGitRemoteURL(id, url string)` setter for backfill, matching the `SetGitParentDir` pattern.
+- Do **not** add `git_remote_url` to `SessionUpdate` — it is derived server-side, not user-updatable.
 
 ### Git Utility (`internal/git/utils.go`)
 
-- Add `RemoteURL(dir string) (string, error)` — wraps `git remote get-url origin`.
+- Add `RemoteURL(dir string) (string, error)` — wraps `git remote get-url origin`, trims whitespace from output.
 
 ## Frontend Changes
 
@@ -47,10 +56,10 @@ Store the git remote origin URL on every git-backed session. The frontend parses
 
 ### Utility (`web/src/lib/utils.ts`)
 
-- Add `parseRepoFromRemoteURL(url: string): string | null` that extracts `org/repo` from:
-  - `https://github.com/org/repo.git` or `https://github.com/org/repo`
-  - `git@github.com:org/repo.git` or `git@github.com:org/repo`
-  - Other hosts (e.g., `gitlab.com`) — same patterns.
+- Add `parseRepoFromRemoteURL(url: string): string | null` that extracts the repo path from:
+  - `https://github.com/org/repo.git` or `https://github.com/org/repo` → `org/repo`
+  - `git@github.com:org/repo.git` or `git@github.com:org/repo` → `org/repo`
+  - Other hosts follow the same patterns. For URLs with deeper path segments (e.g., GitLab subgroups like `gitlab.com/group/subgroup/repo.git`), return the full path after the host (`group/subgroup/repo`).
 - Returns `null` if the URL doesn't match expected patterns.
 
 ### Session Card (`web/src/components/SessionList/index.tsx`)
@@ -67,5 +76,7 @@ Store the git remote origin URL on every git-backed session. The frontend parses
 ## Edge Cases
 
 - **No remote configured:** `git remote get-url origin` fails — store `NULL`, fall back to path display.
-- **Non-GitHub hosts:** The parser is generic (handles any `host/org/repo` pattern), so GitLab, Bitbucket, etc. work the same way.
+- **Non-origin remotes:** Only the `origin` remote is checked. Repos using a different remote name get `NULL` and fall back to path display.
+- **Non-GitHub hosts:** The parser extracts the path after the host for any provider. Standard `host/org/repo` URLs produce `org/repo`. GitLab subgroup URLs produce the full path (e.g., `group/subgroup/repo`).
+- **Embedded credentials:** HTTPS URLs with userinfo (`https://user:token@host/...`) are sanitized before storage — the userinfo portion is stripped.
 - **Remote URL changes after session creation:** The stored URL reflects the remote at creation time. This is consistent with how `git_parent_dir` works.
