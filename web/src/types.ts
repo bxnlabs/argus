@@ -7,6 +7,7 @@ export interface Session {
   working_directory: string;
   worktree_branch: string | null;
   git_parent_dir: string | null;
+  git_remote_url: string | null;
   provider_session_id: string | null;
   model: string | null;
   system_prompt: string | null;
