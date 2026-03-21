@@ -9,7 +9,7 @@ import (
 // sessionColumns is the explicit column list matching scanSession's scan order.
 const sessionColumns = `id, name, tmux_name, created_at, updated_at,
 	working_directory, provider_session_id, model, system_prompt,
-	provider_type, auto_approve, worktree_branch, git_parent_dir, profile`
+	provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile`
 
 func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var s Session
@@ -19,7 +19,7 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 		&s.WorkingDirectory,
 		&s.ProviderSessionID, &s.Model, &s.SystemPrompt,
 		&s.ProviderType, &autoApprove, &s.WorktreeBranch,
-		&s.GitParentDir, &s.Profile,
+		&s.GitParentDir, &s.GitRemoteURL, &s.Profile,
 	)
 	if err != nil {
 		return nil, err
@@ -34,12 +34,12 @@ func (d *DB) CreateSession(s *Session) error {
 		autoApprove = 1
 	}
 	_, err := d.sql.Exec(
-		`INSERT INTO sessions (id, name, tmux_name, working_directory, provider_session_id, model, system_prompt, provider_type, auto_approve, worktree_branch, git_parent_dir, profile)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (id, name, tmux_name, working_directory, provider_session_id, model, system_prompt, provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.Name, s.TmuxName, s.WorkingDirectory,
 		s.ProviderSessionID, s.Model, s.SystemPrompt,
 		s.ProviderType, autoApprove, s.WorktreeBranch,
-		s.GitParentDir, s.Profile,
+		s.GitParentDir, s.GitRemoteURL, s.Profile,
 	)
 	if err != nil {
 		return fmt.Errorf("create session %s: %w", s.ID, err)
@@ -193,6 +193,37 @@ func (d *DB) SetGitParentDir(id, dir string) error {
 	_, err := d.sql.Exec(
 		`UPDATE sessions SET git_parent_dir = ? WHERE id = ?`,
 		dir, id,
+	)
+	return err
+}
+
+// ListSessionsForGitRemoteBackfill returns sessions known to be in git repos
+// (have git_parent_dir or worktree_branch) but missing git_remote_url.
+func (d *DB) ListSessionsForGitRemoteBackfill() ([]*Session, error) {
+	rows, err := d.sql.Query(
+		`SELECT ` + sessionColumns + ` FROM sessions WHERE git_remote_url IS NULL AND (git_parent_dir IS NOT NULL OR worktree_branch IS NOT NULL)`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []*Session
+	for rows.Next() {
+		s, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
+// SetGitRemoteURL sets the git_remote_url for a session.
+func (d *DB) SetGitRemoteURL(id, url string) error {
+	_, err := d.sql.Exec(
+		`UPDATE sessions SET git_remote_url = ? WHERE id = ?`,
+		url, id,
 	)
 	return err
 }
