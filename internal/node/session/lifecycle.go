@@ -102,6 +102,20 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		}
 	}
 
+	// Resolve git remote origin URL for any git-backed session.
+	// Use git_parent_dir (main repo root) if available, otherwise cwd.
+	var gitRemoteURL *string
+	{
+		remoteDir := cwd
+		if gitParentDir != nil {
+			remoteDir = *gitParentDir
+		}
+		if rawURL, err := git.RemoteURL(remoteDir); err == nil {
+			sanitized := git.SanitizeRemoteURL(rawURL)
+			gitRemoteURL = &sanitized
+		}
+	}
+
 	// Derive project key for hook resolution
 	projectKey := ""
 	if gitParentDir != nil {
@@ -213,6 +227,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		ProviderSessionID: providerSessionID,
 		WorktreeBranch:    worktreeBranch,
 		GitParentDir:      gitParentDir,
+		GitRemoteURL:      gitRemoteURL,
 		Profile:           profilePtr,
 	}
 
