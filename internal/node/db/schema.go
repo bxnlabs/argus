@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   auto_approve INTEGER NOT NULL DEFAULT 0,
   worktree_branch TEXT,
   git_parent_dir TEXT,
+  git_remote_url TEXT,
   profile TEXT
 );
 

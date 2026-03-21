@@ -20,5 +20,6 @@ type Session struct {
 	AutoApprove      bool    `json:"auto_approve"`
 	WorktreeBranch   *string `json:"worktree_branch"`
 	GitParentDir     *string `json:"git_parent_dir"`
+	GitRemoteURL     *string `json:"git_remote_url"`
 	Profile          *string `json:"profile"`
 }

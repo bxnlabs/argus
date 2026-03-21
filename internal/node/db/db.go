@@ -47,7 +47,7 @@ func (d *DB) seedMigrations() error {
 	}
 	defer rows.Close()
 
-	var hasWorktreeBranch, hasGitParentDir, hasProfile, hasProviderType bool
+	var hasWorktreeBranch, hasGitParentDir, hasGitRemoteURL, hasProfile, hasProviderType bool
 	for rows.Next() {
 		var cid int
 		var name, colType string
@@ -61,6 +61,8 @@ func (d *DB) seedMigrations() error {
 			hasWorktreeBranch = true
 		case "git_parent_dir":
 			hasGitParentDir = true
+		case "git_remote_url":
+			hasGitRemoteURL = true
 		case "profile":
 			hasProfile = true
 		case "provider_type":
@@ -83,6 +85,14 @@ func (d *DB) seedMigrations() error {
 		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
 			"add_git_parent_dir",
+		); err != nil {
+			return err
+		}
+	}
+	if hasGitRemoteURL {
+		if _, err := d.sql.Exec(
+			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
+			"add_git_remote_url",
 		); err != nil {
 			return err
 		}

@@ -20,6 +20,12 @@ func (d *DB) RunMigrations() error {
 	}); err != nil {
 		return err
 	}
+	if err := d.migrate("add_git_remote_url", func() error {
+		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN git_remote_url TEXT`)
+		return err
+	}); err != nil {
+		return err
+	}
 	return d.migrate("rename_agent_type_to_provider_type", func() error {
 		// Only rename if the old column still exists (no-op for fresh databases
 		// created with provider_type directly).
