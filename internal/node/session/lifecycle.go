@@ -600,6 +600,30 @@ func (m *Manager) BackfillGitParentDir() {
 	}
 }
 
+// BackfillGitRemoteURL populates git_remote_url for existing sessions
+// that are in git repos but were created before the column was added.
+// Only targets sessions known to be git-backed (have git_parent_dir or
+// worktree_branch) to avoid perpetual re-probing of non-git sessions.
+func (m *Manager) BackfillGitRemoteURL() {
+	sessions, err := m.db.ListSessionsForGitRemoteBackfill()
+	if err != nil {
+		log.Printf("backfill git_remote_url: list sessions: %v", err)
+		return
+	}
+	for _, s := range sessions {
+		dir := s.WorkingDirectory
+		if s.GitParentDir != nil {
+			dir = *s.GitParentDir
+		}
+		if rawURL, err := git.RemoteURL(dir); err == nil {
+			sanitized := git.SanitizeRemoteURL(rawURL)
+			if err := m.db.SetGitRemoteURL(s.ID, sanitized); err != nil {
+				log.Printf("backfill git_remote_url: set %s: %v", s.ID, err)
+			}
+		}
+	}
+}
+
 // resolveProfile validates and resolves the profile name.
 // If profileOpt is non-nil, it validates the name and checks the profile dir exists.
 // If profileOpt is nil, returns "" — the HookRunner will fall back to "default"
