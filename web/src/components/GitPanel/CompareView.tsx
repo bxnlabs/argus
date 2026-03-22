@@ -14,10 +14,10 @@ import { cn } from "@/lib/utils";
 import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
 import { parseMultiFileDiff, getDiffFileName, getDiffPathKey } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery } from "@/data/git";
-import { useCommentsQuery, useSaveCommentsMutation } from "@/data/comments";
+import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
 import { CommentSummaryBar } from "./CommentSummaryBar";
 import { useViewport } from "@/hooks/useViewport";
-import type { CommitFile, FileStatus, InlineComment, CommentsFile } from "@/types";
+import type { CommitFile, FileStatus, ReviewComment, Review } from "@/types";
 
 interface CompareViewProps {
   workingDirectory: string;
@@ -90,10 +90,10 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   }, [compareData?.diff]);
 
   const {
-    data: commentsData,
-  } = useCommentsQuery(workingDirectory, currentBranch, baseBranch);
+    data: reviewData,
+  } = useReviewQuery(workingDirectory, currentBranch, baseBranch);
 
-  const saveComments = useSaveCommentsMutation(workingDirectory);
+  const saveReview = useSaveReviewMutation(workingDirectory);
 
   const setDiffRef = useCallback(
     (path: string) => (el: HTMLDivElement | null) => {
@@ -144,7 +144,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   }, [activeComment, parsedDiffs]);
 
   const handleAddComment = useCallback((body: string) => {
-    if (!activeComment || !commentsData || !currentBranch || !baseBranch) return;
+    if (!activeComment || !reviewData || !currentBranch || !baseBranch) return;
 
     const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
     let snippet = "";
@@ -164,7 +164,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       snippet = snippetLines.join("\n");
     }
 
-    const newComment: InlineComment = {
+    const newComment: ReviewComment = {
       id: `rc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       file: activeComment.file,
       line: { from: activeComment.from, to: activeComment.to },
@@ -174,62 +174,50 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       createdAt: new Date().toISOString(),
     };
 
-    const updated: CommentsFile = {
-      ...commentsData,
-      branch: currentBranch,
-      baseBranch,
-      comments: [...commentsData.comments, newComment],
+    const updated: Review = {
+      ...reviewData,
+      head: currentBranch,
+      base: baseBranch,
+      comments: [...reviewData.comments, newComment],
     };
 
-    saveComments.mutate(updated);
+    saveReview.mutate(updated);
     setActiveComment(null);
-  }, [activeComment, commentsData, currentBranch, baseBranch, parsedDiffs, saveComments]);
+  }, [activeComment, reviewData, currentBranch, baseBranch, parsedDiffs, saveReview]);
 
   const handleDeleteComment = useCallback((id: string) => {
-    if (!commentsData || !currentBranch || !baseBranch) return;
+    if (!reviewData || !currentBranch || !baseBranch) return;
 
-    const updated: CommentsFile = {
-      ...commentsData,
-      comments: commentsData.comments.filter((c) => c.id !== id),
+    const updated: Review = {
+      ...reviewData,
+      comments: reviewData.comments.filter((c) => c.id !== id),
     };
 
-    saveComments.mutate(updated);
-  }, [commentsData, currentBranch, baseBranch, saveComments]);
+    saveReview.mutate(updated);
+  }, [reviewData, currentBranch, baseBranch, saveReview]);
 
   const handleSubmitComments = useCallback((generalCommentBody: string) => {
-    if (!commentsData || !currentBranch || !baseBranch) return;
+    if (!reviewData || !currentBranch || !baseBranch) return;
 
-    const updated: CommentsFile = {
-      ...commentsData,
-      comments: commentsData.comments.map((c) => ({ ...c, submitted: true })),
-      generalComment: generalCommentBody
-        ? {
-            body: generalCommentBody,
-            submitted: true,
-            createdAt: commentsData.generalComment?.createdAt ?? new Date().toISOString(),
-          }
-        : commentsData.generalComment
-          ? { ...commentsData.generalComment, submitted: true }
-          : undefined,
+    const updated: Review = {
+      ...reviewData,
+      comments: reviewData.comments.map((c) => ({ ...c, submitted: true })),
+      body: generalCommentBody || reviewData.body,
     };
 
-    saveComments.mutate(updated);
-  }, [commentsData, currentBranch, baseBranch, saveComments]);
+    saveReview.mutate(updated);
+  }, [reviewData, currentBranch, baseBranch, saveReview]);
 
   const handleGeneralCommentChange = useCallback((body: string) => {
-    if (!commentsData || !currentBranch || !baseBranch) return;
+    if (!reviewData || !currentBranch || !baseBranch) return;
 
-    const updated: CommentsFile = {
-      ...commentsData,
-      generalComment: {
-        body,
-        submitted: false,
-        createdAt: commentsData.generalComment?.createdAt ?? new Date().toISOString(),
-      },
+    const updated: Review = {
+      ...reviewData,
+      body,
     };
 
-    saveComments.mutate(updated);
-  }, [commentsData, currentBranch, baseBranch, saveComments]);
+    saveReview.mutate(updated);
+  }, [reviewData, currentBranch, baseBranch, saveReview]);
 
   // Scroll to selected file once diffs are rendered and refs are ready
   useEffect(() => {
@@ -273,10 +261,8 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     );
   }
 
-  const pendingCount = commentsData?.comments.filter((c) => !c.submitted).length ?? 0;
-  const hasUnsubmitted =
-    pendingCount > 0 ||
-    (!!commentsData?.generalComment?.body && !commentsData.generalComment.submitted);
+  const pendingCount = reviewData?.comments.filter((c) => !c.submitted).length ?? 0;
+  const hasUnsubmitted = pendingCount > 0;
 
   const branchSelector = (
     <div className="flex items-center gap-2 px-3 py-2">
@@ -351,7 +337,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                   diff={diff}
                   fileName={fileName}
                   expanded
-                  comments={commentsData?.comments.filter((c) => c.file === pathKey) ?? []}
+                  comments={reviewData?.comments.filter((c) => c.file === pathKey) ?? []}
                   activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
                   onLineClick={(line, shiftKey) => handleLineClick(pathKey, line, shiftKey)}
                   onAddComment={handleAddComment}
@@ -415,7 +401,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                       diff={diff}
                       fileName={fileName}
                       expanded
-                      comments={commentsData?.comments.filter((c) => c.file === pathKey) ?? []}
+                      comments={reviewData?.comments.filter((c) => c.file === pathKey) ?? []}
                       activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
                       onLineClick={(line, shiftKey) => handleLineClick(pathKey, line, shiftKey)}
                       onAddComment={handleAddComment}
@@ -431,8 +417,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
         {baseBranch && (
           <CommentSummaryBar
             pendingCount={pendingCount}
-            generalComment={commentsData?.generalComment?.body ?? ""}
-            generalCommentSubmitted={commentsData?.generalComment?.submitted ?? false}
+            generalComment={reviewData?.body ?? ""}
             onGeneralCommentChange={handleGeneralCommentChange}
             onSubmit={handleSubmitComments}
             hasUnsubmitted={hasUnsubmitted}
@@ -506,8 +491,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
         {baseBranch && (
           <CommentSummaryBar
             pendingCount={pendingCount}
-            generalComment={commentsData?.generalComment?.body ?? ""}
-            generalCommentSubmitted={commentsData?.generalComment?.submitted ?? false}
+            generalComment={reviewData?.body ?? ""}
             onGeneralCommentChange={handleGeneralCommentChange}
             onSubmit={handleSubmitComments}
             hasUnsubmitted={hasUnsubmitted}

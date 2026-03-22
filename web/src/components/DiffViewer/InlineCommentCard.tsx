@@ -1,10 +1,10 @@
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { InlineComment } from "@/types";
+import type { ReviewComment } from "@/types";
 
 interface InlineCommentCardProps {
-  comment: InlineComment;
+  comment: ReviewComment;
   onDelete: (id: string) => void;
 }
 

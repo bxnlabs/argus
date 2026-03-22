@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 interface CommentSummaryBarProps {
   pendingCount: number;
   generalComment: string;
-  generalCommentSubmitted: boolean;
   onGeneralCommentChange: (body: string) => void;
   onSubmit: (generalCommentBody: string) => void;
   hasUnsubmitted: boolean;
@@ -15,7 +14,6 @@ interface CommentSummaryBarProps {
 export function CommentSummaryBar({
   pendingCount,
   generalComment,
-  generalCommentSubmitted,
   onGeneralCommentChange,
   onSubmit,
   hasUnsubmitted,
@@ -77,7 +75,6 @@ export function CommentSummaryBar({
             rows={3}
             className={cn(
               "bg-background border-border w-full resize-y rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500",
-              generalCommentSubmitted && "border-blue-500/30",
             )}
           />
         </div>

@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment } from "react";
 import { ChevronDown, ChevronRight, Plus, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
-import type { InlineComment } from "@/types";
+import type { ReviewComment } from "@/types";
 import { InlineCommentForm } from "./InlineCommentForm";
 import { InlineCommentCard } from "./InlineCommentCard";
 
@@ -12,7 +12,7 @@ interface UnifiedDiffProps {
   expanded?: boolean;
   onToggle?: () => void;
   // Comment props (optional — when absent, commenting is disabled)
-  comments?: InlineComment[];
+  comments?: ReviewComment[];
   activeCommentLine?: { from: number; to: number } | null;
   onLineClick?: (line: number, shiftKey: boolean) => void;
   onAddComment?: (body: string) => void;
@@ -127,7 +127,7 @@ function Hunk({
   commentingEnabled,
 }: {
   hunk: DiffHunk;
-  comments: InlineComment[];
+  comments: ReviewComment[];
   activeCommentLine: { from: number; to: number } | null;
   onLineClick?: (line: number, shiftKey: boolean) => void;
   onAddComment?: (body: string) => void;
