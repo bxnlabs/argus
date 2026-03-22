@@ -109,7 +109,7 @@ func formatReviewMarkdown(r *review.Review) string {
 		}
 	}
 
-	hasBody := r.Body != ""
+	hasBody := r.Body != nil && r.Body.Submitted && r.Body.Body != ""
 
 	if len(submitted) == 0 && !hasBody {
 		b.WriteString("No submitted review comments.\n")
@@ -120,7 +120,7 @@ func formatReviewMarkdown(r *review.Review) string {
 	fmt.Fprintf(&b, "Branch: %s vs %s\n", r.Head, r.Base)
 
 	if hasBody {
-		b.WriteString("\n" + r.Body + "\n")
+		b.WriteString("\n" + r.Body.Body + "\n")
 	}
 
 	byFile := make(map[string][]review.ReviewComment)

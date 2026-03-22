@@ -41,11 +41,18 @@ type ReviewComment struct {
 	CreatedAt string    `json:"createdAt"`
 }
 
+// ReviewBody is the top-level review feedback (not anchored to a line).
+type ReviewBody struct {
+	Body      string `json:"body"`
+	Submitted bool   `json:"submitted"`
+	CreatedAt string `json:"createdAt"`
+}
+
 // Review holds all review comments and body for a head/base branch pair.
 type Review struct {
 	Head     string          `json:"head"`
 	Base     string          `json:"base"`
-	Body     string          `json:"body,omitempty"`
+	Body     *ReviewBody     `json:"body,omitempty"`
 	Comments []ReviewComment `json:"comments"`
 }
 

@@ -202,7 +202,15 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     const updated: Review = {
       ...reviewData,
       comments: reviewData.comments.map((c) => ({ ...c, submitted: true })),
-      body: generalCommentBody || reviewData.body,
+      body: generalCommentBody
+        ? {
+            body: generalCommentBody,
+            submitted: true,
+            createdAt: reviewData.body?.createdAt ?? new Date().toISOString(),
+          }
+        : reviewData.body
+          ? { ...reviewData.body, submitted: true }
+          : undefined,
     };
 
     saveReview.mutate(updated);
@@ -213,7 +221,11 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
 
     const updated: Review = {
       ...reviewData,
-      body,
+      body: {
+        body,
+        submitted: false,
+        createdAt: reviewData.body?.createdAt ?? new Date().toISOString(),
+      },
     };
 
     saveReview.mutate(updated);
@@ -262,7 +274,9 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   }
 
   const pendingCount = reviewData?.comments.filter((c) => !c.submitted).length ?? 0;
-  const hasUnsubmitted = pendingCount > 0;
+  const hasUnsubmitted =
+    pendingCount > 0 ||
+    (!!reviewData?.body?.body && !reviewData.body.submitted);
 
   const branchSelector = (
     <div className="flex items-center gap-2 px-3 py-2">
@@ -417,7 +431,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
         {baseBranch && (
           <CommentSummaryBar
             pendingCount={pendingCount}
-            generalComment={reviewData?.body ?? ""}
+            generalComment={reviewData?.body?.body ?? ""}
             onGeneralCommentChange={handleGeneralCommentChange}
             onSubmit={handleSubmitComments}
             hasUnsubmitted={hasUnsubmitted}
@@ -491,7 +505,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
         {baseBranch && (
           <CommentSummaryBar
             pendingCount={pendingCount}
-            generalComment={reviewData?.body ?? ""}
+            generalComment={reviewData?.body?.body ?? ""}
             onGeneralCommentChange={handleGeneralCommentChange}
             onSubmit={handleSubmitComments}
             hasUnsubmitted={hasUnsubmitted}

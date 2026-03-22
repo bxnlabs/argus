@@ -162,5 +162,6 @@ export interface BranchList {
 export type {
   LineRange,
   ReviewComment,
+  ReviewBody,
   Review,
 } from "./types/review";

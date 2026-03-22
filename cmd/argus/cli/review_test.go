@@ -11,7 +11,11 @@ func TestFormatReviewMarkdown(t *testing.T) {
 	r := &review.Review{
 		Head: "feat/auth-system",
 		Base: "main",
-		Body: "Auth looks mostly good, but token handling needs hardening",
+		Body: &review.ReviewBody{
+			Body:      "Auth looks mostly good, but token handling needs hardening",
+			Submitted: true,
+			CreatedAt: "2026-03-16T10:30:00Z",
+		},
 		Comments: []review.ReviewComment{
 			{
 				ID: "rc_1", File: "src/auth.ts",
