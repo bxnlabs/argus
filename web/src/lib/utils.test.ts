@@ -179,4 +179,8 @@ describe("parseRepoFromRemoteURL", () => {
   it("returns null for URL with no path", () => {
     expect(parseRepoFromRemoteURL("https://github.com/")).toBeNull();
   });
+
+  it("parses SSH URL with non-git username", () => {
+    expect(parseRepoFromRemoteURL("alice@git.example.com:team/repo.git")).toBe("team/repo");
+  });
 });

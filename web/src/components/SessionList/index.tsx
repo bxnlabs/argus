@@ -250,7 +250,7 @@ export function SessionList({
                             : null;
                           return (
                             <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
-                              {session.git_parent_dir || repoPath ? (
+                              {session.git_parent_dir || session.git_remote_url || repoPath ? (
                                 <FolderGit2 className="h-3 w-3 flex-shrink-0" />
                               ) : (
                                 <Folder className="h-3 w-3 flex-shrink-0" />

@@ -114,8 +114,8 @@ export function parseRepoFromRemoteURL(url: string): string | null {
 
   let path: string | undefined;
 
-  // SSH: git@host:path[.git]
-  const sshMatch = url.match(/^git@[^:]+:(.+)$/);
+  // SSH SCP-style: user@host:path[.git]
+  const sshMatch = url.match(/^[^@]+@[^:]+:(.+)$/);
   if (sshMatch) {
     path = sshMatch[1];
   }

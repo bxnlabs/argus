@@ -55,6 +55,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(
 		newServerCmd(),
 		newNodeCmd(),
+		newMigrateCmd(),
 		cli.NewSessionCmd(),
 		cli.NewInternalCmd(),
 	)
