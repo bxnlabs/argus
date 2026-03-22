@@ -120,13 +120,28 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
 
   const handleLineClick = useCallback((file: string, line: number, shiftKey: boolean) => {
     if (shiftKey && activeComment && activeComment.file === file) {
-      const from = Math.min(activeComment.from, line);
-      const to = Math.max(activeComment.to, line);
-      setActiveComment({ file, from, to });
+      // Only extend the range if both the anchor and the new line are within
+      // the same hunk. Cross-hunk snippets omit context lines and fail re-anchoring.
+      const diff = parsedDiffs.find((d) => getDiffPathKey(d) === file);
+      const sameHunk = diff?.hunks.some((hunk) => {
+        const newLines = hunk.lines
+          .map((l) => l.newLineNumber)
+          .filter((n): n is number => n != null);
+        if (newLines.length === 0) return false;
+        const min = Math.min(...newLines);
+        const max = Math.max(...newLines);
+        return activeComment.from >= min && activeComment.from <= max &&
+               line >= min && line <= max;
+      }) ?? false;
+      if (sameHunk) {
+        setActiveComment({ file, from: Math.min(activeComment.from, line), to: Math.max(activeComment.to, line) });
+      } else {
+        setActiveComment({ file, from: line, to: line });
+      }
     } else {
       setActiveComment({ file, from: line, to: line });
     }
-  }, [activeComment]);
+  }, [activeComment, parsedDiffs]);
 
   const handleAddComment = useCallback((body: string) => {
     if (!activeComment || !commentsData || !currentBranch || !baseBranch) return;
@@ -181,15 +196,21 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     saveComments.mutate(updated);
   }, [commentsData, currentBranch, baseBranch, saveComments]);
 
-  const handleSubmitComments = useCallback(() => {
+  const handleSubmitComments = useCallback((generalCommentBody: string) => {
     if (!commentsData || !currentBranch || !baseBranch) return;
 
     const updated: CommentsFile = {
       ...commentsData,
       comments: commentsData.comments.map((c) => ({ ...c, submitted: true })),
-      generalComment: commentsData.generalComment
-        ? { ...commentsData.generalComment, submitted: true }
-        : undefined,
+      generalComment: generalCommentBody
+        ? {
+            body: generalCommentBody,
+            submitted: true,
+            createdAt: commentsData.generalComment?.createdAt ?? new Date().toISOString(),
+          }
+        : commentsData.generalComment
+          ? { ...commentsData.generalComment, submitted: true }
+          : undefined,
     };
 
     saveComments.mutate(updated);

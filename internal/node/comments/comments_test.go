@@ -15,11 +15,13 @@ func TestEncodeBranchName(t *testing.T) {
 		want  string
 	}{
 		{name: "simple", input: "main", want: "main"},
-		{name: "slash", input: "feat/auth-system", want: "feat_auth-system"},
+		{name: "slash", input: "feat/auth-system", want: "feat_auth-_system"},
 		{name: "underscore preserved", input: "my_branch", want: "my__branch"},
 		{name: "slash and underscore", input: "feat/my_branch", want: "feat_my__branch"},
 		{name: "multiple slashes", input: "feat/sub/deep", want: "feat_sub_deep"},
 		{name: "leading underscore", input: "_private", want: "__private"},
+		{name: "double hyphen", input: "a--b", want: "a-_-_b"},
+		{name: "hyphen", input: "feat-auth", want: "feat-_auth"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -33,9 +35,18 @@ func TestEncodeBranchName(t *testing.T) {
 
 func TestCommentsFilename(t *testing.T) {
 	got := commentsFilename("feat/auth-system", "main")
-	want := "feat_auth-system--main.json"
+	want := "feat_auth-_system--main.json"
 	if got != want {
 		t.Errorf("commentsFilename() = %q, want %q", got, want)
+	}
+}
+
+func TestCommentsFilename_NoCollision(t *testing.T) {
+	// ("a--b", "c") and ("a", "b--c") must not collide.
+	f1 := commentsFilename("a--b", "c")
+	f2 := commentsFilename("a", "b--c")
+	if f1 == f2 {
+		t.Errorf("collision: commentsFilename(%q,%q) == commentsFilename(%q,%q) == %q", "a--b", "c", "a", "b--c", f1)
 	}
 }
 

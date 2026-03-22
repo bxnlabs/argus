@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,7 @@ interface CommentSummaryBarProps {
   generalComment: string;
   generalCommentSubmitted: boolean;
   onGeneralCommentChange: (body: string) => void;
-  onSubmit: () => void;
+  onSubmit: (generalCommentBody: string) => void;
   hasUnsubmitted: boolean;
 }
 
@@ -22,6 +22,7 @@ export function CommentSummaryBar({
 }: CommentSummaryBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [localGeneralComment, setLocalGeneralComment] = useState(generalComment);
+  const submitAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLocalGeneralComment(generalComment);
@@ -49,10 +50,11 @@ export function CommentSummaryBar({
           </span>
         )}
 
-        <div className="ml-auto">
+        <div className="ml-auto" ref={submitAreaRef}>
           <Button
             size="sm"
-            onClick={onSubmit}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onSubmit(localGeneralComment)}
             disabled={!hasUnsubmitted}
           >
             Submit comments
@@ -65,7 +67,8 @@ export function CommentSummaryBar({
           <textarea
             value={localGeneralComment}
             onChange={(e) => setLocalGeneralComment(e.target.value)}
-            onBlur={() => {
+            onBlur={(e) => {
+              if (e.relatedTarget && submitAreaRef.current?.contains(e.relatedTarget as Node)) return;
               if (localGeneralComment !== generalComment) {
                 onGeneralCommentChange(localGeneralComment);
               }

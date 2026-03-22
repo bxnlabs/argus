@@ -9,7 +9,7 @@ export function useCommentsQuery(
   baseBranch: string | null,
 ) {
   return useQuery({
-    queryKey: commentKeys.forComparison(path, baseBranch ?? ""),
+    queryKey: commentKeys.forComparison(path, branch ?? "", baseBranch ?? ""),
     queryFn: async () => {
       const params = new URLSearchParams({
         path,
@@ -36,7 +36,7 @@ export function useSaveCommentsMutation(path: string) {
     },
     onSuccess: (_data, variables) => {
       queryClient.setQueryData(
-        commentKeys.forComparison(path, variables.baseBranch),
+        commentKeys.forComparison(path, variables.branch, variables.baseBranch),
         variables,
       );
     },
@@ -66,7 +66,7 @@ export function useDeleteCommentsMutation(path: string) {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: commentKeys.forComparison(path, variables.baseBranch),
+        queryKey: commentKeys.forComparison(path, variables.branch, variables.baseBranch),
       });
     },
   });

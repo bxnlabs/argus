@@ -10,9 +10,12 @@ import (
 )
 
 // encodeBranchName encodes a branch name for use in a filename.
-// Slashes are replaced with underscores; existing underscores are doubled.
+// Underscores are doubled, hyphens are escaped to "-_", and slashes become "_".
+// This guarantees the separator "--" cannot appear inside any encoded segment,
+// preventing collisions such as ("a--b","c") vs ("a","b--c").
 func encodeBranchName(branch string) string {
 	s := strings.ReplaceAll(branch, "_", "__")
+	s = strings.ReplaceAll(s, "-", "-_")
 	s = strings.ReplaceAll(s, "/", "_")
 	return s
 }

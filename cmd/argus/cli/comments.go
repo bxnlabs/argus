@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,7 +58,8 @@ func newCommentsGetCmd() *cobra.Command {
 				return err
 			}
 
-			body, err := c.get(fmt.Sprintf("/api/git/status?path=%s", repoDir))
+			pathParam := url.Values{"path": []string{repoDir}}.Encode()
+			body, err := c.get("/api/git/status?" + pathParam)
 			if err != nil {
 				return fmt.Errorf("get git status: %w", err)
 			}
@@ -71,7 +73,7 @@ func newCommentsGetCmd() *cobra.Command {
 			}
 			branch := statusResp.Status.Branch
 
-			body, err = c.get(fmt.Sprintf("/api/git/compare/branches?path=%s", repoDir))
+			body, err = c.get("/api/git/compare/branches?" + pathParam)
 			if err != nil {
 				return fmt.Errorf("get branches: %w", err)
 			}
