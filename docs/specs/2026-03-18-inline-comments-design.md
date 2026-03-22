@@ -1,4 +1,4 @@
-# Inline Comments on Compare View
+# Code Review on Compare View
 
 **Date:** 2026-03-18
 **Branch:** jeev/git-review-panel
@@ -6,7 +6,7 @@
 
 ## Summary
 
-Add inline code commenting to the git panel's Compare view, enabling humans to leave precise, line-level feedback on committed diffs. Comments are stored as a JSON file outside the repo and can be retrieved by AI agents via the `argus` CLI to act on the feedback.
+Add inline code reviewing to the git panel's Compare view, enabling humans to leave precise, line-level feedback on committed diffs. Review comments are stored as a JSON file outside the repo and can be retrieved by AI agents via the `argus` CLI to act on the feedback.
 
 This is not a formal review system. It is a lightweight annotation primitive — the human leaves text comments on code, and the agent reads and addresses them.
 
@@ -32,8 +32,8 @@ The open-source project [linemark](https://github.com/gdaybrice/linemark) demons
 5. Comment card renders inline in the diff. Repeat across files.
 6. A comment summary bar at the bottom of the Compare view provides a comment count, a general comment textarea, and a "Submit comments" button.
 7. Human clicks "Submit comments" — all pending comments are marked as submitted and persisted.
-8. Human tells the agent to check feedback, or agent uses a skill that runs `argus comments get`.
-9. Agent reads the structured markdown output and acts on the comments.
+8. Human tells the agent to check feedback, or agent uses a skill that runs `argus tools git review get`.
+9. Agent reads the structured markdown output and acts on the review comments.
 10. Agent makes new commits addressing the feedback.
 11. Human opens Compare tab again — staleness detection runs automatically:
     - Comments whose snippets no longer exist in the file are pruned (agent touched that code).
@@ -45,19 +45,19 @@ The open-source project [linemark](https://github.com/gdaybrice/linemark) demons
 ### Storage Location
 
 ```
-~/.argus/projects/<projectKey>/comments/<encodedBranch>--<encodedBaseBranch>.json
+~/.argus/projects/<projectKey>/reviews/<encodedBranch>--<encodedBaseBranch>.json
 ```
 
 Branch names are encoded for safe use as filenames: `/` is replaced with `_`, and `_` is escaped as `__`. This is reversible — `feat/auth-system` vs `main` becomes `feat_auth-system--main.json`.
 
-Comments are stored outside the repository, alongside other Argus project data. No `.gitignore` needed. Scoped to the branch comparison — any session working on the same branch sees the same comments.
+Review data is stored outside the repository, alongside other Argus project data. No `.gitignore` needed. Scoped to the branch comparison — any session working on the same branch sees the same reviews.
 
 ### File Structure
 
 ```json
 {
-  "branch": "feat/auth-system",
-  "baseBranch": "main",
+  "head": "feat/auth-system",
+  "base": "main",
   "comments": [
     {
       "id": "rc_1710583800_a3f2",
@@ -78,11 +78,7 @@ Comments are stored outside the repository, alongside other Argus project data. 
       "createdAt": "2026-03-16T10:31:00Z"
     }
   ],
-  "generalComment": {
-    "body": "Auth looks mostly good, but token handling needs hardening",
-    "submitted": true,
-    "createdAt": "2026-03-16T10:32:00Z"
-  }
+  "body": "Auth looks mostly good, but token handling needs hardening"
 }
 ```
 
@@ -94,47 +90,47 @@ Comments are stored outside the repository, alongside other Argus project data. 
 | `file` | File path relative to repo root (validated server-side via `sanitizeFilePath()`) |
 | `line` | Line range in the branch version (new-side only, from diff parser) |
 | `snippet` | Actual code text at the commented lines — used for agent context and staleness detection |
-| `body` | The comment text |
+| `body` | The comment text (string) |
 | `submitted` | `false` = draft (not yet sent), `true` = submitted |
 | `createdAt` | ISO 8601 timestamp |
-| `generalComment` | Optional cross-cutting comment not tied to any specific line |
+| `body` (root level) | Optional cross-cutting comment not tied to any specific line |
 
 ## Staleness Detection
 
-Staleness is computed as a shared routine used by both the `GET /api/git/comments` endpoint and the `argus comments get` CLI command. It is never stored as a field.
+Staleness is computed as a shared routine used by both the `GET /api/git/review` endpoint and the `argus tools git review get` CLI command. It is never stored as a field.
 
 For each submitted comment:
 
 1. Validate `comment.file` using `sanitizeFilePath()` to ensure it resolves within the repo root. Skip comments with invalid paths.
 2. Read the current content of `comment.file` from disk. If the file no longer exists, remove the comment (file was deleted).
 3. Search for `comment.snippet` as a substring in the file content.
-4. **Single match** — the comment is still relevant. Compute the new line number from the match position and update `comment.line`.
+4. **Single match** — the review comment is still relevant. Compute the new line number from the match position and update `comment.line`.
 5. **Multiple matches** — prefer the match nearest to the comment's prior `line` position. If no match is within 50 lines of the prior position, treat as stale and remove.
-6. **No match** — the agent changed that code. Remove the comment from the array.
+6. **No match** — the agent changed that code. Remove the review comment from the array.
 
-Write the pruned/updated array back to the comments file before returning results.
+Write the pruned/updated array back to the review file before returning results.
 
-**Edge case:** Whitespace-only reformatting (e.g., prettier) will cause snippets to not match, removing the comment. This is acceptable — the human re-reviews and re-comments if needed. Better to over-prune than show stale comments on wrong lines.
+**Edge case:** Whitespace-only reformatting (e.g., prettier) will cause snippets to not match, removing the review comment. This is acceptable — the human re-reviews and re-comments if needed. Better to over-prune than show stale comments on wrong lines.
 
 ## Backend API
 
-### `GET /api/git/comments`
+### `GET /api/git/review`
 
-- Reads the comments file for the current branch comparison.
+- Reads the review file for the current branch comparison.
 - Runs staleness detection (snippet matching, pruning, re-anchoring).
-- Returns cleaned comment data as JSON.
+- Returns cleaned review data as JSON.
 
-### `POST /api/git/comments`
+### `POST /api/git/review`
 
-- Accepts the full comments state (comments array + general comment) from the frontend.
+- Accepts the full review state (comments array + body) from the frontend.
 - Validates all `file` fields using `sanitizeFilePath()` before writing, consistent with existing git API handlers. Rejects payloads containing paths that resolve outside the repo root.
-- Writes to the comments file.
-- Called on comment add, comment delete, and submit (with `submitted` flags flipped).
+- Writes to the review file.
+- Called on review comment add, review comment delete, and submit (with `submitted` flags flipped).
 
-### `DELETE /api/git/comments`
+### `DELETE /api/git/review`
 
-- Deletes the comments file.
-- Used to clear all comments for a branch comparison.
+- Deletes the review file.
+- Used to clear all review comments for a branch comparison.
 
 ## Frontend Changes
 
@@ -159,29 +155,29 @@ Write the pruned/updated array back to the comments file before returning result
 
 Always visible at the bottom of the Compare view when a branch comparison is active. Contains:
 - Comment count (when unsubmitted comments exist): "3 pending comments"
-- General comment textarea (collapsible, placeholder: "General feedback...")
-- "Submit comments" button (primary, enabled when there are unsubmitted inline comments or an unsubmitted general comment)
+- General feedback textarea (collapsible, placeholder: "General feedback...")
+- "Submit comments" button (primary, enabled when there are unsubmitted inline comments or an unsubmitted general feedback)
 
-The general comment textarea is always accessible, even without inline comments — a user can leave standalone general feedback like "looks good, ship it" without annotating specific lines. When there are no comments at all (no inline, no general), the bar shows in a minimal collapsed state with just the general comment toggle.
+The general feedback textarea is always accessible, even without inline comments — a user can leave standalone general feedback like "looks good, ship it" without annotating specific lines. When there are no comments at all (no inline, no general feedback), the bar shows in a minimal collapsed state with just the general feedback toggle.
 
 ## Agent Interface
 
 ### CLI Command
 
 ```bash
-argus comments get
+argus tools git review get
 ```
 
 - Resolves the current working directory to the project key.
 - Determines the current branch and base branch.
-- Reads the comments file and runs staleness detection (same shared routine as `GET /api/git/comments` — snippet matching, pruning, re-anchoring). Writes the pruned file back before outputting.
-- Filters to submitted comments only (`submitted: true`). Draft comments are excluded — they represent in-progress work the human hasn't finalized.
+- Reads the review file and runs staleness detection (same shared routine as `GET /api/git/review` — snippet matching, pruning, re-anchoring). Writes the pruned file back before outputting.
+- Filters to submitted review comments only (`submitted: true`). Draft comments are excluded — they represent in-progress work the human hasn't finalized.
 - Outputs structured markdown to stdout.
 
 ### Example Output
 
 ```markdown
-## Comments
+## Code Review
 Branch: feat/auth-system vs main
 
 ### src/auth.ts
@@ -196,19 +192,19 @@ Token expiry should be 3600 not 1800
 Auth looks mostly good, but token handling needs hardening
 ```
 
-Note: The draft comment on lines 12-15 (`submitted: false`) is excluded from CLI output.
+Note: The draft review comment on lines 12-15 (`submitted: false`) is excluded from CLI output.
 
-Markdown is the output format because the agent is an LLM — it reads markdown natively. Snippets are quoted for clear delineation. File paths and line numbers are explicit.
+Markdown is the output format because the agent is an LLM — it reads markdown natively. Snippets are quoted for clear delineation. File paths and line numbers are explicit. The shared `internal/node/review` package provides both the API endpoint handlers and CLI command handler with this shared logic.
 
 ### Skill Integration
 
-A skill instructs the agent to run `argus comments get` and treat the output as feedback to address. The skill is minimal — "run this command and act on the findings."
+A skill instructs the agent to run `argus tools git review get` and treat the output as feedback to address. The skill is minimal — "run this command and act on the findings."
 
-The agent does not write back to the comments file. The lifecycle is strictly: human writes, agent reads. Staleness detection runs on every read path (both API and CLI), pruning addressed comments automatically when the code changes.
+The agent does not write back to the review file. The lifecycle is strictly: human writes, agent reads. Staleness detection runs on every read path (both API and CLI), pruning addressed review comments automatically when the code changes.
 
 ## What Is NOT In Scope
 
-- No review mode toggle or "Start Review" button
+- No formal review approval flow
 - No severity levels, categories, or comment types
 - No agent acknowledgment or response contracts
 - No approval/rejection states per file or hunk
