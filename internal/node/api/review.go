@@ -5,16 +5,16 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bxnlabs/argus/internal/node/comments"
+	"github.com/bxnlabs/argus/internal/node/review"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
 
-type commentsHandler struct {
+type reviewHandler struct {
 	projectDirOverride string // for testing — bypasses home dir derivation
 }
 
-func (h *commentsHandler) resolveProjectDir(expandedPath string) (string, error) {
+func (h *reviewHandler) resolveProjectDir(expandedPath string) (string, error) {
 	if h.projectDirOverride != "" {
 		return h.projectDirOverride, nil
 	}
@@ -26,8 +26,8 @@ func (h *commentsHandler) resolveProjectDir(expandedPath string) (string, error)
 	return filepath.Join(home, ".argus", "projects", parentKey), nil
 }
 
-// GET /api/git/comments?path=...&branch=...&base=...
-func (h *commentsHandler) get(w http.ResponseWriter, r *http.Request) {
+// GET /api/git/review?path=...&branch=...&base=...
+func (h *reviewHandler) get(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	branch := r.URL.Query().Get("branch")
 	base := r.URL.Query().Get("base")
@@ -45,23 +45,23 @@ func (h *commentsHandler) get(w http.ResponseWriter, r *http.Request) {
 		respondInternalError(w, err)
 		return
 	}
-	cf, err := comments.Load(projectDir, expandedPath, branch, base)
+	rv, err := review.Load(projectDir, expandedPath, branch, base)
 	if err != nil {
 		respondInternalError(w, err)
 		return
 	}
-	if cf == nil {
-		cf = &comments.CommentsFile{
-			Branch:     branch,
-			BaseBranch: base,
-			Comments:   []comments.Comment{},
+	if rv == nil {
+		rv = &review.Review{
+			Head:     branch,
+			Base:     base,
+			Comments: []review.ReviewComment{},
 		}
 	}
-	respondJSON(w, http.StatusOK, cf)
+	respondJSON(w, http.StatusOK, rv)
 }
 
-// POST /api/git/comments?path=...
-func (h *commentsHandler) post(w http.ResponseWriter, r *http.Request) {
+// POST /api/git/review?path=...
+func (h *reviewHandler) post(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	if repoPath == "" {
 		respondError(w, http.StatusBadRequest, "path parameter is required")
@@ -77,26 +77,26 @@ func (h *commentsHandler) post(w http.ResponseWriter, r *http.Request) {
 		respondInternalError(w, err)
 		return
 	}
-	var cf comments.CommentsFile
-	if err := parseBody(w, r, &cf); err != nil {
+	var rv review.Review
+	if err := parseBody(w, r, &rv); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	for _, c := range cf.Comments {
+	for _, c := range rv.Comments {
 		if _, err := sanitizeFilePath(expandedPath, c.File); err != nil {
 			respondError(w, http.StatusBadRequest, "invalid file path in comment: "+c.File)
 			return
 		}
 	}
-	if err := comments.Save(projectDir, &cf); err != nil {
+	if err := review.Save(projectDir, &rv); err != nil {
 		respondInternalError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// DELETE /api/git/comments?path=...&branch=...&base=...
-func (h *commentsHandler) delete(w http.ResponseWriter, r *http.Request) {
+// DELETE /api/git/review?path=...&branch=...&base=...
+func (h *reviewHandler) delete(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	branch := r.URL.Query().Get("branch")
 	base := r.URL.Query().Get("base")
@@ -114,7 +114,7 @@ func (h *commentsHandler) delete(w http.ResponseWriter, r *http.Request) {
 		respondInternalError(w, err)
 		return
 	}
-	if err := comments.Delete(projectDir, branch, base); err != nil {
+	if err := review.Delete(projectDir, branch, base); err != nil {
 		respondInternalError(w, err)
 		return
 	}
