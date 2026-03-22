@@ -58,7 +58,7 @@ func newRootCmd() *cobra.Command {
 		newMigrateCmd(),
 		cli.NewSessionCmd(),
 		cli.NewInternalCmd(),
-		cli.NewCommentsCmd(),
+		cli.NewToolsCmd(),
 	)
 
 	return rootCmd

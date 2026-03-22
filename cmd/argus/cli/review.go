@@ -9,25 +9,24 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bxnlabs/argus/internal/node/comments"
+	"github.com/bxnlabs/argus/internal/node/review"
 	"github.com/bxnlabs/argus/internal/source"
 	"github.com/spf13/cobra"
 )
 
-// NewCommentsCmd returns the "comments" parent command.
-func NewCommentsCmd() *cobra.Command {
+func newReviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "comments",
-		Short: "Manage inline review comments",
+		Use:   "review",
+		Short: "Manage code reviews",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return nil
 		},
 	}
-	cmd.AddCommand(newCommentsGetCmd())
+	cmd.AddCommand(newReviewGetCmd())
 	return cmd
 }
 
-func newCommentsGetCmd() *cobra.Command {
+func newReviewGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get",
 		Short: "Get submitted inline comments for the current branch",
@@ -85,45 +84,46 @@ func newCommentsGetCmd() *cobra.Command {
 			}
 			baseBranch := branchResp.DefaultBase
 
-			cf, err := comments.Load(projectDir, repoDir, branch, baseBranch)
+			rv, err := review.Load(projectDir, repoDir, branch, baseBranch)
 			if err != nil {
-				return fmt.Errorf("load comments: %w", err)
+				return fmt.Errorf("load review: %w", err)
 			}
-			if cf == nil {
-				cf = &comments.CommentsFile{
-					Branch:     branch,
-					BaseBranch: baseBranch,
-				}
+			if rv == nil {
+				rv = &review.Review{Head: branch, Base: baseBranch}
 			}
 
-			fmt.Print(formatCommentsMarkdown(cf))
+			fmt.Print(formatReviewMarkdown(rv))
 			return nil
 		},
 	}
 }
 
-// formatCommentsMarkdown formats submitted comments as structured markdown.
-func formatCommentsMarkdown(cf *comments.CommentsFile) string {
+// formatReviewMarkdown formats submitted review comments as structured markdown.
+func formatReviewMarkdown(r *review.Review) string {
 	var b strings.Builder
 
-	var submitted []comments.Comment
-	for _, c := range cf.Comments {
+	var submitted []review.ReviewComment
+	for _, c := range r.Comments {
 		if c.Submitted {
 			submitted = append(submitted, c)
 		}
 	}
 
-	hasGeneral := cf.GeneralComment != nil && cf.GeneralComment.Submitted && cf.GeneralComment.Body != ""
+	hasBody := r.Body != ""
 
-	if len(submitted) == 0 && !hasGeneral {
-		b.WriteString("No submitted comments.\n")
+	if len(submitted) == 0 && !hasBody {
+		b.WriteString("No submitted review comments.\n")
 		return b.String()
 	}
 
-	b.WriteString("## Comments\n")
-	fmt.Fprintf(&b, "Branch: %s vs %s\n", cf.Branch, cf.BaseBranch)
+	b.WriteString("## Review\n")
+	fmt.Fprintf(&b, "Branch: %s vs %s\n", r.Head, r.Base)
 
-	byFile := make(map[string][]comments.Comment)
+	if hasBody {
+		b.WriteString("\n" + r.Body + "\n")
+	}
+
+	byFile := make(map[string][]review.ReviewComment)
 	var fileOrder []string
 	for _, c := range submitted {
 		if _, seen := byFile[c.File]; !seen {
@@ -142,11 +142,6 @@ func formatCommentsMarkdown(cf *comments.CommentsFile) string {
 			}
 			b.WriteString("\n" + c.Body + "\n")
 		}
-	}
-
-	if hasGeneral {
-		b.WriteString("\n### General\n\n")
-		b.WriteString(cf.GeneralComment.Body + "\n")
 	}
 
 	return b.String()

@@ -4,49 +4,52 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bxnlabs/argus/internal/node/comments"
+	"github.com/bxnlabs/argus/internal/node/review"
 )
 
-func TestFormatCommentsMarkdown(t *testing.T) {
-	cf := &comments.CommentsFile{
-		Branch:     "feat/auth-system",
-		BaseBranch: "main",
-		Comments: []comments.Comment{
+func TestFormatReviewMarkdown(t *testing.T) {
+	r := &review.Review{
+		Head: "feat/auth-system",
+		Base: "main",
+		Body: "Auth looks mostly good, but token handling needs hardening",
+		Comments: []review.ReviewComment{
 			{
 				ID: "rc_1", File: "src/auth.ts",
-				Line:      comments.LineRange{From: 52, To: 52},
+				Line:      review.LineRange{From: 52, To: 52},
 				Snippet:   "const TOKEN_EXPIRY = 1800;",
 				Body:      "Token expiry should be 3600 not 1800",
 				Submitted: true,
 			},
 			{
 				ID: "rc_2", File: "src/auth.ts",
-				Line:      comments.LineRange{From: 12, To: 15},
+				Line:      review.LineRange{From: 12, To: 15},
 				Snippet:   "function validateToken(token) {\n  if (!token) return false;\n}",
 				Body:      "Missing signature check",
 				Submitted: false, // Should be excluded
 			},
 			{
 				ID: "rc_3", File: "src/utils.ts",
-				Line:      comments.LineRange{From: 1, To: 3},
+				Line:      review.LineRange{From: 1, To: 3},
 				Snippet:   "import { hash } from 'crypto';",
 				Body:      "Use a proper hashing library",
 				Submitted: true,
 			},
 		},
-		GeneralComment: &comments.GeneralComment{
-			Body:      "Auth looks mostly good, but token handling needs hardening",
-			Submitted: true,
-		},
 	}
 
-	output := formatCommentsMarkdown(cf)
+	output := formatReviewMarkdown(r)
 
-	if !strings.Contains(output, "## Comments") {
-		t.Error("missing ## Comments header")
+	if !strings.Contains(output, "## Review") {
+		t.Error("missing ## Review header")
 	}
 	if !strings.Contains(output, "Branch: feat/auth-system vs main") {
 		t.Error("missing branch line")
+	}
+	if !strings.Contains(output, "Auth looks mostly good, but token handling needs hardening") {
+		t.Error("missing body text")
+	}
+	if strings.Contains(output, "### General") {
+		t.Error("should not have a ### General section")
 	}
 	if !strings.Contains(output, "### src/auth.ts") {
 		t.Error("missing file header for src/auth.ts")
@@ -63,22 +66,19 @@ func TestFormatCommentsMarkdown(t *testing.T) {
 	if strings.Contains(output, "Missing signature check") {
 		t.Error("draft comment should not appear in output")
 	}
-	if !strings.Contains(output, "### General") {
-		t.Error("missing general section")
-	}
-	if !strings.Contains(output, "token handling needs hardening") {
-		t.Error("missing general comment body")
+	if !strings.Contains(output, "### src/utils.ts") {
+		t.Error("missing file header for src/utils.ts")
 	}
 }
 
-func TestFormatCommentsMarkdown_Empty(t *testing.T) {
-	cf := &comments.CommentsFile{
-		Branch:     "feat/test",
-		BaseBranch: "main",
-		Comments:   []comments.Comment{},
+func TestFormatReviewMarkdown_Empty(t *testing.T) {
+	r := &review.Review{
+		Head:     "feat/test",
+		Base:     "main",
+		Comments: []review.ReviewComment{},
 	}
-	output := formatCommentsMarkdown(cf)
-	if !strings.Contains(output, "No submitted comments") {
+	output := formatReviewMarkdown(r)
+	if !strings.Contains(output, "No submitted review comments") {
 		t.Error("expected empty message")
 	}
 }
