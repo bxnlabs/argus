@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -67,6 +68,26 @@ func BranchExists(repoDir, branch string) (bool, error) {
 		return false, err
 	}
 	return strings.TrimSpace(out) != "", nil
+}
+
+// RemoteURL returns the URL of the "origin" remote for the repo at dir.
+func RemoteURL(dir string) (string, error) {
+	out, err := Output(dir, "remote", "get-url", "origin")
+	if err != nil {
+		return "", fmt.Errorf("get remote url: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// SanitizeRemoteURL strips userinfo (credentials/tokens) from HTTPS/HTTP
+// remote URLs. SSH URLs are returned as-is.
+func SanitizeRemoteURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" {
+		return rawURL // SSH or unparseable — return as-is
+	}
+	u.User = nil
+	return u.String()
 }
 
 // DefaultBranch returns the repo's default branch name.

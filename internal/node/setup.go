@@ -16,18 +16,18 @@ import (
 	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
-// Setup initializes the node: opens the database, runs migrations, and
-// returns an HTTP handler with all node API routes. The returned cleanup
-// function closes the database and should be called on shutdown.
+// Setup initializes the node: opens the database, verifies migrations are
+// current, and returns an HTTP handler with all node API routes. The returned
+// cleanup function closes the database and should be called on shutdown.
 func Setup(cfg *config.Config) (http.Handler, func(), error) {
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open db: %w", err)
 	}
 
-	if err := database.RunMigrations(); err != nil {
+	if err := database.CheckMigrations(); err != nil {
 		database.Close()
-		return nil, nil, fmt.Errorf("migrations: %w", err)
+		return nil, nil, err
 	}
 
 	// Determine state dir from DB path (~/.argus).
@@ -48,7 +48,6 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 	wtMgr := worktree.NewManager(stateDir, cfg)
 
 	mgr := session.NewManager(database, wtMgr, stateDir)
-	mgr.BackfillGitParentDir()
 	detector := status.NewDetector()
 
 	statusMon := status.NewMonitor(mgr, mgr, detector)

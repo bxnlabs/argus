@@ -92,13 +92,20 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
 
-	// Resolve the parent (main) repository directory for worktree sessions.
+	// Resolve the parent (main) repository directory for any git-backed session.
 	// This is stored once at creation time so the API layer doesn't need to
 	// shell out to git on every request.
 	var gitParentDir *string
-	if worktreeBranch != nil {
-		if dir, err := git.FindMainRepo(cwd); err == nil {
-			gitParentDir = &dir
+	if dir, err := git.FindMainRepo(cwd); err == nil {
+		gitParentDir = &dir
+	}
+
+	// Resolve git remote origin URL for any git-backed session.
+	var gitRemoteURL *string
+	if gitParentDir != nil {
+		if rawURL, err := git.RemoteURL(*gitParentDir); err == nil {
+			sanitized := git.SanitizeRemoteURL(rawURL)
+			gitRemoteURL = &sanitized
 		}
 	}
 
@@ -213,6 +220,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		ProviderSessionID: providerSessionID,
 		WorktreeBranch:    worktreeBranch,
 		GitParentDir:      gitParentDir,
+		GitRemoteURL:      gitRemoteURL,
 		Profile:           profilePtr,
 	}
 
@@ -566,23 +574,52 @@ func (m *Manager) TouchSession(ctx context.Context, id string, unixTS int64) err
 	return m.db.TouchSession(ctx, id, unixTS)
 }
 
-// BackfillGitParentDir populates git_parent_dir for existing worktree
-// sessions that were created before the column was added. This is
-// best-effort: sessions whose working directories no longer exist or
-// aren't inside a git repo are silently skipped.
-func (m *Manager) BackfillGitParentDir() {
+// BackfillGitParentDir populates git_parent_dir for existing sessions
+// in git repos. Best-effort: sessions whose working directories no
+// longer exist or aren't inside a git repo are silently skipped.
+func (m *Manager) BackfillGitParentDir() (int, error) {
 	sessions, err := m.db.ListSessionsForBackfill()
 	if err != nil {
-		log.Printf("backfill git_parent_dir: list sessions: %v", err)
-		return
+		return 0, fmt.Errorf("list sessions: %w", err)
 	}
+	updated := 0
 	for _, s := range sessions {
 		if dir, err := git.FindMainRepo(s.WorkingDirectory); err == nil {
 			if err := m.db.SetGitParentDir(s.ID, dir); err != nil {
 				log.Printf("backfill git_parent_dir: set %s: %v", s.ID, err)
+			} else {
+				updated++
 			}
 		}
 	}
+	return updated, nil
+}
+
+// BackfillGitRemoteURL populates git_remote_url for existing sessions
+// that are in git repos but were created before the column was added.
+// Only targets sessions known to be git-backed (have git_parent_dir or
+// worktree_branch) to avoid perpetual re-probing of non-git sessions.
+func (m *Manager) BackfillGitRemoteURL() (int, error) {
+	sessions, err := m.db.ListSessionsForGitRemoteBackfill()
+	if err != nil {
+		return 0, fmt.Errorf("list sessions: %w", err)
+	}
+	updated := 0
+	for _, s := range sessions {
+		dir := s.WorkingDirectory
+		if s.GitParentDir != nil {
+			dir = *s.GitParentDir
+		}
+		if rawURL, err := git.RemoteURL(dir); err == nil {
+			sanitized := git.SanitizeRemoteURL(rawURL)
+			if err := m.db.SetGitRemoteURL(s.ID, sanitized); err != nil {
+				log.Printf("backfill git_remote_url: set %s: %v", s.ID, err)
+			} else {
+				updated++
+			}
+		}
+	}
+	return updated, nil
 }
 
 // resolveProfile validates and resolves the profile name.

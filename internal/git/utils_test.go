@@ -156,3 +156,84 @@ func TestDefaultBranch(t *testing.T) {
 		t.Errorf("DefaultBranch = %q, want %q", branch, "main")
 	}
 }
+
+func TestRemoteURL(t *testing.T) {
+	dir := initRepo(t)
+
+	// No remote configured — should fail.
+	_, err := git.RemoteURL(dir)
+	if err == nil {
+		t.Error("RemoteURL with no remote should fail")
+	}
+
+	// Add origin remote and verify URL returned.
+	wantURL := "https://github.com/example/repo.git"
+	cmd := exec.Command("git", "remote", "add", "origin", wantURL)
+	cmd.Dir = dir
+	if out, err2 := cmd.CombinedOutput(); err2 != nil {
+		t.Fatalf("git remote add: %v\n%s", err2, out)
+	}
+
+	got, err := git.RemoteURL(dir)
+	if err != nil {
+		t.Fatalf("RemoteURL: %v", err)
+	}
+	if got != wantURL {
+		t.Errorf("RemoteURL = %q, want %q", got, wantURL)
+	}
+
+	// From non-git directory — should fail.
+	nonGit := t.TempDir()
+	_, err = git.RemoteURL(nonGit)
+	if err == nil {
+		t.Error("RemoteURL from non-git dir should fail")
+	}
+}
+
+func TestSanitizeRemoteURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "HTTPS plain",
+			input: "https://github.com/example/repo.git",
+			want:  "https://github.com/example/repo.git",
+		},
+		{
+			name:  "HTTPS with user and password",
+			input: "https://user:pass@github.com/example/repo.git",
+			want:  "https://github.com/example/repo.git",
+		},
+		{
+			name:  "HTTPS with user only",
+			input: "https://token@github.com/example/repo.git",
+			want:  "https://github.com/example/repo.git",
+		},
+		{
+			name:  "SSH URL",
+			input: "git@github.com:example/repo.git",
+			want:  "git@github.com:example/repo.git",
+		},
+		{
+			name:  "HTTP with credentials",
+			input: "http://user:secret@gitlab.com/org/repo.git",
+			want:  "http://gitlab.com/org/repo.git",
+		},
+		{
+			name:  "No scheme",
+			input: "github.com/example/repo",
+			want:  "github.com/example/repo",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := git.SanitizeRemoteURL(tc.input)
+			if got != tc.want {
+				t.Errorf("SanitizeRemoteURL(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

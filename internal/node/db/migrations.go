@@ -1,26 +1,36 @@
 package db
 
-// RunMigrations runs any pending schema migrations.
-func (d *DB) RunMigrations() error {
-	if err := d.migrate("add_worktree_branch", func() error {
+import (
+	"fmt"
+	"strings"
+)
+
+// migration defines a named schema migration with its apply function.
+type migration struct {
+	name string
+	run  func(d *DB) error
+}
+
+// allMigrations is the single source of truth for all schema migrations,
+// used by both RunMigrations (to apply) and CheckMigrations (to verify).
+var allMigrations = []migration{
+	{"add_worktree_branch", func(d *DB) error {
 		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN worktree_branch TEXT`)
 		return err
-	}); err != nil {
-		return err
-	}
-	if err := d.migrate("add_git_parent_dir", func() error {
+	}},
+	{"add_git_parent_dir", func(d *DB) error {
 		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN git_parent_dir TEXT`)
 		return err
-	}); err != nil {
-		return err
-	}
-	if err := d.migrate("add_profile", func() error {
+	}},
+	{"add_profile", func(d *DB) error {
 		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN profile TEXT`)
 		return err
-	}); err != nil {
+	}},
+	{"add_git_remote_url", func(d *DB) error {
+		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN git_remote_url TEXT`)
 		return err
-	}
-	return d.migrate("rename_agent_type_to_provider_type", func() error {
+	}},
+	{"rename_agent_type_to_provider_type", func(d *DB) error {
 		// Only rename if the old column still exists (no-op for fresh databases
 		// created with provider_type directly).
 		var hasOldColumn int
@@ -35,7 +45,52 @@ func (d *DB) RunMigrations() error {
 		}
 		_, err := d.sql.Exec(`ALTER TABLE sessions RENAME COLUMN agent_type TO provider_type`)
 		return err
-	})
+	}},
+}
+
+// CheckMigrations verifies that all expected migrations have been applied.
+// Returns an error listing missing migrations if any are pending.
+func (d *DB) CheckMigrations() error {
+	rows, err := d.sql.Query(`SELECT name FROM _migrations`)
+	if err != nil {
+		return fmt.Errorf("check migrations: %w", err)
+	}
+	defer rows.Close()
+
+	applied := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		applied[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	var missing []string
+	for _, m := range allMigrations {
+		if !applied[m.name] {
+			missing = append(missing, m.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("database has pending migrations: %s\nRun 'argus migrate' to apply them", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// RunMigrations runs any pending schema migrations.
+func (d *DB) RunMigrations() error {
+	for _, m := range allMigrations {
+		if err := d.migrate(m.name, func() error {
+			return m.run(d)
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrate runs fn only if the named migration has not been applied.

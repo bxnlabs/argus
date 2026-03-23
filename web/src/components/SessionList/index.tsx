@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch } from "lucide-react";
-import { cn, formatRelativeTime, compressPath } from "@/lib/utils";
+import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
 function getStatusColor(status?: string) {
@@ -243,20 +243,28 @@ export function SessionList({
                             {formatRelativeTime(session.updated_at)}
                           </span>
                         </div>
-                        {/* Line 3: Directory */}
-                        <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
-                          {session.git_parent_dir ? (
-                            <FolderGit2 className="h-3 w-3 flex-shrink-0" />
-                          ) : (
-                            <Folder className="h-3 w-3 flex-shrink-0" />
-                          )}
-                          <span className="truncate">
-                            {compressPath(
-                              session.git_parent_dir ?? session.working_directory,
-                              homeDir,
-                            )}
-                          </span>
-                        </span>
+                        {/* Line 3: Directory / Repo */}
+                        {(() => {
+                          const repoPath = session.git_remote_url
+                            ? parseRepoFromRemoteURL(session.git_remote_url)
+                            : null;
+                          return (
+                            <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
+                              {session.git_parent_dir || session.git_remote_url || repoPath ? (
+                                <FolderGit2 className="h-3 w-3 flex-shrink-0" />
+                              ) : (
+                                <Folder className="h-3 w-3 flex-shrink-0" />
+                              )}
+                              <span className="truncate">
+                                {repoPath ??
+                                  compressPath(
+                                    session.git_parent_dir ?? session.working_directory,
+                                    homeDir,
+                                  )}
+                              </span>
+                            </span>
+                          );
+                        })()}
                         {/* Line 4: Branch (worktree sessions only) */}
                         {session.worktree_branch && (
                           <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
