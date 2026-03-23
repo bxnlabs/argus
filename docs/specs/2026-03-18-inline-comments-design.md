@@ -177,8 +177,10 @@ argus tools git review get
 ### Example Output
 
 ```markdown
-## Code Review
+## Review
 Branch: feat/auth-system vs main
+
+Auth looks mostly good, but token handling needs hardening
 
 ### src/auth.ts
 
@@ -186,10 +188,6 @@ Branch: feat/auth-system vs main
 > const TOKEN_EXPIRY = 1800;
 
 Token expiry should be 3600 not 1800
-
-### General
-
-Auth looks mostly good, but token handling needs hardening
 ```
 
 Note: The draft review comment on lines 12-15 (`submitted: false`) is excluded from CLI output.

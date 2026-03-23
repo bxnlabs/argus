@@ -208,9 +208,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
             submitted: true,
             createdAt: reviewData.body?.createdAt ?? new Date().toISOString(),
           }
-        : reviewData.body
-          ? { ...reviewData.body, submitted: true }
-          : undefined,
+        : undefined,
     };
 
     saveReview.mutate(updated);
