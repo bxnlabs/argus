@@ -117,7 +117,7 @@ func ValidateFilePath(dir, file string) error {
 // pruning any that can no longer be found in the file.
 // Unsubmitted (draft) comments are always preserved as-is.
 func detectStaleness(repoDir string, comments []ReviewComment) []ReviewComment {
-	var result []ReviewComment
+	result := make([]ReviewComment, 0)
 	for _, c := range comments {
 		if !c.Submitted {
 			result = append(result, c)

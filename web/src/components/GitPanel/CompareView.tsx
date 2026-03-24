@@ -178,7 +178,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       ...reviewData,
       head: currentBranch,
       base: baseBranch,
-      comments: [...reviewData.comments, newComment],
+      comments: [...comments, newComment],
     };
 
     saveReview.mutate(updated);
@@ -190,7 +190,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
 
     const updated: Review = {
       ...reviewData,
-      comments: reviewData.comments.filter((c) => c.id !== id),
+      comments: comments.filter((c) => c.id !== id),
     };
 
     saveReview.mutate(updated);
@@ -201,7 +201,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
 
     const updated: Review = {
       ...reviewData,
-      comments: reviewData.comments.map((c) => ({ ...c, submitted: true })),
+      comments: comments.map((c) => ({ ...c, submitted: true })),
       body: generalCommentBody
         ? {
             body: generalCommentBody,
@@ -271,7 +271,8 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     );
   }
 
-  const pendingCount = reviewData?.comments.filter((c) => !c.submitted).length ?? 0;
+  const comments = reviewData?.comments ?? [];
+  const pendingCount = comments.filter((c) => !c.submitted).length;
   const hasUnsubmitted =
     pendingCount > 0 ||
     (!!reviewData?.body?.body && !reviewData.body.submitted);
@@ -349,7 +350,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                   diff={diff}
                   fileName={fileName}
                   expanded
-                  comments={reviewData?.comments.filter((c) => c.file === pathKey) ?? []}
+                  comments={comments.filter((c) => c.file === pathKey)}
                   activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
                   onLineClick={(line, shiftKey) => handleLineClick(pathKey, line, shiftKey)}
                   onAddComment={handleAddComment}
@@ -413,7 +414,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                       diff={diff}
                       fileName={fileName}
                       expanded
-                      comments={reviewData?.comments.filter((c) => c.file === pathKey) ?? []}
+                      comments={comments.filter((c) => c.file === pathKey)}
                       activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
                       onLineClick={(line, shiftKey) => handleLineClick(pathKey, line, shiftKey)}
                       onAddComment={handleAddComment}
