@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bxnlabs/argus/internal/node/review"
+	"github.com/bxnlabs/argus/internal/node/git/review"
 )
 
 func TestReviewHandler_GetEmpty(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bxnlabs/argus/internal/node/review"
+	"github.com/bxnlabs/argus/internal/node/git/review"
 )
 
 func TestFormatReviewMarkdown(t *testing.T) {

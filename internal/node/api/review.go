@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bxnlabs/argus/internal/node/review"
+	"github.com/bxnlabs/argus/internal/node/git/review"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )

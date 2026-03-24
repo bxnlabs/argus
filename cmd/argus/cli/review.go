@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bxnlabs/argus/internal/node/review"
+	"github.com/bxnlabs/argus/internal/node/git/review"
 	"github.com/bxnlabs/argus/internal/source"
 	"github.com/spf13/cobra"
 )
