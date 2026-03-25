@@ -112,7 +112,7 @@ export function MobileCommentSheet({
           onChange={(e) => setBody(e.target.value)}
           placeholder="Leave a comment..."
           rows={4}
-          className="bg-muted border-border w-full flex-1 resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="bg-background/60 border-border placeholder:text-muted-foreground/50 text-foreground w-full resize-y rounded border px-3 py-2 text-sm leading-relaxed focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
         />
       </SheetContent>
     </Sheet>

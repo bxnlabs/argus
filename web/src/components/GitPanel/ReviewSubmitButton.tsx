@@ -86,24 +86,38 @@ export function ReviewSubmitButton({
           <SheetContent side="bottom" hideCloseButton className="top-0 flex flex-col px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
             <div className="flex items-center justify-between py-3">
               <SheetTitle className="text-base font-semibold">Finish Review</SheetTitle>
-              <Button
-                size="sm"
-                onClick={handleSubmit}
-                disabled={!hasUnsubmitted}
-              >
-                Submit Review
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    if (localComment !== generalComment) {
+                      onGeneralCommentChange(localComment);
+                    }
+                    setOpen(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSubmit}
+                  disabled={!hasUnsubmitted}
+                >
+                  Submit Review
+                </Button>
+              </div>
             </div>
-            <div className="flex-1">
+            <div>
               <label className="text-muted-foreground mb-1.5 block text-sm">
                 Review Message
               </label>
               <textarea
                 value={localComment}
                 onChange={(e) => setLocalComment(e.target.value)}
-                placeholder="Leave a comment"
-                rows={6}
-                className="bg-muted border-border w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                placeholder="Leave a comment..."
+                rows={4}
+                className="bg-background/60 border-border placeholder:text-muted-foreground/50 text-foreground w-full resize-y rounded border px-3 py-2 text-sm leading-relaxed focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
             </div>
           </SheetContent>

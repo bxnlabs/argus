@@ -176,15 +176,21 @@ function Hunk({
               commentingEnabled={commentingEnabled}
             />
             {lineComments.map((c) => (
-              <div key={c.id} ref={(el) => onCommentRef?.(c.id, el)}>
+              <div
+                key={c.id}
+                ref={(el) => onCommentRef?.(c.id, el)}
+                className={cn(!wrapLines && "sticky left-0 w-screen max-w-full")}
+              >
                 <InlineCommentCard comment={c} onDelete={onDeleteComment!} />
               </div>
             ))}
             {showForm && onAddComment && onCancelComment && (
-              <InlineCommentForm
-                onSubmit={onAddComment}
-                onCancel={onCancelComment}
-              />
+              <div className={cn(!wrapLines && "sticky left-0 w-screen max-w-full")}>
+                <InlineCommentForm
+                  onSubmit={onAddComment}
+                  onCancel={onCancelComment}
+                />
+              </div>
             )}
           </Fragment>
         );
