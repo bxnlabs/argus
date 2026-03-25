@@ -11,6 +11,7 @@ interface UnifiedDiffProps {
   fileName: string;
   expanded?: boolean;
   onToggle?: () => void;
+  wrapLines?: boolean;
   // Comment props (optional — when absent, commenting is disabled)
   comments?: ReviewComment[];
   activeCommentLine?: { from: number; to: number } | null;
@@ -25,6 +26,7 @@ export function UnifiedDiff({
   fileName,
   expanded = true,
   onToggle,
+  wrapLines = true,
   comments,
   activeCommentLine,
   onLineClick,
@@ -84,7 +86,7 @@ export function UnifiedDiff({
       </button>
 
       {isExpanded && (
-        <div className="overflow-hidden">
+        <div className={wrapLines ? "overflow-hidden" : "overflow-x-auto"}>
           {diff.isBinary ? (
             <div className="text-muted-foreground px-4 py-8 text-center text-sm">
               Binary file not shown
@@ -94,11 +96,12 @@ export function UnifiedDiff({
               No changes
             </div>
           ) : (
-            <div className="min-w-full font-mono text-xs">
+            <div className={cn("min-w-full font-mono text-xs", !wrapLines && "w-fit")}>
               {diff.hunks.map((hunk, index) => (
                 <Hunk
                   key={index}
                   hunk={hunk}
+                  wrapLines={wrapLines}
                   comments={comments ?? []}
                   activeCommentLine={activeCommentLine ?? null}
                   onLineClick={onLineClick}
@@ -118,6 +121,7 @@ export function UnifiedDiff({
 
 function Hunk({
   hunk,
+  wrapLines,
   comments,
   activeCommentLine,
   onLineClick,
@@ -127,6 +131,7 @@ function Hunk({
   commentingEnabled,
 }: {
   hunk: DiffHunk;
+  wrapLines: boolean;
   comments: ReviewComment[];
   activeCommentLine: { from: number; to: number } | null;
   onLineClick?: (line: number, shiftKey: boolean) => void;
@@ -140,7 +145,7 @@ function Hunk({
       <div className="border-border border-y bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
         {hunk.header}
       </div>
-      <table className="w-full table-fixed border-collapse">
+      <table className={cn("border-collapse", wrapLines ? "w-full table-fixed" : "min-w-full")}>
         <tbody>
           {hunk.lines.map((line, index) => {
             const newLine = line.newLineNumber;
@@ -162,6 +167,7 @@ function Hunk({
               <Fragment key={index}>
                 <DiffLineRow
                   line={line}
+                  wrapLines={wrapLines}
                   isInActiveRange={isInActiveRange}
                   onLineClick={onLineClick}
                   commentingEnabled={commentingEnabled}
@@ -194,11 +200,13 @@ function Hunk({
 
 function DiffLineRow({
   line,
+  wrapLines,
   isInActiveRange,
   onLineClick,
   commentingEnabled,
 }: {
   line: DiffLine;
+  wrapLines: boolean;
   isInActiveRange: boolean;
   onLineClick?: (line: number, shiftKey: boolean) => void;
   commentingEnabled: boolean;
@@ -248,7 +256,11 @@ function DiffLineRow({
       <td className={cn("w-5 px-1 py-0.5 text-center select-none", textColor)}>
         {marker}
       </td>
-      <td className={cn("overflow-hidden px-2 py-0.5 whitespace-pre-wrap break-words", textColor)}>
+      <td className={cn(
+        "px-2 py-0.5",
+        wrapLines ? "overflow-hidden whitespace-pre-wrap break-words" : "whitespace-pre",
+        textColor,
+      )}>
         {line.content || " "}
       </td>
     </tr>

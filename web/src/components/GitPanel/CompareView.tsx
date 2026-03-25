@@ -16,6 +16,7 @@ import { parseMultiFileDiff, getDiffFileName, getDiffPathKey } from "@/lib/diff-
 import { useCompareBranchesQuery, useCompareQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
+import { MobileCommentSheet } from "./MobileCommentSheet";
 import { useViewport } from "@/hooks/useViewport";
 import type { CommitFile, FileStatus, ReviewComment, Review } from "@/types";
 
@@ -368,7 +369,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   // Mobile: full-screen diff view when user taps a file
   if (isMobile && mobileShowDiffs) {
     return (
-      <div className="relative flex h-full flex-col">
+      <div className="flex h-full flex-col">
         <div className="bg-muted/30 flex items-center gap-2 p-2">
           <Button
             variant="ghost"
@@ -388,6 +389,15 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
               </p>
             )}
           </div>
+          {baseBranch && (
+            <ReviewSubmitButton
+              pendingCount={pendingCount}
+              generalComment={reviewData?.body?.body ?? ""}
+              onGeneralCommentChange={handleGeneralCommentChange}
+              onSubmit={handleSubmitComments}
+              hasUnsubmitted={hasUnsubmitted}
+            />
+          )}
         </div>
         <div className="safe-area-bottom flex-1 overflow-auto">
           {loadingCompare ? (
@@ -414,11 +424,10 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                       diff={diff}
                       fileName={fileName}
                       expanded
+                      wrapLines={false}
                       comments={comments.filter((c) => c.file === pathKey)}
                       activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
                       onLineClick={(line, shiftKey) => handleLineClick(pathKey, line, shiftKey)}
-                      onAddComment={handleAddComment}
-                      onCancelComment={() => setActiveComment(null)}
                       onDeleteComment={handleDeleteComment}
                     />
                   </div>
@@ -427,19 +436,11 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
             </div>
           )}
         </div>
-        {baseBranch && (
-          <div className="safe-area-bottom pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
-            <div className="pointer-events-auto">
-              <ReviewSubmitButton
-                pendingCount={pendingCount}
-                generalComment={reviewData?.body?.body ?? ""}
-                onGeneralCommentChange={handleGeneralCommentChange}
-                onSubmit={handleSubmitComments}
-                hasUnsubmitted={hasUnsubmitted}
-              />
-            </div>
-          </div>
-        )}
+        <MobileCommentSheet
+          activeComment={activeComment}
+          onAddComment={handleAddComment}
+          onCancel={() => setActiveComment(null)}
+        />
       </div>
     );
   }

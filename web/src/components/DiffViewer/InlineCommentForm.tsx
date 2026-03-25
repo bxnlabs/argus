@@ -37,19 +37,21 @@ export function InlineCommentForm({ onSubmit, onCancel }: InlineCommentFormProps
         className="bg-background border-border w-full max-w-full resize-y rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
       />
       <div className="mt-2 flex items-center gap-2">
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => body.trim() && onSubmit(body.trim())}
-          disabled={!body.trim()}
-        >
-          Add comment
-        </Button>
-        <span className="text-muted-foreground ml-auto text-xs">
+        <span className="text-muted-foreground text-xs">
           {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "\u2318" : "Ctrl"}+Enter to add
         </span>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => body.trim() && onSubmit(body.trim())}
+            disabled={!body.trim()}
+          >
+            Add comment
+          </Button>
+        </div>
       </div>
     </div>
   );
