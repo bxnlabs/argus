@@ -9,28 +9,47 @@ interface InlineCommentCardProps {
 }
 
 export function InlineCommentCard({ comment, onDelete }: InlineCommentCardProps) {
+  const isDraft = !comment.submitted;
+
   return (
-    <div
-      className={cn(
-        "border-border bg-muted/20 font-sans border-t px-3 py-2",
-        comment.submitted && "border-l-2 border-l-blue-500/50",
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <p className="flex-1 whitespace-pre-wrap text-sm">{comment.body}</p>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          onClick={() => onDelete(comment.id)}
-          aria-label="Delete comment"
-          className="text-muted-foreground hover:text-foreground flex-shrink-0"
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
+    <div className="px-3 py-1.5 font-sans">
+      <div
+        className={cn(
+          "bg-card/80 border-border/60 rounded-md border shadow-sm",
+          isDraft && "border-l-2 border-l-primary",
+        )}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase",
+              isDraft
+                ? "bg-primary/15 text-primary"
+                : "bg-accent text-muted-foreground",
+            )}
+          >
+            {isDraft ? "Pending" : "Submitted"}
+          </span>
+          <span className="flex-1" />
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => onDelete(comment.id)}
+            aria-label="Delete comment"
+            className="text-muted-foreground hover:text-destructive -mr-1 h-6 w-6"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+
+        {/* Body */}
+        <div className="px-3 pt-0.5 pb-2.5">
+          <p className="text-foreground/90 whitespace-pre-wrap text-sm leading-relaxed">
+            {comment.body}
+          </p>
+        </div>
       </div>
-      {comment.submitted && (
-        <span className="text-muted-foreground mt-1 block text-xs">Submitted</span>
-      )}
     </div>
   );
 }
