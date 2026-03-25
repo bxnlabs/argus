@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
-import { parseMultiFileDiff, getDiffFileName, getDiffPathKey } from "@/lib/diff-parser";
+import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
@@ -438,6 +438,23 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
         </div>
         <MobileCommentSheet
           activeComment={activeComment}
+          activeLines={activeComment ? (() => {
+            const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
+            if (!diff) return [];
+            const lines: DiffLine[] = [];
+            for (const hunk of diff.hunks) {
+              for (const line of hunk.lines) {
+                if (
+                  line.newLineNumber != null &&
+                  line.newLineNumber >= activeComment.from &&
+                  line.newLineNumber <= activeComment.to
+                ) {
+                  lines.push(line);
+                }
+              }
+            }
+            return lines;
+          })() : []}
           onAddComment={handleAddComment}
           onCancel={() => setActiveComment(null)}
         />

@@ -83,28 +83,28 @@ export function ReviewSubmitButton({
           }
           setOpen(v);
         }}>
-          <SheetContent side="bottom" hideCloseButton className="rounded-t-xl px-4 pb-8 pt-4">
-            <SheetTitle className="text-base font-semibold">Finish Review</SheetTitle>
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="text-muted-foreground mb-1.5 block text-sm">
-                  Review Message
-                </label>
-                <textarea
-                  value={localComment}
-                  onChange={(e) => setLocalComment(e.target.value)}
-                  placeholder="Leave a comment"
-                  rows={4}
-                  className="bg-muted border-border w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
+          <SheetContent side="bottom" hideCloseButton className="top-0 flex flex-col px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+            <div className="flex items-center justify-between py-3">
+              <SheetTitle className="text-base font-semibold">Finish Review</SheetTitle>
               <Button
-                className="w-full"
+                size="sm"
                 onClick={handleSubmit}
                 disabled={!hasUnsubmitted}
               >
                 Submit Review
               </Button>
+            </div>
+            <div className="flex-1">
+              <label className="text-muted-foreground mb-1.5 block text-sm">
+                Review Message
+              </label>
+              <textarea
+                value={localComment}
+                onChange={(e) => setLocalComment(e.target.value)}
+                placeholder="Leave a comment"
+                rows={6}
+                className="bg-muted border-border w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
             </div>
           </SheetContent>
         </Sheet>
@@ -129,7 +129,7 @@ export function ReviewSubmitButton({
       {open && (
         <div
           ref={popoverRef}
-          className="bg-popover border-border absolute right-0 top-full z-50 mt-1 w-80 rounded-lg border p-4 shadow-lg"
+          className="bg-popover border-border absolute right-0 top-full z-50 mt-1 w-[28rem] rounded-lg border p-4 shadow-lg"
         >
           <p className="mb-2 text-sm font-medium">Finish your review</p>
           <textarea
