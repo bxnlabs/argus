@@ -26,7 +26,7 @@ export function InlineCommentForm({ onSubmit, onCancel }: InlineCommentFormProps
   };
 
   return (
-    <div className="border-border bg-muted/30 border-t p-3">
+    <div className="border-border bg-muted/20 font-sans border-t p-3">
       <textarea
         ref={textareaRef}
         value={body}
@@ -34,9 +34,12 @@ export function InlineCommentForm({ onSubmit, onCancel }: InlineCommentFormProps
         onKeyDown={handleKeyDown}
         placeholder="Leave a comment..."
         rows={3}
-        className="bg-background border-border w-full resize-y rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="bg-background border-border w-full max-w-full resize-y rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
       />
       <div className="mt-2 flex items-center gap-2">
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
         <Button
           size="sm"
           onClick={() => body.trim() && onSubmit(body.trim())}
@@ -44,11 +47,8 @@ export function InlineCommentForm({ onSubmit, onCancel }: InlineCommentFormProps
         >
           Add comment
         </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
         <span className="text-muted-foreground ml-auto text-xs">
-          {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter to add
+          {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "\u2318" : "Ctrl"}+Enter to add
         </span>
       </div>
     </div>

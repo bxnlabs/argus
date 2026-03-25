@@ -15,7 +15,7 @@ import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
 import { parseMultiFileDiff, getDiffFileName, getDiffPathKey } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
-import { CommentSummaryBar } from "./CommentSummaryBar";
+import { ReviewSubmitButton } from "./ReviewSubmitButton";
 import { useViewport } from "@/hooks/useViewport";
 import type { CommitFile, FileStatus, ReviewComment, Review } from "@/types";
 
@@ -368,7 +368,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   // Mobile: full-screen diff view when user taps a file
   if (isMobile && mobileShowDiffs) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="relative flex h-full flex-col">
         <div className="bg-muted/30 flex items-center gap-2 p-2">
           <Button
             variant="ghost"
@@ -428,13 +428,17 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
           )}
         </div>
         {baseBranch && (
-          <CommentSummaryBar
-            pendingCount={pendingCount}
-            generalComment={reviewData?.body?.body ?? ""}
-            onGeneralCommentChange={handleGeneralCommentChange}
-            onSubmit={handleSubmitComments}
-            hasUnsubmitted={hasUnsubmitted}
-          />
+          <div className="safe-area-bottom pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
+            <div className="pointer-events-auto">
+              <ReviewSubmitButton
+                pendingCount={pendingCount}
+                generalComment={reviewData?.body?.body ?? ""}
+                onGeneralCommentChange={handleGeneralCommentChange}
+                onSubmit={handleSubmitComments}
+                hasUnsubmitted={hasUnsubmitted}
+              />
+            </div>
+          </div>
         )}
       </div>
     );
@@ -500,16 +504,23 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
 
       {/* Right pane */}
       <div className="bg-muted/20 flex min-w-0 flex-1 flex-col">
-        {diffPane}
         {baseBranch && (
-          <CommentSummaryBar
-            pendingCount={pendingCount}
-            generalComment={reviewData?.body?.body ?? ""}
-            onGeneralCommentChange={handleGeneralCommentChange}
-            onSubmit={handleSubmitComments}
-            hasUnsubmitted={hasUnsubmitted}
-          />
+          <div className="border-border sticky top-0 z-10 flex items-center justify-between border-b bg-inherit px-3 py-2">
+            <span className="text-muted-foreground text-xs">
+              {pendingCount > 0
+                ? `${pendingCount} pending comment${pendingCount !== 1 ? "s" : ""}`
+                : ""}
+            </span>
+            <ReviewSubmitButton
+              pendingCount={pendingCount}
+              generalComment={reviewData?.body?.body ?? ""}
+              onGeneralCommentChange={handleGeneralCommentChange}
+              onSubmit={handleSubmitComments}
+              hasUnsubmitted={hasUnsubmitted}
+            />
+          </div>
         )}
+        {diffPane}
       </div>
     </div>
   );

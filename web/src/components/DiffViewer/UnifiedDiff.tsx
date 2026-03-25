@@ -65,7 +65,7 @@ export function UnifiedDiff({
           <ChevronRight className="text-muted-foreground h-4 w-4 flex-shrink-0" />
         )}
 
-        <span className="flex-1 truncate font-mono text-xs">{fileName}</span>
+        <span className="flex-1 truncate text-xs font-medium">{fileName}</span>
 
         <span className="flex flex-shrink-0 items-center gap-2 text-xs">
           {diff.additions > 0 && (
@@ -84,7 +84,7 @@ export function UnifiedDiff({
       </button>
 
       {isExpanded && (
-        <div className="overflow-x-auto">
+        <div className="overflow-hidden">
           {diff.isBinary ? (
             <div className="text-muted-foreground px-4 py-8 text-center text-sm">
               Binary file not shown
@@ -94,7 +94,7 @@ export function UnifiedDiff({
               No changes
             </div>
           ) : (
-            <div className="w-fit min-w-full font-mono text-xs">
+            <div className="min-w-full font-mono text-xs">
               {diff.hunks.map((hunk, index) => (
                 <Hunk
                   key={index}
@@ -140,7 +140,7 @@ function Hunk({
       <div className="border-border border-y bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
         {hunk.header}
       </div>
-      <table className="min-w-full border-collapse">
+      <table className="w-full table-fixed border-collapse">
         <tbody>
           {hunk.lines.map((line, index) => {
             const newLine = line.newLineNumber;
@@ -229,12 +229,12 @@ function DiffLineRow({
 
   return (
     <tr className={cn("hover:bg-muted/30", bgColor, isInActiveRange && "bg-blue-500/10")}>
-      <td className="text-muted-foreground border-border/50 w-12 border-r px-2 py-0.5 text-right tabular-nums select-none">
+      <td className="text-muted-foreground border-border/50 w-10 border-r px-2 py-0.5 text-right tabular-nums select-none">
         {line.oldLineNumber ?? ""}
       </td>
       <td
         className={cn(
-          "text-muted-foreground border-border/50 w-12 border-r px-2 py-0.5 text-right tabular-nums select-none",
+          "text-muted-foreground border-border/50 w-10 border-r px-2 py-0.5 text-right tabular-nums select-none",
           isCommentable && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
         )}
         onClick={
@@ -245,10 +245,10 @@ function DiffLineRow({
       >
         {line.newLineNumber ?? ""}
       </td>
-      <td className={cn("w-6 px-1 py-0.5 text-center select-none", textColor)}>
+      <td className={cn("w-5 px-1 py-0.5 text-center select-none", textColor)}>
         {marker}
       </td>
-      <td className={cn("px-2 py-0.5 whitespace-pre", textColor)}>
+      <td className={cn("overflow-hidden px-2 py-0.5 whitespace-pre-wrap break-words", textColor)}>
         {line.content || " "}
       </td>
     </tr>

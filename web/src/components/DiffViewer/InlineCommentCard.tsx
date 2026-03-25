@@ -12,7 +12,7 @@ export function InlineCommentCard({ comment, onDelete }: InlineCommentCardProps)
   return (
     <div
       className={cn(
-        "border-border bg-muted/20 border-t px-3 py-2",
+        "border-border bg-muted/20 font-sans border-t px-3 py-2",
         comment.submitted && "border-l-2 border-l-blue-500/50",
       )}
     >
