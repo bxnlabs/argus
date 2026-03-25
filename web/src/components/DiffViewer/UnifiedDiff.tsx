@@ -150,55 +150,45 @@ function Hunk({
       <div className="border-border border-y bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
         {hunk.header}
       </div>
-      <table className={cn("border-collapse", wrapLines ? "w-full table-fixed" : "min-w-full")}>
-        <tbody>
-          {hunk.lines.map((line, index) => {
-            const newLine = line.newLineNumber;
-            const isInActiveRange =
-              activeCommentLine != null &&
-              newLine != null &&
-              newLine >= activeCommentLine.from &&
-              newLine <= activeCommentLine.to;
+      {hunk.lines.map((line, index) => {
+        const newLine = line.newLineNumber;
+        const isInActiveRange =
+          activeCommentLine != null &&
+          newLine != null &&
+          newLine >= activeCommentLine.from &&
+          newLine <= activeCommentLine.to;
 
-            const lineComments =
-              newLine != null
-                ? comments.filter((c) => c.line.to === newLine)
-                : [];
+        const lineComments =
+          newLine != null
+            ? comments.filter((c) => c.line.to === newLine)
+            : [];
 
-            const showForm =
-              activeCommentLine != null && newLine === activeCommentLine.to;
+        const showForm =
+          activeCommentLine != null && newLine === activeCommentLine.to;
 
-            return (
-              <Fragment key={index}>
-                <DiffLineRow
-                  line={line}
-                  wrapLines={wrapLines}
-                  isInActiveRange={isInActiveRange}
-                  onLineClick={onLineClick}
-                  commentingEnabled={commentingEnabled}
-                />
-                {lineComments.map((c) => (
-                  <tr key={c.id} ref={(el) => onCommentRef?.(c.id, el)}>
-                    <td colSpan={4}>
-                      <InlineCommentCard comment={c} onDelete={onDeleteComment!} />
-                    </td>
-                  </tr>
-                ))}
-                {showForm && onAddComment && onCancelComment && (
-                  <tr>
-                    <td colSpan={4}>
-                      <InlineCommentForm
-                        onSubmit={onAddComment}
-                        onCancel={onCancelComment}
-                      />
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+        return (
+          <Fragment key={index}>
+            <DiffLineRow
+              line={line}
+              wrapLines={wrapLines}
+              isInActiveRange={isInActiveRange}
+              onLineClick={onLineClick}
+              commentingEnabled={commentingEnabled}
+            />
+            {lineComments.map((c) => (
+              <div key={c.id} ref={(el) => onCommentRef?.(c.id, el)}>
+                <InlineCommentCard comment={c} onDelete={onDeleteComment!} />
+              </div>
+            ))}
+            {showForm && onAddComment && onCancelComment && (
+              <InlineCommentForm
+                onSubmit={onAddComment}
+                onCancel={onCancelComment}
+              />
+            )}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -241,13 +231,13 @@ function DiffLineRow({
     line.newLineNumber != null;
 
   return (
-    <tr className={cn("hover:bg-muted/30", bgColor, isInActiveRange && "bg-blue-500/10")}>
-      <td className="text-muted-foreground border-border/50 w-10 border-r px-2 py-0.5 text-right tabular-nums select-none">
+    <div className={cn("flex hover:bg-muted/30", bgColor, isInActiveRange && "bg-blue-500/10")}>
+      <div className="text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none">
         {line.oldLineNumber ?? ""}
-      </td>
-      <td
+      </div>
+      <div
         className={cn(
-          "text-muted-foreground border-border/50 w-10 border-r px-2 py-0.5 text-right tabular-nums select-none",
+          "text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none",
           isCommentable && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
         )}
         onClick={
@@ -257,17 +247,17 @@ function DiffLineRow({
         }
       >
         {line.newLineNumber ?? ""}
-      </td>
-      <td className={cn("w-5 px-1 py-0.5 text-center select-none", textColor)}>
+      </div>
+      <div className={cn("w-5 shrink-0 px-1 py-0.5 text-center select-none", textColor)}>
         {marker}
-      </td>
-      <td className={cn(
-        "px-2 py-0.5",
-        wrapLines ? "overflow-hidden whitespace-pre-wrap break-words" : "whitespace-pre",
+      </div>
+      <div className={cn(
+        "min-w-0 flex-1 px-2 py-0.5",
+        wrapLines ? "whitespace-pre-wrap break-words" : "whitespace-pre",
         textColor,
       )}>
         {line.content || " "}
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }
