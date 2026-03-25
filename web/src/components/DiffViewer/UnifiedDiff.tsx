@@ -19,6 +19,7 @@ interface UnifiedDiffProps {
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
+  onCommentRef?: (id: string, el: HTMLElement | null) => void;
 }
 
 export function UnifiedDiff({
@@ -33,6 +34,7 @@ export function UnifiedDiff({
   onAddComment,
   onCancelComment,
   onDeleteComment,
+  onCommentRef,
 }: UnifiedDiffProps) {
   const [localExpanded, setLocalExpanded] = useState(expanded);
   useEffect(() => {
@@ -108,6 +110,7 @@ export function UnifiedDiff({
                   onAddComment={onAddComment}
                   onCancelComment={onCancelComment}
                   onDeleteComment={onDeleteComment}
+                  onCommentRef={onCommentRef}
                   commentingEnabled={commentingEnabled}
                 />
               ))}
@@ -128,6 +131,7 @@ function Hunk({
   onAddComment,
   onCancelComment,
   onDeleteComment,
+  onCommentRef,
   commentingEnabled,
 }: {
   hunk: DiffHunk;
@@ -138,6 +142,7 @@ function Hunk({
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
+  onCommentRef?: (id: string, el: HTMLElement | null) => void;
   commentingEnabled: boolean;
 }) {
   return (
@@ -173,7 +178,7 @@ function Hunk({
                   commentingEnabled={commentingEnabled}
                 />
                 {lineComments.map((c) => (
-                  <tr key={c.id}>
+                  <tr key={c.id} ref={(el) => onCommentRef?.(c.id, el)}>
                     <td colSpan={4}>
                       <InlineCommentCard comment={c} onDelete={onDeleteComment!} />
                     </td>

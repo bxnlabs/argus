@@ -9,13 +9,16 @@ import {
   ArrowLeft,
   AlertCircle,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
 import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
+import { reviewKeys } from "@/data/review/keys";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
+import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { useViewport } from "@/hooks/useViewport";
 import type { CommitFile, FileStatus, ReviewComment, Review } from "@/types";
@@ -30,6 +33,7 @@ interface CompareViewProps {
 
 export function CompareView({ workingDirectory, currentBranch, header, listWidth, onResizeMouseDown }: CompareViewProps) {
   const { isMobile } = useViewport();
+  const queryClient = useQueryClient();
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -95,6 +99,71 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   } = useReviewQuery(workingDirectory, currentBranch, baseBranch);
 
   const saveReview = useSaveReviewMutation(workingDirectory);
+
+  const comments = reviewData?.comments ?? [];
+
+  // Optimistically update the review cache and persist to server
+  const saveAndUpdate = useCallback((updated: Review) => {
+    if (!currentBranch || !baseBranch) return;
+    queryClient.setQueryData(
+      reviewKeys.forComparison(workingDirectory, currentBranch, baseBranch),
+      updated,
+    );
+    saveReview.mutate(updated);
+  }, [queryClient, workingDirectory, currentBranch, baseBranch, saveReview]);
+
+  // Comment navigation: sorted list of all comments by file order then line
+  const [focusedCommentIdx, setFocusedCommentIdx] = useState(-1);
+  const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  const sortedComments = useMemo(() => {
+    if (!comments.length || !parsedDiffs.length) return [];
+    const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
+    return [...comments].sort((a, b) => {
+      const ai = fileOrder.indexOf(a.file);
+      const bi = fileOrder.indexOf(b.file);
+      if (ai !== bi) return ai - bi;
+      return a.line.from - b.line.from;
+    });
+  }, [comments, parsedDiffs]);
+
+  const scrollToComment = useCallback((index: number) => {
+    const comment = sortedComments[index];
+    if (!comment) return;
+    setFocusedCommentIdx(index);
+
+    // Try to scroll to the comment element by its id
+    const el = commentRefs.current.get(comment.id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    // Fallback: scroll to the file containing the comment
+    const fileEl = diffRefs.current.get(comment.file);
+    if (fileEl) {
+      fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [sortedComments]);
+
+  const handlePrevComment = useCallback(() => {
+    const next = focusedCommentIdx <= 0 ? 0 : focusedCommentIdx - 1;
+    scrollToComment(next);
+  }, [focusedCommentIdx, scrollToComment]);
+
+  const handleNextComment = useCallback(() => {
+    const next = focusedCommentIdx >= sortedComments.length - 1
+      ? sortedComments.length - 1
+      : focusedCommentIdx + 1;
+    scrollToComment(next);
+  }, [focusedCommentIdx, sortedComments.length, scrollToComment]);
+
+  const setCommentRef = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) {
+      commentRefs.current.set(id, el);
+    } else {
+      commentRefs.current.delete(id);
+    }
+  }, []);
 
   const setDiffRef = useCallback(
     (path: string) => (el: HTMLDivElement | null) => {
@@ -182,9 +251,9 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       comments: [...comments, newComment],
     };
 
-    saveReview.mutate(updated);
+    saveAndUpdate(updated);
     setActiveComment(null);
-  }, [activeComment, reviewData, currentBranch, baseBranch, parsedDiffs, saveReview]);
+  }, [activeComment, reviewData, comments, currentBranch, baseBranch, parsedDiffs, saveAndUpdate]);
 
   const handleDeleteComment = useCallback((id: string) => {
     if (!reviewData || !currentBranch || !baseBranch) return;
@@ -194,8 +263,8 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       comments: comments.filter((c) => c.id !== id),
     };
 
-    saveReview.mutate(updated);
-  }, [reviewData, currentBranch, baseBranch, saveReview]);
+    saveAndUpdate(updated);
+  }, [reviewData, comments, currentBranch, baseBranch, saveAndUpdate]);
 
   const handleSubmitComments = useCallback((generalCommentBody: string) => {
     if (!reviewData || !currentBranch || !baseBranch) return;
@@ -212,8 +281,8 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
         : undefined,
     };
 
-    saveReview.mutate(updated);
-  }, [reviewData, currentBranch, baseBranch, saveReview]);
+    saveAndUpdate(updated);
+  }, [reviewData, comments, currentBranch, baseBranch, saveAndUpdate]);
 
   const handleGeneralCommentChange = useCallback((body: string) => {
     if (!reviewData || !currentBranch || !baseBranch) return;
@@ -227,8 +296,8 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       },
     };
 
-    saveReview.mutate(updated);
-  }, [reviewData, currentBranch, baseBranch, saveReview]);
+    saveAndUpdate(updated);
+  }, [reviewData, currentBranch, baseBranch, saveAndUpdate]);
 
   // Scroll to selected file once diffs are rendered and refs are ready
   useEffect(() => {
@@ -272,7 +341,6 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     );
   }
 
-  const comments = reviewData?.comments ?? [];
   const pendingCount = comments.filter((c) => !c.submitted).length;
   const hasUnsubmitted =
     pendingCount > 0 ||
@@ -357,6 +425,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                   onAddComment={handleAddComment}
                   onCancelComment={() => setActiveComment(null)}
                   onDeleteComment={handleDeleteComment}
+                  onCommentRef={setCommentRef}
                 />
               </div>
             );
@@ -389,6 +458,12 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
               </p>
             )}
           </div>
+          <CommentNav
+            currentIndex={focusedCommentIdx}
+            total={sortedComments.length}
+            onPrev={handlePrevComment}
+            onNext={handleNextComment}
+          />
           {baseBranch && (
             <ReviewSubmitButton
               pendingCount={pendingCount}
@@ -429,6 +504,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                       activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
                       onLineClick={(line, shiftKey) => handleLineClick(pathKey, line, shiftKey)}
                       onDeleteComment={handleDeleteComment}
+                      onCommentRef={setCommentRef}
                     />
                   </div>
                 );
@@ -523,10 +599,16 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       {/* Right pane */}
       <div className="bg-muted/20 flex min-w-0 flex-1 flex-col">
         {baseBranch && (
-          <div className="border-border sticky top-0 z-10 flex items-center justify-between border-b bg-inherit px-3 py-2">
-            <span className="text-muted-foreground text-xs">
+          <div className="border-border sticky top-0 z-10 flex items-center gap-2 border-b bg-inherit px-3 py-2">
+            <CommentNav
+              currentIndex={focusedCommentIdx}
+              total={sortedComments.length}
+              onPrev={handlePrevComment}
+              onNext={handleNextComment}
+            />
+            <span className="text-muted-foreground flex-1 text-xs">
               {pendingCount > 0
-                ? `${pendingCount} pending comment${pendingCount !== 1 ? "s" : ""}`
+                ? `${pendingCount} pending${pendingCount !== 1 ? "" : ""}`
                 : ""}
             </span>
             <ReviewSubmitButton
