@@ -236,7 +236,8 @@ function DiffLineRow({
   const isCommentable =
     commentingEnabled &&
     line.type !== "deletion" &&
-    line.newLineNumber != null;
+    line.newLineNumber != null &&
+    line.content.trim() !== "";
 
   return (
     <div className={cn("flex hover:bg-muted/30", bgColor, isInActiveRange && "bg-blue-500/10")}>

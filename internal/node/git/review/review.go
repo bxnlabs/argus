@@ -165,6 +165,11 @@ func findSnippet(fileText, snippet string, priorLine int) int {
 	if len(matchLines) == 0 {
 		return -1
 	}
+	// A single match is unambiguous — always re-anchor regardless of distance.
+	// The distance threshold only disambiguates multiple matches.
+	if len(matchLines) == 1 {
+		return matchLines[0]
+	}
 	best := -1
 	bestDist := math.MaxInt
 	for _, line := range matchLines {

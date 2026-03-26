@@ -189,6 +189,9 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     }
   }, [isMobile]);
 
+  // TODO(BXN-61): Support multi-line range selection for review comments.
+  // Currently only single-line comments are supported; the LineRange data model
+  // is retained for forward-compatibility.
   const handleLineClick = useCallback((file: string, line: number) => {
     setActiveComment({ file, from: line, to: line });
   }, []);
@@ -325,9 +328,6 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   }
 
   const pendingCount = comments.filter((c) => !c.submitted).length;
-  const hasUnsubmitted =
-    pendingCount > 0 ||
-    (!!reviewData?.body?.body && !reviewData.body.submitted);
 
   const branchSelector = (
     <div className="flex items-center gap-2 px-3 py-2">
@@ -450,7 +450,6 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
               generalComment={reviewData?.body?.body ?? ""}
               onGeneralCommentChange={handleGeneralCommentChange}
               onSubmit={handleSubmitComments}
-              hasUnsubmitted={hasUnsubmitted}
             />
           )}
         </div>
@@ -612,7 +611,6 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
               generalComment={reviewData?.body?.body ?? ""}
               onGeneralCommentChange={handleGeneralCommentChange}
               onSubmit={handleSubmitComments}
-              hasUnsubmitted={hasUnsubmitted}
             />
           </div>
         )}

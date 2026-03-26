@@ -14,7 +14,6 @@ interface ReviewSubmitButtonProps {
   generalComment: string;
   onGeneralCommentChange: (body: string) => void;
   onSubmit: (generalCommentBody: string) => void;
-  hasUnsubmitted: boolean;
 }
 
 export function ReviewSubmitButton({
@@ -22,7 +21,6 @@ export function ReviewSubmitButton({
   generalComment,
   onGeneralCommentChange,
   onSubmit,
-  hasUnsubmitted,
 }: ReviewSubmitButtonProps) {
   const { isMobile } = useViewport();
   const [open, setOpen] = useState(false);
@@ -71,7 +69,6 @@ export function ReviewSubmitButton({
         <Button
           size="sm"
           onClick={() => setOpen(true)}
-          disabled={!hasUnsubmitted}
           className="gap-1.5"
         >
           <MessageSquare className="h-3.5 w-3.5" />
@@ -102,7 +99,7 @@ export function ReviewSubmitButton({
                 <Button
                   size="sm"
                   onClick={handleSubmit}
-                  disabled={!hasUnsubmitted}
+                  disabled={pendingCount === 0 && !localComment.trim()}
                 >
                   Submit Review
                 </Button>
@@ -133,7 +130,6 @@ export function ReviewSubmitButton({
         ref={buttonRef}
         size="sm"
         onClick={() => setOpen(!open)}
-        disabled={!hasUnsubmitted}
         className="gap-1.5"
       >
         {buttonLabel}
@@ -149,6 +145,12 @@ export function ReviewSubmitButton({
           <textarea
             value={localComment}
             onChange={(e) => setLocalComment(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                if (pendingCount > 0 || localComment.trim()) handleSubmit();
+              }
+            }}
             placeholder="Leave a comment"
             rows={4}
             className="bg-background border-border w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -169,9 +171,15 @@ export function ReviewSubmitButton({
             <Button
               size="sm"
               onClick={handleSubmit}
-              disabled={!hasUnsubmitted}
+              disabled={pendingCount === 0 && !localComment.trim()}
+              className="gap-1.5"
             >
               Submit review
+              {localComment.trim() && (
+                <kbd className="text-[10px] opacity-60">
+                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}↵
+                </kbd>
+              )}
             </Button>
           </div>
         </div>

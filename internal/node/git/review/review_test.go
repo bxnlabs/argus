@@ -190,8 +190,8 @@ func TestDetectStaleness_PathTraversal(t *testing.T) {
 	}
 }
 
-func TestFindSnippet_SingleMatch_TooFar(t *testing.T) {
-	// Single match on line 100, prior line was 1 — distance is 99, exceeds 50
+func TestFindSnippet_SingleMatch_ReAnchors(t *testing.T) {
+	// Single match on line 100, prior line was 1 — should re-anchor since it's unambiguous.
 	var lines []string
 	for i := 1; i <= 100; i++ {
 		if i == 100 {
@@ -202,8 +202,8 @@ func TestFindSnippet_SingleMatch_TooFar(t *testing.T) {
 	}
 	fileText := strings.Join(lines, "\n") + "\n"
 	result := findSnippet(fileText, "target line", 1)
-	if result != -1 {
-		t.Errorf("expected -1 for single match too far away, got %d", result)
+	if result != 100 {
+		t.Errorf("expected 100 for single unambiguous match, got %d", result)
 	}
 }
 
