@@ -44,11 +44,6 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     from: number;
     to: number;
   } | null>(null);
-  // Mobile: long-press range selection anchor
-  const [rangeAnchor, setRangeAnchor] = useState<{
-    file: string;
-    line: number;
-  } | null>(null);
 
   const {
     data: branchData,
@@ -194,46 +189,8 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     }
   }, [isMobile]);
 
-  const handleLineClick = useCallback((file: string, line: number, shiftKey: boolean) => {
-    // Mobile range selection: if anchor is set, complete the range
-    if (rangeAnchor && rangeAnchor.file === file) {
-      const from = Math.min(rangeAnchor.line, line);
-      const to = Math.max(rangeAnchor.line, line);
-      setActiveComment({ file, from, to });
-      setRangeAnchor(null);
-      return;
-    }
-    if (rangeAnchor) {
-      // Different file — reset anchor, start fresh
-      setRangeAnchor(null);
-    }
-
-    if (shiftKey && activeComment && activeComment.file === file) {
-      // Desktop: shift+click to extend range within same hunk
-      const diff = parsedDiffs.find((d) => getDiffPathKey(d) === file);
-      const sameHunk = diff?.hunks.some((hunk) => {
-        const newLines = hunk.lines
-          .map((l) => l.newLineNumber)
-          .filter((n): n is number => n != null);
-        if (newLines.length === 0) return false;
-        const min = Math.min(...newLines);
-        const max = Math.max(...newLines);
-        return activeComment.from >= min && activeComment.from <= max &&
-               line >= min && line <= max;
-      }) ?? false;
-      if (sameHunk) {
-        setActiveComment({ file, from: Math.min(activeComment.from, line), to: Math.max(activeComment.to, line) });
-      } else {
-        setActiveComment({ file, from: line, to: line });
-      }
-    } else {
-      setActiveComment({ file, from: line, to: line });
-    }
-  }, [activeComment, rangeAnchor, parsedDiffs]);
-
-  const handleLineLongPress = useCallback((file: string, line: number) => {
-    setRangeAnchor({ file, line });
-    setActiveComment(null);
+  const handleLineClick = useCallback((file: string, line: number) => {
+    setActiveComment({ file, from: line, to: line });
   }, []);
 
   const handleAddComment = useCallback((body: string) => {
@@ -242,25 +199,22 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
     let snippet = "";
     if (diff) {
-      const snippetLines: string[] = [];
       for (const hunk of diff.hunks) {
         for (const line of hunk.lines) {
-          if (
-            line.newLineNumber != null &&
-            line.newLineNumber >= activeComment.from &&
-            line.newLineNumber <= activeComment.to
-          ) {
-            snippetLines.push(line.content);
+          if (line.newLineNumber === activeComment.from) {
+            snippet = line.content;
+            break;
           }
         }
+        if (snippet) break;
       }
-      snippet = snippetLines.join("\n");
     }
 
+    const lineNum = activeComment.from;
     const newComment: ReviewComment = {
       id: `rc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       file: activeComment.file,
-      line: { from: activeComment.from, to: activeComment.to },
+      line: { from: lineNum, to: lineNum },
       snippet,
       body,
       submitted: false,
@@ -453,7 +407,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                   expanded
                   comments={comments.filter((c) => c.file === pathKey)}
                   activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
-                  onLineClick={(line, shiftKey) => handleLineClick(pathKey, line, shiftKey)}
+                  onLineClick={(line) => handleLineClick(pathKey, line)}
                   onAddComment={handleAddComment}
                   onCancelComment={() => setActiveComment(null)}
                   onDeleteComment={handleDeleteComment}
@@ -500,16 +454,6 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
             />
           )}
         </div>
-        {rangeAnchor && (
-          <div className="bg-primary/10 border-primary/30 flex items-center justify-between border-b px-3 py-2">
-            <span className="text-primary text-xs font-medium">
-              Tap another line to select range
-            </span>
-            <Button size="sm" variant="ghost" onClick={() => setRangeAnchor(null)} className="text-primary h-7 text-xs">
-              Cancel
-            </Button>
-          </div>
-        )}
         <div className="safe-area-bottom flex-1 overflow-auto">
           {loadingCompare ? (
             <div className="flex h-32 items-center justify-center">
@@ -541,9 +485,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
                       wrapLines={false}
                       comments={comments.filter((c) => c.file === pathKey)}
                       activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
-                      rangeAnchorLine={rangeAnchor?.file === pathKey ? rangeAnchor.line : null}
-                      onLineClick={(line, shiftKey) => handleLineClick(pathKey, line, shiftKey)}
-                      onLineLongPress={(line) => handleLineLongPress(pathKey, line)}
+                      onLineClick={(line) => handleLineClick(pathKey, line)}
                       onDeleteComment={handleDeleteComment}
                       onCommentRef={setCommentRef}
                     />

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from "react";
-import { ChevronDown, ChevronRight, Plus, Minus, MessageSquarePlus } from "lucide-react";
+import { useState, useEffect, Fragment } from "react";
+import { ChevronDown, ChevronRight, Plus, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
 import type { ReviewComment } from "@/types";
@@ -15,9 +15,7 @@ interface UnifiedDiffProps {
   // Comment props (optional — when absent, commenting is disabled)
   comments?: ReviewComment[];
   activeCommentLine?: { from: number; to: number } | null;
-  rangeAnchorLine?: number | null;
-  onLineClick?: (line: number, shiftKey: boolean) => void;
-  onLineLongPress?: (line: number) => void;
+  onLineClick?: (line: number) => void;
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
@@ -32,9 +30,7 @@ export function UnifiedDiff({
   wrapLines = true,
   comments,
   activeCommentLine,
-  rangeAnchorLine,
   onLineClick,
-  onLineLongPress,
   onAddComment,
   onCancelComment,
   onDeleteComment,
@@ -110,9 +106,7 @@ export function UnifiedDiff({
                   wrapLines={wrapLines}
                   comments={comments ?? []}
                   activeCommentLine={activeCommentLine ?? null}
-                  rangeAnchorLine={rangeAnchorLine ?? null}
                   onLineClick={onLineClick}
-                  onLineLongPress={onLineLongPress}
                   onAddComment={onAddComment}
                   onCancelComment={onCancelComment}
                   onDeleteComment={onDeleteComment}
@@ -133,9 +127,7 @@ function Hunk({
   wrapLines,
   comments,
   activeCommentLine,
-  rangeAnchorLine,
   onLineClick,
-  onLineLongPress,
   onAddComment,
   onCancelComment,
   onDeleteComment,
@@ -146,9 +138,7 @@ function Hunk({
   wrapLines: boolean;
   comments: ReviewComment[];
   activeCommentLine: { from: number; to: number } | null;
-  rangeAnchorLine: number | null;
-  onLineClick?: (line: number, shiftKey: boolean) => void;
-  onLineLongPress?: (line: number) => void;
+  onLineClick?: (line: number) => void;
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
@@ -167,7 +157,6 @@ function Hunk({
           newLine != null &&
           newLine >= activeCommentLine.from &&
           newLine <= activeCommentLine.to;
-        const isRangeAnchor = rangeAnchorLine != null && newLine === rangeAnchorLine;
 
         const lineComments =
           newLine != null
@@ -182,9 +171,8 @@ function Hunk({
             <DiffLineRow
               line={line}
               wrapLines={wrapLines}
-              isInActiveRange={isInActiveRange || isRangeAnchor}
+              isInActiveRange={isInActiveRange}
               onLineClick={onLineClick}
-              onLineLongPress={onLineLongPress}
               commentingEnabled={commentingEnabled}
             />
             {lineComments.map((c) => (
@@ -218,26 +206,14 @@ function DiffLineRow({
   wrapLines,
   isInActiveRange,
   onLineClick,
-  onLineLongPress,
   commentingEnabled,
 }: {
   line: DiffLine;
   wrapLines: boolean;
   isInActiveRange: boolean;
-  onLineClick?: (line: number, shiftKey: boolean) => void;
-  onLineLongPress?: (line: number) => void;
+  onLineClick?: (line: number) => void;
   commentingEnabled: boolean;
 }) {
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const didLongPress = useRef(false);
-
-  const clearTimer = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
   if (line.type === "header") return null;
 
   const bgColor =
@@ -262,63 +238,23 @@ function DiffLineRow({
     line.type !== "deletion" &&
     line.newLineNumber != null;
 
-  const handleTouchStart = isCommentable && onLineLongPress
-    ? () => {
-        didLongPress.current = false;
-        longPressTimer.current = setTimeout(() => {
-          didLongPress.current = true;
-          onLineLongPress(line.newLineNumber!);
-        }, 500);
-      }
-    : undefined;
-
-  const handleTouchEnd = isCommentable && onLineLongPress
-    ? (e: React.TouchEvent) => {
-        clearTimer();
-        if (didLongPress.current) {
-          e.preventDefault();
-        }
-      }
-    : undefined;
-
-  const handleTouchMove = isCommentable && onLineLongPress
-    ? () => {
-        clearTimer();
-      }
-    : undefined;
-
   return (
-    <div className={cn("group flex hover:bg-muted/30", bgColor, isInActiveRange && "bg-blue-500/10")}>
+    <div className={cn("flex hover:bg-muted/30", bgColor, isInActiveRange && "bg-blue-500/10")}>
       <div className="text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none">
         {line.oldLineNumber ?? ""}
       </div>
       <div
         className={cn(
-          "text-muted-foreground border-border/50 relative w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none",
-          isCommentable && "cursor-pointer hover:bg-blue-500/20",
+          "text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none",
+          isCommentable && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
         )}
         onClick={
           isCommentable
-            ? (e) => {
-                if (didLongPress.current) return;
-                onLineClick?.(line.newLineNumber!, e.shiftKey);
-              }
+            ? () => onLineClick?.(line.newLineNumber!)
             : undefined
         }
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchMove}
       >
-        {isCommentable ? (
-          <>
-            <span className="group-hover:hidden">{line.newLineNumber}</span>
-            <span className="hidden group-hover:flex items-center justify-center text-blue-400">
-              <MessageSquarePlus className="h-3.5 w-3.5" />
-            </span>
-          </>
-        ) : (
-          line.newLineNumber ?? ""
-        )}
+        {line.newLineNumber ?? ""}
       </div>
       <div className={cn("w-5 shrink-0 px-1 py-0.5 text-center select-none", textColor)}>
         {marker}

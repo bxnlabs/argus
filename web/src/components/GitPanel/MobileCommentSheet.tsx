@@ -46,11 +46,7 @@ export function MobileCommentSheet({
     }
   };
 
-  const lineLabel = activeComment
-    ? activeComment.from === activeComment.to
-      ? `Line ${activeComment.from}`
-      : `Lines ${activeComment.from}-${activeComment.to}`
-    : "";
+  const lineLabel = activeComment ? `Line ${activeComment.from}` : "";
 
   return (
     <Sheet
