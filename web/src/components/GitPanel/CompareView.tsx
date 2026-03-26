@@ -18,6 +18,7 @@ import { useCompareBranchesQuery, useCompareQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
 import { reviewKeys } from "@/data/review/keys";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
+import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { useViewport } from "@/hooks/useViewport";
@@ -299,6 +300,12 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     saveAndUpdate(updated);
   }, [reviewData, currentBranch, baseBranch, saveAndUpdate]);
 
+  const handleDeleteBody = useCallback(() => {
+    if (!reviewData || !currentBranch || !baseBranch) return;
+    const updated: Review = { ...reviewData, body: undefined };
+    saveAndUpdate(updated);
+  }, [reviewData, currentBranch, baseBranch, saveAndUpdate]);
+
   // Scroll to selected file once diffs are rendered and refs are ready
   useEffect(() => {
     if (!selectedPath || !mobileShowDiffs) return;
@@ -410,6 +417,9 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
         </div>
       ) : (
         <div className="space-y-3">
+          {reviewData?.body?.body && (
+            <ReviewBodyCard body={reviewData.body} onDelete={handleDeleteBody} />
+          )}
           {parsedDiffs.map((diff) => {
             const pathKey = getDiffPathKey(diff);
             const fileName = getDiffFileName(diff);
@@ -484,6 +494,9 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
             </div>
           ) : (
             <div className="space-y-3 p-3">
+              {reviewData?.body?.body && (
+                <ReviewBodyCard body={reviewData.body} onDelete={handleDeleteBody} />
+              )}
               {parsedDiffs.map((diff) => {
                 const pathKey = getDiffPathKey(diff);
                 const fileName = getDiffFileName(diff);
@@ -507,7 +520,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
           )}
         </div>
         {sortedComments.length > 0 && (
-          <div className="safe-area-bottom pointer-events-none absolute inset-x-0 bottom-0 flex justify-end p-3">
+          <div className="pointer-events-none absolute right-3 bottom-3 z-10">
             <div className="pointer-events-auto">
               <CommentNav
                 currentIndex={focusedCommentIdx}

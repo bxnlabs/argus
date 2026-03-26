@@ -19,12 +19,15 @@ export function CommentNav({
 }: CommentNavProps) {
   if (total === 0) return null;
 
+  const isPill = variant === "pill";
+
   return (
     <div
       className={cn(
-        "flex items-center gap-0.5",
-        variant === "pill" &&
-          "bg-popover/90 border-border/60 rounded-full border shadow-lg backdrop-blur-sm",
+        "flex items-center",
+        isPill
+          ? "bg-popover/90 border-border/60 gap-1 rounded-full border px-1 py-0.5 shadow-lg backdrop-blur-sm"
+          : "gap-0.5",
       )}
     >
       <Button
@@ -33,11 +36,14 @@ export function CommentNav({
         onClick={onPrev}
         disabled={currentIndex <= 0}
         aria-label="Previous comment"
-        className="h-7 w-7 rounded-full"
+        className={cn("rounded-full", isPill ? "h-9 w-9" : "h-7 w-7")}
       >
-        <ChevronUp className="h-4 w-4" />
+        <ChevronUp className={cn(isPill ? "h-5 w-5" : "h-4 w-4")} />
       </Button>
-      <span className="text-muted-foreground min-w-[3ch] text-center text-xs tabular-nums">
+      <span className={cn(
+        "text-muted-foreground min-w-[3ch] text-center tabular-nums",
+        isPill ? "text-sm" : "text-xs",
+      )}>
         {currentIndex >= 0 ? currentIndex + 1 : "\u2013"}/{total}
       </span>
       <Button
@@ -46,9 +52,9 @@ export function CommentNav({
         onClick={onNext}
         disabled={currentIndex >= total - 1}
         aria-label="Next comment"
-        className="h-7 w-7 rounded-full"
+        className={cn("rounded-full", isPill ? "h-9 w-9" : "h-7 w-7")}
       >
-        <ChevronDown className="h-4 w-4" />
+        <ChevronDown className={cn(isPill ? "h-5 w-5" : "h-4 w-4")} />
       </Button>
     </div>
   );
