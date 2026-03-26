@@ -47,6 +47,12 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/git/file-content", gh.fileContent)
 	mux.HandleFunc("GET /api/git/check", gh.check)
 
+	// Review routes
+	rh := &reviewHandler{}
+	mux.HandleFunc("GET /api/git/review", rh.get)
+	mux.HandleFunc("POST /api/git/review", rh.post)
+	mux.HandleFunc("DELETE /api/git/review", rh.delete)
+
 	// File routes
 	fh := &filesHandler{uploadDirOverride: deps.UploadDirOverride}
 	mux.HandleFunc("GET /api/files", fh.list)

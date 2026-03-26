@@ -158,3 +158,10 @@ export interface BranchList {
   branches: string[];
   defaultBase: string;
 }
+
+export type {
+  LineRange,
+  ReviewComment,
+  ReviewBody,
+  Review,
+} from "./types/review";

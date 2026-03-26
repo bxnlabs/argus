@@ -1,0 +1,73 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "@/api/client";
+import type { Review } from "@/types";
+import { reviewKeys } from "./keys";
+
+export function useReviewQuery(
+  path: string,
+  head: string | undefined,
+  base: string | null,
+) {
+  return useQuery({
+    queryKey: reviewKeys.forComparison(path, head ?? "", base ?? ""),
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        path,
+        branch: head!,
+        base: base!,
+      });
+      return apiFetch<Review>(`/node/api/git/review?${params}`);
+    },
+    staleTime: 30_000,
+    enabled: path.trim().length > 0 && !!head && !!base,
+  });
+}
+
+export function useSaveReviewMutation(path: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: Review) => {
+      const params = new URLSearchParams({ path });
+      return apiFetch<{ status: string }>(`/node/api/git/review?${params}`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.setQueryData(
+        reviewKeys.forComparison(path, variables.head, variables.base),
+        variables,
+      );
+    },
+  });
+}
+
+export function useDeleteReviewMutation(path: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      head,
+      base,
+    }: {
+      head: string;
+      base: string;
+    }) => {
+      const params = new URLSearchParams({
+        path,
+        branch: head,
+        base,
+      });
+      return apiFetch<{ status: string }>(
+        `/node/api/git/review?${params}`,
+        { method: "DELETE" },
+      );
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: reviewKeys.forComparison(path, variables.head, variables.base),
+      });
+    },
+  });
+}

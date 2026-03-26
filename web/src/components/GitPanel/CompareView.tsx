@@ -9,13 +9,20 @@ import {
   ArrowLeft,
   AlertCircle,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
-import { parseMultiFileDiff, getDiffFileName, getDiffPathKey } from "@/lib/diff-parser";
+import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery } from "@/data/git";
+import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
+import { reviewKeys } from "@/data/review/keys";
+import { ReviewSubmitButton } from "./ReviewSubmitButton";
+import { ReviewBodyCard } from "./ReviewBodyCard";
+import { CommentNav } from "./CommentNav";
+import { MobileCommentSheet } from "./MobileCommentSheet";
 import { useViewport } from "@/hooks/useViewport";
-import type { CommitFile, FileStatus } from "@/types";
+import type { CommitFile, FileStatus, ReviewComment, Review } from "@/types";
 
 interface CompareViewProps {
   workingDirectory: string;
@@ -27,10 +34,16 @@ interface CompareViewProps {
 
 export function CompareView({ workingDirectory, currentBranch, header, listWidth, onResizeMouseDown }: CompareViewProps) {
   const { isMobile } = useViewport();
+  const queryClient = useQueryClient();
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [activeComment, setActiveComment] = useState<{
+    file: string;
+    from: number;
+    to: number;
+  } | null>(null);
 
   const {
     data: branchData,
@@ -82,6 +95,77 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
     return parseMultiFileDiff(compareData.diff);
   }, [compareData?.diff]);
 
+  const {
+    data: reviewData,
+  } = useReviewQuery(workingDirectory, currentBranch, baseBranch);
+
+  const saveReview = useSaveReviewMutation(workingDirectory);
+
+  const comments = reviewData?.comments ?? [];
+
+  // Optimistically update the review cache and persist to server
+  const saveAndUpdate = useCallback((updated: Review) => {
+    if (!currentBranch || !baseBranch) return;
+    queryClient.setQueryData(
+      reviewKeys.forComparison(workingDirectory, currentBranch, baseBranch),
+      updated,
+    );
+    saveReview.mutate(updated);
+  }, [queryClient, workingDirectory, currentBranch, baseBranch, saveReview]);
+
+  // Comment navigation: sorted list of all comments by file order then line
+  const [focusedCommentIdx, setFocusedCommentIdx] = useState(-1);
+  const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  const sortedComments = useMemo(() => {
+    if (!comments.length || !parsedDiffs.length) return [];
+    const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
+    return [...comments].sort((a, b) => {
+      const ai = fileOrder.indexOf(a.file);
+      const bi = fileOrder.indexOf(b.file);
+      if (ai !== bi) return ai - bi;
+      return a.line.from - b.line.from;
+    });
+  }, [comments, parsedDiffs]);
+
+  const scrollToComment = useCallback((index: number) => {
+    const comment = sortedComments[index];
+    if (!comment) return;
+    setFocusedCommentIdx(index);
+
+    // Try to scroll to the comment element by its id
+    const el = commentRefs.current.get(comment.id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    // Fallback: scroll to the file containing the comment
+    const fileEl = diffRefs.current.get(comment.file);
+    if (fileEl) {
+      fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [sortedComments]);
+
+  const handlePrevComment = useCallback(() => {
+    const next = focusedCommentIdx <= 0 ? 0 : focusedCommentIdx - 1;
+    scrollToComment(next);
+  }, [focusedCommentIdx, scrollToComment]);
+
+  const handleNextComment = useCallback(() => {
+    const next = focusedCommentIdx >= sortedComments.length - 1
+      ? sortedComments.length - 1
+      : focusedCommentIdx + 1;
+    scrollToComment(next);
+  }, [focusedCommentIdx, sortedComments.length, scrollToComment]);
+
+  const setCommentRef = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) {
+      commentRefs.current.set(id, el);
+    } else {
+      commentRefs.current.delete(id);
+    }
+  }, []);
+
   const setDiffRef = useCallback(
     (path: string) => (el: HTMLDivElement | null) => {
       if (el) {
@@ -104,6 +188,102 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       }
     }
   }, [isMobile]);
+
+  // TODO(BXN-61): Support multi-line range selection for review comments.
+  // Currently only single-line comments are supported; the LineRange data model
+  // is retained for forward-compatibility.
+  const handleLineClick = useCallback((file: string, line: number) => {
+    setActiveComment({ file, from: line, to: line });
+  }, []);
+
+  const handleAddComment = useCallback((body: string) => {
+    if (!activeComment || !reviewData || !currentBranch || !baseBranch) return;
+
+    const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
+    let snippet = "";
+    if (diff) {
+      for (const hunk of diff.hunks) {
+        for (const line of hunk.lines) {
+          if (line.newLineNumber === activeComment.from) {
+            snippet = line.content;
+            break;
+          }
+        }
+        if (snippet) break;
+      }
+    }
+
+    const lineNum = activeComment.from;
+    const newComment: ReviewComment = {
+      id: `rc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      file: activeComment.file,
+      line: { from: lineNum, to: lineNum },
+      snippet,
+      body,
+      submitted: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated: Review = {
+      ...reviewData,
+      head: currentBranch,
+      base: baseBranch,
+      comments: [...comments, newComment],
+    };
+
+    saveAndUpdate(updated);
+    setActiveComment(null);
+  }, [activeComment, reviewData, comments, currentBranch, baseBranch, parsedDiffs, saveAndUpdate]);
+
+  const handleDeleteComment = useCallback((id: string) => {
+    if (!reviewData || !currentBranch || !baseBranch) return;
+
+    const updated: Review = {
+      ...reviewData,
+      comments: comments.filter((c) => c.id !== id),
+    };
+
+    saveAndUpdate(updated);
+  }, [reviewData, comments, currentBranch, baseBranch, saveAndUpdate]);
+
+  const handleSubmitComments = useCallback((generalCommentBody: string) => {
+    if (!reviewData || !currentBranch || !baseBranch) return;
+
+    const updated: Review = {
+      ...reviewData,
+      comments: comments.map((c) => ({ ...c, submitted: true })),
+      body: generalCommentBody
+        ? {
+            body: generalCommentBody,
+            submitted: true,
+            createdAt: reviewData.body?.createdAt ?? new Date().toISOString(),
+          }
+        : undefined,
+    };
+
+    saveAndUpdate(updated);
+  }, [reviewData, comments, currentBranch, baseBranch, saveAndUpdate]);
+
+  const handleGeneralCommentChange = useCallback((body: string) => {
+    if (!reviewData || !currentBranch || !baseBranch) return;
+
+    const updated: Review = {
+      ...reviewData,
+      body: {
+        body,
+        submitted: false,
+        createdAt: reviewData.body?.createdAt ?? new Date().toISOString(),
+      },
+    };
+
+    saveAndUpdate(updated);
+  }, [reviewData, currentBranch, baseBranch, saveAndUpdate]);
+
+  const handleDeleteBody = useCallback(() => {
+    if (!reviewData || !currentBranch || !baseBranch) return;
+    const updated: Review = { ...reviewData, body: undefined };
+    saveAndUpdate(updated);
+  }, [reviewData, currentBranch, baseBranch, saveAndUpdate]);
 
   // Scroll to selected file once diffs are rendered and refs are ready
   useEffect(() => {
@@ -146,6 +326,8 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
       </div>
     );
   }
+
+  const pendingCount = comments.filter((c) => !c.submitted).length;
 
   const branchSelector = (
     <div className="flex items-center gap-2 px-3 py-2">
@@ -211,12 +393,26 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
         </div>
       ) : (
         <div className="space-y-3">
+          {reviewData?.body?.body && (
+            <ReviewBodyCard body={reviewData.body} onDelete={handleDeleteBody} />
+          )}
           {parsedDiffs.map((diff) => {
             const pathKey = getDiffPathKey(diff);
             const fileName = getDiffFileName(diff);
             return (
               <div key={pathKey} ref={setDiffRef(pathKey)}>
-                <UnifiedDiff diff={diff} fileName={fileName} expanded />
+                <UnifiedDiff
+                  diff={diff}
+                  fileName={fileName}
+                  expanded
+                  comments={comments.filter((c) => c.file === pathKey)}
+                  activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
+                  onLineClick={(line) => handleLineClick(pathKey, line)}
+                  onAddComment={handleAddComment}
+                  onCancelComment={() => setActiveComment(null)}
+                  onDeleteComment={handleDeleteComment}
+                  onCommentRef={setCommentRef}
+                />
               </div>
             );
           })}
@@ -228,7 +424,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   // Mobile: full-screen diff view when user taps a file
   if (isMobile && mobileShowDiffs) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="relative flex h-full flex-col">
         <div className="bg-muted/30 flex items-center gap-2 p-2">
           <Button
             variant="ghost"
@@ -248,6 +444,14 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
               </p>
             )}
           </div>
+          {baseBranch && (
+            <ReviewSubmitButton
+              pendingCount={pendingCount}
+              generalComment={reviewData?.body?.body ?? ""}
+              onGeneralCommentChange={handleGeneralCommentChange}
+              onSubmit={handleSubmitComments}
+            />
+          )}
         </div>
         <div className="safe-area-bottom flex-1 overflow-auto">
           {loadingCompare ? (
@@ -265,18 +469,66 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
             </div>
           ) : (
             <div className="space-y-3 p-3">
+              {reviewData?.body?.body && (
+                <ReviewBodyCard body={reviewData.body} onDelete={handleDeleteBody} />
+              )}
               {parsedDiffs.map((diff) => {
                 const pathKey = getDiffPathKey(diff);
                 const fileName = getDiffFileName(diff);
                 return (
                   <div key={pathKey} ref={setDiffRef(pathKey)}>
-                    <UnifiedDiff diff={diff} fileName={fileName} expanded />
+                    <UnifiedDiff
+                      diff={diff}
+                      fileName={fileName}
+                      expanded
+                      wrapLines={false}
+                      comments={comments.filter((c) => c.file === pathKey)}
+                      activeCommentLine={activeComment?.file === pathKey ? { from: activeComment.from, to: activeComment.to } : null}
+                      onLineClick={(line) => handleLineClick(pathKey, line)}
+                      onDeleteComment={handleDeleteComment}
+                      onCommentRef={setCommentRef}
+                    />
                   </div>
                 );
               })}
             </div>
           )}
         </div>
+        {sortedComments.length > 0 && (
+          <div className="pointer-events-none absolute right-3 bottom-3 z-10">
+            <div className="pointer-events-auto">
+              <CommentNav
+                currentIndex={focusedCommentIdx}
+                total={sortedComments.length}
+                onPrev={handlePrevComment}
+                onNext={handleNextComment}
+                variant="pill"
+              />
+            </div>
+          </div>
+        )}
+        <MobileCommentSheet
+          activeComment={activeComment}
+          activeLines={activeComment ? (() => {
+            const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
+            if (!diff) return [];
+            const lines: DiffLine[] = [];
+            for (const hunk of diff.hunks) {
+              for (const line of hunk.lines) {
+                if (
+                  line.newLineNumber != null &&
+                  line.newLineNumber >= activeComment.from &&
+                  line.newLineNumber <= activeComment.to
+                ) {
+                  lines.push(line);
+                }
+              }
+            }
+            return lines;
+          })() : []}
+          onAddComment={handleAddComment}
+          onCancel={() => setActiveComment(null)}
+        />
       </div>
     );
   }
@@ -341,6 +593,27 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
 
       {/* Right pane */}
       <div className="bg-muted/20 flex min-w-0 flex-1 flex-col">
+        {baseBranch && (
+          <div className="border-border sticky top-0 z-10 flex items-center gap-2 border-b bg-inherit px-3 py-2">
+            <CommentNav
+              currentIndex={focusedCommentIdx}
+              total={sortedComments.length}
+              onPrev={handlePrevComment}
+              onNext={handleNextComment}
+            />
+            <span className="text-muted-foreground flex-1 text-xs">
+              {pendingCount > 0
+                ? `${pendingCount} pending${pendingCount !== 1 ? "" : ""}`
+                : ""}
+            </span>
+            <ReviewSubmitButton
+              pendingCount={pendingCount}
+              generalComment={reviewData?.body?.body ?? ""}
+              onGeneralCommentChange={handleGeneralCommentChange}
+              onSubmit={handleSubmitComments}
+            />
+          </div>
+        )}
         {diffPane}
       </div>
     </div>
