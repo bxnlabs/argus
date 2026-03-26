@@ -36,11 +36,16 @@ interface GitStatusResponse {
   status: GitStatus;
 }
 
-export function useGitStatusQuery(
+export function useGitStatusQuery<TData = GitStatus>(
   path: string,
-  options?: { enabled?: boolean; refetchInterval?: number },
+  options?: {
+    enabled?: boolean;
+    refetchInterval?: number | false;
+    select?: (data: GitStatus) => TData;
+    notifyOnChangeProps?: Array<"data" | "error" | "isPending" | "isError" | "isRefetching">;
+  },
 ) {
-  return useQuery({
+  return useQuery<GitStatus, Error, TData>({
     queryKey: gitKeys.status(path),
     queryFn: async () => {
       const data = await apiFetch<GitStatusResponse>(
@@ -51,6 +56,8 @@ export function useGitStatusQuery(
     staleTime: 5_000,
     refetchInterval: options?.refetchInterval ?? 5_000,
     enabled: (options?.enabled ?? true) && path.trim().length > 0,
+    select: options?.select,
+    notifyOnChangeProps: options?.notifyOnChangeProps,
   });
 }
 
