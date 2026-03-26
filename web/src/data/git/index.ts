@@ -10,3 +10,8 @@ export {
   useCommitFullDiffQuery,
   useWorkingDiffQuery,
 } from "./queries";
+export {
+  useGitStatusSummaryQuery,
+  useGitCurrentBranchQuery,
+  useGitStatusFilesQuery,
+} from "./hooks";
