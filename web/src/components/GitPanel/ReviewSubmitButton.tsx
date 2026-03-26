@@ -177,7 +177,7 @@ export function ReviewSubmitButton({
               Submit review
               {localComment.trim() && (
                 <kbd className="text-[10px] opacity-60">
-                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}↵
+                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
                 </kbd>
               )}
             </Button>

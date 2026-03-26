@@ -38,11 +38,7 @@ export function InlineCommentForm({ onSubmit, onCancel }: InlineCommentFormProps
             rows={3}
             className="bg-background/60 border-border placeholder:text-muted-foreground/50 text-foreground w-full resize-y rounded border px-3 py-2 text-sm leading-relaxed focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
           />
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-muted-foreground/50 text-xs">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "\u2318" : "Ctrl"}+Enter
-            </span>
-            <div className="ml-auto flex items-center gap-1.5">
+          <div className="mt-2 flex items-center justify-end gap-1.5">
               <Button size="sm" variant="ghost" onClick={onCancel}>
                 Cancel
               </Button>
@@ -50,10 +46,15 @@ export function InlineCommentForm({ onSubmit, onCancel }: InlineCommentFormProps
                 size="sm"
                 onClick={() => body.trim() && onSubmit(body.trim())}
                 disabled={!body.trim()}
+                className="gap-1.5"
               >
                 Comment
+                {body.trim() && (
+                  <kbd className="text-[10px] opacity-60">
+                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
+                  </kbd>
+                )}
               </Button>
-            </div>
           </div>
         </div>
       </div>
