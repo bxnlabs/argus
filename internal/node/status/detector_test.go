@@ -255,6 +255,10 @@ func TestCheckBusyIndicators(t *testing.T) {
 		{"mobile: compact 9 local agents", "output\n\u25b8\u25b8 bypass permissions on \u00b7 9 local agents \u2193\u2014\n", true},
 		{"mobile: compact 1 local agent", "output\n\u25b8\u25b8 bypass permissions on \u00b7 1 local agent \u00b7 \u2193 to ma\u2026\n", true},
 		{"mobile: compact local agents truncated", "output\n\u25b8\u25b8 auto-approve \u00b7 3 local agents\n", true},
+		// Narrow terminal: compact shell count
+		{"mobile: compact 1 shell", "output\n\u25b8\u25b8 bypass permissions on \u00b7 1 shell \u00b7 \u2193 to manage\n", true},
+		{"mobile: compact 2 shells", "output\n\u25b8\u25b8 bypass permissions on \u00b7 2 shells \u00b7 \u2193 to manage\n", true},
+		{"mobile: compact shells truncated", "output\n\u25b8\u25b8 auto-approve \u00b7 3 shells\n", true},
 		{"no false positive on bare bash word", "output\nrun bash script\n", false},
 	}
 
