@@ -75,6 +75,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   useEffect(() => {
     if (baseBranch !== null) return;
     if (!branchData) return;
+    if (!currentBranch) return;
     const defaultBase =
       branchData.defaultBase && branchData.defaultBase !== currentBranch
         ? branchData.defaultBase
