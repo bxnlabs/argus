@@ -31,7 +31,7 @@ var StatusLinePattern = regexp.MustCompile(`\w+\x{2026}\s*\(`)
 // to "N bashes" / "1 bash", "N local agents" / "1 local agent", or other
 // tool names like "N reads", "1 write".
 // Applied against lowercased content so it matches regardless of case.
-var CompactTaskPattern = regexp.MustCompile(`\d+\s+(bash(es)?|local agents?)\b`)
+var CompactTaskPattern = regexp.MustCompile(`\d+\s+(bash(es)?|shells?|local agents?)\b`)
 
 // WaitingPatterns are regex patterns that indicate the agent is waiting for user input.
 var WaitingPatterns = []*regexp.Regexp{
