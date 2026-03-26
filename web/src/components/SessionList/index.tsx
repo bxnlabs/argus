@@ -191,7 +191,7 @@ export function SessionList({
                   key={session.id}
                   className={cn(
                     "hover:bg-accent/50 has-[[data-state=open]]:bg-accent/50 group relative flex cursor-pointer items-center gap-1.5 rounded px-2 py-2",
-                    isActive && "bg-accent -mr-1.5 rounded-r-none pr-3.5"
+                    isActive && "bg-accent -ml-1.5 rounded-l-none pl-3.5"
                   )}
                   onClick={() => {
                     if (!isRenaming) {
@@ -199,9 +199,9 @@ export function SessionList({
                     }
                   }}
                 >
-                  {/* Active session indicator pill — anchored to right border */}
+                  {/* Active session indicator pill — anchored to left border */}
                   {isActive && (
-                    <div className="bg-primary absolute right-0 top-1/2 h-4 w-1 -translate-y-1/2 rounded-full" />
+                    <div className="bg-primary absolute left-0 top-0 h-full w-1 rounded-full" />
                   )}
                   {/* Session info — name, status, directory, branch */}
                   <div className="min-w-0 flex-1">
