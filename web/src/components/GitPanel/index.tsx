@@ -1,19 +1,17 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import {
-  GitBranch,
-  RefreshCw,
   Loader2,
   AlertCircle,
-  ArrowUp,
-  ArrowDown,
   ArrowLeft,
   FileCode,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { FileChanges } from "./FileChanges";
 import { GitPanelTabs, type GitTab } from "./GitPanelTabs";
 import { CommitHistory } from "./CommitHistory";
 import { CompareView } from "./CompareView";
+import { GitStatusHeader } from "./GitStatusHeader";
 import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
 import {
   parseMultiFileDiff,
@@ -21,7 +19,12 @@ import {
   getDiffPathKey,
 } from "@/lib/diff-parser";
 import { useViewport } from "@/hooks/useViewport";
-import { useGitStatusQuery, useWorkingDiffQuery } from "@/data/git";
+import {
+  gitKeys,
+  useGitCurrentBranchQuery,
+  useGitStatusFilesQuery,
+  useWorkingDiffQuery,
+} from "@/data/git";
 import type { GitFile } from "@/types";
 
 interface GitPanelProps {
@@ -30,16 +33,23 @@ interface GitPanelProps {
 
 export function GitPanel({ workingDirectory }: GitPanelProps) {
   const { isMobile } = useViewport();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<GitTab>("changes");
 
+  // Narrow subscriptions — neither includes isRefetching
   const {
-    data: status,
-    isPending: loading,
-    isError,
-    error,
-    isRefetching,
-    refetch,
-  } = useGitStatusQuery(workingDirectory);
+    data: currentBranch,
+    isPending: loadingBranch,
+    isError: branchError,
+    error: branchErrorDetail,
+  } = useGitCurrentBranchQuery(workingDirectory);
+
+  const {
+    data: fileStatus,
+    isPending: loadingFiles,
+    isError: filesError,
+    error: filesErrorDetail,
+  } = useGitStatusFilesQuery(workingDirectory);
 
   // Working-tree diff (full stacked diff for all changes)
   const {
@@ -82,28 +92,28 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
 
   // Clear stale selection when file disappears from status
   useEffect(() => {
-    if (!selectedPath || !status) return;
+    if (!selectedPath || !fileStatus) return;
     const allPaths = new Set([
-      ...status.staged.map((f: GitFile) => f.path),
-      ...status.unstaged.map((f: GitFile) => f.path),
-      ...status.untracked.map((f: GitFile) => f.path),
+      ...fileStatus.staged.map((f: GitFile) => f.path),
+      ...fileStatus.unstaged.map((f: GitFile) => f.path),
+      ...fileStatus.untracked.map((f: GitFile) => f.path),
     ]);
     if (!allPaths.has(selectedPath)) {
       setSelectedPath(null);
     }
-  }, [selectedPath, status]);
+  }, [selectedPath, fileStatus]);
 
   // Resizable panel state (desktop)
   const [listWidth, setListWidth] = useState(400);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
-  const handleRefresh = async () => {
-    await refetch();
+  const handleRefresh = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: gitKeys.status(workingDirectory) });
     if (activeTab === "changes") {
-      refetchDiff();
+      queryClient.invalidateQueries({ queryKey: gitKeys.workingDiff(workingDirectory) });
     }
-  };
+  }, [queryClient, workingDirectory, activeTab]);
 
   const handleFileClick = useCallback(
     (file: GitFile) => {
@@ -177,16 +187,15 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     };
   }, []);
 
+  // --- Shared header + tabs for all layouts ---
+  const loading = loadingBranch || loadingFiles;
+  const isError = branchError || filesError;
+  const error = branchErrorDetail || filesErrorDetail;
+
   if (loading) {
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <Header
-          branch=""
-          ahead={0}
-          behind={0}
-          onRefresh={handleRefresh}
-          refreshing={false}
-        />
+        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
         </div>
@@ -197,13 +206,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   if (isError) {
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <Header
-          branch=""
-          ahead={0}
-          behind={0}
-          onRefresh={handleRefresh}
-          refreshing={isRefetching}
-        />
+        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
           <AlertCircle className="text-muted-foreground mb-2 h-8 w-8" />
           <p className="text-muted-foreground text-center text-sm">
@@ -214,25 +217,13 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     );
   }
 
-  if (!status) return null;
-
+  const branch = currentBranch ?? "";
   const hasChanges =
-    status.staged.length > 0 ||
-    status.unstaged.length > 0 ||
-    status.untracked.length > 0;
+    (fileStatus?.staged.length ?? 0) > 0 ||
+    (fileStatus?.unstaged.length ?? 0) > 0 ||
+    (fileStatus?.untracked.length ?? 0) > 0;
 
-  const compareHeader = (
-    <>
-      <Header
-        branch={status.branch}
-        ahead={status.ahead}
-        behind={status.behind}
-        onRefresh={handleRefresh}
-        refreshing={isRefetching}
-      />
-      <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
-    </>
-  );
+  const gitHeader = <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />;
 
   const stackedDiffs = (
     <div className="space-y-3 p-3">
@@ -256,8 +247,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
         <div className="bg-background relative flex h-full w-full flex-col">
           <CompareView
             workingDirectory={workingDirectory}
-            currentBranch={status.branch}
-            header={compareHeader}
+            header={<>{gitHeader}<GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} /></>}
           />
         </div>
       );
@@ -271,17 +261,8 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
             workingDirectory={workingDirectory}
             header={
               <>
-                <Header
-                  branch={status.branch}
-                  ahead={status.ahead}
-                  behind={status.behind}
-                  onRefresh={handleRefresh}
-                  refreshing={isRefetching}
-                />
-                <GitPanelTabs
-                  activeTab={activeTab}
-                  onTabChange={setActiveTab}
-                />
+                {gitHeader}
+                <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
               </>
             }
           />
@@ -340,13 +321,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     // Changes tab: file list (default mobile)
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <Header
-          branch={status.branch}
-          ahead={status.ahead}
-          behind={status.behind}
-          onRefresh={handleRefresh}
-          refreshing={isRefetching}
-        />
+        {gitHeader}
         <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
         <div className="safe-area-bottom flex-1 overflow-y-auto">
           {!hasChanges ? (
@@ -355,25 +330,25 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
             </div>
           ) : (
             <div className="py-2">
-              {status.staged.length > 0 && (
+              {(fileStatus?.staged.length ?? 0) > 0 && (
                 <FileChanges
-                  files={status.staged}
+                  files={fileStatus!.staged}
                   title="Staged Changes"
                   selectedPath={selectedPath ?? undefined}
                   onFileClick={handleFileClick}
                 />
               )}
-              {status.unstaged.length > 0 && (
+              {(fileStatus?.unstaged.length ?? 0) > 0 && (
                 <FileChanges
-                  files={status.unstaged}
+                  files={fileStatus!.unstaged}
                   title="Changes"
                   selectedPath={selectedPath ?? undefined}
                   onFileClick={handleFileClick}
                 />
               )}
-              {status.untracked.length > 0 && (
+              {(fileStatus?.untracked.length ?? 0) > 0 && (
                 <FileChanges
-                  files={status.untracked}
+                  files={fileStatus!.untracked}
                   title="Untracked Files"
                   selectedPath={selectedPath ?? undefined}
                   onFileClick={handleFileClick}
@@ -394,8 +369,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       <div ref={containerRef} className="bg-background flex h-full w-full flex-col">
         <CompareView
           workingDirectory={workingDirectory}
-          currentBranch={status.branch}
-          header={compareHeader}
+          header={<>{gitHeader}<GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} /></>}
           listWidth={listWidth}
           onResizeMouseDown={handleMouseDown}
         />
@@ -411,13 +385,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
           workingDirectory={workingDirectory}
           header={
             <>
-              <Header
-                branch={status.branch}
-                ahead={status.ahead}
-                behind={status.behind}
-                onRefresh={handleRefresh}
-                refreshing={isRefetching}
-              />
+              {gitHeader}
               <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
             </>
           }
@@ -434,13 +402,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       <div className="flex min-h-0 flex-1">
         {/* Left panel - file list */}
         <div className="flex h-full min-w-0 flex-col" style={{ width: listWidth }}>
-          <Header
-            branch={status.branch}
-            ahead={status.ahead}
-            behind={status.behind}
-            onRefresh={handleRefresh}
-            refreshing={isRefetching}
-          />
+          {gitHeader}
           <GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
           <div className="flex-1 overflow-y-auto">
@@ -450,25 +412,25 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
               </div>
             ) : (
               <div className="py-2">
-                {status.staged.length > 0 && (
+                {(fileStatus?.staged.length ?? 0) > 0 && (
                   <FileChanges
-                    files={status.staged}
+                    files={fileStatus!.staged}
                     title="Staged Changes"
                     selectedPath={selectedPath ?? undefined}
                     onFileClick={handleFileClick}
                   />
                 )}
-                {status.unstaged.length > 0 && (
+                {(fileStatus?.unstaged.length ?? 0) > 0 && (
                   <FileChanges
-                    files={status.unstaged}
+                    files={fileStatus!.unstaged}
                     title="Changes"
                     selectedPath={selectedPath ?? undefined}
                     onFileClick={handleFileClick}
                   />
                 )}
-                {status.untracked.length > 0 && (
+                {(fileStatus?.untracked.length ?? 0) > 0 && (
                   <FileChanges
-                    files={status.untracked}
+                    files={fileStatus!.untracked}
                     title="Untracked Files"
                     selectedPath={selectedPath ?? undefined}
                     onFileClick={handleFileClick}
@@ -512,54 +474,6 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-// --- Header sub-component ---
-
-interface HeaderProps {
-  branch: string;
-  ahead: number;
-  behind: number;
-  onRefresh: () => void;
-  refreshing: boolean;
-}
-
-function Header({ branch, ahead, behind, onRefresh, refreshing }: HeaderProps) {
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5">
-      <GitBranch className="text-muted-foreground h-4 w-4 flex-shrink-0" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
-          {branch || "Git Status"}
-        </p>
-        {(ahead > 0 || behind > 0) && (
-          <div className="text-muted-foreground flex items-center gap-2 text-xs">
-            {ahead > 0 && (
-              <span className="flex items-center gap-0.5">
-                <ArrowUp className="h-3 w-3" />
-                {ahead}
-              </span>
-            )}
-            {behind > 0 && (
-              <span className="flex items-center gap-0.5">
-                <ArrowDown className="h-3 w-3" />
-                {behind}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={onRefresh}
-        disabled={refreshing}
-        className="h-6 w-6"
-      >
-        <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-      </Button>
     </div>
   );
 }
