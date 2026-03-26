@@ -175,11 +175,9 @@ export function ReviewSubmitButton({
               className="gap-1.5"
             >
               Submit review
-              {localComment.trim() && (
-                <kbd className="text-[10px] opacity-60">
-                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
-                </kbd>
-              )}
+              <kbd className="text-[10px] opacity-60">
+                {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
+              </kbd>
             </Button>
           </div>
         </div>
