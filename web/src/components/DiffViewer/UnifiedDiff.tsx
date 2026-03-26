@@ -180,14 +180,14 @@ function Hunk({
                 key={c.id}
                 ref={(el) => onCommentRef?.(c.id, el)}
                 className={cn(!wrapLines && "sticky left-0")}
-                style={!wrapLines ? { width: "calc(100vw - 1.5rem * 2 - 2px)" } : undefined}
+                style={!wrapLines ? { width: "calc(100vw - 0.75rem * 2 - 2px)" } : undefined}
               >
                 <InlineCommentCard comment={c} onDelete={onDeleteComment!} />
               </div>
             ))}
             {showForm && onAddComment && onCancelComment && (
               <div className={cn(!wrapLines && "sticky left-0")}
-                style={!wrapLines ? { width: "calc(100vw - 1.5rem * 2 - 2px)" } : undefined}>
+                style={!wrapLines ? { width: "calc(100vw - 0.75rem * 2 - 2px)" } : undefined}>
                 <InlineCommentForm
                   onSubmit={onAddComment}
                   onCancel={onCancelComment}

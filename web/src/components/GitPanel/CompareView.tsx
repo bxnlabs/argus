@@ -438,7 +438,7 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
   // Mobile: full-screen diff view when user taps a file
   if (isMobile && mobileShowDiffs) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="relative flex h-full flex-col">
         <div className="bg-muted/30 flex items-center gap-2 p-2">
           <Button
             variant="ghost"
@@ -458,12 +458,6 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
               </p>
             )}
           </div>
-          <CommentNav
-            currentIndex={focusedCommentIdx}
-            total={sortedComments.length}
-            onPrev={handlePrevComment}
-            onNext={handleNextComment}
-          />
           {baseBranch && (
             <ReviewSubmitButton
               pendingCount={pendingCount}
@@ -512,6 +506,19 @@ export function CompareView({ workingDirectory, currentBranch, header, listWidth
             </div>
           )}
         </div>
+        {sortedComments.length > 0 && (
+          <div className="safe-area-bottom pointer-events-none absolute inset-x-0 bottom-0 flex justify-end p-3">
+            <div className="pointer-events-auto">
+              <CommentNav
+                currentIndex={focusedCommentIdx}
+                total={sortedComments.length}
+                onPrev={handlePrevComment}
+                onNext={handleNextComment}
+                variant="pill"
+              />
+            </div>
+          </div>
+        )}
         <MobileCommentSheet
           activeComment={activeComment}
           activeLines={activeComment ? (() => {
