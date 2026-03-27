@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, Fragment, memo, useMemo } from "react";
 import { ChevronDown, ChevronRight, Plus, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
@@ -6,13 +6,14 @@ import type { ReviewComment } from "@/types";
 import { InlineCommentForm } from "./InlineCommentForm";
 import { InlineCommentCard } from "./InlineCommentCard";
 
+const EMPTY_COMMENTS: ReviewComment[] = [];
+
 interface UnifiedDiffProps {
   diff: ParsedDiff;
   fileName: string;
   expanded?: boolean;
   onToggle?: () => void;
   wrapLines?: boolean;
-  // Comment props (optional — when absent, commenting is disabled)
   comments?: ReviewComment[];
   activeCommentLine?: { from: number; to: number } | null;
   onLineClick?: (line: number) => void;
@@ -22,7 +23,7 @@ interface UnifiedDiffProps {
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
 }
 
-export function UnifiedDiff({
+export const UnifiedDiff = memo(function UnifiedDiff({
   diff,
   fileName,
   expanded = true,
@@ -51,6 +52,20 @@ export function UnifiedDiff({
   };
 
   const commentingEnabled = !!onLineClick;
+
+  // Pre-index comments by line number — O(comments) once instead of O(lines * comments)
+  const effectiveComments = comments ?? EMPTY_COMMENTS;
+  const commentsByLine = useMemo(() => {
+    if (effectiveComments.length === 0) return null;
+    const map = new Map<number, ReviewComment[]>();
+    for (const c of effectiveComments) {
+      const line = c.line.to;
+      const arr = map.get(line);
+      if (arr) arr.push(c);
+      else map.set(line, [c]);
+    }
+    return map;
+  }, [effectiveComments]);
 
   return (
     <div className="border-border overflow-hidden rounded-lg border">
@@ -104,7 +119,7 @@ export function UnifiedDiff({
                   key={index}
                   hunk={hunk}
                   wrapLines={wrapLines}
-                  comments={comments ?? []}
+                  commentsByLine={commentsByLine}
                   activeCommentLine={activeCommentLine ?? null}
                   onLineClick={onLineClick}
                   onAddComment={onAddComment}
@@ -120,12 +135,12 @@ export function UnifiedDiff({
       )}
     </div>
   );
-}
+});
 
 function Hunk({
   hunk,
   wrapLines,
-  comments,
+  commentsByLine,
   activeCommentLine,
   onLineClick,
   onAddComment,
@@ -136,7 +151,7 @@ function Hunk({
 }: {
   hunk: DiffHunk;
   wrapLines: boolean;
-  comments: ReviewComment[];
+  commentsByLine: Map<number, ReviewComment[]> | null;
   activeCommentLine: { from: number; to: number } | null;
   onLineClick?: (line: number) => void;
   onAddComment?: (body: string) => void;
@@ -159,9 +174,9 @@ function Hunk({
           newLine <= activeCommentLine.to;
 
         const lineComments =
-          newLine != null
-            ? comments.filter((c) => c.line.to === newLine)
-            : [];
+          newLine != null && commentsByLine
+            ? commentsByLine.get(newLine) ?? EMPTY_COMMENTS
+            : EMPTY_COMMENTS;
 
         const showForm =
           activeCommentLine != null && newLine === activeCommentLine.to;
