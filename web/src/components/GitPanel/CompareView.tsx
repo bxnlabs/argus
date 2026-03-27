@@ -88,6 +88,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setBaseBranch(defaultBase || fallback);
   }, [branchData, baseBranch, currentBranch, availableBranches]);
 
+  // Clear baseBranch when currentBranch changes to match it (avoids self-compare)
+  useEffect(() => {
+    if (currentBranch && baseBranch && currentBranch === baseBranch) {
+      setBaseBranch(null);
+    }
+  }, [currentBranch, baseBranch]);
+
   const {
     data: compareData,
     isLoading: loadingCompare,
@@ -108,24 +115,39 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const comments = reviewData?.comments ?? EMPTY_COMMENTS;
 
-  // --- Pre-indexed comments by file ---
+  // --- Pre-indexed comments by file (referentially stable per-file) ---
+  const prevCommentsByFile = useRef(new Map<string, ReviewComment[]>());
   const commentsByFile = useMemo(() => {
-    const map = new Map<string, ReviewComment[]>();
+    const next = new Map<string, ReviewComment[]>();
     for (const c of comments) {
-      const arr = map.get(c.file);
+      const arr = next.get(c.file);
       if (arr) arr.push(c);
-      else map.set(c.file, [c]);
+      else next.set(c.file, [c]);
     }
-    return map;
+    // Preserve previous array refs for files whose comments didn't change
+    const prev = prevCommentsByFile.current;
+    const stable = new Map<string, ReviewComment[]>();
+    for (const [file, arr] of next) {
+      const old = prev.get(file);
+      if (old && old.length === arr.length && old.every((c, i) => c.id === arr[i].id && c.body === arr[i].body)) {
+        stable.set(file, old);
+      } else {
+        stable.set(file, arr);
+      }
+    }
+    prevCommentsByFile.current = stable;
+    return stable;
   }, [comments]);
 
-  // Optimistically update the review cache and persist to server
-  const saveAndUpdate = useCallback((updated: Review) => {
+  // Optimistically update the review cache and persist to server.
+  // Accepts a functional updater so callers don't close over reviewData/comments.
+  const saveAndUpdate = useCallback((updater: (prev: Review) => Review) => {
     if (!currentBranch || !baseBranch) return;
-    queryClient.setQueryData(
-      reviewKeys.forComparison(workingDirectory, currentBranch, baseBranch),
-      updated,
-    );
+    const key = reviewKeys.forComparison(workingDirectory, currentBranch, baseBranch);
+    const prev = queryClient.getQueryData<Review>(key);
+    if (!prev) return;
+    const updated = updater(prev);
+    queryClient.setQueryData(key, updated);
     saveReview.mutate(updated);
   }, [queryClient, workingDirectory, currentBranch, baseBranch, saveReview]);
 
@@ -226,7 +248,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const handleAddComment = useCallback((body: string) => {
-    if (!activeComment || !reviewData || !currentBranch || !baseBranch) return;
+    if (!activeComment) return;
 
     const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
     let snippet = "";
@@ -253,66 +275,48 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       createdAt: new Date().toISOString(),
     };
 
-    const updated: Review = {
-      ...reviewData,
-      head: currentBranch,
-      base: baseBranch,
-      comments: [...comments, newComment],
-    };
-
-    saveAndUpdate(updated);
+    saveAndUpdate((prev) => ({
+      ...prev,
+      comments: [...prev.comments, newComment],
+    }));
     setActiveComment(null);
-  }, [activeComment, reviewData, comments, currentBranch, baseBranch, parsedDiffs, saveAndUpdate]);
+  }, [activeComment, parsedDiffs, saveAndUpdate]);
 
   const handleDeleteComment = useCallback((id: string) => {
-    if (!reviewData || !currentBranch || !baseBranch) return;
-
-    const updated: Review = {
-      ...reviewData,
-      comments: comments.filter((c) => c.id !== id),
-    };
-
-    saveAndUpdate(updated);
-  }, [reviewData, comments, currentBranch, baseBranch, saveAndUpdate]);
+    saveAndUpdate((prev) => ({
+      ...prev,
+      comments: prev.comments.filter((c) => c.id !== id),
+    }));
+  }, [saveAndUpdate]);
 
   const handleSubmitComments = useCallback((generalCommentBody: string) => {
-    if (!reviewData || !currentBranch || !baseBranch) return;
-
-    const updated: Review = {
-      ...reviewData,
-      comments: comments.map((c) => ({ ...c, submitted: true })),
+    saveAndUpdate((prev) => ({
+      ...prev,
+      comments: prev.comments.map((c) => ({ ...c, submitted: true })),
       body: generalCommentBody
         ? {
             body: generalCommentBody,
             submitted: true,
-            createdAt: reviewData.body?.createdAt ?? new Date().toISOString(),
+            createdAt: prev.body?.createdAt ?? new Date().toISOString(),
           }
         : undefined,
-    };
-
-    saveAndUpdate(updated);
-  }, [reviewData, comments, currentBranch, baseBranch, saveAndUpdate]);
+    }));
+  }, [saveAndUpdate]);
 
   const handleGeneralCommentChange = useCallback((body: string) => {
-    if (!reviewData || !currentBranch || !baseBranch) return;
-
-    const updated: Review = {
-      ...reviewData,
+    saveAndUpdate((prev) => ({
+      ...prev,
       body: {
         body,
         submitted: false,
-        createdAt: reviewData.body?.createdAt ?? new Date().toISOString(),
+        createdAt: prev.body?.createdAt ?? new Date().toISOString(),
       },
-    };
-
-    saveAndUpdate(updated);
-  }, [reviewData, currentBranch, baseBranch, saveAndUpdate]);
+    }));
+  }, [saveAndUpdate]);
 
   const handleDeleteBody = useCallback(() => {
-    if (!reviewData || !currentBranch || !baseBranch) return;
-    const updated: Review = { ...reviewData, body: undefined };
-    saveAndUpdate(updated);
-  }, [reviewData, currentBranch, baseBranch, saveAndUpdate]);
+    saveAndUpdate((prev) => ({ ...prev, body: undefined }));
+  }, [saveAndUpdate]);
 
   // Scroll to selected file once diffs are rendered and refs are ready
   useEffect(() => {
