@@ -44,7 +44,7 @@ function RailButton({
           disabled={disabled}
           className={cn(
             "relative h-12 w-12",
-            active && "bg-primary/10 hover:bg-primary/15"
+            active && "bg-accent"
           )}
           aria-label={tooltip}
           aria-pressed={active}
