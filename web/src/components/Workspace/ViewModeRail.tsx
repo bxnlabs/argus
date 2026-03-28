@@ -42,10 +42,17 @@ function RailButton({
           size="icon"
           onClick={disabled ? undefined : onClick}
           disabled={disabled}
-          className={cn("h-12 w-12", active && "bg-primary/10 hover:bg-primary/15")}
+          className={cn(
+            "relative h-12 w-12",
+            active && "bg-primary/10 hover:bg-primary/15"
+          )}
           aria-label={tooltip}
           aria-pressed={active}
         >
+          {/* Active view mode indicator pill — anchored to right border */}
+          {active && (
+            <div className="bg-primary absolute right-0 top-0 h-full w-1 rounded-full" />
+          )}
           {children}
         </Button>
       </TooltipTrigger>
