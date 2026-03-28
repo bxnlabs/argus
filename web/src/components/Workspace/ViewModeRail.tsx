@@ -51,7 +51,7 @@ function RailButton({
         >
           {/* Active view mode indicator pill — anchored to right border */}
           {active && (
-            <div className="bg-primary absolute right-0 top-0 h-full w-1 rounded-full" />
+            <span aria-hidden="true" className="bg-primary absolute right-0 top-0 h-full w-1 rounded-full" />
           )}
           {children}
         </Button>
