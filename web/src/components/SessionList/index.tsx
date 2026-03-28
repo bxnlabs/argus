@@ -201,7 +201,7 @@ export function SessionList({
                 >
                   {/* Active session indicator pill — anchored to left border */}
                   {isActive && (
-                    <div className="bg-primary absolute left-0 top-0 h-full w-1 rounded-full" />
+                    <span aria-hidden="true" className="bg-primary absolute left-0 top-0 h-full w-1 rounded-full" />
                   )}
                   {/* Session info — name, status, directory, branch */}
                   <div className="min-w-0 flex-1">
