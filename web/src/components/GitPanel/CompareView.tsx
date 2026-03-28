@@ -129,7 +129,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     const stable = new Map<string, ReviewComment[]>();
     for (const [file, arr] of next) {
       const old = prev.get(file);
-      if (old && old.length === arr.length && old.every((c, i) => c.id === arr[i].id && c.body === arr[i].body)) {
+      if (old && old.length === arr.length && old.every((c, i) => c.id === arr[i].id && c.body === arr[i].body && c.submitted === arr[i].submitted)) {
         stable.set(file, old);
       } else {
         stable.set(file, arr);
