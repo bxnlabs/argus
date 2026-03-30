@@ -75,7 +75,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
         className={cn(
           "border-border flex w-full items-center gap-2 border px-3 py-2.5 text-sm",
           "bg-muted hover:bg-muted/80 text-left transition-colors",
-          "sticky top-0 z-20 min-h-[44px]",
+          "sticky -top-px z-20 min-h-[44px]",
           "rounded-t-lg",
           !isExpanded && "rounded-b-lg",
         )}

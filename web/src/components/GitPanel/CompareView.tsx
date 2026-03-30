@@ -406,7 +406,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   // --- Shared diff rendering helper ---
   const renderDiffs = (wrapLines = true, showAddComment = true) => (
-    <div className="space-y-3">
+    <div className="space-y-3 pt-3">
       {reviewData?.body?.body && (
         <ReviewBodyCard body={reviewData.body} onDelete={handleDeleteBody} />
       )}
@@ -437,7 +437,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const diffPane = (
-    <div className="flex-1 overflow-y-auto p-3">
+    <div className="flex-1 overflow-y-auto px-3 pb-3">
       {loadingCompare ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
