@@ -68,12 +68,12 @@ export const UnifiedDiff = memo(function UnifiedDiff({
   }, [effectiveComments]);
 
   return (
-    <div className="border-border rounded-lg border">
+    <div>
       {/* File header */}
       <button
         onClick={handleToggle}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-2.5 text-sm",
+          "border-border flex w-full items-center gap-2 border px-3 py-2.5 text-sm",
           "bg-muted hover:bg-muted/80 text-left transition-colors",
           "sticky top-0 z-20 min-h-[44px]",
           "rounded-t-lg",
@@ -105,7 +105,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
       </button>
 
       {isExpanded && (
-        <div className={cn("rounded-b-lg", wrapLines ? "overflow-hidden" : "overflow-x-auto")}>
+        <div className={cn("border-border rounded-b-lg border-x border-b", wrapLines ? "overflow-hidden" : "overflow-x-auto")}>
           {diff.isBinary ? (
             <div className="text-muted-foreground px-4 py-8 text-center text-sm">
               Binary file not shown
