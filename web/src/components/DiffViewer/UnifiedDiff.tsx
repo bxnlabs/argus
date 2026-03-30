@@ -74,8 +74,8 @@ export const UnifiedDiff = memo(function UnifiedDiff({
         onClick={handleToggle}
         className={cn(
           "flex w-full items-center gap-2 px-3 py-2.5 text-sm",
-          "bg-muted/50 hover:bg-muted text-left transition-colors",
-          "min-h-[44px]",
+          "bg-muted hover:bg-muted/80 text-left transition-colors",
+          "sticky top-0 z-20 min-h-[44px]",
         )}
       >
         {isExpanded ? (
