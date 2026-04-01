@@ -1,5 +1,5 @@
 import { useState, useEffect, Fragment, memo, useMemo } from "react";
-import { ChevronDown, ChevronRight, Plus, Minus, ChevronsUpDown, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, Plus, Minus, ChevronsUpDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
 import type { ReviewComment } from "@/types";
@@ -361,32 +361,35 @@ function ExpandRow({
   onExpand: (direction: ExpandDirection, hunkIndex: number) => void;
   label: string;
 }) {
+  const DirectionIcon =
+    direction === "up" ? ChevronUp
+    : direction === "down" ? ChevronDown
+    : ChevronsUpDown;
+
   return (
-    <div className="border-border/50 bg-muted/30 flex items-center border-y">
-      <div className="w-[calc(theme(spacing.10)*2)] shrink-0 flex items-center justify-center">
-        <button
-          onClick={() => onExpand(direction, hunkIndex)}
-          disabled={loading}
-          aria-label={error === "transient" ? "Retry — click to try again" : label}
-          className={cn(
-            "flex items-center justify-center rounded p-1",
-            "text-muted-foreground hover:text-foreground hover:bg-muted",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-            "min-h-[28px] min-w-[28px]",
-          )}
-        >
-          {loading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <ChevronsUpDown className="h-3.5 w-3.5" />
-          )}
-        </button>
-      </div>
+    <div className="border-border/50 bg-blue-500/10 flex items-center border-y">
+      <button
+        onClick={() => onExpand(direction, hunkIndex)}
+        disabled={loading}
+        aria-label={error === "transient" ? "Retry — click to try again" : label}
+        className={cn(
+          "border-border/50 flex w-20 shrink-0 items-center justify-center border-r py-0.5",
+          "text-blue-400 hover:bg-blue-500/20 hover:text-blue-300",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+          "disabled:opacity-50 disabled:cursor-not-allowed",
+          "transition-colors cursor-pointer",
+        )}
+      >
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <DirectionIcon className="h-3.5 w-3.5" />
+        )}
+      </button>
       <div className="w-5 shrink-0" />
       <div className={cn(
         "flex-1 px-2 py-1 text-xs select-none",
-        error === "transient" ? "text-red-400" : "text-muted-foreground",
+        error === "transient" ? "text-red-400" : "text-blue-400",
       )}>
         {error === "transient" ? "Failed to load — click to retry" : label}
       </div>
