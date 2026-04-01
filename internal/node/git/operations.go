@@ -1,15 +1,26 @@
 package git
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+const (
+	maxFileSizeBytes = 2 * 1024 * 1024 // 2 MB
+	maxLineSpan      = 500
+)
+
+var fullHexOIDRegex = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // GetStatus returns the git status for a directory.
 // Matches lib/git-status.ts:getGitStatus().
@@ -120,9 +131,9 @@ func GetFileDiff(dir, file string, staged, untracked bool) (string, error) {
 
 	var args []string
 	if staged {
-		args = []string{"diff", "-U20", "--cached", "--", file}
+		args = []string{"diff", "-U3", "--cached", "--", file}
 	} else {
-		args = []string{"diff", "-U20", "--", file}
+		args = []string{"diff", "-U3", "--", file}
 	}
 
 	return runGit(ctx, dir, diffMaxBuffer, args...)
@@ -192,16 +203,16 @@ func GetWorkingDiff(dir string) (*WorkingDiffResult, error) {
 	var trackedDiff string
 	if hasHEAD {
 		var err error
-		trackedDiff, err = runGit(ctx, dir, diffMaxBuffer, "diff", "-U20", "HEAD")
+		trackedDiff, err = runGit(ctx, dir, diffMaxBuffer, "diff", "-U3", "HEAD")
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		cachedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U20", "--cached")
+		cachedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U3", "--cached")
 		if err != nil {
 			return nil, err
 		}
-		unstagedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U20")
+		unstagedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U3")
 		if err != nil {
 			return nil, err
 		}
@@ -253,11 +264,20 @@ func GetWorkingDiff(dir string) (*WorkingDiffResult, error) {
 		return nil, err
 	}
 
+	// Compute per-file total line counts from working tree
+	fileTotalLines := computeTotalLines(ctx, dir, "", files)
+
+	// Fingerprint: SHA-256 of raw diff for staleness detection
+	h := sha256.Sum256([]byte(combinedDiff))
+	fingerprint := fmt.Sprintf("%x", h)
+
 	return &WorkingDiffResult{
 		Diff:           combinedDiff,
 		Files:          files,
 		TotalAdditions: totalAdds,
 		TotalDeletions: totalDels,
+		TotalLines:     fileTotalLines,
+		Fingerprint:    fingerprint,
 	}, nil
 }
 
@@ -429,4 +449,256 @@ func getWorkingDiffFileStats(ctx context.Context, dir string, hasHEAD bool, untr
 		files = []CommitFile{}
 	}
 	return files, totalAdds, totalDels, nil
+}
+
+// countFileLines returns the logical line count of a file on disk using
+// a scanner. This counts lines yielded by bufio.Scanner (including a final
+// unterminated line), which may differ from wc -l for files without a
+// trailing newline.
+func countFileLines(path string) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	count := 0
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), maxFileSizeBytes)
+	for scanner.Scan() {
+		count++
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// countBlobLines returns the logical line count of a git blob using
+// git cat-file blob streaming.
+func countBlobLines(ctx context.Context, dir, ref, file string) (int, error) {
+	out, err := runGit(ctx, dir, diffMaxBuffer, "cat-file", "blob", ref+":"+file)
+	if err != nil {
+		return 0, err
+	}
+	if out == "" {
+		return 0, nil
+	}
+	count := 0
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	scanner.Buffer(make([]byte, 64*1024), maxFileSizeBytes)
+	for scanner.Scan() {
+		count++
+	}
+	return count, scanner.Err()
+}
+
+// computeTotalLines builds a map of file path -> total line count for a set
+// of changed files. For working tree mode (ref==""), it reads from disk.
+// For ref-based mode, it reads from the git object at the given ref.
+// Deleted files are keyed by their old path. Renames use the new path.
+func computeTotalLines(ctx context.Context, dir, ref string, files []CommitFile) map[string]int {
+	totalLines := make(map[string]int, len(files))
+	for _, f := range files {
+		if f.Status == StatusDeleted {
+			// Deleted files: use old path as key, skip counting (no postimage)
+			continue
+		}
+		if f.Status == StatusUnmerged {
+			continue
+		}
+
+		path := f.Path
+		var count int
+		var err error
+		if ref == "" {
+			count, err = countFileLines(filepath.Join(dir, path))
+		} else {
+			count, err = countBlobLines(ctx, dir, ref, path)
+		}
+		if err != nil {
+			// Non-fatal: file may not exist (e.g. binary, submodule).
+			// Skip silently — frontend will just not show expand buttons.
+			continue
+		}
+		totalLines[path] = count
+	}
+	return totalLines
+}
+
+// GetFileLines returns a range of lines from a file, either from the working
+// tree (ref=="") or from a git object at the specified commit OID.
+func GetFileLines(dir, file string, start, end int, ref string) (*FileLinesResult, error) {
+	if start < 1 {
+		return nil, fmt.Errorf("%w: start must be >= 1", ErrInvalidInput)
+	}
+	if end < start {
+		return nil, fmt.Errorf("%w: end must be >= start", ErrInvalidInput)
+	}
+	if end-start+1 > maxLineSpan {
+		return nil, fmt.Errorf("%w: line span exceeds maximum of %d", ErrInvalidInput, maxLineSpan)
+	}
+
+	if ref == "" {
+		return getFileLinesFromDisk(dir, file, start, end)
+	}
+	return getFileLinesFromRef(dir, file, start, end, ref)
+}
+
+func getFileLinesFromDisk(dir, file string, start, end int) (*FileLinesResult, error) {
+	fullPath := filepath.Join(dir, file)
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, file)
+		}
+		return nil, err
+	}
+	if info.Size() > maxFileSizeBytes {
+		return nil, fmt.Errorf("%w: %s (%d bytes)", ErrFileTooLarge, file, info.Size())
+	}
+
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var lines []string
+	totalLines := 0
+	lineNum := 0
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), maxFileSizeBytes)
+
+	for scanner.Scan() {
+		lineNum++
+		totalLines = lineNum
+		if lineNum < start {
+			continue
+		}
+		if lineNum > end {
+			// Keep scanning to get totalLines
+			continue
+		}
+		line := scanner.Text()
+		// Binary detection: check for null bytes
+		if bytes.ContainsRune([]byte(line), 0) {
+			return nil, fmt.Errorf("%w: %s", ErrBinaryFile, file)
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(lines) == 0 && start > totalLines {
+		return nil, fmt.Errorf("%w: start line %d beyond file length %d", ErrInvalidInput, start, totalLines)
+	}
+
+	actualEnd := start + len(lines) - 1
+	if actualEnd < start {
+		actualEnd = start
+	}
+
+	return &FileLinesResult{
+		Lines:      lines,
+		Start:      start,
+		End:        actualEnd,
+		TotalLines: totalLines,
+	}, nil
+}
+
+func getFileLinesFromRef(dir, file string, start, end int, ref string) (*FileLinesResult, error) {
+	// Validate ref is a full hex OID
+	if !fullHexOIDRegex.MatchString(ref) {
+		return nil, fmt.Errorf("%w: ref must be a full 40-character hex OID", ErrInvalidInput)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
+	defer cancel()
+
+	// Validate ref is a commit
+	objType, err := runGit(ctx, dir, defaultMaxBuffer, "cat-file", "-t", ref)
+	if err != nil {
+		return nil, fmt.Errorf("%w: ref %q", ErrNotFound, ref)
+	}
+	if strings.TrimSpace(objType) != "commit" {
+		return nil, fmt.Errorf("%w: ref %q is not a commit", ErrInvalidInput, ref)
+	}
+
+	// Resolve file to blob OID via rev-parse <ref>:<file>
+	blobOID, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", ref+":"+file)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s at ref %s", ErrNotFound, file, ref[:12])
+	}
+	blobOID = strings.TrimSpace(blobOID)
+
+	// Verify it's a blob (not a tree entry for a directory)
+	blobType, err := runGit(ctx, dir, defaultMaxBuffer, "cat-file", "-t", blobOID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s at ref %s", ErrNotFound, file, ref[:12])
+	}
+	if strings.TrimSpace(blobType) != "blob" {
+		return nil, fmt.Errorf("%w: %s is not a file at ref %s", ErrInvalidInput, file, ref[:12])
+	}
+
+	// Size check
+	sizeStr, err := runGit(ctx, dir, defaultMaxBuffer, "cat-file", "-s", blobOID)
+	if err != nil {
+		return nil, err
+	}
+	size, err := strconv.ParseInt(strings.TrimSpace(sizeStr), 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("unexpected cat-file -s output: %s", sizeStr)
+	}
+	if size > maxFileSizeBytes {
+		return nil, fmt.Errorf("%w: %s (%d bytes)", ErrFileTooLarge, file, size)
+	}
+
+	// Stream blob content
+	content, err := runGit(ctx, dir, diffMaxBuffer, "cat-file", "blob", blobOID)
+	if err != nil {
+		return nil, err
+	}
+
+	var lines []string
+	totalLines := 0
+	lineNum := 0
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	scanner.Buffer(make([]byte, 64*1024), maxFileSizeBytes)
+	for scanner.Scan() {
+		lineNum++
+		totalLines = lineNum
+		if lineNum < start {
+			continue
+		}
+		if lineNum > end {
+			continue
+		}
+		line := scanner.Text()
+		if bytes.ContainsRune([]byte(line), 0) {
+			return nil, fmt.Errorf("%w: %s", ErrBinaryFile, file)
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(lines) == 0 && start > totalLines {
+		return nil, fmt.Errorf("%w: start line %d beyond file length %d", ErrInvalidInput, start, totalLines)
+	}
+
+	actualEnd := start + len(lines) - 1
+	if actualEnd < start {
+		actualEnd = start
+	}
+
+	return &FileLinesResult{
+		Lines:      lines,
+		Start:      start,
+		End:        actualEnd,
+		TotalLines: totalLines,
+	}, nil
 }

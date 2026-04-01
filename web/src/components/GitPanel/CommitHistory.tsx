@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { Loader2, History, ArrowLeft, FileCode, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommitItem } from "./CommitItem";
-import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
+import { ExpandableUnifiedDiff } from "@/components/DiffViewer/ExpandableUnifiedDiff";
 import {
   useGitHistoryQuery,
   useCommitFullDiffQuery,
@@ -32,15 +32,15 @@ export function CommitHistory({ workingDirectory, header, listWidth, onResizeMou
   // Track if user tapped a file on mobile to navigate to full-screen diff view
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
 
-  const { data: fullDiff, isLoading: loadingDiff, isError: diffError } = useCommitFullDiffQuery(
+  const { data: fullDiffResult, isLoading: loadingDiff, isError: diffError } = useCommitFullDiffQuery(
     workingDirectory,
     expandedHash,
   );
 
   const parsedDiffs = useMemo(() => {
-    if (!fullDiff) return [];
-    return parseMultiFileDiff(fullDiff);
-  }, [fullDiff]);
+    if (!fullDiffResult?.diff) return [];
+    return parseMultiFileDiff(fullDiffResult.diff);
+  }, [fullDiffResult]);
 
   const setDiffRef = useCallback(
     (path: string) => (el: HTMLDivElement | null) => {
@@ -87,9 +87,20 @@ export function CommitHistory({ workingDirectory, header, listWidth, onResizeMou
       {parsedDiffs.map((diff) => {
         const pathKey = getDiffPathKey(diff);
         const fileName = getDiffFileName(diff);
+        const fileTotalLines = fullDiffResult?.totalLines[pathKey] ?? 0;
         return (
           <div key={pathKey} ref={setDiffRef(pathKey)}>
-            <UnifiedDiff diff={diff} fileName={fileName} expanded />
+            <ExpandableUnifiedDiff
+              diff={diff}
+              fileName={fileName}
+              expanded
+              totalLines={fileTotalLines}
+              expansionContext={{
+                repoPath: workingDirectory,
+                filePath: pathKey,
+                ref: expandedHash!,
+              }}
+            />
           </div>
         );
       })}

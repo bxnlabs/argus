@@ -5,6 +5,7 @@ import type {
   CommitSummary,
   CommitDetail,
   CompareResult,
+  CommitFullDiffResult,
   BranchList,
   WorkingDiffResult,
 } from "@/types";
@@ -180,10 +181,9 @@ export function useCommitFullDiffQuery(path: string, hash: string | null) {
   return useQuery({
     queryKey: gitKeys.commitFullDiff(path, hash ?? ""),
     queryFn: async () => {
-      const data = await apiFetch<DiffResponse>(
+      return apiFetch<CommitFullDiffResult>(
         `/node/api/git/history/${hash}/full-diff?path=${encodeURIComponent(path)}`,
       );
-      return data.diff ?? "";
     },
     staleTime: Infinity,
     enabled: path.trim().length > 0 && !!hash,

@@ -145,6 +145,7 @@ export interface CompareResult {
   totalDeletions: number;
   baseRef: string;
   headRef: string;
+  totalLines: Record<string, number>;
 }
 
 export interface WorkingDiffResult {
@@ -152,6 +153,13 @@ export interface WorkingDiffResult {
   files: CommitFile[];
   totalAdditions: number;
   totalDeletions: number;
+  totalLines: Record<string, number>;
+  fingerprint: string;
+}
+
+export interface CommitFullDiffResult {
+  diff: string;
+  totalLines: Record<string, number>;
 }
 
 export interface BranchList {

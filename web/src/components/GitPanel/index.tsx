@@ -12,7 +12,7 @@ import { GitPanelTabs, type GitTab } from "./GitPanelTabs";
 import { CommitHistory } from "./CommitHistory";
 import { CompareView } from "./CompareView";
 import { GitStatusHeader } from "./GitStatusHeader";
-import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
+import { ExpandableUnifiedDiff } from "@/components/DiffViewer/ExpandableUnifiedDiff";
 import {
   parseMultiFileDiff,
   getDiffFileName,
@@ -230,9 +230,19 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       {parsedDiffs.map((diff) => {
         const pathKey = getDiffPathKey(diff);
         const fileName = getDiffFileName(diff);
+        const fileTotalLines = workingDiffData?.totalLines[pathKey] ?? 0;
         return (
           <div key={pathKey} ref={setDiffRef(pathKey)}>
-            <UnifiedDiff diff={diff} fileName={fileName} expanded={selectedPath === pathKey} />
+            <ExpandableUnifiedDiff
+              diff={diff}
+              fileName={fileName}
+              expanded={selectedPath === pathKey}
+              totalLines={fileTotalLines}
+              expansionContext={{
+                repoPath: workingDirectory,
+                filePath: pathKey,
+              }}
+            />
           </div>
         );
       })}

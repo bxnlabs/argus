@@ -12,8 +12,8 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { UnifiedDiff } from "@/components/DiffViewer/UnifiedDiff";
-import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine } from "@/lib/diff-parser";
+import { ExpandableUnifiedDiff } from "@/components/DiffViewer/ExpandableUnifiedDiff";
+import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
 import { reviewKeys } from "@/data/review/keys";
@@ -43,6 +43,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [activeComment, setActiveComment] = useState<{
     file: string;
@@ -62,6 +63,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setBaseBranch(null);
     setSelectedPath(null);
     diffRefs.current.clear();
+    expandedHunksRef.current.clear();
   }, [workingDirectory]);
 
   // Branches excluding the current one
@@ -104,6 +106,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const parsedDiffs = useMemo(() => {
     if (!compareData?.diff) return [];
+    // Clear stale expanded hunks when diff data changes (e.g. base branch switch)
+    expandedHunksRef.current.clear();
     return parseMultiFileDiff(compareData.diff);
   }, [compareData?.diff]);
 
@@ -231,6 +235,20 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const clearActiveComment = useCallback(() => setActiveComment(null), []);
 
+  // Stable per-file expanded hunks change handler — writes to ref, no re-render
+  const handleExpandedHunksChange = useCallback((pathKey: string, hunks: DiffHunk[]) => {
+    expandedHunksRef.current.set(pathKey, hunks);
+  }, []);
+
+  const fileExpandedHunksHandlers = useMemo(() => {
+    const map = new Map<string, (hunks: DiffHunk[]) => void>();
+    for (const diff of parsedDiffs) {
+      const pathKey = getDiffPathKey(diff);
+      map.set(pathKey, (hunks: DiffHunk[]) => handleExpandedHunksChange(pathKey, hunks));
+    }
+    return map;
+  }, [parsedDiffs, handleExpandedHunksChange]);
+
   // Stable per-file onLineClick handlers — avoids creating new closures in the render loop
   const fileLineClickHandlers = useMemo(() => {
     const map = new Map<string, (line: number) => void>();
@@ -247,21 +265,27 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     [activeComment?.from, activeComment?.to],
   );
 
+  // Resolve hunks for a file, preferring expanded hunks from the ref
+  const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
+    const expanded = expandedHunksRef.current.get(pathKey);
+    if (expanded && expanded.length > 0) return expanded;
+    const diff = parsedDiffs.find((d) => getDiffPathKey(d) === pathKey);
+    return diff?.hunks ?? [];
+  }, [parsedDiffs]);
+
   const handleAddComment = useCallback((body: string) => {
     if (!activeComment) return;
 
-    const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
+    const hunks = getHunksForFile(activeComment.file);
     let snippet = "";
-    if (diff) {
-      for (const hunk of diff.hunks) {
-        for (const line of hunk.lines) {
-          if (line.newLineNumber === activeComment.from) {
-            snippet = line.content;
-            break;
-          }
+    for (const hunk of hunks) {
+      for (const line of hunk.lines) {
+        if (line.newLineNumber === activeComment.from) {
+          snippet = line.content;
+          break;
         }
-        if (snippet) break;
       }
+      if (snippet) break;
     }
 
     const lineNum = activeComment.from;
@@ -280,7 +304,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       comments: [...prev.comments, newComment],
     }));
     setActiveComment(null);
-  }, [activeComment, parsedDiffs, saveAndUpdate]);
+  }, [activeComment, getHunksForFile, saveAndUpdate]);
 
   const handleDeleteComment = useCallback((id: string) => {
     saveAndUpdate((prev) => ({
@@ -417,7 +441,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
         return (
           <div key={pathKey} ref={setDiffRef(pathKey)}>
-            <UnifiedDiff
+            <ExpandableUnifiedDiff
               diff={diff}
               fileName={fileName}
               expanded
@@ -429,6 +453,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onCancelComment={showAddComment ? clearActiveComment : undefined}
               onDeleteComment={handleDeleteComment}
               onCommentRef={setCommentRef}
+              totalLines={compareData?.totalLines[pathKey] ?? 0}
+              onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
+              expansionContext={{
+                repoPath: workingDirectory,
+                filePath: pathKey,
+                ref: compareData?.headRef,
+              }}
             />
           </div>
         );
@@ -528,10 +559,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         <MobileCommentSheet
           activeComment={activeComment}
           activeLines={activeComment ? (() => {
-            const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
-            if (!diff) return [];
+            const hunks = getHunksForFile(activeComment.file);
             const lines: DiffLine[] = [];
-            for (const hunk of diff.hunks) {
+            for (const hunk of hunks) {
               for (const line of hunk.lines) {
                 if (
                   line.newLineNumber != null &&
