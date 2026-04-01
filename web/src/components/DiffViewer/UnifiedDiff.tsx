@@ -375,21 +375,18 @@ function ExpandRow({
     : `Expand ${direction}`;
 
   return (
-    <div className={cn(
-      "border-border/50 bg-blue-500/10 flex items-center border-y",
-      error === "transient" && "bg-red-500/10",
-    )}>
+    <div className="border-border/50 flex items-center border-y">
       <button
         onClick={() => onExpand(direction, hunkIndex)}
         disabled={loading}
         aria-label={ariaLabel}
         className={cn(
           "border-border/50 flex w-20 shrink-0 items-center justify-center border-r py-0.5",
-          "text-blue-400 hover:bg-blue-500/20 hover:text-blue-300",
+          "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-300",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           "transition-colors cursor-pointer",
-          error === "transient" && "text-red-400 hover:bg-red-500/20 hover:text-red-300",
+          error === "transient" && "bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300",
         )}
       >
         {loading ? (

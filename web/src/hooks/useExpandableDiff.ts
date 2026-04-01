@@ -24,7 +24,7 @@ interface ExpandableDiffState {
   generation: number;
 }
 
-const EXPAND_INCREMENT = 20;
+const EXPAND_INCREMENT = 10;
 
 // --- Helpers ---
 
