@@ -63,12 +63,13 @@ type CommitDetail struct {
 
 // CompareResult holds the diff and file metadata for a branch comparison.
 type CompareResult struct {
-	Diff           string       `json:"diff"`
-	Files          []CommitFile `json:"files"`
-	TotalAdditions int          `json:"totalAdditions"`
-	TotalDeletions int          `json:"totalDeletions"`
-	BaseRef        string       `json:"baseRef"`
-	HeadRef        string       `json:"headRef"`
+	Diff           string         `json:"diff"`
+	Files          []CommitFile   `json:"files"`
+	TotalAdditions int            `json:"totalAdditions"`
+	TotalDeletions int            `json:"totalDeletions"`
+	BaseRef        string         `json:"baseRef"`
+	HeadRef        string         `json:"headRef"`
+	TotalLines     map[string]int `json:"totalLines"`
 }
 
 // BranchList holds available branches and the auto-detected default base.
@@ -80,8 +81,25 @@ type BranchList struct {
 // WorkingDiffResult holds the combined diff and per-file metadata for
 // all working-tree changes (staged + unstaged + untracked).
 type WorkingDiffResult struct {
-	Diff           string       `json:"diff"`
-	Files          []CommitFile `json:"files"`
-	TotalAdditions int          `json:"totalAdditions"`
-	TotalDeletions int          `json:"totalDeletions"`
+	Diff           string         `json:"diff"`
+	Files          []CommitFile   `json:"files"`
+	TotalAdditions int            `json:"totalAdditions"`
+	TotalDeletions int            `json:"totalDeletions"`
+	TotalLines     map[string]int `json:"totalLines"`
+	Fingerprint    string         `json:"fingerprint"`
+}
+
+// CommitFullDiffResult holds the full diff and per-file total line counts
+// for a single commit.
+type CommitFullDiffResult struct {
+	Diff       string         `json:"diff"`
+	TotalLines map[string]int `json:"totalLines"`
+}
+
+// FileLinesResult holds lines fetched from a file for context expansion.
+type FileLinesResult struct {
+	Lines      []string `json:"lines"`
+	Start      int      `json:"start"`
+	End        int      `json:"end"`
+	TotalLines int      `json:"totalLines"`
 }

@@ -72,14 +72,14 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 	mergeBase = strings.TrimSpace(mergeBase)
 
 	// Get HEAD ref
-	headRef, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--short", "HEAD")
+	headRef, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "HEAD")
 	if err != nil {
 		return nil, err
 	}
 	headRef = strings.TrimSpace(headRef)
 
 	// Full combined diff
-	diff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U20", mergeBase+"..HEAD")
+	diff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U3", mergeBase+"..HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -172,13 +172,17 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 		files = []CommitFile{}
 	}
 
+	// Compute per-file total line counts from postimage at HEAD
+	fileTotalLines := computeTotalLines(ctx, dir, headRef, files)
+
 	return &CompareResult{
 		Diff:           diff,
 		Files:          files,
 		TotalAdditions: totalAdds,
 		TotalDeletions: totalDels,
-		BaseRef:        truncateRef(mergeBase),
+		BaseRef:        mergeBase,
 		HeadRef:        headRef,
+		TotalLines:     fileTotalLines,
 	}, nil
 }
 

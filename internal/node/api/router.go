@@ -45,6 +45,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/git/compare/branches", gh.compareBranches)
 	mux.HandleFunc("GET /api/git/compare", gh.compare)
 	mux.HandleFunc("GET /api/git/file-content", gh.fileContent)
+	mux.HandleFunc("GET /api/git/file-lines", gh.fileLines)
 	mux.HandleFunc("GET /api/git/check", gh.check)
 
 	// Review routes

@@ -142,19 +142,19 @@ func TestGetCommitFullDiff(t *testing.T) {
 	hash := commits[0].Hash
 
 	t.Run("returns combined diff", func(t *testing.T) {
-		diff, err := GetCommitFullDiff(dir, hash)
+		result, err := GetCommitFullDiff(dir, hash)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(diff, "a.txt") {
+		if !strings.Contains(result.Diff, "a.txt") {
 			t.Error("expected diff to contain a.txt")
 		}
-		if !strings.Contains(diff, "b.txt") {
+		if !strings.Contains(result.Diff, "b.txt") {
 			t.Error("expected diff to contain b.txt")
 		}
 		// Should contain multiple diff --git sections
-		if strings.Count(diff, "diff --git") < 2 {
-			t.Errorf("expected multiple diff sections, got %d", strings.Count(diff, "diff --git"))
+		if strings.Count(result.Diff, "diff --git") < 2 {
+			t.Errorf("expected multiple diff sections, got %d", strings.Count(result.Diff, "diff --git"))
 		}
 	})
 

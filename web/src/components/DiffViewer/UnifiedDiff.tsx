@@ -1,8 +1,9 @@
 import { useState, useEffect, Fragment, memo, useMemo } from "react";
-import { ChevronDown, ChevronRight, Plus, Minus } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, Plus, Minus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
 import type { ReviewComment } from "@/types";
+import type { ExpandDirection } from "@/hooks/useExpandableDiff";
 import { InlineCommentForm } from "./InlineCommentForm";
 import { InlineCommentCard } from "./InlineCommentCard";
 
@@ -21,6 +22,10 @@ interface UnifiedDiffProps {
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
+  onExpand?: (direction: ExpandDirection, hunkIndex: number) => void;
+  expandLoading?: Record<string, boolean>;
+  expandErrors?: Record<string, "permanent" | "transient">;
+  totalLines?: number;
 }
 
 export const UnifiedDiff = memo(function UnifiedDiff({
@@ -36,6 +41,10 @@ export const UnifiedDiff = memo(function UnifiedDiff({
   onCancelComment,
   onDeleteComment,
   onCommentRef,
+  onExpand,
+  expandLoading,
+  expandErrors,
+  totalLines,
 }: UnifiedDiffProps) {
   const [localExpanded, setLocalExpanded] = useState(expanded);
   useEffect(() => {
@@ -115,21 +124,81 @@ export const UnifiedDiff = memo(function UnifiedDiff({
             </div>
           ) : (
             <div className={cn("min-w-full font-mono text-xs", !wrapLines && "w-fit")}>
-              {diff.hunks.map((hunk, index) => (
-                <Hunk
-                  key={index}
-                  hunk={hunk}
-                  wrapLines={wrapLines}
-                  commentsByLine={commentsByLine}
-                  activeCommentLine={activeCommentLine ?? null}
-                  onLineClick={onLineClick}
-                  onAddComment={onAddComment}
-                  onCancelComment={onCancelComment}
-                  onDeleteComment={onDeleteComment}
-                  onCommentRef={onCommentRef}
-                  commentingEnabled={commentingEnabled}
-                />
-              ))}
+              {diff.hunks.map((hunk, index) => {
+                const upKey = `up-${index}`;
+                const downKey = `down-${index}`;
+                const prevDownKey = `down-${index - 1}`;
+
+                const showExpandUp = onExpand && index === 0 && hunk.newStart > 1 &&
+                  expandErrors?.[upKey] !== "permanent";
+
+                // Between hunks: show expand-down for prev hunk and expand-up for this hunk
+                const hasGap = onExpand && index > 0 && (() => {
+                  const prev = diff.hunks[index - 1];
+                  return prev.newStart + prev.newCount < hunk.newStart;
+                })();
+                const showGapDown = hasGap && expandErrors?.[prevDownKey] !== "permanent";
+                const showGapUp = hasGap && expandErrors?.[upKey] !== "permanent";
+
+                const showExpandDown = onExpand && index === diff.hunks.length - 1 &&
+                  totalLines != null && totalLines > 0 &&
+                  hunk.newCount > 0 &&
+                  hunk.newStart + hunk.newCount - 1 < totalLines &&
+                  expandErrors?.[downKey] !== "permanent";
+
+                return (
+                  <Fragment key={index}>
+                    {showExpandUp && (
+                      <ExpandRow
+                        direction="up"
+                        hunkIndex={0}
+                        loading={expandLoading?.[upKey] ?? false}
+                        error={expandErrors?.[upKey]}
+                        onExpand={onExpand!}
+                      />
+                    )}
+                    {showGapDown && (
+                      <ExpandRow
+                        direction="down"
+                        hunkIndex={index - 1}
+                        loading={expandLoading?.[prevDownKey] ?? false}
+                        error={expandErrors?.[prevDownKey]}
+                        onExpand={onExpand!}
+                      />
+                    )}
+                    {showGapUp && (
+                      <ExpandRow
+                        direction="up"
+                        hunkIndex={index}
+                        loading={expandLoading?.[upKey] ?? false}
+                        error={expandErrors?.[upKey]}
+                        onExpand={onExpand!}
+                      />
+                    )}
+                    <Hunk
+                      hunk={hunk}
+                      wrapLines={wrapLines}
+                      commentsByLine={commentsByLine}
+                      activeCommentLine={activeCommentLine ?? null}
+                      onLineClick={onLineClick}
+                      onAddComment={onAddComment}
+                      onCancelComment={onCancelComment}
+                      onDeleteComment={onDeleteComment}
+                      onCommentRef={onCommentRef}
+                      commentingEnabled={commentingEnabled}
+                    />
+                    {showExpandDown && (
+                      <ExpandRow
+                        direction="down"
+                        hunkIndex={index}
+                        loading={expandLoading?.[downKey] ?? false}
+                        error={expandErrors?.[downKey]}
+                        onExpand={onExpand!}
+                      />
+                    )}
+                  </Fragment>
+                );
+              })}
             </div>
           )}
         </div>
@@ -283,6 +352,60 @@ function DiffLineRow({
       )}>
         {line.content || " "}
       </div>
+    </div>
+  );
+}
+
+function ExpandRow({
+  direction,
+  hunkIndex,
+  loading,
+  error,
+  onExpand,
+}: {
+  direction: ExpandDirection;
+  hunkIndex: number;
+  loading: boolean;
+  error?: "permanent" | "transient";
+  onExpand: (direction: ExpandDirection, hunkIndex: number) => void;
+}) {
+  const DirectionIcon = direction === "up" ? ChevronUp : ChevronDown;
+  const ariaLabel = error === "transient"
+    ? "Retry — click to try again"
+    : `Expand ${direction}`;
+
+  return (
+    <div className={cn(
+      "border-border/50 flex items-center border-y",
+      error === "transient" && "bg-red-500/10",
+    )}>
+      <button
+        onClick={() => onExpand(direction, hunkIndex)}
+        disabled={loading}
+        aria-label={ariaLabel}
+        className={cn(
+          "border-border/50 flex w-20 shrink-0 items-center justify-center border-r py-0.5",
+          "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-300",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+          "disabled:opacity-50 disabled:cursor-not-allowed",
+          "transition-colors cursor-pointer",
+          error === "transient" && "bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300",
+        )}
+      >
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <DirectionIcon className="h-3.5 w-3.5" />
+        )}
+      </button>
+      {error === "transient" && (
+        <>
+          <div className="w-5 shrink-0" />
+          <div className="flex-1 px-2 py-0.5 text-xs text-red-400 select-none">
+            Failed to load — click to retry
+          </div>
+        </>
+      )}
     </div>
   );
 }

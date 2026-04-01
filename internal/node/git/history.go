@@ -249,22 +249,68 @@ func GetCommitDetail(dir, hash string) (*CommitDetail, error) {
 	return detail, nil
 }
 
-// GetCommitFullDiff returns the full combined diff for all files in a commit.
-func GetCommitFullDiff(dir, hash string) (string, error) {
+// GetCommitFullDiff returns the full combined diff for all files in a commit,
+// along with per-file total line counts for context expansion.
+func GetCommitFullDiff(dir, hash string) (*CommitFullDiffResult, error) {
 	if err := validateHash(hash); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
 	defer cancel()
 
-	diff, err := runGit(ctx, dir, diffMaxBuffer, "show", "--format=", "-U20", "-m", "--first-parent", hash)
+	diff, err := runGit(ctx, dir, diffMaxBuffer, "show", "--format=", "-U3", "-m", "--first-parent", hash)
 	if err != nil {
 		if isNotFoundError(err) {
-			return "", fmt.Errorf("%w: commit %q", ErrNotFound, hash)
+			return nil, fmt.Errorf("%w: commit %q", ErrNotFound, hash)
 		}
-		return "", err
+		return nil, err
 	}
-	return diff, nil
+
+	// Get changed files via diff-tree (handles root commits where hash^ is invalid).
+	// Use -m --first-parent to match the diff command's merge-commit semantics.
+	nsOut, err := runGit(ctx, dir, diffMaxBuffer, "diff-tree", "--root", "--name-status", "-r", "-m", "--first-parent", hash)
+	if err != nil {
+		// Non-fatal for totalLines — return diff without it
+		return &CommitFullDiffResult{Diff: diff, TotalLines: map[string]int{}}, nil
+	}
+
+	var files []CommitFile
+	for _, line := range strings.Split(strings.TrimSpace(nsOut), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 {
+			continue
+		}
+		statusChar := fields[0][:1]
+		var cf CommitFile
+		if len(fields) == 3 {
+			cf = CommitFile{Path: fields[2], OldPath: fields[1]}
+		} else {
+			cf = CommitFile{Path: fields[1]}
+		}
+		switch statusChar {
+		case "A":
+			cf.Status = StatusAdded
+		case "D":
+			cf.Status = StatusDeleted
+		case "R":
+			cf.Status = StatusRenamed
+		case "C":
+			cf.Status = StatusCopied
+		default:
+			cf.Status = StatusModified
+		}
+		files = append(files, cf)
+	}
+
+	fileTotalLines := computeTotalLines(ctx, dir, hash, files)
+
+	return &CommitFullDiffResult{
+		Diff:       diff,
+		TotalLines: fileTotalLines,
+	}, nil
 }
 

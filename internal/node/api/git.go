@@ -22,6 +22,10 @@ func respondGitError(w http.ResponseWriter, err error) {
 		respondError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, git.ErrNotFound):
 		respondError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, git.ErrFileTooLarge):
+		respondError(w, http.StatusRequestEntityTooLarge, err.Error())
+	case errors.Is(err, git.ErrBinaryFile):
+		respondError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		respondInternalError(w, err)
 	}
@@ -203,12 +207,12 @@ func (h *gitHandler) commitFullDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	diff, err := git.GetCommitFullDiff(expandedPath, hash)
+	result, err := git.GetCommitFullDiff(expandedPath, hash)
 	if err != nil {
 		respondGitError(w, err)
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]string{"diff": diff})
+	respondJSON(w, http.StatusOK, result)
 }
 
 // GET /api/git/compare?path=...&base=...
@@ -282,6 +286,74 @@ func (h *gitHandler) fileContent(w http.ResponseWriter, r *http.Request) {
 		"content": content,
 		"isNew":   isNew,
 	})
+}
+
+// lexicalValidateFilePath rejects absolute paths and paths containing ".."
+// components. Unlike sanitizeFilePath, it does not resolve symlinks — this is
+// appropriate for ref-based reads where the working tree may have been
+// restructured since the commit.
+func lexicalValidateFilePath(file string) error {
+	if filepath.IsAbs(file) {
+		return fmt.Errorf("file path must be relative")
+	}
+	for _, part := range strings.Split(filepath.ToSlash(file), "/") {
+		if part == ".." {
+			return fmt.Errorf("file path must not contain '..'")
+		}
+	}
+	return nil
+}
+
+// GET /api/git/file-lines?path=...&file=...&start=...&end=...&ref=...
+func (h *gitHandler) fileLines(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	file := r.URL.Query().Get("file")
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+	ref := r.URL.Query().Get("ref")
+
+	if path == "" || file == "" || startStr == "" || endStr == "" {
+		respondError(w, http.StatusBadRequest, "path, file, start, and end parameters are required")
+		return
+	}
+
+	expandedPath, err := shared.SafeExpandPath(path)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Validate file path: filesystem-aware for working tree, lexical-only for refs
+	if ref == "" {
+		file, err = sanitizeFilePath(expandedPath, file)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid file path")
+			return
+		}
+	} else {
+		if err := lexicalValidateFilePath(file); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
+	start, err := strconv.Atoi(startStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "start must be an integer")
+		return
+	}
+	end, err := strconv.Atoi(endStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "end must be an integer")
+		return
+	}
+
+	result, err := git.GetFileLines(expandedPath, file, start, end, ref)
+	if err != nil {
+		respondGitError(w, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
 }
 
 // GET /api/git/check?path=...
