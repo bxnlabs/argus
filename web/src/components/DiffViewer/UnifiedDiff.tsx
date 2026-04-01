@@ -375,7 +375,10 @@ function ExpandRow({
     : `Expand ${direction}`;
 
   return (
-    <div className="border-border/50 flex items-center border-y">
+    <div className={cn(
+      "border-border/50 flex items-center border-y",
+      error === "transient" && "bg-red-500/10",
+    )}>
       <button
         onClick={() => onExpand(direction, hunkIndex)}
         disabled={loading}
