@@ -1,5 +1,5 @@
 import { useState, useEffect, Fragment, memo, useMemo } from "react";
-import { ChevronDown, ChevronUp, ChevronRight, Plus, Minus, ChevronsUpDown, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, Plus, Minus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
 import type { ReviewComment } from "@/types";
@@ -126,16 +126,20 @@ export const UnifiedDiff = memo(function UnifiedDiff({
             <div className={cn("min-w-full font-mono text-xs", !wrapLines && "w-fit")}>
               {diff.hunks.map((hunk, index) => {
                 const upKey = `up-${index}`;
-                const betweenKey = `between-${index - 1}`;
                 const downKey = `down-${index}`;
+                const prevDownKey = `down-${index - 1}`;
 
                 const showExpandUp = onExpand && index === 0 && hunk.newStart > 1 &&
                   expandErrors?.[upKey] !== "permanent";
-                const showExpandBetween = onExpand && index > 0 &&
-                  expandErrors?.[betweenKey] !== "permanent" && (() => {
+
+                // Between hunks: show expand-down for prev hunk and expand-up for this hunk
+                const hasGap = onExpand && index > 0 && (() => {
                   const prev = diff.hunks[index - 1];
                   return prev.newStart + prev.newCount < hunk.newStart;
                 })();
+                const showGapDown = hasGap && expandErrors?.[prevDownKey] !== "permanent";
+                const showGapUp = hasGap && expandErrors?.[upKey] !== "permanent";
+
                 const showExpandDown = onExpand && index === diff.hunks.length - 1 &&
                   totalLines != null && totalLines > 0 &&
                   hunk.newCount > 0 &&
@@ -151,17 +155,24 @@ export const UnifiedDiff = memo(function UnifiedDiff({
                         loading={expandLoading?.[upKey] ?? false}
                         error={expandErrors?.[upKey]}
                         onExpand={onExpand!}
-                        label="Show more lines above"
                       />
                     )}
-                    {showExpandBetween && (
+                    {showGapDown && (
                       <ExpandRow
-                        direction="between"
+                        direction="down"
                         hunkIndex={index - 1}
-                        loading={expandLoading?.[betweenKey] ?? false}
-                        error={expandErrors?.[betweenKey]}
+                        loading={expandLoading?.[prevDownKey] ?? false}
+                        error={expandErrors?.[prevDownKey]}
                         onExpand={onExpand!}
-                        label="Show more lines"
+                      />
+                    )}
+                    {showGapUp && (
+                      <ExpandRow
+                        direction="up"
+                        hunkIndex={index}
+                        loading={expandLoading?.[upKey] ?? false}
+                        error={expandErrors?.[upKey]}
+                        onExpand={onExpand!}
                       />
                     )}
                     <Hunk
@@ -183,7 +194,6 @@ export const UnifiedDiff = memo(function UnifiedDiff({
                         loading={expandLoading?.[downKey] ?? false}
                         error={expandErrors?.[downKey]}
                         onExpand={onExpand!}
-                        label="Show more lines below"
                       />
                     )}
                   </Fragment>
@@ -352,32 +362,34 @@ function ExpandRow({
   loading,
   error,
   onExpand,
-  label,
 }: {
   direction: ExpandDirection;
   hunkIndex: number;
   loading: boolean;
   error?: "permanent" | "transient";
   onExpand: (direction: ExpandDirection, hunkIndex: number) => void;
-  label: string;
 }) {
-  const DirectionIcon =
-    direction === "up" ? ChevronUp
-    : direction === "down" ? ChevronDown
-    : ChevronsUpDown;
+  const DirectionIcon = direction === "up" ? ChevronUp : ChevronDown;
+  const ariaLabel = error === "transient"
+    ? "Retry — click to try again"
+    : `Expand ${direction}`;
 
   return (
-    <div className="border-border/50 bg-blue-500/10 flex items-center border-y">
+    <div className={cn(
+      "border-border/50 bg-blue-500/10 flex items-center border-y",
+      error === "transient" && "bg-red-500/10",
+    )}>
       <button
         onClick={() => onExpand(direction, hunkIndex)}
         disabled={loading}
-        aria-label={error === "transient" ? "Retry — click to try again" : label}
+        aria-label={ariaLabel}
         className={cn(
           "border-border/50 flex w-20 shrink-0 items-center justify-center border-r py-0.5",
           "text-blue-400 hover:bg-blue-500/20 hover:text-blue-300",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           "transition-colors cursor-pointer",
+          error === "transient" && "text-red-400 hover:bg-red-500/20 hover:text-red-300",
         )}
       >
         {loading ? (
@@ -386,13 +398,14 @@ function ExpandRow({
           <DirectionIcon className="h-3.5 w-3.5" />
         )}
       </button>
-      <div className="w-5 shrink-0" />
-      <div className={cn(
-        "flex-1 px-2 py-1 text-xs select-none",
-        error === "transient" ? "text-red-400" : "text-blue-400",
-      )}>
-        {error === "transient" ? "Failed to load — click to retry" : label}
-      </div>
+      {error === "transient" && (
+        <>
+          <div className="w-5 shrink-0" />
+          <div className="flex-1 px-2 py-0.5 text-xs text-red-400 select-none">
+            Failed to load — click to retry
+          </div>
+        </>
+      )}
     </div>
   );
 }

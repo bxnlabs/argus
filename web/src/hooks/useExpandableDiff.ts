@@ -11,12 +11,11 @@ export interface ExpansionContext {
   ref?: string;
 }
 
-export type ExpandDirection = "up" | "down" | "between";
+export type ExpandDirection = "up" | "down";
 
 type ExpandAction =
   | { type: "EXPAND_UP"; hunkIndex: number; lines: DiffLine[] }
   | { type: "EXPAND_DOWN"; hunkIndex: number; lines: DiffLine[] }
-  | { type: "EXPAND_BETWEEN"; hunkIndex: number; lines: DiffLine[] }
   | { type: "RESET"; hunks: DiffHunk[]; totalLines: number };
 
 interface ExpandableDiffState {
@@ -113,53 +112,6 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
       return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
     }
 
-    case "EXPAND_BETWEEN": {
-      const { hunkIndex, lines } = action;
-      if (hunkIndex < 0 || hunkIndex >= state.hunks.length - 1 || lines.length === 0) return state;
-
-      const hunks = [...state.hunks];
-      const hunkA = { ...hunks[hunkIndex] };
-      const hunkB = hunks[hunkIndex + 1];
-
-      const oldOffset = computeOldOffset(hunkA);
-      const startNewLine = hunkA.newStart + hunkA.newCount;
-
-      const newLines: DiffLine[] = lines.map((l, i) =>
-        makeContextLine(l.content, startNewLine + i, oldOffset),
-      );
-
-      // Check if the gap is fully bridged
-      const gapEnd = hunkB.newStart;
-      const expandedEnd = startNewLine + lines.length;
-
-      if (expandedEnd >= gapEnd) {
-        // Merge hunks: A + new context + B
-        const gapOldLines = (hunkB.oldStart) - (hunkA.oldStart + hunkA.oldCount);
-        const gapNewLines = gapEnd - (hunkA.newStart + hunkA.newCount);
-
-        const merged: DiffHunk = {
-          oldStart: hunkA.oldStart,
-          oldCount: hunkA.oldCount + gapOldLines + hunkB.oldCount,
-          newStart: hunkA.newStart,
-          newCount: hunkA.newCount + gapNewLines + hunkB.newCount,
-          lines: [...hunkA.lines, ...newLines, ...hunkB.lines],
-          header: "",
-        };
-        merged.header = reconstructHeader(merged.oldStart, merged.oldCount, merged.newStart, merged.newCount);
-
-        hunks.splice(hunkIndex, 2, merged);
-      } else {
-        // Partial expand: append to hunkA
-        hunkA.lines = [...hunkA.lines, ...newLines];
-        hunkA.newCount += lines.length;
-        hunkA.oldCount += lines.length;
-        hunkA.header = reconstructHeader(hunkA.oldStart, hunkA.oldCount, hunkA.newStart, hunkA.newCount);
-        hunks[hunkIndex] = hunkA;
-      }
-
-      return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
-    }
-
     default:
       return state;
   }
@@ -243,18 +195,11 @@ export function useExpandableDiff(
         if (!hunk) return;
         end = hunk.newStart - 1;
         start = Math.max(1, end - EXPAND_INCREMENT + 1);
-      } else if (direction === "down") {
+      } else {
         const hunk = hunks[hunkIndex];
         if (!hunk) return;
         start = hunk.newStart + hunk.newCount;
         end = Math.min(state.totalLines, start + EXPAND_INCREMENT - 1);
-      } else {
-        // between
-        const hunkA = hunks[hunkIndex];
-        const hunkB = hunks[hunkIndex + 1];
-        if (!hunkA || !hunkB) return;
-        start = hunkA.newStart + hunkA.newCount;
-        end = Math.min(hunkB.newStart - 1, start + EXPAND_INCREMENT - 1);
       }
 
       if (start > end) return;
@@ -289,7 +234,7 @@ export function useExpandableDiff(
           makeContextLine(content, result.start + i, oldOffset),
         );
 
-        const actionType = `EXPAND_${direction.toUpperCase()}` as "EXPAND_UP" | "EXPAND_DOWN" | "EXPAND_BETWEEN";
+        const actionType = direction === "up" ? "EXPAND_UP" as const : "EXPAND_DOWN" as const;
         dispatch({ type: actionType, hunkIndex, lines: diffLines });
       } catch (err) {
         // Aborted requests are expected during cleanup — ignore silently
