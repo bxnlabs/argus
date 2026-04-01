@@ -319,7 +319,7 @@ function DiffLineRow({
 
   const isCommentable =
     commentingEnabled &&
-    line.type !== "deletion" &&
+    line.type === "addition" &&
     line.newLineNumber != null &&
     line.content.trim() !== "";
 
