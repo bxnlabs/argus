@@ -128,8 +128,10 @@ func (h *sessionHandler) listProfiles(w http.ResponseWriter, r *http.Request) {
 func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	force := r.URL.Query().Get("force") == "true"
+	deleteBranch := r.URL.Query().Get("delete_branch") == "true"
 
-	if _, err := h.manager.Delete(id, force, false); err != nil {
+	result, err := h.manager.Delete(id, force, deleteBranch)
+	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
 			return
@@ -138,8 +140,15 @@ func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusConflict, "worktree has uncommitted changes; use force to delete anyway")
 			return
 		}
+		if errors.Is(err, session.ErrInvalidInput) {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		respondInternalError(w, err)
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]bool{"success": true})
+	respondJSON(w, http.StatusOK, map[string]any{
+		"success":        true,
+		"branch_deleted": result.BranchDeleted,
+	})
 }
