@@ -40,6 +40,8 @@ Rather than relying on `git branch -d` (which checks against ambient `HEAD` — 
 
 This gives a stable, deterministic result regardless of what's checked out in the parent repo.
 
+**Implementation note:** `git merge-base --is-ancestor` signals "not ancestor" via exit code 1 (not stderr). The existing `git.Output` helper treats any non-zero exit as an error. `IsBranchMerged` must use `exec.Command` directly and treat exit code 1 as `merged=false, err=nil`, reserving errors for actual command failures (exit code 128, etc.).
+
 ## Changes
 
 ### Backend
@@ -52,6 +54,7 @@ New sentinel error and methods:
 var ErrBranchNotMerged = errors.New("branch has unmerged commits")
 
 // IsBranchMerged checks whether branch is an ancestor of the repo's default branch.
+// Uses exec.Command directly — exit code 1 means not merged (returns false, nil).
 func (m *Manager) IsBranchMerged(repoDir, branch string) (bool, error)
 
 // DeleteBranch force-deletes a local branch (git branch -D).
@@ -78,17 +81,17 @@ The delete flow becomes:
 
 1. **Preflight phase** (before any side effects):
    - Existing dirty-worktree check (gated on `force`)
-   - **New**: If `deleteBranch` is requested, resolve `repoDir` from `session.GitParentDir` (required — no fallback to `FindMainRepo` on the working dir). If `GitParentDir` is nil, return a user-fixable error.
-   - **New**: If `deleteBranch` and not `forceBranch`, run `IsBranchMerged`. If not merged, return `ErrBranchNotMerged`.
-   - **New**: Gate on `IsManaged` and `CountSessionsByWorkingDir == 0` (same as worktree removal). If other sessions share the worktree, skip branch deletion silently.
+   - **New — eligibility check**: If `deleteBranch` is requested, first evaluate whether branch deletion is eligible: `session.WorktreeBranch` must be set, `IsManaged` must be true, and `CountSessionsByWorkingDir` must be 0. If not eligible, clear `deleteBranch` (silently skip — the session is deleted normally).
+   - **New — repo resolution**: If still eligible, resolve `repoDir` from `session.GitParentDir` (required). If `GitParentDir` is nil, return a user-fixable error.
+   - **New — merge check**: If not `forceBranch`, run `IsBranchMerged`. If not merged, return `ErrBranchNotMerged`. Session remains fully intact.
 2. **Destructive phase** (existing):
    - Run pre_destroy hooks
    - Kill tmux
    - Remove worktree
-   - **New**: Delete branch (unconditional `git branch -D`, since preflight already validated)
+   - **New**: Delete branch (`git branch -D`). If this fails unexpectedly (race, repo corruption), log the error and continue to DB deletion. The branch survives — identical to today's default behavior. This is best-effort, not transactional.
    - Delete DB record
 
-Because all safety checks happen in the preflight phase, there is no partial-failure state. If any check fails, the session remains fully intact.
+The preflight phase catches all user-fixable errors (unmerged branch, missing GitParentDir) before any side effects. The only remaining failure mode in the destructive phase is unexpected infrastructure errors during `git branch -D`, which are handled best-effort.
 
 #### `internal/node/api/sessions.go`
 
@@ -99,7 +102,21 @@ delete_branch=true
 force_branch=true
 ```
 
-Pass to `manager.Delete(id, force, DeleteOpts{...})`. Map `ErrBranchNotMerged` to HTTP 409 Conflict with a descriptive message including the branch name.
+Pass to `manager.Delete(id, force, DeleteOpts{...})`. Map `ErrBranchNotMerged` to HTTP 409 Conflict with a descriptive message including the branch name and default branch name.
+
+The success response includes a `branch_deleted` field:
+
+```json
+{"success": true, "branch_deleted": true}
+```
+
+When branch deletion was requested but skipped (ineligible or best-effort failure):
+
+```json
+{"success": true, "branch_deleted": false}
+```
+
+This allows clients to distinguish "session deleted + branch deleted" from "session deleted + branch preserved."
 
 ### CLI
 
@@ -119,6 +136,20 @@ argus session rm my-session --delete-branch --force-branch     # delete session 
 argus session rm my-session --force --delete-branch            # force dirty worktree + safe branch delete
 ```
 
+The CLI reads `branch_deleted` from the response and prints an appropriate message:
+
+```
+Deleted session "my-session"
+Deleted branch "jeev/my-feature"
+```
+
+Or when the branch was preserved:
+
+```
+Deleted session "my-session"
+Branch "jeev/my-feature" was not deleted (not eligible or could not be removed)
+```
+
 ### Web UI
 
 #### `web/src/components/SessionList/index.tsx`
@@ -130,7 +161,9 @@ Add a second context menu item for sessions with a `worktree_branch`:
 
 Both use `confirm()` for confirmation. The "Delete with branch" item is styled red like the existing "Delete" item. Only shown when the session has a `worktree_branch`.
 
-The web UI sends `delete_branch=true` without `force_branch=true`, so it gets safe-by-default branch deletion. Unmerged branches are preserved with an error surfaced to the user.
+When the API returns a 409 (unmerged branch), the web UI shows a specific message: "Branch `<name>` was not deleted because it has unmerged commits. Use the CLI with `--force-branch` to delete it, or merge the branch first."
+
+The web UI sends `delete_branch=true` without `force_branch=true`, so it gets safe-by-default branch deletion.
 
 #### `web/src/hooks/useSessions.ts`
 
@@ -161,7 +194,7 @@ Note: `force=true` controls worktree-dirty only. `force_branch` is not sent, so 
 
 ### `internal/git/worktree/manager_test.go`
 
-- `IsBranchMerged`: branch merged into default returns true; branch with unmerged commits returns false
+- `IsBranchMerged`: branch merged into default returns true; branch with unmerged commits returns false; handles exit code 1 correctly (not an error)
 - `DeleteBranch`: successfully deletes a branch; returns error if branch doesn't exist
 
 ### `internal/node/session/lifecycle_test.go`
@@ -169,12 +202,14 @@ Note: `force=true` controls worktree-dirty only. `force_branch` is not sent, so 
 - `Delete` with `deleteBranch=true`, merged branch: session + worktree + branch all removed
 - `Delete` with `deleteBranch=true`, unmerged branch, `forceBranch=false`: returns `ErrBranchNotMerged`, session/worktree/tmux untouched
 - `Delete` with `deleteBranch=true`, unmerged branch, `forceBranch=true`: all removed
-- `Delete` with `deleteBranch=true`, shared worktree (`others > 0`): branch deletion silently skipped
-- `Delete` with `deleteBranch=true`, non-managed worktree (`IsManaged=false`): branch deletion skipped
-- `Delete` with `deleteBranch=true`, `GitParentDir=nil`: returns user-fixable error
+- `Delete` with `deleteBranch=true`, shared worktree (`others > 0`): branch deletion skipped, session deleted normally
+- `Delete` with `deleteBranch=true`, non-managed worktree (`IsManaged=false`): branch deletion skipped, session deleted normally
+- `Delete` with `deleteBranch=true`, `GitParentDir=nil` (eligible session): returns user-fixable error, session untouched
+- `Delete` with `deleteBranch=true`, `git branch -D` fails unexpectedly: error logged, DB record still deleted, `branch_deleted=false`
 
 ### `internal/node/api/sessions_test.go`
 
-- DELETE with `delete_branch=true`: branch deleted on success
-- DELETE with `delete_branch=true`, unmerged branch: returns 409 with branch name in message
+- DELETE with `delete_branch=true`: branch deleted, response includes `branch_deleted: true`
+- DELETE with `delete_branch=true`, unmerged branch: returns 409 with branch name and default branch in message
 - DELETE with `delete_branch=true&force_branch=true`, unmerged branch: succeeds
+- DELETE with `delete_branch=true`, ineligible session: succeeds with `branch_deleted: false`
