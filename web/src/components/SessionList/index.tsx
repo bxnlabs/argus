@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
@@ -323,7 +323,7 @@ export function SessionList({
                           }}
                           className="text-red-500 focus:text-red-500"
                         >
-                          <GitBranch className="mr-2 h-3 w-3" />
+                          <BrushCleaning className="mr-2 h-3 w-3" />
                           Delete with branch
                         </DropdownMenuItem>
                       )}
