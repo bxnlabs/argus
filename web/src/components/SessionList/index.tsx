@@ -66,7 +66,7 @@ interface SessionListProps {
   isError?: boolean;
   errorMessage?: string;
   onAttachSession: (sessionId: string) => void;
-  onDeleteSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
   onNewSession: () => void;
   onRetry?: () => void;
@@ -315,6 +315,18 @@ export function SessionList({
                         <Trash2 className="mr-2 h-3 w-3" />
                         Delete
                       </DropdownMenuItem>
+                      {session.worktree_branch && (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteSession(session.id, true);
+                          }}
+                          className="text-red-500 focus:text-red-500"
+                        >
+                          <GitBranch className="mr-2 h-3 w-3" />
+                          Delete with branch
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
