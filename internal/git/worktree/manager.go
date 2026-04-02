@@ -47,6 +47,20 @@ func (m *Manager) IsManaged(worktreePath string) bool {
 	return worktreePath == expected
 }
 
+// IsManagedPath reports whether the given path matches the managed worktree
+// layout based solely on the path structure, without accessing the filesystem.
+// This is useful when the worktree directory may no longer exist.
+func (m *Manager) IsManagedPath(worktreePath string) bool {
+	worktreesRoot := filepath.Join(m.stateDir, "projects") + string(filepath.Separator)
+	if !strings.HasPrefix(worktreePath, worktreesRoot) {
+		return false
+	}
+	// Expected: <stateDir>/projects/<parentKey>/worktrees/<name>
+	rel := worktreePath[len(worktreesRoot):]
+	parts := strings.Split(rel, string(filepath.Separator))
+	return len(parts) == 3 && parts[1] == "worktrees"
+}
+
 // CreateForLocalRepo creates an isolated git worktree for a local git repo.
 // gitRoot must be the absolute path to the repo root.
 // Returns the worktree path, git branch name, and whether the worktree was
@@ -258,4 +272,12 @@ func (m *Manager) RemoveWorktree(worktreePath string, force bool) error {
 // It force-removes the worktree since no user work exists yet.
 func (m *Manager) Cleanup(worktreePath string) {
 	_ = m.RemoveWorktree(worktreePath, true)
+}
+
+// DeleteBranch force-deletes a local branch (git branch -D).
+func (m *Manager) DeleteBranch(repoDir, branch string) error {
+	if err := git.Run(repoDir, "branch", "-D", branch); err != nil {
+		return fmt.Errorf("git branch -D %s: %w", branch, err)
+	}
+	return nil
 }

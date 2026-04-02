@@ -15,11 +15,14 @@ export function useSessions() {
   const renameMutation = useRenameSession();
 
   const deleteSession = useCallback(
-    async (sessionId: string) => {
-      if (!confirm("Delete this session? This cannot be undone.")) return;
-      await deleteMutation.mutateAsync(sessionId);
+    async (sessionId: string, deleteBranch?: boolean) => {
+      const message = deleteBranch
+        ? "Delete this session and its branch? This cannot be undone."
+        : "Delete this session? This cannot be undone.";
+      if (!confirm(message)) return null;
+      return await deleteMutation.mutateAsync({ sessionId, deleteBranch });
     },
-    [deleteMutation]
+    [deleteMutation],
   );
 
   const renameSession = useCallback(

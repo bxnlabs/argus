@@ -137,10 +137,14 @@ function HomeContent() {
 
   // Delete session handler
   const handleDeleteSession = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, deleteBranch?: boolean) => {
       try {
-        await deleteSession(sessionId);
+        const result = await deleteSession(sessionId, deleteBranch);
+        if (!result) return; // user cancelled
         detachSessionById(sessionId);
+        if (deleteBranch && !result.branch_deleted) {
+          toast.warning("Session deleted, but the branch could not be removed");
+        }
       } catch (err) {
         console.error("Failed to delete session:", err);
         toast.error("Failed to delete session");

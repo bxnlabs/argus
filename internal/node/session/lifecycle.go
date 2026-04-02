@@ -311,44 +311,69 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 	return wtPath, &branch, created, cleanup2, nil
 }
 
+// DeleteResult contains the outcome of a session deletion.
+type DeleteResult struct {
+	BranchDeleted bool
+}
+
 // Delete kills the tmux session and removes from DB. For worktree-backed
-// sessions, the worktree is removed but the branch is preserved. If the
-// worktree has uncommitted changes and force is false, the delete is refused.
-func (m *Manager) Delete(id string, force bool) error {
+// sessions, the worktree is removed but the branch is preserved unless
+// deleteBranch is true. If the worktree has uncommitted changes and force
+// is false, the delete is refused.
+func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, error) {
 	l := m.sessionLock(id)
 	l.Lock()
 	defer l.Unlock()
 
 	session, err := m.db.GetSession(id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if session == nil {
-		return fmt.Errorf("%w: %s", db.ErrNotFound, id)
+		return nil, fmt.Errorf("%w: %s", db.ErrNotFound, id)
 	}
 
 	// Preflight: check for dirty worktree BEFORE any side effects.
 	// This ensures that a failed delete (dirty worktree, force=false)
 	// leaves the session fully intact (tmux alive, DB row untouched).
 	needsWorktreeRemoval := false
-	if session.WorktreeBranch != nil && m.wt.IsManaged(session.WorkingDirectory) {
+	needsBranchDeletion := false
+	var branchRepoDir string
+
+	if session.WorktreeBranch != nil {
 		others, err := m.db.CountSessionsByWorkingDir(id, session.WorkingDirectory)
 		if err != nil {
-			return fmt.Errorf("check shared worktree: %w", err)
+			return nil, fmt.Errorf("check shared worktree: %w", err)
 		}
-		if others == 0 {
+		isLastSession := others == 0
+
+		// Worktree removal: only for managed worktrees that still exist on disk.
+		if isLastSession && m.wt.IsManaged(session.WorkingDirectory) {
 			if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
 				// Worktree was removed externally; skip git cleanup.
 			} else {
 				if !force {
 					if err := m.wt.CheckWorktreeDirty(session.WorkingDirectory); err != nil {
-						return err
+						return nil, err
 					}
 				}
 				needsWorktreeRemoval = true
 			}
 		}
+
+		// Branch deletion eligibility: only when this is the last session
+		// for a managed worktree. Uses IsManagedPath (path-only check) so it
+		// works even if the worktree was removed externally.
+		if isLastSession && deleteBranch && m.wt.IsManagedPath(session.WorkingDirectory) {
+			if session.GitParentDir == nil {
+				return nil, fmt.Errorf("%w: cannot delete branch without git_parent_dir; re-create the session or backfill metadata", ErrInvalidInput)
+			}
+			branchRepoDir = *session.GitParentDir
+			needsBranchDeletion = true
+		}
 	}
+
+	result := &DeleteResult{}
 
 	projectKey := ProjectKeyForSession(session)
 	profileName := ptrStr(session.Profile)
@@ -374,16 +399,26 @@ func (m *Manager) Delete(id string, force bool) error {
 	// here to avoid TOCTOU issues (e.g. pre_destroy hooks writing files).
 	if needsWorktreeRemoval {
 		if err := m.wt.RemoveWorktree(session.WorkingDirectory, true); err != nil {
-			return err
+			return nil, err
+		}
+	}
+
+	// Delete branch (best-effort). If this fails, log and continue —
+	// the branch survives, identical to today's default behavior.
+	if needsBranchDeletion {
+		if err := m.wt.DeleteBranch(branchRepoDir, *session.WorktreeBranch); err != nil {
+			log.Printf("best-effort branch deletion failed for %s: %v", *session.WorktreeBranch, err)
+		} else {
+			result.BranchDeleted = true
 		}
 	}
 
 	// Delete DB record
 	if err := m.db.DeleteSession(id); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return result, nil
 }
 
 // Rename updates the display name of a session. The underlying tmux session

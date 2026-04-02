@@ -411,6 +411,57 @@ func TestCreateForLocalRepoExistingBranchCheckedOutInMain(t *testing.T) {
 	}
 }
 
+func TestDeleteBranch(t *testing.T) {
+	gitRoot := initGitRepo(t)
+	stateDir := t.TempDir()
+
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
+
+	// Create a worktree (which creates the branch), then remove it (preserving the branch).
+	wtPath, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "delete-me")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+	if err := mgr.RemoveWorktree(wtPath, true); err != nil {
+		t.Fatalf("RemoveWorktree: %v", err)
+	}
+
+	// Branch should still exist after worktree removal.
+	out, err := exec.Command("git", "-C", gitRoot, "branch", "--list", branch).Output()
+	if err != nil {
+		t.Fatalf("git branch --list: %v", err)
+	}
+	if strings.TrimSpace(string(out)) == "" {
+		t.Fatalf("branch %q should exist after worktree removal", branch)
+	}
+
+	// Delete the branch.
+	if err := mgr.DeleteBranch(gitRoot, branch); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+
+	// Branch should be gone.
+	out, err = exec.Command("git", "-C", gitRoot, "branch", "--list", branch).Output()
+	if err != nil {
+		t.Fatalf("git branch --list after delete: %v", err)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		t.Errorf("branch %q should not exist after DeleteBranch", branch)
+	}
+}
+
+func TestDeleteBranchNonexistent(t *testing.T) {
+	gitRoot := initGitRepo(t)
+	stateDir := t.TempDir()
+
+	mgr := worktree.NewManager(stateDir, &config.Config{})
+
+	err := mgr.DeleteBranch(gitRoot, "nonexistent-branch")
+	if err == nil {
+		t.Fatal("expected error deleting nonexistent branch, got nil")
+	}
+}
+
 func TestCreateForRemoteRepoAlreadyCloned(t *testing.T) {
 	// Verify that calling CreateForRemoteRepo a second time (repo already cloned)
 	// fetches and creates a new worktree without error.
