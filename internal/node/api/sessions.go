@@ -129,7 +129,7 @@ func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	force := r.URL.Query().Get("force") == "true"
 
-	if err := h.manager.Delete(id, force); err != nil {
+	if _, err := h.manager.Delete(id, force, false); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
 			return

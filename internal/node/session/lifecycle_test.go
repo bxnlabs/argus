@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/node/db"
@@ -156,7 +157,7 @@ func TestDeleteDirtyWorktreeBlocksBeforeSideEffects(t *testing.T) {
 	mustWriteFile(t, filepath.Join(wtPath, "uncommitted.txt"), []byte("dirty"), 0644)
 
 	// Delete without force should fail with dirty error
-	err = mgr.Delete(sess.ID, false)
+	_, err = mgr.Delete(sess.ID, false, false)
 	if err == nil {
 		t.Fatal("expected dirty worktree error, got nil")
 	}
@@ -219,7 +220,7 @@ func TestDeletePreDestroyHookDirtyingWorktreeStillSucceeds(t *testing.T) {
 	// Worktree is clean, pre_destroy hook will dirty it.
 	// Delete without force should still succeed because the preflight
 	// passed and we force-remove after hooks.
-	if err := mgr.Delete(sess.ID, false); err != nil {
+	if _, err := mgr.Delete(sess.ID, false, false); err != nil {
 		t.Fatalf("Delete should succeed despite hook dirtying worktree: %v", err)
 	}
 
@@ -275,7 +276,7 @@ func TestDeleteForceBypassesDirtyCheck(t *testing.T) {
 	}
 
 	// Force delete should succeed despite dirty worktree
-	if err := mgr.Delete(sess.ID, true); err != nil {
+	if _, err := mgr.Delete(sess.ID, true, false); err != nil {
 		t.Fatalf("force Delete should succeed: %v", err)
 	}
 
@@ -383,5 +384,167 @@ func TestResolveSourceToCWD_AgentCreatesWorktree(t *testing.T) {
 	}
 	if cwd == gitRoot {
 		t.Error("expected cwd to be worktree path, not git root")
+	}
+}
+
+func TestDeleteWithBranchDeletion(t *testing.T) {
+	gitRoot := resolveSymlinks(t, initTestGitRepo(t))
+	stateDir := resolveSymlinks(t, t.TempDir())
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "branch-del")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	sess := &db.Session{
+		ID:               "sess-branch-del",
+		Name:             "branch-del",
+		TmuxName:         "claude-sess-branch-del",
+		WorkingDirectory: wtPath,
+		ProviderType:     "claude",
+		WorktreeBranch:   &branch,
+		GitParentDir:     &gitRoot,
+	}
+	if err := database.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := mgr.Delete(sess.ID, true, true)
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if !result.BranchDeleted {
+		t.Error("expected BranchDeleted=true")
+	}
+
+	// Session should be gone
+	got, err := database.GetSession(sess.ID)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got != nil {
+		t.Fatal("session should be deleted")
+	}
+
+	// Worktree should be gone
+	if _, statErr := os.Stat(wtPath); !os.IsNotExist(statErr) {
+		t.Fatalf("worktree should be removed")
+	}
+
+	// Branch should be gone
+	out, gitErr := exec.Command("git", "-C", gitRoot, "branch", "--list", branch).Output()
+	if gitErr != nil {
+		t.Fatalf("git branch --list: %v", gitErr)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		t.Errorf("branch %q should not exist after delete with deleteBranch=true", branch)
+	}
+}
+
+func TestDeleteWithBranchDeletionSharedWorktree(t *testing.T) {
+	gitRoot := resolveSymlinks(t, initTestGitRepo(t))
+	stateDir := resolveSymlinks(t, t.TempDir())
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "shared-wt")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	// Create two sessions pointing at the same worktree
+	sess1 := &db.Session{
+		ID: "sess-shared-1", Name: "shared-1", TmuxName: "claude-sess-shared-1",
+		WorkingDirectory: wtPath, ProviderType: "claude",
+		WorktreeBranch: &branch, GitParentDir: &gitRoot,
+	}
+	sess2 := &db.Session{
+		ID: "sess-shared-2", Name: "shared-2", TmuxName: "claude-sess-shared-2",
+		WorkingDirectory: wtPath, ProviderType: "claude",
+		WorktreeBranch: &branch, GitParentDir: &gitRoot,
+	}
+	if err := database.CreateSession(sess1); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateSession(sess2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete first session with deleteBranch — should skip branch deletion
+	result, err := mgr.Delete(sess1.ID, true, true)
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if result.BranchDeleted {
+		t.Error("expected BranchDeleted=false for shared worktree")
+	}
+
+	// Branch should still exist
+	out, gitErr := exec.Command("git", "-C", gitRoot, "branch", "--list", branch).Output()
+	if gitErr != nil {
+		t.Fatalf("git branch --list: %v", gitErr)
+	}
+	if strings.TrimSpace(string(out)) == "" {
+		t.Error("branch should still exist when other sessions share the worktree")
+	}
+}
+
+func TestDeleteWithBranchDeletionNilGitParentDir(t *testing.T) {
+	gitRoot := resolveSymlinks(t, initTestGitRepo(t))
+	stateDir := resolveSymlinks(t, t.TempDir())
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "no-parent")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	sess := &db.Session{
+		ID: "sess-no-parent", Name: "no-parent", TmuxName: "claude-sess-no-parent",
+		WorkingDirectory: wtPath, ProviderType: "claude",
+		WorktreeBranch: &branch,
+		GitParentDir:   nil, // intentionally nil
+	}
+	if err := database.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should fail because GitParentDir is nil
+	_, err = mgr.Delete(sess.ID, true, true)
+	if err == nil {
+		t.Fatal("expected error for nil GitParentDir, got nil")
+	}
+
+	// Session should still exist (preflight failed, no side effects)
+	got, dbErr := database.GetSession(sess.ID)
+	if dbErr != nil {
+		t.Fatalf("GetSession: %v", dbErr)
+	}
+	if got == nil {
+		t.Fatal("session should still exist after preflight failure")
 	}
 }
