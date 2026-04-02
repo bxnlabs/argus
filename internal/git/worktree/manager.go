@@ -259,3 +259,11 @@ func (m *Manager) RemoveWorktree(worktreePath string, force bool) error {
 func (m *Manager) Cleanup(worktreePath string) {
 	_ = m.RemoveWorktree(worktreePath, true)
 }
+
+// DeleteBranch force-deletes a local branch (git branch -D).
+func (m *Manager) DeleteBranch(repoDir, branch string) error {
+	if err := git.Run(repoDir, "branch", "-D", branch); err != nil {
+		return fmt.Errorf("git branch -D %s: %w", branch, err)
+	}
+	return nil
+}
