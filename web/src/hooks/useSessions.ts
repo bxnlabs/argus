@@ -19,8 +19,8 @@ export function useSessions() {
       const message = deleteBranch
         ? "Delete this session and its branch? This cannot be undone."
         : "Delete this session? This cannot be undone.";
-      if (!confirm(message)) return;
-      await deleteMutation.mutateAsync({ sessionId, deleteBranch });
+      if (!confirm(message)) return null;
+      return await deleteMutation.mutateAsync({ sessionId, deleteBranch });
     },
     [deleteMutation],
   );

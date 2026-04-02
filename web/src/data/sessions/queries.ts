@@ -45,6 +45,11 @@ export function useCreateSession() {
   });
 }
 
+interface DeleteSessionResponse {
+  success: boolean;
+  branch_deleted: boolean;
+}
+
 export function useDeleteSession() {
   const queryClient = useQueryClient();
 
@@ -56,7 +61,7 @@ export function useDeleteSession() {
       sessionId: string;
       deleteBranch?: boolean;
     }) =>
-      apiFetch(
+      apiFetch<DeleteSessionResponse>(
         `/node/api/sessions/${sessionId}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
         { method: "DELETE" },
       ),

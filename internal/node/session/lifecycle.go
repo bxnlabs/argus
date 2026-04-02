@@ -340,12 +340,15 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 	needsBranchDeletion := false
 	var branchRepoDir string
 
-	if session.WorktreeBranch != nil && m.wt.IsManaged(session.WorkingDirectory) {
+	if session.WorktreeBranch != nil {
 		others, err := m.db.CountSessionsByWorkingDir(id, session.WorkingDirectory)
 		if err != nil {
 			return nil, fmt.Errorf("check shared worktree: %w", err)
 		}
-		if others == 0 {
+		isLastSession := others == 0
+
+		// Worktree removal: only for managed worktrees that still exist on disk.
+		if isLastSession && m.wt.IsManaged(session.WorkingDirectory) {
 			if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
 				// Worktree was removed externally; skip git cleanup.
 			} else {
@@ -356,16 +359,17 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 				}
 				needsWorktreeRemoval = true
 			}
+		}
 
-			// Branch deletion eligibility: only when this is the last session
-			// for this worktree and the worktree is managed.
-			if deleteBranch {
-				if session.GitParentDir == nil {
-					return nil, fmt.Errorf("%w: cannot delete branch without git_parent_dir; re-create the session or backfill metadata", ErrInvalidInput)
-				}
-				branchRepoDir = *session.GitParentDir
-				needsBranchDeletion = true
+		// Branch deletion eligibility: only when this is the last session
+		// for a managed worktree. Uses IsManagedPath (path-only check) so it
+		// works even if the worktree was removed externally.
+		if isLastSession && deleteBranch && m.wt.IsManagedPath(session.WorkingDirectory) {
+			if session.GitParentDir == nil {
+				return nil, fmt.Errorf("%w: cannot delete branch without git_parent_dir; re-create the session or backfill metadata", ErrInvalidInput)
 			}
+			branchRepoDir = *session.GitParentDir
+			needsBranchDeletion = true
 		}
 	}
 
