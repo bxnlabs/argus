@@ -10,7 +10,7 @@ Inline comments can only be placed on addition lines. The comment system anchors
 
 ## Solution
 
-Make the comment data model side-aware using GitHub's `L` (old/left/base) and `R` (right/new/head) convention. Every diff line becomes commentable, and comments on lines outside visible diff context are surfaced via sparse synthetic hunks.
+Make the comment data model side-aware using GitHub's `L` (old/left/base) and `R` (right/new/head) convention. All non-empty diff lines become commentable (headers and blank lines excluded), and comments on lines outside visible diff context are surfaced via sparse synthetic hunks.
 
 ## Data Model
 
@@ -29,13 +29,16 @@ export interface LineRange {
   to: DiffPosition;
 }
 
+export type AnchorStatus = "resolved" | "stale" | "context_unavailable";
+
 export interface ReviewComment {
   id: string;
   file: string;       // canonical path key from getDiffPathKey()
   oldPath?: string;    // original path for renamed files (L-side resolution)
   line: LineRange;     // for single-line: from === to
   snippet: string;     // code content at comment time
-  snippetContext?: string; // 1-2 lines above/below snippet for re-anchoring disambiguation
+  snippetContext?: string; // same-side neighboring lines for re-anchoring disambiguation
+  anchorStatus?: AnchorStatus; // absent or "resolved" = anchor is valid
   body: string;
   submitted: boolean;
   createdAt: string;
@@ -62,16 +65,25 @@ type LineRange struct {
     To   DiffPosition `json:"to"`
 }
 
+type AnchorStatus string
+
+const (
+    AnchorResolved           AnchorStatus = "resolved"
+    AnchorStale              AnchorStatus = "stale"
+    AnchorContextUnavailable AnchorStatus = "context_unavailable"
+)
+
 type ReviewComment struct {
-    ID             string    `json:"id"`
-    File           string    `json:"file"`
-    OldPath        string    `json:"oldPath,omitempty"` // original path for renamed files
-    Line           LineRange `json:"line"`
-    Snippet        string    `json:"snippet"`
-    SnippetContext string    `json:"snippetContext,omitempty"` // surrounding lines for disambiguation
-    Body           string    `json:"body"`
-    Submitted      bool      `json:"submitted"`
-    CreatedAt      string    `json:"createdAt"`
+    ID             string       `json:"id"`
+    File           string       `json:"file"`
+    OldPath        string       `json:"oldPath,omitempty"`
+    Line           LineRange    `json:"line"`
+    Snippet        string       `json:"snippet"`
+    SnippetContext string       `json:"snippetContext,omitempty"`
+    AnchorStatus   AnchorStatus `json:"anchorStatus,omitempty"` // absent = resolved
+    Body           string       `json:"body"`
+    Submitted      bool         `json:"submitted"`
+    CreatedAt      string       `json:"createdAt"`
 }
 ```
 
@@ -128,7 +140,7 @@ When creating a comment, extract `line.content` from the diff line matching the 
 - Side `"R"`: match by `newLineNumber`
 - Side `"L"`: match by `oldLineNumber`
 
-Also extract `snippetContext`: the content of 1-2 lines above and below the anchor line in the rendered diff. This surrounding context is stored alongside the snippet and used during re-anchoring to disambiguate common single-line snippets (e.g., `}`, `return nil`).
+Also extract `snippetContext`: the content of 1-2 lines above and below the anchor line **from the same side of the diff only**. For R-side comments, collect neighboring lines that have `newLineNumber` values (additions and context lines, skipping deletions). For L-side comments, collect neighboring lines that have `oldLineNumber` values (deletions and context lines, skipping additions). This ensures the context matches what exists contiguously in the actual file being searched during re-anchoring, even in replace blocks where rendered diff neighbors interleave L/R content.
 
 ## Staleness Detection
 
@@ -143,13 +155,13 @@ func detectStaleness(repoDir string, headRef string, baseRef string, comments []
 - **R-side comments:** Search via `git show headRef:path` (not `os.ReadFile` — the working tree may have uncommitted changes that don't match the compare view)
 - **L-side comments:** Search via `git show baseRef:path`. For renamed files, use `comment.OldPath` if set, otherwise `comment.File`.
 
-`Load()` already receives `head` and `base` as branch names. It must resolve these to commit OIDs before calling `detectStaleness`. The compare API already computes `mergeBase` and `headRef` OIDs (`compare.go:61,75`); these should be passed through or re-derived.
+`Load()` already receives `head` and `base` as branch names. To avoid snapshot skew between the compare response and review staleness detection, the frontend must pass the exact `headRef` and `baseRef` OIDs from the `CompareResult` into the review load request. The review GET endpoint gains optional `headRef` and `baseRef` query parameters; when provided, `detectStaleness` uses these OIDs directly instead of re-deriving them. This ensures all anchor resolution uses the same immutable snapshots that produced the diff the user is viewing.
 
 ### Enhanced Snippet Matching
 
-`findSnippet` is extended to use `snippetContext` when available. When multiple matches for the snippet are found within the 50-line threshold, check the surrounding context against `snippetContext` to disambiguate. If the context doesn't match any candidate, mark the comment as stale rather than silently relocating it to a wrong position. Single-match cases continue to re-anchor as before.
+`findSnippet` is extended to use `snippetContext` when available. When multiple matches for the snippet are found within the 50-line threshold, check the surrounding context against `snippetContext` to disambiguate. If the context doesn't match any candidate, the comment is not re-anchored — its `anchorStatus` is set to `"stale"` and it retains its original line position. Single-match cases continue to re-anchor as before.
 
-Re-anchored comments preserve the original `side`; only the `line` number changes.
+Re-anchored comments preserve the original `side`; only the `line` number changes. Successfully re-anchored comments have `anchorStatus: "resolved"` (or the field is absent, which is treated as resolved for backward compatibility).
 
 ## Sparse Comment Hunks (Auto-Expand)
 
@@ -173,11 +185,23 @@ Synthetic comment hunks are keyed by a stable identity (`oldStart-newStart` pair
 
 ### Fetch Failure Fallback
 
-If `fetchFileLines` fails for a hidden comment (404, 413, network error), insert a minimal placeholder row at the comment's logical position. The placeholder displays the comment card with an error indicator ("context unavailable") and an optional retry button. The comment remains navigable via `CommentNav` and its content is readable — it just lacks the surrounding code context.
+If `fetchFileLines` fails for a hidden comment (404, 413, network error), the comment's `anchorStatus` is set to `"context_unavailable"` (ephemeral, not persisted — recomputed on each load). A minimal placeholder row is inserted at the comment's logical position displaying the comment card with an error indicator and retry button. The comment remains navigable via `CommentNav` and its content is readable — it just lacks the surrounding code context.
+
+### `ensureCommentVisible` Contract
+
+The `ExpandableUnifiedDiff` component (or a new hook wrapping it) exposes an `ensureCommentVisible(position: DiffPosition): Promise<void>` method. This is the single entry point for making a comment's anchor row visible:
+
+1. Check if the position already exists in the rendered hunks
+2. If not, fetch the sparse hunk window and insert it (or insert a placeholder on failure)
+3. Resolve the promise once the target row is mounted in the DOM
+
+Multiple calls for the same file are coalesced: overlapping fetch windows are merged before requesting, and duplicate synthetic hunks for the same interval are deduplicated. This prevents two hidden comments in the same collapsed region from producing duplicate synthetic hunks.
+
+`CompareView` calls `ensureCommentVisible` on initial load for all hidden comments, and `CommentNav` calls it before scrolling to a target comment.
 
 ### On Comment Navigation
 
-When `CommentNav` prev/next targets a comment whose anchor isn't visible, create the sparse hunk first, then scroll into view.
+When `CommentNav` prev/next targets a comment whose anchor isn't visible, call `ensureCommentVisible` first, then scroll into view after the promise resolves.
 
 ## UI Changes
 
@@ -199,11 +223,16 @@ Update active line filtering to match by the appropriate line number based on si
 
 ### `CommentNav`
 
-Sort comments by a stable logical order independent of rendering state: `(file index in diff list, side, line number)`. File order comes from the deterministic diff file list. Within a file, sort by line position: L-side comments by `oldLineNumber`, R-side by `newLineNumber`. This works whether or not the comment's hunk is rendered, avoiding the chicken-and-egg problem of sorting by rendered position before sparse hunks exist.
+Sort comments in canonical unified diff row order. Within a file, determine each comment's position in the hunk line sequence: for visible comments, use their actual index in the rendered hunk lines. For hidden comments (not yet in any hunk), compute their position relative to surrounding hunk boundaries — an L-side comment at old line N falls between the hunk lines whose `oldLineNumber` brackets N, and an R-side comment at new line N falls between lines whose `newLineNumber` brackets N. This produces an order that matches what the user sees on screen (deletions and additions interleaved in patch order), rather than grouping all L-side before R-side within a file. File order comes from the deterministic diff file list.
 
 ### `InlineCommentForm` / `InlineCommentCard`
 
-No structural changes. Can now appear after deletion and context lines.
+`InlineCommentForm` has no structural changes. Can now appear after deletion and context lines.
+
+`InlineCommentCard` gains visual treatment for anchor status:
+- **`resolved`** (or absent): Normal rendering (current behavior)
+- **`stale`**: Yellow/warning indicator — "This comment's anchor may have moved. The code context shown may not match the current version."
+- **`context_unavailable`**: Comment card renders inside a placeholder row with an error indicator and retry button. The comment body is fully readable.
 
 ## Input Validation
 
@@ -212,6 +241,7 @@ The POST handler (`api/review.go`) validates comment structure on save:
 - `line.from.line` and `line.to.line` must be `> 0`
 - `line.from` must equal `line.to` (this iteration only supports single-line comments)
 - `file` must pass existing path traversal validation
+- `oldPath`, if present, must also pass path traversal validation (it is used in `git show` calls)
 
 Invalid comments are rejected with HTTP 400. This prevents malformed payloads from being persisted and causing render/staleness errors downstream.
 
