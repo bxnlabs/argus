@@ -32,15 +32,15 @@ This mirrors the existing gates for worktree removal.
 
 ### Merge safety check
 
-Rather than relying on `git branch -d` (which checks against ambient `HEAD` — unreliable for Argus branches that have no upstream), the merge check uses an explicit ancestry test:
+Rather than relying on `git branch -d` (which checks against ambient `HEAD` — unreliable for Argus branches that have no upstream) or `git merge-base --is-ancestor` (which fails for squash-merged branches since the original commits are never ancestors of the squash commit), the merge check compares trees directly:
 
 1. Resolve the repo's default branch via `git.DefaultBranch(repoDir)` (already exists)
-2. Run `git merge-base --is-ancestor <branch> <defaultBranch>`
-3. If the branch is not an ancestor of the default branch, it has unmerged commits
+2. Run `git diff <defaultBranch> <branch> --quiet`
+3. If the diff is non-empty (exit code 1), the branch has changes not yet in the default branch
 
-This gives a stable, deterministic result regardless of what's checked out in the parent repo.
+This works correctly for all merge strategies — regular merge, squash-and-merge, cherry-pick, and rebase. It answers the question "are the branch's changes already in the default branch?" regardless of how they got there.
 
-**Implementation note:** `git merge-base --is-ancestor` signals "not ancestor" via exit code 1 (not stderr). The existing `git.Output` helper treats any non-zero exit as an error. `IsBranchMerged` must use `exec.Command` directly and treat exit code 1 as `merged=false, err=nil`, reserving errors for actual command failures (exit code 128, etc.).
+**Implementation note:** `git diff --quiet` uses exit code 1 to signal differences (not stderr). The existing `git.Output` helper treats any non-zero exit as an error. `IsBranchMerged` must use `exec.Command` directly and treat exit code 1 as `merged=false, err=nil`, reserving errors for actual command failures (exit code 128, etc.).
 
 ## Changes
 
@@ -53,8 +53,8 @@ New sentinel error and methods:
 ```go
 var ErrBranchNotMerged = errors.New("branch has unmerged commits")
 
-// IsBranchMerged checks whether branch is an ancestor of the repo's default branch.
-// Uses exec.Command directly — exit code 1 means not merged (returns false, nil).
+// IsBranchMerged checks whether branch's changes are already in the repo's default branch.
+// Uses git diff --quiet; exit code 1 means differences exist (returns false, nil).
 func (m *Manager) IsBranchMerged(repoDir, branch string) (bool, error)
 
 // DeleteBranch force-deletes a local branch (git branch -D).
@@ -62,7 +62,7 @@ func (m *Manager) IsBranchMerged(repoDir, branch string) (bool, error)
 func (m *Manager) DeleteBranch(repoDir, branch string) error
 ```
 
-`IsBranchMerged` runs `git merge-base --is-ancestor <branch> <defaultBranch>`. `DeleteBranch` always uses `git branch -D` — the merge safety decision is made by the caller (the preflight in `Manager.Delete`), not by git.
+`IsBranchMerged` runs `git diff <defaultBranch> <branch> --quiet`. `DeleteBranch` always uses `git branch -D` — the merge safety decision is made by the caller (the preflight in `Manager.Delete`), not by git.
 
 #### `internal/node/session/lifecycle.go`
 
@@ -194,7 +194,7 @@ Note: `force=true` controls worktree-dirty only. `force_branch` is not sent, so 
 
 ### `internal/git/worktree/manager_test.go`
 
-- `IsBranchMerged`: branch merged into default returns true; branch with unmerged commits returns false; handles exit code 1 correctly (not an error)
+- `IsBranchMerged`: branch with no diff against default returns true; branch with unmerged changes returns false; handles exit code 1 correctly (not an error); works correctly for squash-merged branches
 - `DeleteBranch`: successfully deletes a branch; returns error if branch doesn't exist
 
 ### `internal/node/session/lifecycle_test.go`
