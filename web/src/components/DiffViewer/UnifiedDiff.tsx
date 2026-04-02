@@ -85,7 +85,6 @@ export const UnifiedDiff = memo(function UnifiedDiff({
           "border-border flex w-full items-center gap-2 border px-3 py-2.5 text-sm",
           "bg-muted hover:bg-muted/80 text-left transition-colors",
           "sticky top-0 z-20 min-h-[44px]",
-          !isExpanded && "rounded-b-lg",
         )}
       >
         {isExpanded ? (
@@ -320,7 +319,7 @@ function DiffLineRow({
 
   const isCommentable =
     commentingEnabled &&
-    line.type !== "deletion" &&
+    line.type === "addition" &&
     line.newLineNumber != null &&
     line.content.trim() !== "";
 
