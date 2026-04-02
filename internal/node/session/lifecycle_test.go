@@ -548,3 +548,56 @@ func TestDeleteWithBranchDeletionNilGitParentDir(t *testing.T) {
 		t.Fatal("session should still exist after preflight failure")
 	}
 }
+
+func TestDeleteWithBranchDeletionFailureIsBestEffort(t *testing.T) {
+	gitRoot := resolveSymlinks(t, initTestGitRepo(t))
+	stateDir := resolveSymlinks(t, t.TempDir())
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "best-effort")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	// Point GitParentDir at a bogus path so git branch -D will fail.
+	bogusDir := filepath.Join(t.TempDir(), "nonexistent")
+	sess := &db.Session{
+		ID:               "sess-best-effort",
+		Name:             "best-effort",
+		TmuxName:         "claude-sess-best-effort",
+		WorkingDirectory: wtPath,
+		ProviderType:     "claude",
+		WorktreeBranch:   &branch,
+		GitParentDir:     &bogusDir,
+	}
+	if err := database.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete with branch — git branch -D will fail because bogusDir
+	// is not a git repo. Session should still be deleted.
+	result, err := mgr.Delete(sess.ID, true, true)
+	if err != nil {
+		t.Fatalf("Delete should succeed even when branch deletion fails: %v", err)
+	}
+	if result.BranchDeleted {
+		t.Error("expected BranchDeleted=false when git branch -D fails")
+	}
+
+	// Session should be gone (not blocked by branch failure)
+	got, err := database.GetSession(sess.ID)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got != nil {
+		t.Fatal("session should be deleted even when branch deletion fails")
+	}
+}
