@@ -143,8 +143,8 @@ Comments may be anchored to lines outside visible diff context (collapsed hunks 
 
 On load, identify comments whose anchor lines aren't in any rendered hunk. For each:
 
-1. Fetch a small window (anchor line +/- 3 lines of context) via `fetchFileLines`
-2. Insert as a new synthetic hunk in the correct position in the hunk list with proper `oldStart`/`newStart`/counts
+1. Fetch a small window (anchor line +/- 3 lines of context) via `fetchFileLines`. For R-side comments, fetch from the HEAD ref. For L-side comments, fetch from the BASE ref. The `fetchFileLines` endpoint already accepts a `ref` parameter.
+2. Insert as a new synthetic hunk in the correct position in the hunk list with proper `oldStart`/`newStart`/counts. For L-side hunks, line numbers are computed using the old-file numbering; the old-to-new offset is derived from the nearest existing hunk boundary.
 3. Gaps between this hunk and neighbors behave like normal inter-hunk gaps with expand buttons
 
 This reuses existing diff viewer patterns — no new UI concepts.
