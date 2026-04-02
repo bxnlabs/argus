@@ -49,8 +49,17 @@ export function useDeleteSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (sessionId: string) =>
-      apiFetch(`/node/api/sessions/${sessionId}?force=true`, { method: "DELETE" }),
+    mutationFn: ({
+      sessionId,
+      deleteBranch,
+    }: {
+      sessionId: string;
+      deleteBranch?: boolean;
+    }) =>
+      apiFetch(
+        `/node/api/sessions/${sessionId}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
+        { method: "DELETE" },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
     },
