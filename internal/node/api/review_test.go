@@ -93,6 +93,88 @@ func TestReviewHandler_PostRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestReviewHandler_PostRejectsInvalidSide(t *testing.T) {
+	repoDir := homeTempDir(t)
+	h := &reviewHandler{projectDirOverride: t.TempDir()}
+	payload := review.Review{
+		Head: "feat/test",
+		Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:   "rc_1",
+			File: "main.go",
+			Line: review.LineRange{
+				From: review.DiffPosition{Side: "X", Line: 1},
+				To:   review.DiffPosition{Side: "X", Line: 1},
+			},
+			Body: "Invalid side",
+		}},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST",
+		"/api/git/review?path="+repoDir,
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.post(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid side, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestReviewHandler_PostRejectsNonPositiveLine(t *testing.T) {
+	repoDir := homeTempDir(t)
+	h := &reviewHandler{projectDirOverride: t.TempDir()}
+	payload := review.Review{
+		Head: "feat/test",
+		Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:   "rc_1",
+			File: "main.go",
+			Line: review.LineRange{
+				From: review.DiffPosition{Side: review.DiffSideRight, Line: 0},
+				To:   review.DiffPosition{Side: review.DiffSideRight, Line: 0},
+			},
+			Body: "Zero line",
+		}},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST",
+		"/api/git/review?path="+repoDir,
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.post(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for line=0, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestReviewHandler_PostRejectsOldPathTraversal(t *testing.T) {
+	repoDir := homeTempDir(t)
+	h := &reviewHandler{projectDirOverride: t.TempDir()}
+	payload := review.Review{
+		Head: "feat/test",
+		Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:      "rc_1",
+			File:    "main.go",
+			OldPath: "../etc/passwd",
+			Line: review.LineRange{
+				From: review.DiffPosition{Side: review.DiffSideLeft, Line: 1},
+				To:   review.DiffPosition{Side: review.DiffSideLeft, Line: 1},
+			},
+			Body: "OldPath traversal",
+		}},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST",
+		"/api/git/review?path="+repoDir,
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.post(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for oldPath traversal, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestReviewHandler_Delete(t *testing.T) {
 	repoDir := homeTempDir(t)
 	overrideDir := t.TempDir()
