@@ -42,7 +42,7 @@ func TestReviewHandler_PostAndGet(t *testing.T) {
 		Base: "main",
 		Comments: []review.ReviewComment{{
 			ID: "rc_1_abc", File: "src/main.go",
-			Line: review.LineRange{From: 1, To: 1},
+			Line: review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 1}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 1}},
 			Snippet: "package main", Body: "Add copyright header",
 			Submitted: true, CreatedAt: "2026-03-16T10:30:00Z",
 		}},

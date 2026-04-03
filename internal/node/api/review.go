@@ -45,7 +45,7 @@ func (h *reviewHandler) get(w http.ResponseWriter, r *http.Request) {
 		respondInternalError(w, err)
 		return
 	}
-	rv, err := review.Load(projectDir, expandedPath, branch, base)
+	rv, err := review.Load(projectDir, expandedPath, branch, base, "", "")
 	if err != nil {
 		respondInternalError(w, err)
 		return

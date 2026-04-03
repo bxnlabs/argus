@@ -4,10 +4,44 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// runCmd runs a command in dir, failing the test on error.
+func runCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command %v failed: %v\n%s", args, err, out)
+	}
+}
+
+// runCmdOutput runs a command in dir and returns its stdout, failing the test on error.
+func runCmdOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("command %v failed: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// initTestRepo creates a minimal git repo with a configured identity for testing.
+func initTestRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	runCmd(t, dir, "git", "init")
+	runCmd(t, dir, "git", "config", "user.email", "test@test.com")
+	runCmd(t, dir, "git", "config", "user.name", "Test")
+	return dir
+}
 
 func TestEncodeBranchName(t *testing.T) {
 	tests := []struct {
@@ -94,10 +128,12 @@ func TestReadReviewFile_NotExist(t *testing.T) {
 }
 
 func TestDetectStaleness_SingleMatch(t *testing.T) {
-	dir := t.TempDir()
-	filePath := filepath.Join(dir, "src", "auth.ts")
-	os.MkdirAll(filepath.Dir(filePath), 0o755)
-	os.WriteFile(filePath, []byte("line1\nline2\nconst TOKEN = 1800;\nline4\n"), 0o644)
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	os.WriteFile(filepath.Join(dir, "src", "auth.ts"), []byte("line1\nline2\nconst TOKEN = 1800;\nline4\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/auth.ts",
 		Line: LineRange{
@@ -106,7 +142,7 @@ func TestDetectStaleness_SingleMatch(t *testing.T) {
 		}, Snippet: "const TOKEN = 1800;",
 		Body: "Change to 3600", Submitted: true,
 	}}
-	result := detectStaleness(dir, comments)
+	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(result))
 	}
@@ -116,10 +152,12 @@ func TestDetectStaleness_SingleMatch(t *testing.T) {
 }
 
 func TestDetectStaleness_NoMatch(t *testing.T) {
-	dir := t.TempDir()
-	filePath := filepath.Join(dir, "src", "auth.ts")
-	os.MkdirAll(filepath.Dir(filePath), 0o755)
-	os.WriteFile(filePath, []byte("completely different content\n"), 0o644)
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	os.WriteFile(filepath.Join(dir, "src", "auth.ts"), []byte("completely different content\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/auth.ts",
 		Line: LineRange{
@@ -128,14 +166,19 @@ func TestDetectStaleness_NoMatch(t *testing.T) {
 		}, Snippet: "const TOKEN = 1800;",
 		Body: "Change to 3600", Submitted: true,
 	}}
-	result := detectStaleness(dir, comments)
+	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 0 {
 		t.Fatalf("expected 0 comments (pruned), got %d", len(result))
 	}
 }
 
 func TestDetectStaleness_FileDeleted(t *testing.T) {
-	dir := t.TempDir()
+	dir := initTestRepo(t)
+	// Commit a placeholder file so the repo is valid, but src/deleted.ts is not committed.
+	os.WriteFile(filepath.Join(dir, "README"), []byte("placeholder\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/deleted.ts",
 		Line: LineRange{
@@ -144,16 +187,15 @@ func TestDetectStaleness_FileDeleted(t *testing.T) {
 		}, Snippet: "anything",
 		Body: "Comment on deleted file", Submitted: true,
 	}}
-	result := detectStaleness(dir, comments)
+	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 0 {
 		t.Fatalf("expected 0 comments (file deleted), got %d", len(result))
 	}
 }
 
 func TestDetectStaleness_MultipleMatches_NearestWins(t *testing.T) {
-	dir := t.TempDir()
-	filePath := filepath.Join(dir, "src", "util.ts")
-	os.MkdirAll(filepath.Dir(filePath), 0o755)
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
 	var lines []string
 	for i := 1; i <= 25; i++ {
 		if i == 5 || i == 20 {
@@ -162,7 +204,10 @@ func TestDetectStaleness_MultipleMatches_NearestWins(t *testing.T) {
 			lines = append(lines, fmt.Sprintf("line %d", i))
 		}
 	}
-	os.WriteFile(filePath, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "src", "util.ts"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/util.ts",
 		Line: LineRange{
@@ -171,7 +216,7 @@ func TestDetectStaleness_MultipleMatches_NearestWins(t *testing.T) {
 		}, Snippet: "return true;",
 		Body: "Should return false", Submitted: true,
 	}}
-	result := detectStaleness(dir, comments)
+	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(result))
 	}
@@ -181,7 +226,11 @@ func TestDetectStaleness_MultipleMatches_NearestWins(t *testing.T) {
 }
 
 func TestDetectStaleness_SkipsUnsubmitted(t *testing.T) {
-	dir := t.TempDir()
+	dir := initTestRepo(t)
+	os.WriteFile(filepath.Join(dir, "README"), []byte("placeholder\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/nonexistent.ts",
 		Line: LineRange{
@@ -190,14 +239,18 @@ func TestDetectStaleness_SkipsUnsubmitted(t *testing.T) {
 		}, Snippet: "anything",
 		Body: "Draft comment", Submitted: false,
 	}}
-	result := detectStaleness(dir, comments)
+	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 comment (draft preserved), got %d", len(result))
 	}
 }
 
 func TestDetectStaleness_PathTraversal(t *testing.T) {
-	dir := t.TempDir()
+	dir := initTestRepo(t)
+	os.WriteFile(filepath.Join(dir, "README"), []byte("placeholder\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "../etc/passwd",
 		Line: LineRange{
@@ -206,7 +259,7 @@ func TestDetectStaleness_PathTraversal(t *testing.T) {
 		}, Snippet: "root:x:0:0",
 		Body: "Traversal attempt", Submitted: true,
 	}}
-	result := detectStaleness(dir, comments)
+	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 0 {
 		t.Fatalf("expected 0 comments (path traversal rejected), got %d", len(result))
 	}
@@ -231,13 +284,16 @@ func TestFindSnippet_SingleMatch_ReAnchors(t *testing.T) {
 
 func TestLoadSaveDelete(t *testing.T) {
 	projectDir := t.TempDir()
-	repoDir := t.TempDir()
+	repoDir := initTestRepo(t)
 	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
 	os.WriteFile(
 		filepath.Join(repoDir, "src", "auth.ts"),
 		[]byte("line1\nconst TOKEN = 1800;\nline3\n"),
 		0o644,
 	)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
 	r := &Review{
 		Head: "feat/auth", Base: "main",
 		Comments: []ReviewComment{{
@@ -252,7 +308,7 @@ func TestLoadSaveDelete(t *testing.T) {
 	if err := Save(projectDir, r); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	loaded, err := Load(projectDir, repoDir, "feat/auth", "main")
+	loaded, err := Load(projectDir, repoDir, "feat/auth", "main", headRef, "")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -265,7 +321,7 @@ func TestLoadSaveDelete(t *testing.T) {
 	if err := Delete(projectDir, "feat/auth", "main"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	loaded, err = Load(projectDir, repoDir, "feat/auth", "main")
+	loaded, err = Load(projectDir, repoDir, "feat/auth", "main", headRef, "")
 	if err != nil {
 		t.Fatalf("Load after delete: %v", err)
 	}
@@ -419,5 +475,163 @@ func TestLegacyReviewFile_Migration(t *testing.T) {
 	}
 	if c.Line.To.Line != 10 {
 		t.Errorf("legacy To.Line = %d, want 10", c.Line.To.Line)
+	}
+}
+
+// TestDetectStaleness_RSideUsesHeadRef verifies that R-side comments are re-anchored
+// against headRef (the HEAD commit), not the working tree.
+func TestDetectStaleness_RSideUsesHeadRef(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	// Commit a file at headRef with the snippet at line 3.
+	os.WriteFile(filepath.Join(dir, "src", "app.ts"), []byte("line1\nline2\nconst X = 42;\nline4\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "head commit")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Modify the working tree — the implementation must NOT read from disk.
+	os.WriteFile(filepath.Join(dir, "src", "app.ts"), []byte("completely different content\n"), 0o644)
+
+	comments := []ReviewComment{{
+		ID: "rc_r", File: "src/app.ts",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 10},
+			To:   DiffPosition{Side: DiffSideRight, Line: 10},
+		},
+		Snippet:   "const X = 42;",
+		Body:      "R-side comment",
+		Submitted: true,
+	}}
+	result := detectStaleness(dir, headRef, "", comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment (re-anchored via headRef), got %d", len(result))
+	}
+	if result[0].Line.From.Side != DiffSideRight {
+		t.Errorf("side = %q, want R", result[0].Line.From.Side)
+	}
+	if result[0].Line.From.Line != 3 {
+		t.Errorf("line = %d, want 3", result[0].Line.From.Line)
+	}
+}
+
+// TestDetectStaleness_LSideUsesBaseRef verifies that L-side comments are re-anchored
+// against baseRef (the merge-base commit), not headRef or the working tree.
+func TestDetectStaleness_LSideUsesBaseRef(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Create the base commit with a file containing the snippet at line 2.
+	os.WriteFile(filepath.Join(dir, "src", "old.ts"), []byte("line1\ndeleted line here\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base commit")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Create a subsequent head commit where the file is changed.
+	os.WriteFile(filepath.Join(dir, "src", "old.ts"), []byte("line1\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "head commit")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID: "rc_l", File: "src/old.ts",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideLeft, Line: 5},
+			To:   DiffPosition{Side: DiffSideLeft, Line: 5},
+		},
+		Snippet:   "deleted line here",
+		Body:      "L-side comment on deleted line",
+		Submitted: true,
+	}}
+	result := detectStaleness(dir, headRef, baseRef, comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment (re-anchored via baseRef), got %d", len(result))
+	}
+	if result[0].Line.From.Side != DiffSideLeft {
+		t.Errorf("side = %q, want L", result[0].Line.From.Side)
+	}
+	if result[0].Line.From.Line != 2 {
+		t.Errorf("line = %d, want 2", result[0].Line.From.Line)
+	}
+}
+
+// TestDetectStaleness_LSideRenamedFile verifies that L-side comments with OldPath
+// use OldPath (not File) to look up content against baseRef.
+func TestDetectStaleness_LSideRenamedFile(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Base commit: file exists at the old path.
+	os.WriteFile(filepath.Join(dir, "src", "old_name.ts"), []byte("line1\nfunc oldLogic() {}\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base commit with old path")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Head commit: file is renamed to new_name.ts.
+	runCmd(t, dir, "git", "mv", "src/old_name.ts", "src/new_name.ts")
+	runCmd(t, dir, "git", "commit", "-m", "rename file")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID:      "rc_renamed",
+		File:    "src/new_name.ts",
+		OldPath: "src/old_name.ts",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideLeft, Line: 10},
+			To:   DiffPosition{Side: DiffSideLeft, Line: 10},
+		},
+		Snippet:   "func oldLogic() {}",
+		Body:      "L-side comment on renamed file",
+		Submitted: true,
+	}}
+	result := detectStaleness(dir, headRef, baseRef, comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment (re-anchored via baseRef+OldPath), got %d", len(result))
+	}
+	if result[0].Line.From.Side != DiffSideLeft {
+		t.Errorf("side = %q, want L", result[0].Line.From.Side)
+	}
+	if result[0].Line.From.Line != 2 {
+		t.Errorf("line = %d, want 2", result[0].Line.From.Line)
+	}
+}
+
+// TestDetectStaleness_StaleWhenAmbiguous verifies that multiple snippet matches combined
+// with a non-matching snippetContext results in anchorStatus=stale.
+func TestDetectStaleness_StaleWhenAmbiguous(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Build a file where "return true;" appears at lines 5 and 20,
+	// but the snippetContext matches neither location.
+	var lines []string
+	for i := 1; i <= 25; i++ {
+		if i == 5 || i == 20 {
+			lines = append(lines, "return true;")
+		} else {
+			lines = append(lines, fmt.Sprintf("line %d", i))
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "src", "svc.ts"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID: "rc_ambig", File: "src/svc.ts",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 5},
+			To:   DiffPosition{Side: DiffSideRight, Line: 5},
+		},
+		Snippet:        "return true;",
+		SnippetContext: "this context does not appear anywhere in the file",
+		Body:           "Ambiguous match",
+		Submitted:      true,
+	}}
+	result := detectStaleness(dir, headRef, "", comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment (stale, not pruned), got %d", len(result))
+	}
+	if result[0].AnchorStatus != AnchorStale {
+		t.Errorf("anchorStatus = %q, want %q", result[0].AnchorStatus, AnchorStale)
 	}
 }

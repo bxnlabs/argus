@@ -84,7 +84,7 @@ func newReviewGetCmd() *cobra.Command {
 			}
 			baseBranch := branchResp.DefaultBase
 
-			rv, err := review.Load(projectDir, repoDir, branch, baseBranch)
+			rv, err := review.Load(projectDir, repoDir, branch, baseBranch, "", "")
 			if err != nil {
 				return fmt.Errorf("load review: %w", err)
 			}
