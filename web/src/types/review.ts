@@ -1,13 +1,25 @@
-export interface LineRange {
-  from: number;
-  to: number;
+export type DiffSide = "L" | "R";
+
+export interface DiffPosition {
+  side: DiffSide;
+  line: number;
 }
+
+export interface LineRange {
+  from: DiffPosition;
+  to: DiffPosition;
+}
+
+export type AnchorStatus = "resolved" | "stale" | "context_unavailable";
 
 export interface ReviewComment {
   id: string;
   file: string;
+  oldPath?: string;
   line: LineRange;
   snippet: string;
+  snippetContext?: string;
+  anchorStatus?: AnchorStatus;
   body: string;
   submitted: boolean;
   createdAt: string;
