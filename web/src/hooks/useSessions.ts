@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { Session } from "@/types";
 import {
   useSessionsQuery,
@@ -14,22 +14,30 @@ export function useSessions() {
   const deleteMutation = useDeleteSession();
   const renameMutation = useRenameSession();
 
+  // Keep stable refs to mutateAsync so callbacks don't change on every render.
+  // TanStack Query's useMutation returns a new object each render, which would
+  // otherwise cascade new function references through the entire component tree.
+  const deleteMutateRef = useRef(deleteMutation.mutateAsync);
+  deleteMutateRef.current = deleteMutation.mutateAsync;
+  const renameMutateRef = useRef(renameMutation.mutateAsync);
+  renameMutateRef.current = renameMutation.mutateAsync;
+
   const deleteSession = useCallback(
     async (sessionId: string, deleteBranch?: boolean) => {
       const message = deleteBranch
         ? "Delete this session and its branch? This cannot be undone."
         : "Delete this session? This cannot be undone.";
       if (!confirm(message)) return null;
-      return await deleteMutation.mutateAsync({ sessionId, deleteBranch });
+      return await deleteMutateRef.current({ sessionId, deleteBranch });
     },
-    [deleteMutation],
+    [],
   );
 
   const renameSession = useCallback(
     async (sessionId: string, newName: string) => {
-      await renameMutation.mutateAsync({ sessionId, newName });
+      await renameMutateRef.current({ sessionId, newName });
     },
-    [renameMutation]
+    [],
   );
 
   return { sessions, homeDir, isLoaded: isSuccess, deleteSession, renameSession };
