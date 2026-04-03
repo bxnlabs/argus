@@ -635,3 +635,57 @@ func TestDetectStaleness_StaleWhenAmbiguous(t *testing.T) {
 		t.Errorf("anchorStatus = %q, want %q", result[0].AnchorStatus, AnchorStale)
 	}
 }
+
+// TestDetectStaleness_ContextDisambiguatesMatch verifies that when a snippet appears
+// at multiple locations, a snippetContext that uniquely identifies one of them causes
+// the comment to be re-anchored to that specific location (not the nearest one).
+func TestDetectStaleness_ContextDisambiguatesMatch(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Build a file where "const x = 1;" appears at lines 2 and 30.
+	// A unique marker is placed at line 25 — within ±10 of line 30 but
+	// more than 10 lines away from line 2, so only line 30's window sees it.
+	var lines []string
+	for i := 1; i <= 35; i++ {
+		switch i {
+		case 2, 30:
+			lines = append(lines, "const x = 1;")
+		case 25:
+			lines = append(lines, "// uniqueMarkerForLine30")
+		default:
+			lines = append(lines, fmt.Sprintf("line %d", i))
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "src", "dup.ts"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Comment originally at line 1 (near line 2), but snippetContext uniquely
+	// identifies the occurrence at line 30 — context should win over proximity.
+	comments := []ReviewComment{{
+		ID: "rc_ctx", File: "src/dup.ts",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 1},
+			To:   DiffPosition{Side: DiffSideRight, Line: 1},
+		},
+		Snippet:        "const x = 1;",
+		SnippetContext: "uniqueMarkerForLine30",
+		Body:           "Context should anchor to line 30",
+		Submitted:      true,
+	}}
+	result := detectStaleness(dir, headRef, "", comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment (re-anchored via context), got %d", len(result))
+	}
+	if result[0].AnchorStatus != "" {
+		t.Errorf("anchorStatus = %q, want empty (healthy)", result[0].AnchorStatus)
+	}
+	if result[0].Line.From.Line != 30 {
+		t.Errorf("line = %d, want 30 (context-disambiguated)", result[0].Line.From.Line)
+	}
+	if result[0].Line.From.Side != DiffSideRight {
+		t.Errorf("side = %q, want R", result[0].Line.From.Side)
+	}
+}

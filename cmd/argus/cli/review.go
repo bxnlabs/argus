@@ -136,7 +136,7 @@ func formatReviewMarkdown(r *review.Review) string {
 	for _, file := range fileOrder {
 		fmt.Fprintf(&b, "\n### %s\n\n", file)
 		for _, c := range byFile[file] {
-			fmt.Fprintf(&b, "**Lines %d-%d:**\n", c.Line.From, c.Line.To)
+			fmt.Fprintf(&b, "**Lines %d-%d:**\n", c.Line.From.Line, c.Line.To.Line)
 			for _, line := range strings.Split(c.Snippet, "\n") {
 				b.WriteString("> " + line + "\n")
 			}

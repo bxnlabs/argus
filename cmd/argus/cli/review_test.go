@@ -19,21 +19,21 @@ func TestFormatReviewMarkdown(t *testing.T) {
 		Comments: []review.ReviewComment{
 			{
 				ID: "rc_1", File: "src/auth.ts",
-				Line:      review.LineRange{From: 52, To: 52},
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 52}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 52}},
 				Snippet:   "const TOKEN_EXPIRY = 1800;",
 				Body:      "Token expiry should be 3600 not 1800",
 				Submitted: true,
 			},
 			{
 				ID: "rc_2", File: "src/auth.ts",
-				Line:      review.LineRange{From: 12, To: 15},
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 12}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 15}},
 				Snippet:   "function validateToken(token) {\n  if (!token) return false;\n}",
 				Body:      "Missing signature check",
 				Submitted: false, // Should be excluded
 			},
 			{
 				ID: "rc_3", File: "src/utils.ts",
-				Line:      review.LineRange{From: 1, To: 3},
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 1}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 3}},
 				Snippet:   "import { hash } from 'crypto';",
 				Body:      "Use a proper hashing library",
 				Submitted: true,

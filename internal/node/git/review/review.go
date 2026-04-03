@@ -245,7 +245,7 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 				From: DiffPosition{Side: side, Line: lineNum},
 				To:   DiffPosition{Side: side, Line: lineNum + lineCount},
 			}
-			c.AnchorStatus = AnchorResolved
+			c.AnchorStatus = ""
 			result = append(result, c)
 		}
 	}
