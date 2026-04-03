@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment, memo, useMemo } from "react";
 import { ChevronDown, ChevronUp, ChevronRight, Plus, Minus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
-import type { ReviewComment } from "@/types";
+import type { ReviewComment, DiffPosition } from "@/types";
 import type { ExpandDirection } from "@/hooks/useExpandableDiff";
 import { InlineCommentForm } from "./InlineCommentForm";
 import { InlineCommentCard } from "./InlineCommentCard";
@@ -16,8 +16,8 @@ interface UnifiedDiffProps {
   onToggle?: () => void;
   wrapLines?: boolean;
   comments?: ReviewComment[];
-  activeCommentLine?: { from: number; to: number } | null;
-  onLineClick?: (line: number) => void;
+  activeCommentLine?: { position: DiffPosition } | null;
+  onLineClick?: (position: DiffPosition) => void;
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
@@ -66,12 +66,12 @@ export const UnifiedDiff = memo(function UnifiedDiff({
   const effectiveComments = comments ?? EMPTY_COMMENTS;
   const commentsByLine = useMemo(() => {
     if (effectiveComments.length === 0) return null;
-    const map = new Map<number, ReviewComment[]>();
+    const map = new Map<string, ReviewComment[]>();
     for (const c of effectiveComments) {
-      const line = c.line.to;
-      const arr = map.get(line);
+      const key = `${c.line.to.side}${c.line.to.line}`;
+      const arr = map.get(key);
       if (arr) arr.push(c);
-      else map.set(line, [c]);
+      else map.set(key, [c]);
     }
     return map;
   }, [effectiveComments]);
@@ -220,9 +220,9 @@ function Hunk({
 }: {
   hunk: DiffHunk;
   wrapLines: boolean;
-  commentsByLine: Map<number, ReviewComment[]> | null;
-  activeCommentLine: { from: number; to: number } | null;
-  onLineClick?: (line: number) => void;
+  commentsByLine: Map<string, ReviewComment[]> | null;
+  activeCommentLine: { position: DiffPosition } | null;
+  onLineClick?: (position: DiffPosition) => void;
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
@@ -235,20 +235,26 @@ function Hunk({
         {hunk.header}
       </div>
       {hunk.lines.map((line, index) => {
-        const newLine = line.newLineNumber;
+        const activePos = activeCommentLine?.position ?? null;
         const isInActiveRange =
-          activeCommentLine != null &&
-          newLine != null &&
-          newLine >= activeCommentLine.from &&
-          newLine <= activeCommentLine.to;
+          activePos != null &&
+          ((activePos.side === "L" && line.oldLineNumber === activePos.line) ||
+           (activePos.side === "R" && line.newLineNumber === activePos.line));
 
+        const lComments =
+          line.oldLineNumber != null && commentsByLine
+            ? commentsByLine.get(`L${line.oldLineNumber}`)
+            : undefined;
+        const rComments =
+          line.newLineNumber != null && commentsByLine
+            ? commentsByLine.get(`R${line.newLineNumber}`)
+            : undefined;
         const lineComments =
-          newLine != null && commentsByLine
-            ? commentsByLine.get(newLine) ?? EMPTY_COMMENTS
+          lComments || rComments
+            ? [...(lComments ?? []), ...(rComments ?? [])]
             : EMPTY_COMMENTS;
 
-        const showForm =
-          activeCommentLine != null && newLine === activeCommentLine.to;
+        const showForm = isInActiveRange;
 
         return (
           <Fragment key={index}>
@@ -295,7 +301,7 @@ function DiffLineRow({
   line: DiffLine;
   wrapLines: boolean;
   isInActiveRange: boolean;
-  onLineClick?: (line: number) => void;
+  onLineClick?: (position: DiffPosition) => void;
   commentingEnabled: boolean;
 }) {
   if (line.type === "header") return null;
@@ -319,23 +325,34 @@ function DiffLineRow({
 
   const isCommentable =
     commentingEnabled &&
-    line.type === "addition" &&
-    line.newLineNumber != null &&
+    (line.oldLineNumber != null || line.newLineNumber != null) &&
     line.content.trim() !== "";
+
+  const isDeletion = line.type === "deletion";
 
   return (
     <div className={cn("flex hover:bg-muted/30", bgColor, isInActiveRange && "bg-blue-500/10")}>
-      <div className="text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none">
+      <div
+        className={cn(
+          "text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none",
+          isCommentable && isDeletion && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
+        )}
+        onClick={
+          isCommentable && isDeletion
+            ? () => onLineClick?.({ side: "L", line: line.oldLineNumber! })
+            : undefined
+        }
+      >
         {line.oldLineNumber ?? ""}
       </div>
       <div
         className={cn(
           "text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none",
-          isCommentable && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
+          isCommentable && !isDeletion && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
         )}
         onClick={
-          isCommentable
-            ? () => onLineClick?.(line.newLineNumber!)
+          isCommentable && !isDeletion
+            ? () => onLineClick?.({ side: "R", line: line.newLineNumber! })
             : undefined
         }
       >

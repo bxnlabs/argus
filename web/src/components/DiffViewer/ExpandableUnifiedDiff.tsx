@@ -1,6 +1,6 @@
 import { memo, useEffect } from "react";
 import type { ParsedDiff, DiffHunk } from "@/lib/diff-parser";
-import type { ReviewComment } from "@/types";
+import type { ReviewComment, DiffPosition } from "@/types";
 import { useExpandableDiff, type ExpansionContext } from "@/hooks/useExpandableDiff";
 import { UnifiedDiff } from "./UnifiedDiff";
 
@@ -13,8 +13,8 @@ interface ExpandableUnifiedDiffProps {
   onToggle?: () => void;
   wrapLines?: boolean;
   comments?: ReviewComment[];
-  activeCommentLine?: { from: number; to: number } | null;
-  onLineClick?: (line: number) => void;
+  activeCommentLine?: { position: DiffPosition } | null;
+  onLineClick?: (position: DiffPosition) => void;
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
