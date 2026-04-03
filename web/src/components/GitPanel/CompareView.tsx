@@ -199,6 +199,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     saveReview.mutate(updated);
   }, [queryClient, workingDirectory, currentBranch, baseBranch, saveReview]);
 
+  // Resolve hunks for a file, preferring expanded hunks from the ref
+  const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
+    const expanded = expandedHunksRef.current.get(pathKey);
+    if (expanded && expanded.length > 0) return expanded;
+    const diff = parsedDiffs.find((d) => getDiffPathKey(d) === pathKey);
+    return diff?.hunks ?? [];
+  }, [parsedDiffs]);
+
   // Comment navigation
   const [focusedCommentIdx, setFocusedCommentIdx] = useState(-1);
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -237,10 +245,39 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     });
   }, [comments, parsedDiffs]);
 
-  const scrollToComment = useCallback((index: number) => {
+  const scrollToComment = useCallback(async (index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
     setFocusedCommentIdx(index);
+
+    // Ensure the comment's line is visible in the current hunks before scrolling
+    const pathKey = comment.file;
+    const pos = comment.line.to;
+    const currentHunks = getHunksForFile(pathKey);
+    let visible = false;
+    for (const hunk of currentHunks) {
+      for (const line of hunk.lines) {
+        if (pos.side === "L" && line.oldLineNumber === pos.line) { visible = true; break; }
+        if (pos.side === "R" && line.newLineNumber === pos.line) { visible = true; break; }
+      }
+      if (visible) break;
+    }
+
+    if (!visible) {
+      const handler = insertSyntheticHandlers.current.get(pathKey);
+      if (handler) {
+        const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
+        const file = pos.side === "L" && comment.oldPath ? comment.oldPath : comment.file;
+        const start = Math.max(1, pos.line - 3);
+        const end = pos.line + 3;
+        await fetchFileLinesForSynthetic(
+          workingDirectory, file, start, end, ref, currentHunks, pos, handler,
+        );
+        // Wait for React to re-render after synthetic hunk insertion
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
     const el = commentRefs.current.get(comment.id);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -250,7 +287,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [sortedComments]);
+  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory]);
 
   const handlePrevComment = useCallback(() => {
     const next = focusedCommentIdx <= 0 ? 0 : focusedCommentIdx - 1;
@@ -337,32 +374,31 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       const handler = insertSyntheticHandlers.current.get(pathKey);
       if (!handler) continue;
 
-      const hunks = expandedHunksRef.current.get(pathKey);
-      if (!hunks || hunks.length === 0) {
-        const diff = parsedDiffs.find((d) => getDiffPathKey(d) === pathKey);
-        if (!diff) continue;
-        // Use the diff hunks directly since expanded hunks aren't available yet
-        const currentHunks = diff.hunks;
-        for (const comment of fileComments) {
-          const pos = comment.line.to;
-          let visible = false;
-          for (const hunk of currentHunks) {
-            for (const line of hunk.lines) {
-              if (pos.side === "L" && line.oldLineNumber === pos.line) { visible = true; break; }
-              if (pos.side === "R" && line.newLineNumber === pos.line) { visible = true; break; }
-            }
-            if (visible) break;
-          }
-          if (!visible) {
-            const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
-            const file = pos.side === "L" && comment.oldPath ? comment.oldPath : comment.file;
-            const start = Math.max(1, pos.line - 3);
-            const end = pos.line + 3;
+      // Always use the best available hunks: prefer expanded hunks, fall back to parsed diff hunks
+      const expanded = expandedHunksRef.current.get(pathKey);
+      const diff = parsedDiffs.find((d) => getDiffPathKey(d) === pathKey);
+      const currentHunks = (expanded && expanded.length > 0) ? expanded : (diff?.hunks ?? []);
+      if (currentHunks.length === 0) continue;
 
-            fetchFileLinesForSynthetic(
-              workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-            );
+      for (const comment of fileComments) {
+        const pos = comment.line.to;
+        let visible = false;
+        for (const hunk of currentHunks) {
+          for (const line of hunk.lines) {
+            if (pos.side === "L" && line.oldLineNumber === pos.line) { visible = true; break; }
+            if (pos.side === "R" && line.newLineNumber === pos.line) { visible = true; break; }
           }
+          if (visible) break;
+        }
+        if (!visible) {
+          const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
+          const file = pos.side === "L" && comment.oldPath ? comment.oldPath : comment.file;
+          const start = Math.max(1, pos.line - 3);
+          const end = pos.line + 3;
+
+          fetchFileLinesForSynthetic(
+            workingDirectory, file, start, end, ref, currentHunks, pos, handler,
+          );
         }
       }
     }
@@ -384,14 +420,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     () => activeComment ? { position: activeComment.position } : null,
     [activeComment?.position?.side, activeComment?.position?.line],
   );
-
-  // Resolve hunks for a file, preferring expanded hunks from the ref
-  const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
-    const expanded = expandedHunksRef.current.get(pathKey);
-    if (expanded && expanded.length > 0) return expanded;
-    const diff = parsedDiffs.find((d) => getDiffPathKey(d) === pathKey);
-    return diff?.hunks ?? [];
-  }, [parsedDiffs]);
 
   const handleAddComment = useCallback((body: string) => {
     if (!activeComment) return;
