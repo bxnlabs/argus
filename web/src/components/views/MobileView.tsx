@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { SessionList } from "@/components/SessionList";
 import { NewSessionDialog } from "@/components/NewSessionDialog";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
@@ -22,6 +23,15 @@ export function MobileView({
   onRenameSession,
   renderWorkspace,
 }: ViewProps) {
+  const handleAttachSession = useCallback(
+    (id: string) => {
+      const session = sessions.find((s) => s.id === id);
+      if (session) attachToSession(session);
+      setSidebarOpen(false);
+    },
+    [sessions, attachToSession, setSidebarOpen],
+  );
+
   return (
     <main className="bg-background flex h-app flex-col overflow-hidden">
       {/* Sidebar overlay */}
@@ -83,11 +93,7 @@ export function MobileView({
                     homeDir={homeDir}
                     activeSessionId={activeTab?.sessionId || undefined}
                     sessionStatuses={sessionStatuses}
-                    onAttachSession={(id) => {
-                      const session = sessions.find((s) => s.id === id);
-                      if (session) attachToSession(session);
-                      setSidebarOpen(false);
-                    }}
+                    onAttachSession={handleAttachSession}
                     onDeleteSession={onDeleteSession}
                     onRenameSession={onRenameSession}
                     onNewSession={() => {

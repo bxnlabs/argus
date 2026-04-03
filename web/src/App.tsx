@@ -29,6 +29,8 @@ function HomeContent() {
   // Data hooks
   const { sessions, homeDir, isLoaded: sessionsLoaded, deleteSession, renameSession } = useSessions();
   const createSessionMutation = useCreateSession();
+  const createMutateRef = useRef(createSessionMutation.mutateAsync);
+  createMutateRef.current = createSessionMutation.mutateAsync;
 
   const focusedSession = activeTab?.sessionId
     ? sessions.find((s) => s.id === activeTab.sessionId)
@@ -113,7 +115,7 @@ function HomeContent() {
       setShowNewSessionDialog(false);
 
       try {
-        const result = await createSessionMutation.mutateAsync({
+        const result = await createMutateRef.current({
           name: params.name,
           source: params.source,
           provider_type: params.provider_type,
@@ -132,7 +134,7 @@ function HomeContent() {
         toast.error("Failed to create session");
       }
     },
-    [createSessionMutation, attachToSession]
+    [attachToSession]
   );
 
   // Delete session handler

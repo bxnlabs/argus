@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { SessionList } from "@/components/SessionList";
 import { NewSessionDialog } from "@/components/NewSessionDialog";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,14 @@ export function DesktopView({
   onRenameSession,
   renderWorkspace,
 }: ViewProps) {
+  const handleAttachSession = useCallback(
+    (id: string) => {
+      const session = sessions.find((s) => s.id === id);
+      if (session) attachToSession(session);
+    },
+    [sessions, attachToSession],
+  );
+
   return (
     <div className="bg-background flex h-app overflow-hidden">
       {/* Sidebar — always visible, toggles between expanded (w-72) and collapsed (w-14) */}
@@ -118,10 +127,7 @@ export function DesktopView({
                 homeDir={homeDir}
                 activeSessionId={activeTab?.sessionId || undefined}
                 sessionStatuses={sessionStatuses}
-                onAttachSession={(id) => {
-                  const session = sessions.find((s) => s.id === id);
-                  if (session) attachToSession(session);
-                }}
+                onAttachSession={handleAttachSession}
                 onDeleteSession={onDeleteSession}
                 onRenameSession={onRenameSession}
                 onNewSession={() => setShowNewSessionDialog(true)}
