@@ -22,7 +22,7 @@ import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { useViewport } from "@/hooks/useViewport";
-import type { CommitFile, FileStatus, ReviewComment, Review } from "@/types";
+import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
 
@@ -47,8 +47,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [activeComment, setActiveComment] = useState<{
     file: string;
-    from: number;
-    to: number;
+    position: DiffPosition;
   } | null>(null);
 
   const {
@@ -113,7 +112,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const {
     data: reviewData,
-  } = useReviewQuery(workingDirectory, currentBranch, baseBranch);
+  } = useReviewQuery(workingDirectory, currentBranch, baseBranch, compareData?.headRef, compareData?.baseRef);
 
   const saveReview = useSaveReviewMutation(workingDirectory);
 
@@ -162,11 +161,34 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const sortedComments = useMemo(() => {
     if (!comments.length || !parsedDiffs.length) return [];
     const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
+
+    // Build a line position index for each file
+    const linePositions = new Map<string, Map<string, number>>();
+    for (const diff of parsedDiffs) {
+      const pathKey = getDiffPathKey(diff);
+      const posMap = new Map<string, number>();
+      let rowIdx = 0;
+      for (const hunk of diff.hunks) {
+        for (const line of hunk.lines) {
+          if (line.oldLineNumber != null) posMap.set(`L${line.oldLineNumber}`, rowIdx);
+          if (line.newLineNumber != null) posMap.set(`R${line.newLineNumber}`, rowIdx);
+          rowIdx++;
+        }
+      }
+      linePositions.set(pathKey, posMap);
+    }
+
     return [...comments].sort((a, b) => {
       const ai = fileOrder.indexOf(a.file);
       const bi = fileOrder.indexOf(b.file);
       if (ai !== bi) return ai - bi;
-      return a.line.from - b.line.from;
+      const posA = linePositions.get(a.file);
+      const posB = linePositions.get(b.file);
+      const keyA = `${a.line.from.side}${a.line.from.line}`;
+      const keyB = `${b.line.from.side}${b.line.from.line}`;
+      const idxA = posA?.get(keyA) ?? a.line.from.line;
+      const idxB = posB?.get(keyB) ?? b.line.from.line;
+      return idxA - idxB;
     });
   }, [comments, parsedDiffs]);
 
@@ -229,8 +251,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [isMobile]);
 
   // --- Stable callbacks for UnifiedDiff ---
-  const handleLineClick = useCallback((file: string, line: number) => {
-    setActiveComment({ file, from: line, to: line });
+  const handleLineClick = useCallback((file: string, position: DiffPosition) => {
+    setActiveComment({ file, position });
   }, []);
 
   const clearActiveComment = useCallback(() => setActiveComment(null), []);
@@ -251,18 +273,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   // Stable per-file onLineClick handlers — avoids creating new closures in the render loop
   const fileLineClickHandlers = useMemo(() => {
-    const map = new Map<string, (line: number) => void>();
+    const map = new Map<string, (position: DiffPosition) => void>();
     for (const diff of parsedDiffs) {
       const pathKey = getDiffPathKey(diff);
-      map.set(pathKey, (line: number) => handleLineClick(pathKey, line));
+      map.set(pathKey, (position: DiffPosition) => handleLineClick(pathKey, position));
     }
     return map;
   }, [parsedDiffs, handleLineClick]);
 
   // Stable activeCommentLine object — only changes when the actual values change
   const activeCommentLine = useMemo(
-    () => activeComment ? { from: activeComment.from, to: activeComment.to } : null,
-    [activeComment?.from, activeComment?.to],
+    () => activeComment ? { position: activeComment.position } : null,
+    [activeComment?.position?.side, activeComment?.position?.line],
   );
 
   // Resolve hunks for a file, preferring expanded hunks from the ref
@@ -277,10 +299,17 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     if (!activeComment) return;
 
     const hunks = getHunksForFile(activeComment.file);
+    const pos = activeComment.position;
     let snippet = "";
+    let snippetContext = "";
+
+    // Find the anchor line's content
     for (const hunk of hunks) {
       for (const line of hunk.lines) {
-        if (line.newLineNumber === activeComment.from) {
+        const match = pos.side === "L"
+          ? line.oldLineNumber === pos.line
+          : line.newLineNumber === pos.line;
+        if (match) {
           snippet = line.content;
           break;
         }
@@ -288,12 +317,44 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       if (snippet) break;
     }
 
-    const lineNum = activeComment.from;
+    // Extract same-side snippet context (1-2 lines above/below)
+    if (snippet) {
+      const sameSideLines: string[] = [];
+      let anchorIdx = -1;
+      for (const hunk of hunks) {
+        for (const line of hunk.lines) {
+          const lineNum = pos.side === "L" ? line.oldLineNumber : line.newLineNumber;
+          if (lineNum != null) {
+            sameSideLines.push(line.content);
+            if (lineNum === pos.line) {
+              anchorIdx = sameSideLines.length - 1;
+            }
+          }
+        }
+      }
+      if (anchorIdx >= 0) {
+        const start = Math.max(0, anchorIdx - 2);
+        const end = Math.min(sameSideLines.length, anchorIdx + 3);
+        snippetContext = sameSideLines.slice(start, end).join("\n");
+      }
+    }
+
+    // Determine oldPath for renames
+    let oldPath: string | undefined;
+    if (pos.side === "L") {
+      const diff = parsedDiffs.find((d) => getDiffPathKey(d) === activeComment.file);
+      if (diff?.isRenamed) {
+        oldPath = diff.oldFile;
+      }
+    }
+
     const newComment: ReviewComment = {
       id: `rc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       file: activeComment.file,
-      line: { from: lineNum, to: lineNum },
+      ...(oldPath ? { oldPath } : {}),
+      line: { from: pos, to: pos },
       snippet,
+      ...(snippetContext ? { snippetContext } : {}),
       body,
       submitted: false,
       createdAt: new Date().toISOString(),
@@ -304,7 +365,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       comments: [...prev.comments, newComment],
     }));
     setActiveComment(null);
-  }, [activeComment, getHunksForFile, saveAndUpdate]);
+  }, [activeComment, getHunksForFile, saveAndUpdate, parsedDiffs]);
 
   const handleDeleteComment = useCallback((id: string) => {
     saveAndUpdate((prev) => ({
@@ -560,14 +621,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           activeComment={activeComment}
           activeLines={activeComment ? (() => {
             const hunks = getHunksForFile(activeComment.file);
+            const pos = activeComment.position;
             const lines: DiffLine[] = [];
             for (const hunk of hunks) {
               for (const line of hunk.lines) {
-                if (
-                  line.newLineNumber != null &&
-                  line.newLineNumber >= activeComment.from &&
-                  line.newLineNumber <= activeComment.to
-                ) {
+                const match = pos.side === "L"
+                  ? line.oldLineNumber === pos.line
+                  : line.newLineNumber === pos.line;
+                if (match) {
                   lines.push(line);
                 }
               }

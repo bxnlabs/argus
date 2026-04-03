@@ -7,6 +7,8 @@ export function useReviewQuery(
   path: string,
   head: string | undefined,
   base: string | null,
+  headRef?: string,
+  baseRef?: string,
 ) {
   return useQuery({
     queryKey: reviewKeys.forComparison(path, head ?? "", base ?? ""),
@@ -16,6 +18,8 @@ export function useReviewQuery(
         branch: head!,
         base: base!,
       });
+      if (headRef) params.set("headRef", headRef);
+      if (baseRef) params.set("baseRef", baseRef);
       return apiFetch<Review>(`/node/api/git/review?${params}`);
     },
     staleTime: 30_000,
