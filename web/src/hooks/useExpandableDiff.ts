@@ -16,7 +16,8 @@ export type ExpandDirection = "up" | "down";
 type ExpandAction =
   | { type: "EXPAND_UP"; hunkIndex: number; lines: DiffLine[] }
   | { type: "EXPAND_DOWN"; hunkIndex: number; lines: DiffLine[] }
-  | { type: "RESET"; hunks: DiffHunk[]; totalLines: number };
+  | { type: "RESET"; hunks: DiffHunk[]; totalLines: number }
+  | { type: "INSERT_SYNTHETIC"; hunk: DiffHunk; insertIndex: number };
 
 interface ExpandableDiffState {
   hunks: DiffHunk[];
@@ -109,6 +110,19 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
       hunk.header = reconstructHeader(hunk.oldStart, hunk.oldCount, hunk.newStart, hunk.newCount);
       hunks[hunkIndex] = hunk;
 
+      return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
+    }
+
+    case "INSERT_SYNTHETIC": {
+      const { hunk, insertIndex } = action;
+      const hunks = [...state.hunks];
+      // Check for duplicate — don't insert if a hunk with overlapping range already exists
+      const isDuplicate = hunks.some((h) =>
+        h.newStart <= hunk.newStart + hunk.newCount &&
+        h.newStart + h.newCount >= hunk.newStart
+      );
+      if (isDuplicate) return state;
+      hunks.splice(insertIndex, 0, hunk);
       return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
     }
 
@@ -268,5 +282,6 @@ export function useExpandableDiff(
     handleExpand,
     resetHunks,
     abortAll,
+    dispatch,
   };
 }
