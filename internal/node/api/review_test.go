@@ -180,9 +180,17 @@ func TestReviewHandler_Delete(t *testing.T) {
 	overrideDir := t.TempDir()
 	h := &reviewHandler{projectDirOverride: overrideDir}
 	payload := review.Review{
-		Head:     "feat/test",
-		Base:     "main",
-		Comments: []review.ReviewComment{{ID: "rc_1", File: "x.go", Body: "test"}},
+		Head: "feat/test",
+		Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:   "rc_1",
+			File: "x.go",
+			Line: review.LineRange{
+				From: review.DiffPosition{Side: review.DiffSideRight, Line: 1},
+				To:   review.DiffPosition{Side: review.DiffSideRight, Line: 1},
+			},
+			Body: "test",
+		}},
 	}
 	body, _ := json.Marshal(payload)
 	postReq := httptest.NewRequest("POST",
@@ -190,6 +198,9 @@ func TestReviewHandler_Delete(t *testing.T) {
 		bytes.NewReader(body))
 	postW := httptest.NewRecorder()
 	h.post(postW, postReq)
+	if postW.Code != http.StatusOK {
+		t.Fatalf("POST expected 200, got %d: %s", postW.Code, postW.Body.String())
+	}
 	delReq := httptest.NewRequest("DELETE",
 		"/api/git/review?path="+repoDir+"&branch=feat/test&base=main",
 		nil)
