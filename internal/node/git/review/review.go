@@ -36,9 +36,9 @@ const (
 type AnchorStatus string
 
 const (
-	AnchorStatusResolved           AnchorStatus = "resolved"
-	AnchorStatusStale              AnchorStatus = "stale"
-	AnchorStatusContextUnavailable AnchorStatus = "context_unavailable"
+	AnchorResolved           AnchorStatus = "resolved"
+	AnchorStale              AnchorStatus = "stale"
+	AnchorContextUnavailable AnchorStatus = "context_unavailable"
 )
 
 // DiffPosition identifies a specific line on a specific side of the diff.
@@ -65,7 +65,7 @@ func (lr *LineRange) UnmarshalJSON(data []byte) error {
 		To   DiffPosition `json:"to"`
 	}
 	var nf newFormat
-	if err := json.Unmarshal(data, &nf); err == nil && nf.From.Line != 0 {
+	if err := json.Unmarshal(data, &nf); err == nil && nf.From.Side != "" {
 		lr.From = nf.From
 		lr.To = nf.To
 		return nil

@@ -351,7 +351,7 @@ func TestReviewComment_NewFields(t *testing.T) {
 		Body:           "Why was this removed?",
 		Submitted:      true,
 		CreatedAt:      "2026-04-01T12:00:00Z",
-		AnchorStatus:   AnchorStatusStale,
+		AnchorStatus:   AnchorStale,
 	}
 	data, err := json.Marshal(c)
 	if err != nil {
@@ -367,8 +367,8 @@ func TestReviewComment_NewFields(t *testing.T) {
 	if got.SnippetContext != "surrounding context" {
 		t.Errorf("SnippetContext = %q, want %q", got.SnippetContext, "surrounding context")
 	}
-	if got.AnchorStatus != AnchorStatusStale {
-		t.Errorf("AnchorStatus = %q, want %q", got.AnchorStatus, AnchorStatusStale)
+	if got.AnchorStatus != AnchorStale {
+		t.Errorf("AnchorStatus = %q, want %q", got.AnchorStatus, AnchorStale)
 	}
 	if got.Line.From.Side != DiffSideLeft || got.Line.From.Line != 3 {
 		t.Errorf("Line.From = {%q,%d}, want {%q,3}", got.Line.From.Side, got.Line.From.Line, DiffSideLeft)
