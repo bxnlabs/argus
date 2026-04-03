@@ -24,21 +24,78 @@ func reviewFilename(head, base string) string {
 	return encodeBranchName(head) + "--" + encodeBranchName(base) + ".json"
 }
 
-// LineRange represents a range of lines in a file (1-indexed, inclusive).
+// DiffSide identifies which side of a unified diff a line belongs to.
+type DiffSide string
+
+const (
+	DiffSideLeft  DiffSide = "L"
+	DiffSideRight DiffSide = "R"
+)
+
+// AnchorStatus describes the staleness state of a submitted comment's anchor.
+type AnchorStatus string
+
+const (
+	AnchorStatusResolved           AnchorStatus = "resolved"
+	AnchorStatusStale              AnchorStatus = "stale"
+	AnchorStatusContextUnavailable AnchorStatus = "context_unavailable"
+)
+
+// DiffPosition identifies a specific line on a specific side of the diff.
+type DiffPosition struct {
+	Side DiffSide `json:"side"`
+	Line int      `json:"line"`
+}
+
+// LineRange represents a range of lines in a diff (1-indexed, inclusive).
+// It supports both the new format {"from":{"side":"R","line":5},"to":{"side":"R","line":5}}
+// and the legacy format {"from":5,"to":5} (migrated to R side on read).
 type LineRange struct {
-	From int `json:"from"`
-	To   int `json:"to"`
+	From DiffPosition `json:"from"`
+	To   DiffPosition `json:"to"`
+}
+
+// UnmarshalJSON implements backward-compatible deserialization for LineRange.
+// It accepts the new object format {"from":{"side":"R","line":N},"to":{"side":"R","line":N}}
+// and the legacy numeric format {"from":N,"to":N}, migrating the latter to R side.
+func (lr *LineRange) UnmarshalJSON(data []byte) error {
+	// Try new format first.
+	type newFormat struct {
+		From DiffPosition `json:"from"`
+		To   DiffPosition `json:"to"`
+	}
+	var nf newFormat
+	if err := json.Unmarshal(data, &nf); err == nil && nf.From.Line != 0 {
+		lr.From = nf.From
+		lr.To = nf.To
+		return nil
+	}
+
+	// Fall back to legacy format {"from": N, "to": N}.
+	var legacy struct {
+		From int `json:"from"`
+		To   int `json:"to"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	lr.From = DiffPosition{Side: DiffSideRight, Line: legacy.From}
+	lr.To = DiffPosition{Side: DiffSideRight, Line: legacy.To}
+	return nil
 }
 
 // ReviewComment is a review comment anchored to a snippet of code.
 type ReviewComment struct {
-	ID        string    `json:"id"`
-	File      string    `json:"file"`
-	Line      LineRange `json:"line"`
-	Snippet   string    `json:"snippet"`
-	Body      string    `json:"body"`
-	Submitted bool      `json:"submitted"`
-	CreatedAt string    `json:"createdAt"`
+	ID             string       `json:"id"`
+	File           string       `json:"file"`
+	OldPath        string       `json:"oldPath,omitempty"`
+	Line           LineRange    `json:"line"`
+	Snippet        string       `json:"snippet"`
+	SnippetContext string       `json:"snippetContext,omitempty"`
+	Body           string       `json:"body"`
+	Submitted      bool         `json:"submitted"`
+	CreatedAt      string       `json:"createdAt"`
+	AnchorStatus   AnchorStatus `json:"anchorStatus,omitempty"`
 }
 
 // ReviewBody is the top-level review feedback (not anchored to a line).
@@ -132,12 +189,15 @@ func detectStaleness(repoDir string, comments []ReviewComment) []ReviewComment {
 			continue
 		}
 		fileText := string(content)
-		lineNum := findSnippet(fileText, c.Snippet, c.Line.From)
+		lineNum := findSnippet(fileText, c.Snippet, c.Line.From.Line)
 		if lineNum == -1 {
 			continue
 		}
 		lineCount := strings.Count(c.Snippet, "\n")
-		c.Line = LineRange{From: lineNum, To: lineNum + lineCount}
+		c.Line = LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: lineNum},
+			To:   DiffPosition{Side: DiffSideRight, Line: lineNum + lineCount},
+		}
 		result = append(result, c)
 	}
 	return result

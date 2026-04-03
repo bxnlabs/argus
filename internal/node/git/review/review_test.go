@@ -1,6 +1,7 @@
 package review
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,7 +58,10 @@ func TestWriteAndReadReviewFile(t *testing.T) {
 		Head: "feat/auth", Base: "main",
 		Comments: []ReviewComment{{
 			ID: "rc_123_abc", File: "src/auth.ts",
-			Line: LineRange{From: 10, To: 12}, Snippet: "const x = 1;",
+			Line: LineRange{
+				From: DiffPosition{Side: DiffSideRight, Line: 10},
+				To:   DiffPosition{Side: DiffSideRight, Line: 12},
+			}, Snippet: "const x = 1;",
 			Body: "Change this", Submitted: false, CreatedAt: "2026-03-16T10:30:00Z",
 		}},
 	}
@@ -96,15 +100,18 @@ func TestDetectStaleness_SingleMatch(t *testing.T) {
 	os.WriteFile(filePath, []byte("line1\nline2\nconst TOKEN = 1800;\nline4\n"), 0o644)
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/auth.ts",
-		Line: LineRange{From: 10, To: 10}, Snippet: "const TOKEN = 1800;",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 10},
+			To:   DiffPosition{Side: DiffSideRight, Line: 10},
+		}, Snippet: "const TOKEN = 1800;",
 		Body: "Change to 3600", Submitted: true,
 	}}
 	result := detectStaleness(dir, comments)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(result))
 	}
-	if result[0].Line.From != 3 || result[0].Line.To != 3 {
-		t.Errorf("expected line 3, got %d-%d", result[0].Line.From, result[0].Line.To)
+	if result[0].Line.From.Line != 3 || result[0].Line.To.Line != 3 {
+		t.Errorf("expected line 3, got %d-%d", result[0].Line.From.Line, result[0].Line.To.Line)
 	}
 }
 
@@ -115,7 +122,10 @@ func TestDetectStaleness_NoMatch(t *testing.T) {
 	os.WriteFile(filePath, []byte("completely different content\n"), 0o644)
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/auth.ts",
-		Line: LineRange{From: 5, To: 5}, Snippet: "const TOKEN = 1800;",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 5},
+			To:   DiffPosition{Side: DiffSideRight, Line: 5},
+		}, Snippet: "const TOKEN = 1800;",
 		Body: "Change to 3600", Submitted: true,
 	}}
 	result := detectStaleness(dir, comments)
@@ -128,7 +138,10 @@ func TestDetectStaleness_FileDeleted(t *testing.T) {
 	dir := t.TempDir()
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/deleted.ts",
-		Line: LineRange{From: 1, To: 1}, Snippet: "anything",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 1},
+			To:   DiffPosition{Side: DiffSideRight, Line: 1},
+		}, Snippet: "anything",
 		Body: "Comment on deleted file", Submitted: true,
 	}}
 	result := detectStaleness(dir, comments)
@@ -152,15 +165,18 @@ func TestDetectStaleness_MultipleMatches_NearestWins(t *testing.T) {
 	os.WriteFile(filePath, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/util.ts",
-		Line: LineRange{From: 6, To: 6}, Snippet: "return true;",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 6},
+			To:   DiffPosition{Side: DiffSideRight, Line: 6},
+		}, Snippet: "return true;",
 		Body: "Should return false", Submitted: true,
 	}}
 	result := detectStaleness(dir, comments)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 comment, got %d", len(result))
 	}
-	if result[0].Line.From != 5 {
-		t.Errorf("expected nearest match line 5, got %d", result[0].Line.From)
+	if result[0].Line.From.Line != 5 {
+		t.Errorf("expected nearest match line 5, got %d", result[0].Line.From.Line)
 	}
 }
 
@@ -168,7 +184,10 @@ func TestDetectStaleness_SkipsUnsubmitted(t *testing.T) {
 	dir := t.TempDir()
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "src/nonexistent.ts",
-		Line: LineRange{From: 1, To: 1}, Snippet: "anything",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 1},
+			To:   DiffPosition{Side: DiffSideRight, Line: 1},
+		}, Snippet: "anything",
 		Body: "Draft comment", Submitted: false,
 	}}
 	result := detectStaleness(dir, comments)
@@ -181,7 +200,10 @@ func TestDetectStaleness_PathTraversal(t *testing.T) {
 	dir := t.TempDir()
 	comments := []ReviewComment{{
 		ID: "rc_1", File: "../etc/passwd",
-		Line: LineRange{From: 1, To: 1}, Snippet: "root:x:0:0",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 1},
+			To:   DiffPosition{Side: DiffSideRight, Line: 1},
+		}, Snippet: "root:x:0:0",
 		Body: "Traversal attempt", Submitted: true,
 	}}
 	result := detectStaleness(dir, comments)
@@ -220,7 +242,10 @@ func TestLoadSaveDelete(t *testing.T) {
 		Head: "feat/auth", Base: "main",
 		Comments: []ReviewComment{{
 			ID: "rc_1", File: "src/auth.ts",
-			Line: LineRange{From: 2, To: 2}, Snippet: "const TOKEN = 1800;",
+			Line: LineRange{
+				From: DiffPosition{Side: DiffSideRight, Line: 2},
+				To:   DiffPosition{Side: DiffSideRight, Line: 2},
+			}, Snippet: "const TOKEN = 1800;",
 			Body: "Change to 3600", Submitted: true,
 		}},
 	}
@@ -246,5 +271,153 @@ func TestLoadSaveDelete(t *testing.T) {
 	}
 	if loaded != nil {
 		t.Errorf("expected nil after delete, got %+v", loaded)
+	}
+}
+
+func TestLineRange_UnmarshalJSON_NewFormat(t *testing.T) {
+	input := `{"from":{"side":"L","line":10},"to":{"side":"L","line":10}}`
+	var lr LineRange
+	if err := json.Unmarshal([]byte(input), &lr); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if lr.From.Side != DiffSideLeft {
+		t.Errorf("From.Side = %q, want %q", lr.From.Side, DiffSideLeft)
+	}
+	if lr.From.Line != 10 {
+		t.Errorf("From.Line = %d, want 10", lr.From.Line)
+	}
+	if lr.To.Side != DiffSideLeft {
+		t.Errorf("To.Side = %q, want %q", lr.To.Side, DiffSideLeft)
+	}
+	if lr.To.Line != 10 {
+		t.Errorf("To.Line = %d, want 10", lr.To.Line)
+	}
+}
+
+func TestLineRange_UnmarshalJSON_LegacyFormat(t *testing.T) {
+	input := `{"from":5,"to":5}`
+	var lr LineRange
+	if err := json.Unmarshal([]byte(input), &lr); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if lr.From.Side != DiffSideRight {
+		t.Errorf("From.Side = %q, want %q (legacy migrates to R)", lr.From.Side, DiffSideRight)
+	}
+	if lr.From.Line != 5 {
+		t.Errorf("From.Line = %d, want 5", lr.From.Line)
+	}
+	if lr.To.Side != DiffSideRight {
+		t.Errorf("To.Side = %q, want %q (legacy migrates to R)", lr.To.Side, DiffSideRight)
+	}
+	if lr.To.Line != 5 {
+		t.Errorf("To.Line = %d, want 5", lr.To.Line)
+	}
+}
+
+func TestLineRange_MarshalJSON(t *testing.T) {
+	lr := LineRange{
+		From: DiffPosition{Side: DiffSideRight, Line: 7},
+		To:   DiffPosition{Side: DiffSideRight, Line: 9},
+	}
+	data, err := json.Marshal(lr)
+	if err != nil {
+		t.Fatalf("MarshalJSON error: %v", err)
+	}
+	// Verify it round-trips correctly as the new format.
+	var got LineRange
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("round-trip UnmarshalJSON error: %v", err)
+	}
+	if got.From.Side != DiffSideRight || got.From.Line != 7 {
+		t.Errorf("From = {%q,%d}, want {%q,7}", got.From.Side, got.From.Line, DiffSideRight)
+	}
+	if got.To.Side != DiffSideRight || got.To.Line != 9 {
+		t.Errorf("To = {%q,%d}, want {%q,9}", got.To.Side, got.To.Line, DiffSideRight)
+	}
+	// Verify the serialized form contains the side field (new format, not legacy integers).
+	if !strings.Contains(string(data), `"side"`) {
+		t.Errorf("marshaled form should contain side field; got %s", data)
+	}
+}
+
+func TestReviewComment_NewFields(t *testing.T) {
+	c := ReviewComment{
+		ID:             "rc_1",
+		File:           "src/new.ts",
+		OldPath:        "src/old.ts",
+		Line:           LineRange{From: DiffPosition{Side: DiffSideLeft, Line: 3}, To: DiffPosition{Side: DiffSideLeft, Line: 3}},
+		Snippet:        "deleted line",
+		SnippetContext: "surrounding context",
+		Body:           "Why was this removed?",
+		Submitted:      true,
+		CreatedAt:      "2026-04-01T12:00:00Z",
+		AnchorStatus:   AnchorStatusStale,
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("MarshalJSON error: %v", err)
+	}
+	var got ReviewComment
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if got.OldPath != "src/old.ts" {
+		t.Errorf("OldPath = %q, want %q", got.OldPath, "src/old.ts")
+	}
+	if got.SnippetContext != "surrounding context" {
+		t.Errorf("SnippetContext = %q, want %q", got.SnippetContext, "surrounding context")
+	}
+	if got.AnchorStatus != AnchorStatusStale {
+		t.Errorf("AnchorStatus = %q, want %q", got.AnchorStatus, AnchorStatusStale)
+	}
+	if got.Line.From.Side != DiffSideLeft || got.Line.From.Line != 3 {
+		t.Errorf("Line.From = {%q,%d}, want {%q,3}", got.Line.From.Side, got.Line.From.Line, DiffSideLeft)
+	}
+}
+
+func TestLegacyReviewFile_Migration(t *testing.T) {
+	// Simulate a review file written in the old format.
+	legacyJSON := `{
+		"head": "feat/old",
+		"base": "main",
+		"comments": [
+			{
+				"id": "rc_legacy",
+				"file": "src/foo.ts",
+				"line": {"from": 8, "to": 10},
+				"snippet": "old code",
+				"body": "review comment",
+				"submitted": false,
+				"createdAt": "2025-01-01T00:00:00Z"
+			}
+		]
+	}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "review.json")
+	if err := os.WriteFile(path, []byte(legacyJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	r, err := readReviewFile(path)
+	if err != nil {
+		t.Fatalf("readReviewFile: %v", err)
+	}
+	if r == nil {
+		t.Fatal("expected non-nil review")
+	}
+	if len(r.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(r.Comments))
+	}
+	c := r.Comments[0]
+	if c.Line.From.Side != DiffSideRight {
+		t.Errorf("legacy From.Side = %q, want %q", c.Line.From.Side, DiffSideRight)
+	}
+	if c.Line.From.Line != 8 {
+		t.Errorf("legacy From.Line = %d, want 8", c.Line.From.Line)
+	}
+	if c.Line.To.Side != DiffSideRight {
+		t.Errorf("legacy To.Side = %q, want %q", c.Line.To.Side, DiffSideRight)
+	}
+	if c.Line.To.Line != 10 {
+		t.Errorf("legacy To.Line = %d, want 10", c.Line.To.Line)
 	}
 }
