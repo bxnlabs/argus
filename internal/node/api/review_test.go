@@ -175,6 +175,33 @@ func TestReviewHandler_PostRejectsOldPathTraversal(t *testing.T) {
 	}
 }
 
+func TestReviewHandler_PostRejectsFromNotEqualTo(t *testing.T) {
+	repoDir := homeTempDir(t)
+	h := &reviewHandler{projectDirOverride: t.TempDir()}
+	payload := review.Review{
+		Head: "feat/test",
+		Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:   "rc_1",
+			File: "main.go",
+			Line: review.LineRange{
+				From: review.DiffPosition{Side: review.DiffSideRight, Line: 1},
+				To:   review.DiffPosition{Side: review.DiffSideRight, Line: 5},
+			},
+			Body: "From != to",
+		}},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST",
+		"/api/git/review?path="+repoDir,
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.post(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for from!=to, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestReviewHandler_Delete(t *testing.T) {
 	repoDir := homeTempDir(t)
 	overrideDir := t.TempDir()
