@@ -298,11 +298,8 @@ func findSnippetWithContext(fileText, snippet, snippetContext string, priorLine 
 		if len(contextMatches) == 1 {
 			return contextMatches[0]
 		}
-		// Context matched multiple or none — fall through to distance threshold,
-		// but if context was provided and didn't uniquely match, it's ambiguous.
-		if snippetContext != "" {
-			return -2
-		}
+		// Context provided but didn't uniquely match — ambiguous.
+		return -2
 	}
 
 	// No context provided: fall back to nearest match with distance threshold.
