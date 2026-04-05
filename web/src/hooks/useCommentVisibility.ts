@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import type { DiffHunk, DiffLine } from "@/lib/diff-parser";
 import type { DiffPosition, ReviewComment } from "@/types";
 import { fetchFileLines } from "@/data/git/file-lines";
+import { computeOldToNewOffset } from "@/hooks/useExpandableDiff";
 
 const CONTEXT_WINDOW = 3;
 
@@ -58,18 +59,23 @@ export function useCommentVisibility(options: CommentVisibilityOptions) {
         ref,
       });
 
+      // Derive side-aware coordinates using hunk boundary offsets
+      const offset = pos.side === "L" ? computeOldToNewOffset(start, options.hunks) : 0;
+      const oldStart = pos.side === "L" ? start : start + offset;
+      const newStart = pos.side === "L" ? start - offset : start;
+
       const lines: DiffLine[] = result.lines.map((content, i) => ({
         type: "context" as const,
         content,
-        newLineNumber: start + i,
-        oldLineNumber: start + i,
+        newLineNumber: newStart + i,
+        oldLineNumber: oldStart + i,
       }));
 
       const syntheticHunk: DiffHunk = {
-        header: `@@ -${start},${lines.length} +${start},${lines.length} @@`,
-        oldStart: start,
+        header: `@@ -${oldStart},${lines.length} +${newStart},${lines.length} @@`,
+        oldStart,
         oldCount: lines.length,
-        newStart: start,
+        newStart,
         newCount: lines.length,
         lines,
       };

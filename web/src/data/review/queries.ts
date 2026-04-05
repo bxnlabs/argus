@@ -11,7 +11,7 @@ export function useReviewQuery(
   baseRef?: string,
 ) {
   return useQuery({
-    queryKey: reviewKeys.forComparison(path, head ?? "", base ?? ""),
+    queryKey: [...reviewKeys.forComparison(path, head ?? "", base ?? ""), headRef ?? "", baseRef ?? ""],
     queryFn: async () => {
       const params = new URLSearchParams({
         path,
@@ -39,10 +39,9 @@ export function useSaveReviewMutation(path: string) {
       });
     },
     onSuccess: (_data, variables) => {
-      queryClient.setQueryData(
-        reviewKeys.forComparison(path, variables.head, variables.base),
-        variables,
-      );
+      queryClient.invalidateQueries({
+        queryKey: reviewKeys.forComparison(path, variables.head, variables.base),
+      });
     },
   });
 }

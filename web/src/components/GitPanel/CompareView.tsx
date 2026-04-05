@@ -23,6 +23,7 @@ import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { useViewport } from "@/hooks/useViewport";
 import { fetchFileLines } from "@/data/git/file-lines";
+import { computeOldToNewOffset } from "@/hooks/useExpandableDiff";
 import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
@@ -37,21 +38,29 @@ async function fetchFileLinesForSynthetic(
   currentHunks: DiffHunk[],
   pos: DiffPosition,
   insertHandler: (hunk: DiffHunk, insertIndex: number) => void,
+  onError?: (commentId: string) => void,
+  commentId?: string,
 ) {
   try {
     const result = await fetchFileLines({ path: repoPath, file, start, end, ref });
+
+    // Derive side-aware coordinates using hunk boundary offsets
+    const offset = pos.side === "L" ? computeOldToNewOffset(start, currentHunks) : 0;
+    const oldStart = pos.side === "L" ? start : start + offset;
+    const newStart = pos.side === "L" ? start - offset : start;
+
     const lines: DiffLine[] = result.lines.map((content, i) => ({
       type: "context" as const,
       content,
-      newLineNumber: start + i,
-      oldLineNumber: start + i,
+      newLineNumber: newStart + i,
+      oldLineNumber: oldStart + i,
     }));
 
     const syntheticHunk: DiffHunk = {
-      header: `@@ -${start},${lines.length} +${start},${lines.length} @@`,
-      oldStart: start,
+      header: `@@ -${oldStart},${lines.length} +${newStart},${lines.length} @@`,
+      oldStart,
       oldCount: lines.length,
-      newStart: start,
+      newStart,
       newCount: lines.length,
       lines,
     };
@@ -65,7 +74,7 @@ async function fetchFileLinesForSynthetic(
 
     insertHandler(syntheticHunk, insertIdx);
   } catch {
-    // Silently ignore — comment will remain without context
+    if (onError && commentId) onError(commentId);
   }
 }
 
@@ -177,7 +186,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     const stable = new Map<string, ReviewComment[]>();
     for (const [file, arr] of next) {
       const old = prev.get(file);
-      if (old && old.length === arr.length && old.every((c, i) => c.id === arr[i].id && c.body === arr[i].body && c.submitted === arr[i].submitted)) {
+      if (old && old.length === arr.length && old.every((c, i) => c.id === arr[i].id && c.body === arr[i].body && c.submitted === arr[i].submitted && c.anchorStatus === arr[i].anchorStatus && c.line.from.line === arr[i].line.from.line && c.line.from.side === arr[i].line.from.side)) {
         stable.set(file, old);
       } else {
         stable.set(file, arr);
@@ -189,15 +198,35 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   // Optimistically update the review cache and persist to server.
   // Accepts a functional updater so callers don't close over reviewData/comments.
+  const headRef = compareData?.headRef ?? "";
+  const baseRef = compareData?.baseRef ?? "";
+  const reviewQueryKey = useMemo(
+    () => [...reviewKeys.forComparison(workingDirectory, currentBranch ?? "", baseBranch ?? ""), headRef, baseRef],
+    [workingDirectory, currentBranch, baseBranch, headRef, baseRef],
+  );
   const saveAndUpdate = useCallback((updater: (prev: Review) => Review) => {
     if (!currentBranch || !baseBranch) return;
-    const key = reviewKeys.forComparison(workingDirectory, currentBranch, baseBranch);
-    const prev = queryClient.getQueryData<Review>(key);
+    const prev = queryClient.getQueryData<Review>(reviewQueryKey);
     if (!prev) return;
     const updated = updater(prev);
-    queryClient.setQueryData(key, updated);
+    queryClient.setQueryData(reviewQueryKey, updated);
     saveReview.mutate(updated);
-  }, [queryClient, workingDirectory, currentBranch, baseBranch, saveReview]);
+  }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
+
+  // Mark a comment's anchor as context_unavailable when synthetic hunk fetch fails.
+  // Client-only: updates the local query cache without persisting to the server,
+  // since this is a transient fetch failure, not a durable review state.
+  const markContextUnavailable = useCallback((commentId: string) => {
+    if (!currentBranch || !baseBranch) return;
+    const prev = queryClient.getQueryData<Review>(reviewQueryKey);
+    if (!prev) return;
+    queryClient.setQueryData(reviewQueryKey, {
+      ...prev,
+      comments: prev.comments.map((c) =>
+        c.id === commentId ? { ...c, anchorStatus: "context_unavailable" as const } : c,
+      ),
+    });
+  }, [queryClient, reviewQueryKey, currentBranch, baseBranch]);
 
   // Resolve hunks for a file, preferring expanded hunks from the ref
   const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
@@ -231,7 +260,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       linePositions.set(pathKey, posMap);
     }
 
-    return [...comments].sort((a, b) => {
+    return [...comments].filter((c) => c.anchorStatus !== "context_unavailable").sort((a, b) => {
       const ai = fileOrder.indexOf(a.file);
       const bi = fileOrder.indexOf(b.file);
       if (ai !== bi) return ai - bi;
@@ -272,6 +301,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const end = pos.line + 3;
         await fetchFileLinesForSynthetic(
           workingDirectory, file, start, end, ref, currentHunks, pos, handler,
+          markContextUnavailable, comment.id,
         );
         // Wait for React to re-render after synthetic hunk insertion
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
@@ -287,7 +317,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory]);
+  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markContextUnavailable]);
 
   const handlePrevComment = useCallback(() => {
     const next = focusedCommentIdx <= 0 ? 0 : focusedCommentIdx - 1;
@@ -398,6 +428,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
           fetchFileLinesForSynthetic(
             workingDirectory, file, start, end, ref, currentHunks, pos, handler,
+            markContextUnavailable, comment.id,
           );
         }
       }

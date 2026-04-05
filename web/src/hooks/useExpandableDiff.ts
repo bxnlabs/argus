@@ -40,6 +40,23 @@ function computeOldOffset(hunk: DiffHunk): number {
   return (hunk.oldStart + hunk.oldCount) - (hunk.newStart + hunk.newCount);
 }
 
+/**
+ * Computes the old-to-new line offset at a given old-side line number
+ * by finding the nearest preceding hunk boundary.
+ *
+ * offset = (hunk.oldStart + hunk.oldCount) - (hunk.newStart + hunk.newCount)
+ * newLineNumber = oldLineNumber - offset
+ */
+export function computeOldToNewOffset(oldLine: number, hunks: DiffHunk[]): number {
+  let offset = 0;
+  for (const h of hunks) {
+    if (h.oldStart + h.oldCount <= oldLine) {
+      offset = computeOldOffset(h);
+    }
+  }
+  return offset;
+}
+
 function makeContextLine(content: string, newLineNum: number, oldOffset: number): DiffLine {
   return {
     type: "context",
@@ -118,8 +135,8 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
       const hunks = [...state.hunks];
       // Check for duplicate — don't insert if a hunk with overlapping range already exists
       const isDuplicate = hunks.some((h) =>
-        h.newStart <= hunk.newStart + hunk.newCount &&
-        h.newStart + h.newCount >= hunk.newStart
+        h.newStart <= hunk.newStart + hunk.newCount - 1 &&
+        h.newStart + h.newCount - 1 >= hunk.newStart
       );
       if (isDuplicate) return state;
       hunks.splice(insertIndex, 0, hunk);
