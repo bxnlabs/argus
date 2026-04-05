@@ -274,6 +274,15 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     });
   }, [comments, parsedDiffs]);
 
+  // Clamp focusedCommentIdx when sortedComments shrinks (e.g. comment becomes context_unavailable)
+  useEffect(() => {
+    if (sortedComments.length === 0) {
+      if (focusedCommentIdx !== -1) setFocusedCommentIdx(-1);
+    } else if (focusedCommentIdx >= sortedComments.length) {
+      setFocusedCommentIdx(sortedComments.length - 1);
+    }
+  }, [sortedComments.length, focusedCommentIdx]);
+
   const scrollToComment = useCallback(async (index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
