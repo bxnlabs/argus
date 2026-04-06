@@ -343,7 +343,7 @@ function DiffLineRow({
             : undefined
         }
       >
-        {line.oldLineNumber ?? ""}
+        {isDeletion ? (line.oldLineNumber ?? "") : ""}
       </div>
       <div
         className={cn(
