@@ -870,7 +870,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       {/* Right pane */}
       <div className="bg-muted/20 flex min-w-0 flex-1 flex-col">
         {baseBranch && (
-          <div className="border-border sticky top-0 z-10 flex items-center gap-2 border-b bg-inherit px-3 py-2">
+          <div className="border-border sticky top-0 z-30 flex items-center gap-2 border-b bg-inherit px-3 py-2">
             <CommentNav
               currentIndex={focusedCommentIdx}
               total={sortedComments.length}
