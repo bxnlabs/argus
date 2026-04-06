@@ -75,6 +75,105 @@ func TestFormatReviewMarkdown(t *testing.T) {
 	}
 }
 
+func TestFormatReviewMarkdown_RenamedFile(t *testing.T) {
+	r := &review.Review{
+		Head: "feat/refactor",
+		Base: "main",
+		Comments: []review.ReviewComment{
+			{
+				// L-side comment on a renamed file: line numbers reference the OLD file.
+				ID: "rc_1", File: "benchmarking/utils.py", OldPath: "tools/ci_bench_utils.py",
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideLeft, Line: 21}, To: review.DiffPosition{Side: review.DiffSideLeft, Line: 21}},
+				Snippet:   "# Create the worksheet if it doesn't exist",
+				Body:      "This comment should not be removed.",
+				Submitted: true,
+			},
+			{
+				// R-side comment on the same renamed file: line numbers reference the NEW file.
+				ID: "rc_2", File: "benchmarking/utils.py", OldPath: "tools/ci_bench_utils.py",
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 36}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 36}},
+				Snippet:   "ws = sh.add_worksheet(title=worksheet, rows=100, cols=20)",
+				Body:      "Add error handling here.",
+				Submitted: true,
+			},
+		},
+	}
+
+	output := formatReviewMarkdown(r)
+
+	// Both L-side and R-side comments on the same renamed file should be grouped
+	// under a single header showing the rename.
+	wantHeader := "### tools/ci_bench_utils.py \u2192 benchmarking/utils.py"
+	if !strings.Contains(output, wantHeader) {
+		t.Errorf("expected rename header %q; got:\n%s", wantHeader, output)
+	}
+	// Both comments should appear in the output.
+	if !strings.Contains(output, "This comment should not be removed.") {
+		t.Errorf("missing L-side comment body; got:\n%s", output)
+	}
+	if !strings.Contains(output, "Add error handling here.") {
+		t.Errorf("missing R-side comment body; got:\n%s", output)
+	}
+}
+
+func TestFormatReviewMarkdown_RenamedFilePathCollision(t *testing.T) {
+	// Scenario: branch renames a.txt → b.txt, then creates a new a.txt.
+	// L-side rename comment and R-side new-file comment both display as "a.txt"
+	// but must NOT merge into one section.
+	r := &review.Review{
+		Head: "feat/collision",
+		Base: "main",
+		Comments: []review.ReviewComment{
+			{
+				// L-side comment on renamed file: displays as a.txt (old path).
+				ID: "rc_rename", File: "b.txt", OldPath: "a.txt",
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideLeft, Line: 5}, To: review.DiffPosition{Side: review.DiffSideLeft, Line: 5}},
+				Snippet:   "old content",
+				Body:      "Rename comment body",
+				Submitted: true,
+			},
+			{
+				// R-side comment on the newly created a.txt (no OldPath).
+				ID: "rc_new", File: "a.txt",
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 10}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 10}},
+				Snippet:   "new content",
+				Body:      "New file comment body",
+				Submitted: true,
+			},
+		},
+	}
+
+	output := formatReviewMarkdown(r)
+
+	// Both should appear as separate sections.
+	renameHeader := "### a.txt \u2192 b.txt"
+	if !strings.Contains(output, renameHeader) {
+		t.Errorf("missing rename section header; got:\n%s", output)
+	}
+	// The new a.txt section should have NO rename annotation.
+	if !strings.Contains(output, "### a.txt\n") {
+		t.Errorf("missing plain a.txt section header (without rename annotation); got:\n%s", output)
+	}
+	// Verify comments land in the correct sections.
+	renameIdx := strings.Index(output, renameHeader)
+	newIdx := strings.Index(output, "### a.txt\n")
+	renameBody := strings.Index(output, "Rename comment body")
+	newBody := strings.Index(output, "New file comment body")
+	if renameBody < renameIdx {
+		t.Errorf("rename comment appeared before rename section; got:\n%s", output)
+	}
+	if newBody < newIdx {
+		t.Errorf("new file comment appeared before new file section; got:\n%s", output)
+	}
+	// Comments must not be in each other's sections.
+	if renameIdx < newIdx && renameBody > newIdx {
+		t.Errorf("rename comment leaked into new file section; got:\n%s", output)
+	}
+	if newIdx < renameIdx && newBody > renameIdx {
+		t.Errorf("new file comment leaked into rename section; got:\n%s", output)
+	}
+}
+
 func TestFormatReviewMarkdown_Empty(t *testing.T) {
 	r := &review.Review{
 		Head:     "feat/test",

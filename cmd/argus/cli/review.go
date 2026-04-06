@@ -98,6 +98,25 @@ func newReviewGetCmd() *cobra.Command {
 	}
 }
 
+// commentGroupKey uniquely identifies a file section in the review output.
+// Using File+OldPath avoids collisions when a renamed file's old path matches
+// another real file in the same diff.
+type commentGroupKey struct {
+	file    string
+	oldPath string
+}
+
+// commentGroup holds the display metadata and comments for a file section.
+type commentGroup struct {
+	displayFile string
+	comments    []review.ReviewComment
+}
+
+// commentGroupKeyFor returns the grouping key for a comment.
+func commentGroupKeyFor(c review.ReviewComment) commentGroupKey {
+	return commentGroupKey{file: c.File, oldPath: c.OldPath}
+}
+
 // formatReviewMarkdown formats submitted review comments as structured markdown.
 func formatReviewMarkdown(r *review.Review) string {
 	var b strings.Builder
@@ -123,19 +142,33 @@ func formatReviewMarkdown(r *review.Review) string {
 		b.WriteString("\n" + r.Body.Body + "\n")
 	}
 
-	byFile := make(map[string][]review.ReviewComment)
-	var fileOrder []string
+	groups := make(map[commentGroupKey]*commentGroup)
+	var keyOrder []commentGroupKey
 	for _, c := range submitted {
-		if _, seen := byFile[c.File]; !seen {
-			fileOrder = append(fileOrder, c.File)
+		key := commentGroupKeyFor(c)
+		g, seen := groups[key]
+		if !seen {
+			g = &commentGroup{displayFile: c.File}
+			if c.OldPath != "" {
+				g.displayFile = c.OldPath + " \u2192 " + c.File
+			}
+			groups[key] = g
+			keyOrder = append(keyOrder, key)
 		}
-		byFile[c.File] = append(byFile[c.File], c)
+		g.comments = append(g.comments, c)
 	}
-	sort.Strings(fileOrder)
+	sort.Slice(keyOrder, func(i, j int) bool {
+		di, dj := groups[keyOrder[i]].displayFile, groups[keyOrder[j]].displayFile
+		if di != dj {
+			return di < dj
+		}
+		return keyOrder[i].oldPath < keyOrder[j].oldPath
+	})
 
-	for _, file := range fileOrder {
-		fmt.Fprintf(&b, "\n### %s\n\n", file)
-		for _, c := range byFile[file] {
+	for _, key := range keyOrder {
+		g := groups[key]
+		fmt.Fprintf(&b, "\n### %s\n\n", g.displayFile)
+		for _, c := range g.comments {
 			fmt.Fprintf(&b, "**Lines %d-%d:**\n", c.Line.From.Line, c.Line.To.Line)
 			for _, line := range strings.Split(c.Snippet, "\n") {
 				b.WriteString("> " + line + "\n")
