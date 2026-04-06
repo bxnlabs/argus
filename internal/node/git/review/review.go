@@ -246,6 +246,19 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 				To:   DiffPosition{Side: side, Line: lineNum + lineCount},
 			}
 			c.AnchorStatus = ""
+
+			// For L-side comments, the snippet was deleted. If it has been
+			// restored in the head ref the comment is stale.
+			if side == DiffSideLeft && headRef != "" {
+				if err := ValidateFilePath(repoDir, c.File); err == nil {
+					if headText, err := getFileContent(repoDir, headRef, c.File); err == nil {
+						if strings.Contains(headText, c.Snippet) {
+							c.AnchorStatus = AnchorStale
+						}
+					}
+				}
+			}
+
 			result = append(result, c)
 		}
 	}
