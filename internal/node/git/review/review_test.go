@@ -595,6 +595,94 @@ func TestDetectStaleness_LSideRenamedFile(t *testing.T) {
 	}
 }
 
+// TestDetectStaleness_LSideRestoredLine verifies that an L-side comment becomes
+// stale when the deleted line is restored in the head ref.
+func TestDetectStaleness_LSideRestoredLine(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Base commit: file has a comment line.
+	os.WriteFile(filepath.Join(dir, "src", "utils.ts"), []byte("line1\n// important comment\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base commit")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Head commit 1: remove the comment line.
+	os.WriteFile(filepath.Join(dir, "src", "utils.ts"), []byte("line1\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "remove comment line")
+
+	// Head commit 2: restore the comment line.
+	os.WriteFile(filepath.Join(dir, "src", "utils.ts"), []byte("line1\n// important comment\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "restore comment line")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID:   "rc_restored",
+		File: "src/utils.ts",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideLeft, Line: 2},
+			To:   DiffPosition{Side: DiffSideLeft, Line: 2},
+		},
+		Snippet:   "// important comment",
+		Body:      "Don't remove this comment",
+		Submitted: true,
+	}}
+	result := detectStaleness(dir, headRef, baseRef, comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(result))
+	}
+	if result[0].AnchorStatus != AnchorStale {
+		t.Errorf("anchorStatus = %q, want %q — L-side comment should be stale when deleted line is restored in head", result[0].AnchorStatus, AnchorStale)
+	}
+}
+
+// TestDetectStaleness_LSideRenamedFileRestoredLine verifies that an L-side
+// comment on a renamed file becomes stale when the deleted line is restored.
+func TestDetectStaleness_LSideRenamedFileRestoredLine(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Base commit: file at old path with a comment line.
+	os.WriteFile(filepath.Join(dir, "src", "old_name.ts"), []byte("line1\n// important comment\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base commit")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Head commit 1: rename file and remove the comment line.
+	runCmd(t, dir, "git", "mv", "src/old_name.ts", "src/new_name.ts")
+	os.WriteFile(filepath.Join(dir, "src", "new_name.ts"), []byte("line1\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "rename and remove line")
+
+	// Head commit 2: restore the comment line.
+	os.WriteFile(filepath.Join(dir, "src", "new_name.ts"), []byte("line1\n// important comment\nline3\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "restore comment line")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID:      "rc_renamed_restored",
+		File:    "src/new_name.ts",
+		OldPath: "src/old_name.ts",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideLeft, Line: 2},
+			To:   DiffPosition{Side: DiffSideLeft, Line: 2},
+		},
+		Snippet:   "// important comment",
+		Body:      "Don't remove this comment",
+		Submitted: true,
+	}}
+	result := detectStaleness(dir, headRef, baseRef, comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(result))
+	}
+	if result[0].AnchorStatus != AnchorStale {
+		t.Errorf("anchorStatus = %q, want %q — L-side comment on renamed file should be stale when deleted line is restored in head", result[0].AnchorStatus, AnchorStale)
+	}
+}
+
 // TestDetectStaleness_StaleWhenAmbiguous verifies that multiple snippet matches combined
 // with a non-matching snippetContext results in anchorStatus=stale.
 func TestDetectStaleness_StaleWhenAmbiguous(t *testing.T) {
