@@ -105,6 +105,19 @@ export const Workspace = memo(function Workspace({
     }
   }, [activePanel]);
 
+  // Restore terminal focus when returning to terminal mode from a side panel
+  const prevActivePanel = useRef(activePanel);
+  useEffect(() => {
+    if (
+      prevActivePanel.current !== null &&
+      activePanel === null &&
+      !selectMode
+    ) {
+      terminalRefs.current.get(activeTabId)?.focus();
+    }
+    prevActivePanel.current = activePanel;
+  }, [activePanel, activeTabId, selectMode]);
+
   // Restore terminal focus when FilePicker closes
   const prevShowFilePicker = useRef(showFilePicker);
   useEffect(() => {
