@@ -21,6 +21,7 @@ interface UnifiedDiffProps {
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
+  onEditComment?: (id: string, body: string) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   onExpand?: (direction: ExpandDirection, hunkIndex: number) => void;
   expandLoading?: Record<string, boolean>;
@@ -40,6 +41,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
   onAddComment,
   onCancelComment,
   onDeleteComment,
+  onEditComment,
   onCommentRef,
   onExpand,
   expandLoading,
@@ -183,6 +185,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
                       onAddComment={onAddComment}
                       onCancelComment={onCancelComment}
                       onDeleteComment={onDeleteComment}
+                      onEditComment={onEditComment}
                       onCommentRef={onCommentRef}
                       commentingEnabled={commentingEnabled}
                     />
@@ -215,6 +218,7 @@ function Hunk({
   onAddComment,
   onCancelComment,
   onDeleteComment,
+  onEditComment,
   onCommentRef,
   commentingEnabled,
 }: {
@@ -226,6 +230,7 @@ function Hunk({
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
+  onEditComment?: (id: string, body: string) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   commentingEnabled: boolean;
 }) {
@@ -272,7 +277,7 @@ function Hunk({
                 className={cn(!wrapLines && "sticky left-0")}
                 style={!wrapLines ? { width: "calc(100vw - 0.75rem * 2 - 2px)" } : undefined}
               >
-                <InlineCommentCard comment={c} onDelete={onDeleteComment!} />
+                <InlineCommentCard comment={c} onDelete={onDeleteComment!} onEdit={onEditComment!} />
               </div>
             ))}
             {showForm && onAddComment && onCancelComment && (
