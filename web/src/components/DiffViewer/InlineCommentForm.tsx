@@ -4,10 +4,12 @@ import { Button } from "@/components/ui/button";
 interface InlineCommentFormProps {
   onSubmit: (body: string) => void;
   onCancel: () => void;
+  initialBody?: string;
+  submitLabel?: string;
 }
 
-export function InlineCommentForm({ onSubmit, onCancel }: InlineCommentFormProps) {
-  const [body, setBody] = useState("");
+export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submitLabel = "Comment" }: InlineCommentFormProps) {
+  const [body, setBody] = useState(initialBody);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export function InlineCommentForm({ onSubmit, onCancel }: InlineCommentFormProps
                 disabled={!body.trim()}
                 className="gap-1.5"
               >
-                Comment
+                {submitLabel}
                 <kbd className="text-[10px] opacity-60">
                   {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
                 </kbd>
