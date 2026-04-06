@@ -6,9 +6,10 @@ interface InlineCommentFormProps {
   onCancel: () => void;
   initialBody?: string;
   submitLabel?: string;
+  bare?: boolean;
 }
 
-export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submitLabel = "Comment" }: InlineCommentFormProps) {
+export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submitLabel = "Comment", bare = false }: InlineCommentFormProps) {
   const [body, setBody] = useState(initialBody);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -27,35 +28,45 @@ export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submit
     }
   };
 
+  const inner = (
+    <>
+      <textarea
+        ref={textareaRef}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Write a comment..."
+        rows={3}
+        className="bg-background/60 border-border placeholder:text-muted-foreground/50 text-foreground w-full resize-y rounded border px-3 py-2 text-sm leading-relaxed focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
+      />
+      <div className="mt-2 flex items-center justify-end gap-1.5">
+          <Button size="sm" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => body.trim() && onSubmit(body.trim())}
+            disabled={!body.trim()}
+            className="gap-1.5"
+          >
+            {submitLabel}
+            <kbd className="text-[10px] opacity-60">
+              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
+            </kbd>
+          </Button>
+      </div>
+    </>
+  );
+
+  if (bare) {
+    return inner;
+  }
+
   return (
     <div className="px-3 py-1.5 font-sans">
       <div className="bg-card/80 border-primary/40 rounded-md border border-l-2 border-l-primary shadow-sm">
         <div className="p-3">
-          <textarea
-            ref={textareaRef}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Write a comment..."
-            rows={3}
-            className="bg-background/60 border-border placeholder:text-muted-foreground/50 text-foreground w-full resize-y rounded border px-3 py-2 text-sm leading-relaxed focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
-          />
-          <div className="mt-2 flex items-center justify-end gap-1.5">
-              <Button size="sm" variant="ghost" onClick={onCancel}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => body.trim() && onSubmit(body.trim())}
-                disabled={!body.trim()}
-                className="gap-1.5"
-              >
-                {submitLabel}
-                <kbd className="text-[10px] opacity-60">
-                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
-                </kbd>
-              </Button>
-          </div>
+          {inner}
         </div>
       </div>
     </div>

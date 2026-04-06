@@ -1,17 +1,21 @@
-import { AlertTriangle, X } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ReviewComment } from "@/types";
+import { InlineCommentForm } from "./InlineCommentForm";
 
 interface InlineCommentCardProps {
   comment: ReviewComment;
   onDelete: (id: string) => void;
+  onEdit: (id: string, body: string) => void;
 }
 
-export function InlineCommentCard({ comment, onDelete }: InlineCommentCardProps) {
+export function InlineCommentCard({ comment, onDelete, onEdit }: InlineCommentCardProps) {
   const isDraft = !comment.submitted;
   const isStale = comment.anchorStatus === "stale";
   const isUnavailable = comment.anchorStatus === "context_unavailable";
+  const [isEditing, setIsEditing] = useState(false);
 
   return (
     <div className="px-3 py-1.5 font-sans">
@@ -48,6 +52,17 @@ export function InlineCommentCard({ comment, onDelete }: InlineCommentCardProps)
             </span>
           )}
           <span className="flex-1" />
+          {!isEditing && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => setIsEditing(true)}
+              aria-label="Edit comment"
+              className="text-muted-foreground hover:text-foreground -mr-1 h-6 w-6"
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+          )}
           <Button
             size="icon-sm"
             variant="ghost"
@@ -60,11 +75,26 @@ export function InlineCommentCard({ comment, onDelete }: InlineCommentCardProps)
         </div>
 
         {/* Body */}
-        <div className="px-3 pt-0.5 pb-2.5">
-          <p className="text-foreground/90 whitespace-pre-wrap text-sm leading-relaxed">
-            {comment.body}
-          </p>
-        </div>
+        {isEditing ? (
+          <div className="px-3 pt-0.5 pb-2.5">
+            <InlineCommentForm
+              bare
+              initialBody={comment.body}
+              submitLabel="Save"
+              onSubmit={(body) => {
+                onEdit(comment.id, body);
+                setIsEditing(false);
+              }}
+              onCancel={() => setIsEditing(false)}
+            />
+          </div>
+        ) : (
+          <div className="px-3 pt-0.5 pb-2.5">
+            <p className="text-foreground/90 whitespace-pre-wrap text-sm leading-relaxed">
+              {comment.body}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
