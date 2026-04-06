@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ReviewComment } from "@/types";
@@ -10,6 +10,8 @@ interface InlineCommentCardProps {
 
 export function InlineCommentCard({ comment, onDelete }: InlineCommentCardProps) {
   const isDraft = !comment.submitted;
+  const isStale = comment.anchorStatus === "stale";
+  const isUnavailable = comment.anchorStatus === "context_unavailable";
 
   return (
     <div className="px-3 py-1.5 font-sans">
@@ -17,6 +19,8 @@ export function InlineCommentCard({ comment, onDelete }: InlineCommentCardProps)
         className={cn(
           "bg-card/80 border-border/60 rounded-md border shadow-sm",
           isDraft && "border-l-2 border-l-primary",
+          isStale && "border-yellow-500/50 bg-yellow-500/5",
+          isUnavailable && "border-red-500/30 bg-red-500/5",
         )}
       >
         {/* Header */}
@@ -31,6 +35,18 @@ export function InlineCommentCard({ comment, onDelete }: InlineCommentCardProps)
           >
             {isDraft ? "Pending" : "Submitted"}
           </span>
+          {isStale && (
+            <span className="flex items-center gap-1 text-xs text-yellow-500">
+              <AlertTriangle className="h-3 w-3" />
+              Anchor may have moved
+            </span>
+          )}
+          {isUnavailable && (
+            <span className="flex items-center gap-1 text-xs text-red-400">
+              <AlertTriangle className="h-3 w-3" />
+              Context unavailable
+            </span>
+          )}
           <span className="flex-1" />
           <Button
             size="icon-sm"

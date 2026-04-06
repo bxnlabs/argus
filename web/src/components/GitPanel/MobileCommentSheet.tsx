@@ -7,9 +7,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type { DiffLine } from "@/lib/diff-parser";
+import type { DiffPosition } from "@/types";
 
 interface MobileCommentSheetProps {
-  activeComment: { file: string; from: number; to: number } | null;
+  activeComment: { file: string; position: DiffPosition } | null;
   activeLines: DiffLine[];
   onAddComment: (body: string) => void;
   onCancel: () => void;
@@ -29,7 +30,7 @@ export function MobileCommentSheet({
     if (activeComment) {
       setBody("");
     }
-  }, [activeComment?.file, activeComment?.from, activeComment?.to]);
+  }, [activeComment?.file, activeComment?.position?.side, activeComment?.position?.line]);
 
   // Focus textarea when sheet opens
   useEffect(() => {
@@ -46,7 +47,7 @@ export function MobileCommentSheet({
     }
   };
 
-  const lineLabel = activeComment ? `Line ${activeComment.from}` : "";
+  const lineLabel = activeComment ? `${activeComment.position.side === "L" ? "Old" : "New"} Line ${activeComment.position.line}` : "";
 
   return (
     <Sheet

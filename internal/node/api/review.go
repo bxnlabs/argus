@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +10,25 @@ import (
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
+
+func validateCommentLine(lr review.LineRange) error {
+	if lr.From.Side != review.DiffSideLeft && lr.From.Side != review.DiffSideRight {
+		return fmt.Errorf("invalid line.from.side: %q", lr.From.Side)
+	}
+	if lr.To.Side != review.DiffSideLeft && lr.To.Side != review.DiffSideRight {
+		return fmt.Errorf("invalid line.to.side: %q", lr.To.Side)
+	}
+	if lr.From.Line <= 0 {
+		return fmt.Errorf("line.from.line must be > 0")
+	}
+	if lr.To.Line <= 0 {
+		return fmt.Errorf("line.to.line must be > 0")
+	}
+	if lr.From.Side != lr.To.Side || lr.From.Line != lr.To.Line {
+		return fmt.Errorf("line.from must equal line.to (single-line comments only)")
+	}
+	return nil
+}
 
 type reviewHandler struct {
 	projectDirOverride string // for testing — bypasses home dir derivation
@@ -26,7 +46,7 @@ func (h *reviewHandler) resolveProjectDir(expandedPath string) (string, error) {
 	return filepath.Join(home, ".argus", "projects", parentKey), nil
 }
 
-// GET /api/git/review?path=...&branch=...&base=...
+// GET /api/git/review?path=...&branch=...&base=...&headRef=...&baseRef=...
 func (h *reviewHandler) get(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	branch := r.URL.Query().Get("branch")
@@ -35,6 +55,8 @@ func (h *reviewHandler) get(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "path, branch, and base parameters are required")
 		return
 	}
+	headRef := r.URL.Query().Get("headRef")
+	baseRef := r.URL.Query().Get("baseRef")
 	expandedPath, err := shared.SafeExpandPath(repoPath)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
@@ -45,7 +67,7 @@ func (h *reviewHandler) get(w http.ResponseWriter, r *http.Request) {
 		respondInternalError(w, err)
 		return
 	}
-	rv, err := review.Load(projectDir, expandedPath, branch, base)
+	rv, err := review.Load(projectDir, expandedPath, branch, base, headRef, baseRef)
 	if err != nil {
 		respondInternalError(w, err)
 		return
@@ -85,6 +107,16 @@ func (h *reviewHandler) post(w http.ResponseWriter, r *http.Request) {
 	for _, c := range rv.Comments {
 		if _, err := sanitizeFilePath(expandedPath, c.File); err != nil {
 			respondError(w, http.StatusBadRequest, "invalid file path in comment: "+c.File)
+			return
+		}
+		if c.OldPath != "" {
+			if _, err := sanitizeFilePath(expandedPath, c.OldPath); err != nil {
+				respondError(w, http.StatusBadRequest, "invalid oldPath in comment: "+c.OldPath)
+				return
+			}
+		}
+		if err := validateCommentLine(c.Line); err != nil {
+			respondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -24,21 +25,78 @@ func reviewFilename(head, base string) string {
 	return encodeBranchName(head) + "--" + encodeBranchName(base) + ".json"
 }
 
-// LineRange represents a range of lines in a file (1-indexed, inclusive).
+// DiffSide identifies which side of a unified diff a line belongs to.
+type DiffSide string
+
+const (
+	DiffSideLeft  DiffSide = "L"
+	DiffSideRight DiffSide = "R"
+)
+
+// AnchorStatus describes the staleness state of a submitted comment's anchor.
+type AnchorStatus string
+
+const (
+	AnchorResolved           AnchorStatus = "resolved"
+	AnchorStale              AnchorStatus = "stale"
+	AnchorContextUnavailable AnchorStatus = "context_unavailable"
+)
+
+// DiffPosition identifies a specific line on a specific side of the diff.
+type DiffPosition struct {
+	Side DiffSide `json:"side"`
+	Line int      `json:"line"`
+}
+
+// LineRange represents a range of lines in a diff (1-indexed, inclusive).
+// It supports both the new format {"from":{"side":"R","line":5},"to":{"side":"R","line":5}}
+// and the legacy format {"from":5,"to":5} (migrated to R side on read).
 type LineRange struct {
-	From int `json:"from"`
-	To   int `json:"to"`
+	From DiffPosition `json:"from"`
+	To   DiffPosition `json:"to"`
+}
+
+// UnmarshalJSON implements backward-compatible deserialization for LineRange.
+// It accepts the new object format {"from":{"side":"R","line":N},"to":{"side":"R","line":N}}
+// and the legacy numeric format {"from":N,"to":N}, migrating the latter to R side.
+func (lr *LineRange) UnmarshalJSON(data []byte) error {
+	// Try new format first.
+	type newFormat struct {
+		From DiffPosition `json:"from"`
+		To   DiffPosition `json:"to"`
+	}
+	var nf newFormat
+	if err := json.Unmarshal(data, &nf); err == nil && nf.From.Side != "" {
+		lr.From = nf.From
+		lr.To = nf.To
+		return nil
+	}
+
+	// Fall back to legacy format {"from": N, "to": N}.
+	var legacy struct {
+		From int `json:"from"`
+		To   int `json:"to"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	lr.From = DiffPosition{Side: DiffSideRight, Line: legacy.From}
+	lr.To = DiffPosition{Side: DiffSideRight, Line: legacy.To}
+	return nil
 }
 
 // ReviewComment is a review comment anchored to a snippet of code.
 type ReviewComment struct {
-	ID        string    `json:"id"`
-	File      string    `json:"file"`
-	Line      LineRange `json:"line"`
-	Snippet   string    `json:"snippet"`
-	Body      string    `json:"body"`
-	Submitted bool      `json:"submitted"`
-	CreatedAt string    `json:"createdAt"`
+	ID             string       `json:"id"`
+	File           string       `json:"file"`
+	OldPath        string       `json:"oldPath,omitempty"`
+	Line           LineRange    `json:"line"`
+	Snippet        string       `json:"snippet"`
+	SnippetContext string       `json:"snippetContext,omitempty"`
+	Body           string       `json:"body"`
+	Submitted      bool         `json:"submitted"`
+	CreatedAt      string       `json:"createdAt"`
+	AnchorStatus   AnchorStatus `json:"anchorStatus,omitempty"`
 }
 
 // ReviewBody is the top-level review feedback (not anchored to a line).
@@ -113,43 +171,100 @@ func ValidateFilePath(dir, file string) error {
 	return nil
 }
 
-// detectStaleness re-anchors submitted comments to their current line positions,
-// pruning any that can no longer be found in the file.
+// getFileContent returns the content of filePath at the given git ref using
+// "git show ref:filePath". Returns an error if the file does not exist in that ref.
+func getFileContent(repoDir, ref, filePath string) (string, error) {
+	cmd := exec.Command("git", "show", ref+":"+filePath)
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// detectStaleness re-anchors submitted comments to their current line positions
+// using immutable git refs rather than the working tree.
+//
+// R-side comments are resolved against headRef; L-side comments against baseRef.
+// L-side comments with a non-empty OldPath use OldPath for the file lookup.
 // Unsubmitted (draft) comments are always preserved as-is.
-func detectStaleness(repoDir string, comments []ReviewComment) []ReviewComment {
+// A comment that cannot be found at all is pruned (dropped).
+// A comment that matches ambiguously and whose snippetContext cannot disambiguate
+// is kept with AnchorStatus=AnchorStale.
+func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment) []ReviewComment {
 	result := make([]ReviewComment, 0)
 	for _, c := range comments {
 		if !c.Submitted {
 			result = append(result, c)
 			continue
 		}
-		if err := ValidateFilePath(repoDir, c.File); err != nil {
+
+		side := c.Line.From.Side
+
+		// Determine which ref and path to use.
+		ref := headRef
+		lookupPath := c.File
+		if side == DiffSideLeft {
+			ref = baseRef
+			if c.OldPath != "" {
+				lookupPath = c.OldPath
+			}
+		}
+
+		// Validate path before passing to git.
+		if err := ValidateFilePath(repoDir, lookupPath); err != nil {
 			continue
 		}
-		absPath := filepath.Clean(filepath.Join(repoDir, c.File))
-		content, err := os.ReadFile(absPath)
+
+		// If the ref is empty the caller hasn't provided enough context to check
+		// staleness; preserve the comment as-is rather than pruning it.
+		if ref == "" {
+			result = append(result, c)
+			continue
+		}
+
+		fileText, err := getFileContent(repoDir, ref, lookupPath)
 		if err != nil {
+			// File not present in this ref — prune.
 			continue
 		}
-		fileText := string(content)
-		lineNum := findSnippet(fileText, c.Snippet, c.Line.From)
-		if lineNum == -1 {
+
+		lineNum := findSnippetWithContext(fileText, c.Snippet, c.SnippetContext, c.Line.From.Line)
+		switch lineNum {
+		case -1:
+			// Not found — prune.
 			continue
+		case -2:
+			// Ambiguous — mark stale and keep.
+			c.AnchorStatus = AnchorStale
+			result = append(result, c)
+		default:
+			lineCount := strings.Count(c.Snippet, "\n")
+			c.Line = LineRange{
+				From: DiffPosition{Side: side, Line: lineNum},
+				To:   DiffPosition{Side: side, Line: lineNum + lineCount},
+			}
+			c.AnchorStatus = ""
+			result = append(result, c)
 		}
-		lineCount := strings.Count(c.Snippet, "\n")
-		c.Line = LineRange{From: lineNum, To: lineNum + lineCount}
-		result = append(result, c)
 	}
 	return result
 }
 
-// findSnippet finds the line number (1-indexed) where snippet appears in fileText,
-// preferring the occurrence nearest to priorLine. Returns -1 if not found or
-// if the nearest match is more than 50 lines away.
-func findSnippet(fileText, snippet string, priorLine int) int {
+// findSnippetWithContext finds the 1-indexed line number where snippet appears in fileText.
+// It extends findSnippet by using snippetContext to disambiguate multiple matches.
+//
+// Return values:
+//   - >=1   exact (or disambiguated) match line number
+//   - -1    not found (or nearest > 50 lines away with no context)
+//   - -2    ambiguous: multiple matches and snippetContext did not resolve them
+func findSnippetWithContext(fileText, snippet, snippetContext string, priorLine int) int {
 	if snippet == "" {
 		return -1
 	}
+
+	// Collect all match line numbers.
 	var matchLines []int
 	startIdx := 0
 	for {
@@ -162,14 +277,32 @@ func findSnippet(fileText, snippet string, priorLine int) int {
 		matchLines = append(matchLines, line)
 		startIdx = absIdx + 1
 	}
+
 	if len(matchLines) == 0 {
 		return -1
 	}
-	// A single match is unambiguous — always re-anchor regardless of distance.
-	// The distance threshold only disambiguates multiple matches.
+
+	// Single match — always re-anchor regardless of distance (unambiguous).
 	if len(matchLines) == 1 {
 		return matchLines[0]
 	}
+
+	// Multiple matches: try to disambiguate using snippetContext.
+	if snippetContext != "" {
+		var contextMatches []int
+		for _, line := range matchLines {
+			if contextMatchesLine(fileText, line, snippetContext) {
+				contextMatches = append(contextMatches, line)
+			}
+		}
+		if len(contextMatches) == 1 {
+			return contextMatches[0]
+		}
+		// Context provided but didn't uniquely match — ambiguous.
+		return -2
+	}
+
+	// No context provided: fall back to nearest match with distance threshold.
 	best := -1
 	bestDist := math.MaxInt
 	for _, line := range matchLines {
@@ -188,6 +321,37 @@ func findSnippet(fileText, snippet string, priorLine int) int {
 	return best
 }
 
+// contextMatchesLine checks whether snippetContext appears in a window of lines
+// surrounding the match at matchLine in fileText.
+func contextMatchesLine(fileText string, matchLine int, snippetContext string) bool {
+	lines := strings.Split(fileText, "\n")
+	// Use a window of ±10 lines around the match.
+	const windowSize = 10
+	from := matchLine - windowSize - 1
+	if from < 0 {
+		from = 0
+	}
+	to := matchLine + windowSize
+	if to > len(lines) {
+		to = len(lines)
+	}
+	window := strings.Join(lines[from:to], "\n")
+	return strings.Contains(window, snippetContext)
+}
+
+// findSnippet finds the line number (1-indexed) where snippet appears in fileText,
+// preferring the occurrence nearest to priorLine. Returns -1 if not found or
+// if the nearest match is more than 50 lines away.
+//
+// Deprecated: prefer findSnippetWithContext for new call sites.
+func findSnippet(fileText, snippet string, priorLine int) int {
+	n := findSnippetWithContext(fileText, snippet, "", priorLine)
+	if n == -2 {
+		return -1
+	}
+	return n
+}
+
 // reviewsDir returns the directory where review files are stored.
 func reviewsDir(projectDir string) string {
 	return filepath.Join(projectDir, "reviews")
@@ -198,9 +362,13 @@ func reviewPath(projectDir, head, base string) string {
 	return filepath.Join(reviewsDir(projectDir), reviewFilename(head, base))
 }
 
-// Load reads the review file for the given branch pair, runs staleness detection,
-// persists any re-anchoring, and returns the result. Returns nil, nil if no file exists.
-func Load(projectDir, repoDir, head, base string) (*Review, error) {
+// Load reads the review file for the given branch pair, runs staleness detection
+// against immutable git refs, persists any re-anchoring, and returns the result.
+// headRef is the commit OID for the head side (R-side); baseRef is the commit OID
+// for the base side (L-side). Either may be empty, in which case comments on that
+// side are skipped during staleness detection.
+// Returns nil, nil if no file exists.
+func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, error) {
 	path := reviewPath(projectDir, head, base)
 	r, err := readReviewFile(path)
 	if err != nil {
@@ -209,7 +377,7 @@ func Load(projectDir, repoDir, head, base string) (*Review, error) {
 	if r == nil {
 		return nil, nil
 	}
-	r.Comments = detectStaleness(repoDir, r.Comments)
+	r.Comments = detectStaleness(repoDir, headRef, baseRef, r.Comments)
 	if err := writeReviewFile(path, r); err != nil {
 		return nil, err
 	}

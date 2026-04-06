@@ -1,6 +1,6 @@
-import { memo, useEffect } from "react";
+import { memo, useCallback, useEffect } from "react";
 import type { ParsedDiff, DiffHunk } from "@/lib/diff-parser";
-import type { ReviewComment } from "@/types";
+import type { ReviewComment, DiffPosition } from "@/types";
 import { useExpandableDiff, type ExpansionContext } from "@/hooks/useExpandableDiff";
 import { UnifiedDiff } from "./UnifiedDiff";
 
@@ -13,13 +13,14 @@ interface ExpandableUnifiedDiffProps {
   onToggle?: () => void;
   wrapLines?: boolean;
   comments?: ReviewComment[];
-  activeCommentLine?: { from: number; to: number } | null;
-  onLineClick?: (line: number) => void;
+  activeCommentLine?: { position: DiffPosition } | null;
+  onLineClick?: (position: DiffPosition) => void;
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   onExpandedHunksChange?: (hunks: DiffHunk[]) => void;
+  onRegisterInsertSynthetic?: (handler: (hunk: DiffHunk, insertIndex: number) => void) => void;
 }
 
 export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
@@ -27,9 +28,10 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
   totalLines: totalLinesProp,
   expansionContext,
   onExpandedHunksChange,
+  onRegisterInsertSynthetic,
   ...unifiedDiffProps
 }: ExpandableUnifiedDiffProps) {
-  const { hunks, totalLines, expandLoading, expandErrors, handleExpand } = useExpandableDiff(
+  const { hunks, totalLines, expandLoading, expandErrors, handleExpand, dispatch } = useExpandableDiff(
     diff.hunks,
     totalLinesProp,
     expansionContext,
@@ -39,6 +41,15 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
   useEffect(() => {
     onExpandedHunksChange?.(hunks);
   }, [hunks, onExpandedHunksChange]);
+
+  // Register a stable synthetic-hunk insertion handler with the parent
+  const handleInsertSynthetic = useCallback((hunk: DiffHunk, insertIndex: number) => {
+    dispatch({ type: "INSERT_SYNTHETIC", hunk, insertIndex });
+  }, [dispatch]);
+
+  useEffect(() => {
+    onRegisterInsertSynthetic?.(handleInsertSynthetic);
+  }, [handleInsertSynthetic, onRegisterInsertSynthetic]);
 
   // Create a modified diff with the expanded hunks
   const expandedDiff: ParsedDiff = {

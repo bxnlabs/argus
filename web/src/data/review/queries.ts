@@ -7,15 +7,19 @@ export function useReviewQuery(
   path: string,
   head: string | undefined,
   base: string | null,
+  headRef?: string,
+  baseRef?: string,
 ) {
   return useQuery({
-    queryKey: reviewKeys.forComparison(path, head ?? "", base ?? ""),
+    queryKey: [...reviewKeys.forComparison(path, head ?? "", base ?? ""), headRef ?? "", baseRef ?? ""],
     queryFn: async () => {
       const params = new URLSearchParams({
         path,
         branch: head!,
         base: base!,
       });
+      if (headRef) params.set("headRef", headRef);
+      if (baseRef) params.set("baseRef", baseRef);
       return apiFetch<Review>(`/node/api/git/review?${params}`);
     },
     staleTime: 30_000,
@@ -35,10 +39,9 @@ export function useSaveReviewMutation(path: string) {
       });
     },
     onSuccess: (_data, variables) => {
-      queryClient.setQueryData(
-        reviewKeys.forComparison(path, variables.head, variables.base),
-        variables,
-      );
+      queryClient.invalidateQueries({
+        queryKey: reviewKeys.forComparison(path, variables.head, variables.base),
+      });
     },
   });
 }
