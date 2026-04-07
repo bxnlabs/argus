@@ -80,6 +80,69 @@ func TestGetBranches(t *testing.T) {
 	})
 }
 
+func TestGetAllBranches(t *testing.T) {
+	dir := initTestRepo(t)
+	commitFile(t, dir, "a.txt", "aaa", "initial commit")
+
+	cmd := exec.Command("git", "branch", "feature/local")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git branch: %v\n%s", err, out)
+	}
+
+	branches, err := GetAllBranches(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := map[string]bool{}
+	for _, b := range branches {
+		found[b] = true
+	}
+	if !found["feature/local"] {
+		t.Errorf("expected feature/local in branches, got %v", branches)
+	}
+}
+
+func TestGetAllBranchesFiltersOriginHead(t *testing.T) {
+	remote := initTestRepo(t)
+	commitFile(t, remote, "a.txt", "aaa", "initial commit")
+
+	dir := t.TempDir()
+	cmd := exec.Command("git", "clone", remote, dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	branches, err := GetAllBranches(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, b := range branches {
+		if b == "HEAD" {
+			t.Error("origin/HEAD should be filtered out, but 'HEAD' appeared in branches")
+		}
+	}
+}
+
+func TestValidateBranchName(t *testing.T) {
+	dir := initTestRepo(t)
+	commitFile(t, dir, "a.txt", "aaa", "initial commit")
+
+	if err := ValidateBranchName(dir, "valid-branch"); err != nil {
+		t.Errorf("expected valid branch name to pass, got: %v", err)
+	}
+
+	if err := ValidateBranchName(dir, "-invalid"); err == nil {
+		t.Error("expected leading dash to fail validation")
+	}
+
+	if err := ValidateBranchName(dir, "has spaces"); err == nil {
+		t.Error("expected branch with spaces to fail validation")
+	}
+}
+
 func TestGetCompare(t *testing.T) {
 	dir := initTestRepo(t)
 	commitFile(t, dir, "base.txt", "base content", "base commit")
