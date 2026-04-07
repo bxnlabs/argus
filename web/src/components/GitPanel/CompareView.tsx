@@ -540,6 +540,20 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }));
   }, [saveAndUpdate]);
 
+  const handleEditComment = useCallback(
+    (id: string, body: string) => {
+      saveAndUpdate((prev) => ({
+        ...prev,
+        comments: prev.comments.map((c) =>
+          c.id === id
+            ? { ...c, body, submitted: false }
+            : c,
+        ),
+      }));
+    },
+    [saveAndUpdate],
+  );
+
   const handleSubmitComments = useCallback((generalCommentBody: string) => {
     saveAndUpdate((prev) => ({
       ...prev,
@@ -679,6 +693,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onAddComment={showAddComment ? handleAddComment : undefined}
               onCancelComment={showAddComment ? clearActiveComment : undefined}
               onDeleteComment={handleDeleteComment}
+              onEditComment={handleEditComment}
               onCommentRef={setCommentRef}
               totalLines={compareData?.totalLines[pathKey] ?? 0}
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}

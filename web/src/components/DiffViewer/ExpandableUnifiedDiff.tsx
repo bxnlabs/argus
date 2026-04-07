@@ -18,6 +18,7 @@ interface ExpandableUnifiedDiffProps {
   onAddComment?: (body: string) => void;
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
+  onEditComment?: (id: string, body: string) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   onExpandedHunksChange?: (hunks: DiffHunk[]) => void;
   onRegisterInsertSynthetic?: (handler: (hunk: DiffHunk, insertIndex: number) => void) => void;
