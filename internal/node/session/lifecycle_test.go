@@ -61,7 +61,7 @@ func TestResolveSourceToCWD_ShellSkipsWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Shell session with a local git repo as source — should NOT create worktree
-	cwd, branch, _, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.ProviderShell)
+	cwd, branch, _, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.ProviderShell, "")
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 	}
 
 	// Point an agent session at the worktree path — should reuse it
-	cwd, gotBranch, _, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.ProviderClaude)
+	cwd, gotBranch, _, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.ProviderClaude, "")
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestResolveSourceToCWD_AgentCreatesWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Agent session with a local git repo — SHOULD create worktree
-	cwd, branch, _, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.ProviderClaude)
+	cwd, branch, _, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.ProviderClaude, "")
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -412,6 +412,7 @@ func TestDeleteWithBranchDeletion(t *testing.T) {
 		WorkingDirectory: wtPath,
 		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
+		BranchCreated:    true,
 		GitParentDir:     &gitRoot,
 	}
 	if err := database.CreateSession(sess); err != nil {
@@ -527,6 +528,7 @@ func TestDeleteWithBranchDeletionNilGitParentDir(t *testing.T) {
 		ID: "sess-no-parent", Name: "no-parent", TmuxName: "claude-sess-no-parent",
 		WorkingDirectory: wtPath, ProviderType: "claude",
 		WorktreeBranch: &branch,
+		BranchCreated:  true,
 		GitParentDir:   nil, // intentionally nil
 	}
 	if err := database.CreateSession(sess); err != nil {
@@ -576,6 +578,7 @@ func TestDeleteWithBranchDeletionFailureIsBestEffort(t *testing.T) {
 		WorkingDirectory: wtPath,
 		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
+		BranchCreated:    true,
 		GitParentDir:     &bogusDir,
 	}
 	if err := database.CreateSession(sess); err != nil {
