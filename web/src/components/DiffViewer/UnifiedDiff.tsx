@@ -277,7 +277,7 @@ function Hunk({
                 className={cn(!wrapLines && "sticky left-0")}
                 style={!wrapLines ? { width: "calc(100vw - 0.75rem * 2 - 2px)" } : undefined}
               >
-                <InlineCommentCard comment={c} onDelete={onDeleteComment!} onEdit={onEditComment!} />
+                <InlineCommentCard comment={c} onDelete={onDeleteComment} onEdit={onEditComment} />
               </div>
             ))}
             {showForm && onAddComment && onCancelComment && (

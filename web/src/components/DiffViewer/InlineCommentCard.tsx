@@ -7,8 +7,8 @@ import { InlineCommentForm } from "./InlineCommentForm";
 
 interface InlineCommentCardProps {
   comment: ReviewComment;
-  onDelete: (id: string) => void;
-  onEdit: (id: string, body: string) => void;
+  onDelete?: (id: string) => void;
+  onEdit?: (id: string, body: string) => void;
 }
 
 export function InlineCommentCard({ comment, onDelete, onEdit }: InlineCommentCardProps) {
@@ -52,7 +52,7 @@ export function InlineCommentCard({ comment, onDelete, onEdit }: InlineCommentCa
             </span>
           )}
           <span className="flex-1" />
-          {!isEditing && (
+          {onEdit && !isEditing && (
             <Button
               size="icon-sm"
               variant="ghost"
@@ -63,15 +63,17 @@ export function InlineCommentCard({ comment, onDelete, onEdit }: InlineCommentCa
               <Pencil className="h-3 w-3" />
             </Button>
           )}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={() => onDelete(comment.id)}
-            aria-label="Delete comment"
-            className="text-muted-foreground hover:text-destructive -mr-1 h-6 w-6"
-          >
-            <X className="h-3 w-3" />
-          </Button>
+          {onDelete && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => onDelete(comment.id)}
+              aria-label="Delete comment"
+              className="text-muted-foreground hover:text-destructive -mr-1 h-6 w-6"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
         </div>
 
         {/* Body */}
@@ -82,7 +84,9 @@ export function InlineCommentCard({ comment, onDelete, onEdit }: InlineCommentCa
               initialBody={comment.body}
               submitLabel="Save"
               onSubmit={(body) => {
-                onEdit(comment.id, body);
+                if (body !== comment.body) {
+                  onEdit?.(comment.id, body);
+                }
                 setIsEditing(false);
               }}
               onCancel={() => setIsEditing(false)}

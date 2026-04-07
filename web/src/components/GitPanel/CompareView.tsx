@@ -546,7 +546,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         ...prev,
         comments: prev.comments.map((c) =>
           c.id === id
-            ? { ...c, body, createdAt: new Date().toISOString(), submitted: false }
+            ? { ...c, body, submitted: false }
             : c,
         ),
       }));
