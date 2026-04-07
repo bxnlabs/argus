@@ -9,22 +9,24 @@ import (
 // sessionColumns is the explicit column list matching scanSession's scan order.
 const sessionColumns = `id, name, tmux_name, created_at, updated_at,
 	working_directory, provider_session_id, model, system_prompt,
-	provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile`
+	provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile, branch_created`
 
 func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var s Session
 	var autoApprove int
+	var branchCreated int
 	err := row.Scan(
 		&s.ID, &s.Name, &s.TmuxName, &s.CreatedAt, &s.UpdatedAt,
 		&s.WorkingDirectory,
 		&s.ProviderSessionID, &s.Model, &s.SystemPrompt,
 		&s.ProviderType, &autoApprove, &s.WorktreeBranch,
-		&s.GitParentDir, &s.GitRemoteURL, &s.Profile,
+		&s.GitParentDir, &s.GitRemoteURL, &s.Profile, &branchCreated,
 	)
 	if err != nil {
 		return nil, err
 	}
 	s.AutoApprove = autoApprove != 0
+	s.BranchCreated = branchCreated != 0
 	return &s, nil
 }
 
@@ -33,13 +35,17 @@ func (d *DB) CreateSession(s *Session) error {
 	if s.AutoApprove {
 		autoApprove = 1
 	}
+	branchCreated := 0
+	if s.BranchCreated {
+		branchCreated = 1
+	}
 	_, err := d.sql.Exec(
-		`INSERT INTO sessions (id, name, tmux_name, working_directory, provider_session_id, model, system_prompt, provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (id, name, tmux_name, working_directory, provider_session_id, model, system_prompt, provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile, branch_created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.Name, s.TmuxName, s.WorkingDirectory,
 		s.ProviderSessionID, s.Model, s.SystemPrompt,
 		s.ProviderType, autoApprove, s.WorktreeBranch,
-		s.GitParentDir, s.GitRemoteURL, s.Profile,
+		s.GitParentDir, s.GitRemoteURL, s.Profile, branchCreated,
 	)
 	if err != nil {
 		return fmt.Errorf("create session %s: %w", s.ID, err)
