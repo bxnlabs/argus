@@ -17,6 +17,7 @@ func newCreateCmd() *cobra.Command {
 		src      string
 		yolo     bool
 		profile  string
+		branch   string
 	)
 
 	cmd := &cobra.Command{
@@ -57,6 +58,9 @@ func newCreateCmd() *cobra.Command {
 			if profile != "" {
 				reqBody["profile"] = profile
 			}
+			if branch != "" {
+				reqBody["branch"] = branch
+			}
 
 			data, err := json.Marshal(reqBody)
 			if err != nil {
@@ -86,6 +90,7 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&src, "src", "", "Source: local path or git URL/shorthand (defaults to current directory)")
 	cmd.Flags().BoolVar(&yolo, "yolo", true, "Auto-approve tool calls (use --yolo=false to disable)")
 	cmd.Flags().StringVar(&profile, "profile", "", "Profile name for lifecycle hooks")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch name override (uses exact name, bypasses prefix/slug)")
 
 	return cmd
 }
