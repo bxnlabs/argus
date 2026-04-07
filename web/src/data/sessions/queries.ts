@@ -24,6 +24,7 @@ export interface CreateSessionInput {
   auto_approve: boolean;
   model?: string;
   profile?: string;
+  branch?: string;
 }
 
 interface CreateSessionResponse {

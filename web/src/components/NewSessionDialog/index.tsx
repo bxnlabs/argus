@@ -19,6 +19,15 @@ import { Switch } from "@/components/ui/switch";
 import { ProviderSelector } from "./ProviderSelector";
 import { SourcePicker } from "@/components/SourcePicker";
 import { useProfilesQuery } from "@/data/sessions";
+import { useGitCheckQuery } from "@/data/git/queries";
+import {
+  Dialog as BranchDialog,
+  DialogContent as BranchDialogContent,
+  DialogHeader as BranchDialogHeader,
+  DialogTitle as BranchDialogTitle,
+} from "@/components/ui/dialog";
+import { BranchPicker } from "@/components/BranchPicker";
+import { cn } from "@/lib/utils";
 import type { ProviderType, CreateSessionParams } from "@/types";
 
 type SourceTab = "local" | "remote";
@@ -40,10 +49,19 @@ export function NewSessionDialog({
   const [sourceTab, setSourceTab] = useState<SourceTab>("local");
   const [autoApprove, setAutoApprove] = useState(true);
   const [profile, setProfile] = useState("");
+  const [branch, setBranch] = useState("");
+  const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const sourcePickerClosingRef = useRef(false);
   const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
+
+  const isRemoteSource = sourceTab === "remote" && source !== "";
+  const { data: isLocalGitRepo = false } = useGitCheckQuery(
+    sourceTab === "local" && source ? source : null,
+  );
+  const isGitBacked = isRemoteSource || isLocalGitRepo;
+  const showBranchField = isGitBacked && providerType !== "shell";
 
   useEffect(() => {
     if (open) {
@@ -55,8 +73,14 @@ export function NewSessionDialog({
       setAutoApprove(true);
       setProfile("");
       setShowSourcePicker(false);
+      setBranch("");
+      setShowBranchPicker(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    setBranch("");
+  }, [source, sourceTab, providerType]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +103,10 @@ export function NewSessionDialog({
 
     if (profile) {
       params.profile = profile;
+    }
+
+    if (branch) {
+      params.branch = branch;
     }
 
     onCreateSession(params);
@@ -132,6 +160,21 @@ export function NewSessionDialog({
                 className="cursor-pointer"
               />
             </div>
+
+            {showBranchField && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Branch <span className="text-muted-foreground font-normal">(optional)</span>
+                </label>
+                <Input
+                  value={branch}
+                  readOnly
+                  onClick={() => setShowBranchPicker(true)}
+                  placeholder="Click to select or type a branch..."
+                  className="cursor-pointer"
+                />
+              </div>
+            )}
 
             {profiles.length > 0 && (
               <div className="space-y-2">
@@ -192,6 +235,33 @@ export function NewSessionDialog({
         initialLocalPath={sourceTab === "local" ? source : undefined}
         initialRemoteQuery={sourceTab === "remote" ? source : undefined}
       />
+      {showBranchField && (
+        <BranchDialog
+          open={showBranchPicker}
+          onOpenChange={(o) => setShowBranchPicker(o)}
+        >
+          <BranchDialogContent
+            className={cn(
+              "gap-0 overflow-hidden p-0",
+              "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] sm:max-w-md",
+            )}
+            showCloseButton={false}
+          >
+            <BranchDialogHeader className="sr-only">
+              <BranchDialogTitle>Select Branch</BranchDialogTitle>
+            </BranchDialogHeader>
+            <BranchPicker
+              open={showBranchPicker}
+              source={source}
+              onSelect={(b) => {
+                setBranch(b);
+                setShowBranchPicker(false);
+              }}
+              onClose={() => setShowBranchPicker(false)}
+            />
+          </BranchDialogContent>
+        </BranchDialog>
+      )}
     </>
   );
 }
