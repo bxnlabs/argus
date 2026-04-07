@@ -87,7 +87,7 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Create a worktree externally
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "existing work")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "existing work", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestDeleteDirtyWorktreeBlocksBeforeSideEffects(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Create a worktree-backed session via the manager's worktree infrastructure
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "dirty-test")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "dirty-test", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestDeletePreDestroyHookDirtyingWorktreeStillSucceeds(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "hook-dirty")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "hook-dirty", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestDeleteForceBypassesDirtyCheck(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "force-test")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "force-test", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestDeleteWithBranchDeletion(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "branch-del")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "branch-del", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestDeleteWithBranchDeletionSharedWorktree(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "shared-wt")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "shared-wt", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -518,7 +518,7 @@ func TestDeleteWithBranchDeletionNilGitParentDir(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "no-parent")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "no-parent", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestDeleteWithBranchDeletionFailureIsBestEffort(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "best-effort")
+	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "best-effort", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}

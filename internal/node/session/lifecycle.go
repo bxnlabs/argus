@@ -271,7 +271,7 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 			}
 			return cloneDir, nil, false, noop, nil
 		}
-		wtPath, branch, created, err := m.wt.CreateForRemoteRepo(resolved, sessionName)
+		wtPath, branch, created, err := m.wt.CreateForRemoteRepo(resolved, sessionName, "")
 		if err != nil {
 			return "", nil, false, noop, err
 		}
@@ -300,7 +300,7 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 		return resolved.LocalPath, &existingBranch, false, noop, nil
 	}
 
-	wtPath, branch, created, err := m.wt.CreateForLocalRepo(gitRoot, sessionName)
+	wtPath, branch, created, err := m.wt.CreateForLocalRepo(gitRoot, sessionName, "")
 	if err != nil {
 		return "", nil, false, noop, err
 	}

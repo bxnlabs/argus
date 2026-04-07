@@ -65,9 +65,9 @@ func (m *Manager) IsManagedPath(worktreePath string) bool {
 // gitRoot must be the absolute path to the repo root.
 // Returns the worktree path, git branch name, and whether the worktree was
 // newly created (true) or an existing one was reused (false).
-func (m *Manager) CreateForLocalRepo(gitRoot, sessionName string) (worktreePath, branch string, created bool, err error) {
+func (m *Manager) CreateForLocalRepo(gitRoot, sessionName string, branchOverride string) (worktreePath, branch string, created bool, err error) {
 	src := &source.Source{LocalPath: gitRoot}
-	return m.createWorktree(gitRoot, src.ParentKey(), sessionName)
+	return m.createWorktree(gitRoot, src.ParentKey(), sessionName, branchOverride)
 }
 
 // EnsureClone clones the remote repo if not already cloned, or fetches
@@ -115,12 +115,12 @@ func (m *Manager) EnsureClone(src *source.Source, fetchOnly bool) (string, error
 // CreateForRemoteRepo clones (or fetches) the remote repo and creates a worktree.
 // Returns the worktree path, git branch name, and whether the worktree was
 // newly created (true) or an existing one was reused (false).
-func (m *Manager) CreateForRemoteRepo(src *source.Source, sessionName string) (worktreePath, branch string, created bool, err error) {
+func (m *Manager) CreateForRemoteRepo(src *source.Source, sessionName string, branchOverride string) (worktreePath, branch string, created bool, err error) {
 	cloneDir, err := m.EnsureClone(src, false)
 	if err != nil {
 		return "", "", false, err
 	}
-	return m.createWorktree(cloneDir, src.ParentKey(), sessionName)
+	return m.createWorktree(cloneDir, src.ParentKey(), sessionName, branchOverride)
 }
 
 // FindWorktree checks whether a git worktree already exists for the given
@@ -163,9 +163,14 @@ func (m *Manager) FindWorktreeByPath(dir string) (branch string, err error) {
 	return "", nil
 }
 
-func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktreePath, branch string, created bool, err error) {
-	slug := slugify(sessionName)
-	baseBranch := m.branchName(slug)
+func (m *Manager) createWorktree(repoDir, parentKey, sessionName string, branchOverride string) (worktreePath, branch string, created bool, err error) {
+	var baseBranch string
+	if branchOverride != "" {
+		baseBranch = branchOverride
+	} else {
+		slug := slugify(sessionName)
+		baseBranch = m.branchName(slug)
+	}
 
 	// Check if a worktree already exists for this branch.
 	existing, err := m.FindWorktree(repoDir, baseBranch)
@@ -176,12 +181,25 @@ func (m *Manager) createWorktree(repoDir, parentKey, sessionName string) (worktr
 		return existing, baseBranch, false, nil
 	}
 
-	// Check if the branch already exists (e.g. worktree was removed but the
-	// branch was preserved after a session delete). If so, create a worktree
-	// for the existing branch instead of minting a new suffixed branch.
+	// Check if the branch already exists locally.
 	branchExists, err := git.BranchExists(repoDir, baseBranch)
 	if err != nil {
 		return "", "", false, fmt.Errorf("check branch exists: %w", err)
+	}
+
+	// If branch doesn't exist locally and we have a branch override,
+	// try to find it on the remote and fetch it.
+	if !branchExists && branchOverride != "" && git.HasRemote(repoDir) {
+		remoteExists, err := git.RemoteTrackingBranchExists(repoDir, baseBranch)
+		if err == nil && !remoteExists {
+			// Tracking ref not found — try a targeted fetch
+			if fetchErr := git.FetchBranch(repoDir, baseBranch); fetchErr == nil {
+				remoteExists, _ = git.RemoteTrackingBranchExists(repoDir, baseBranch)
+			}
+		}
+		if remoteExists {
+			branchExists = true
+		}
 	}
 
 	worktreePath = filepath.Join(m.stateDir, "projects", parentKey, "worktrees", worktreeDirName(baseBranch))
