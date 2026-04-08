@@ -22,6 +22,7 @@ interface UnifiedDiffProps {
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
   onEditComment?: (id: string, body: string) => void;
+  onEditCommentRequest?: (comment: ReviewComment) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   onExpand?: (direction: ExpandDirection, hunkIndex: number) => void;
   expandLoading?: Record<string, boolean>;
@@ -42,6 +43,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
   onCancelComment,
   onDeleteComment,
   onEditComment,
+  onEditCommentRequest,
   onCommentRef,
   onExpand,
   expandLoading,
@@ -186,6 +188,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
                       onCancelComment={onCancelComment}
                       onDeleteComment={onDeleteComment}
                       onEditComment={onEditComment}
+                      onEditCommentRequest={onEditCommentRequest}
                       onCommentRef={onCommentRef}
                       commentingEnabled={commentingEnabled}
                     />
@@ -219,6 +222,7 @@ function Hunk({
   onCancelComment,
   onDeleteComment,
   onEditComment,
+  onEditCommentRequest,
   onCommentRef,
   commentingEnabled,
 }: {
@@ -231,6 +235,7 @@ function Hunk({
   onCancelComment?: () => void;
   onDeleteComment?: (id: string) => void;
   onEditComment?: (id: string, body: string) => void;
+  onEditCommentRequest?: (comment: ReviewComment) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   commentingEnabled: boolean;
 }) {
@@ -277,7 +282,7 @@ function Hunk({
                 className={cn(!wrapLines && "sticky left-0")}
                 style={!wrapLines ? { width: "calc(100vw - 0.75rem * 2 - 2px)" } : undefined}
               >
-                <InlineCommentCard comment={c} onDelete={onDeleteComment} onEdit={onEditComment} />
+                <InlineCommentCard comment={c} onDelete={onDeleteComment} onEdit={onEditComment} onEditRequest={onEditCommentRequest} />
               </div>
             ))}
             {showForm && onAddComment && onCancelComment && (
