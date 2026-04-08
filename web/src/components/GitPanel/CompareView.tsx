@@ -115,6 +115,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
+    setEditingComment(null);
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
     insertSyntheticHandlers.current.clear();
