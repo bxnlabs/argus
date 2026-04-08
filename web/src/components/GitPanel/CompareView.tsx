@@ -102,6 +102,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     file: string;
     position: DiffPosition;
   } | null>(null);
+  const [editingComment, setEditingComment] = useState<ReviewComment | null>(null);
 
   const {
     data: branchData,
@@ -114,6 +115,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
+    setEditingComment(null);
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
     insertSyntheticHandlers.current.clear();
@@ -377,6 +379,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, []);
 
   const clearActiveComment = useCallback(() => setActiveComment(null), []);
+  const handleEditCommentRequest = useCallback((comment: ReviewComment) => setEditingComment(comment), []);
+  const clearEditingComment = useCallback(() => setEditingComment(null), []);
 
   // Stable per-file expanded hunks change handler — writes to ref, no re-render
   const handleExpandedHunksChange = useCallback((pathKey: string, hunks: DiffHunk[]) => {
@@ -670,7 +674,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   ) : null;
 
   // --- Shared diff rendering helper ---
-  const renderDiffs = (wrapLines = true, showAddComment = true) => (
+  const renderDiffs = (wrapLines = true, showAddComment = true, editCommentRequestHandler?: (comment: ReviewComment) => void) => (
     <div className="space-y-3 pt-3">
       {reviewData?.body?.body && (
         <ReviewBodyCard body={reviewData.body} onDelete={handleDeleteBody} />
@@ -694,6 +698,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onCancelComment={showAddComment ? clearActiveComment : undefined}
               onDeleteComment={handleDeleteComment}
               onEditComment={handleEditComment}
+              onEditCommentRequest={editCommentRequestHandler}
               onCommentRef={setCommentRef}
               totalLines={compareData?.totalLines[pathKey] ?? 0}
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
@@ -783,7 +788,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               </p>
             </div>
           ) : (
-            <div className="p-3">{renderDiffs(false, false)}</div>
+            <div className="p-3">{renderDiffs(false, false, handleEditCommentRequest)}</div>
           )}
         </div>
         {sortedComments.length > 0 && (
@@ -819,6 +824,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           })() : []}
           onAddComment={handleAddComment}
           onCancel={clearActiveComment}
+          editingComment={editingComment}
+          onEditComment={handleEditComment}
+          onCancelEdit={clearEditingComment}
         />
       </div>
     );

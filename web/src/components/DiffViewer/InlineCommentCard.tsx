@@ -9,9 +9,11 @@ interface InlineCommentCardProps {
   comment: ReviewComment;
   onDelete?: (id: string) => void;
   onEdit?: (id: string, body: string) => void;
+  /** When provided, clicking the edit button calls this instead of entering inline edit mode. */
+  onEditRequest?: (comment: ReviewComment) => void;
 }
 
-export function InlineCommentCard({ comment, onDelete, onEdit }: InlineCommentCardProps) {
+export function InlineCommentCard({ comment, onDelete, onEdit, onEditRequest }: InlineCommentCardProps) {
   const isDraft = !comment.submitted;
   const isStale = comment.anchorStatus === "stale";
   const isUnavailable = comment.anchorStatus === "context_unavailable";
@@ -56,7 +58,7 @@ export function InlineCommentCard({ comment, onDelete, onEdit }: InlineCommentCa
             <Button
               size="icon-sm"
               variant="ghost"
-              onClick={() => setIsEditing(true)}
+              onClick={() => onEditRequest ? onEditRequest(comment) : setIsEditing(true)}
               aria-label="Edit comment"
               className="text-muted-foreground hover:text-foreground -mr-1 h-6 w-6"
             >

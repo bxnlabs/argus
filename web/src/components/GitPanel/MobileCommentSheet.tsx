@@ -7,13 +7,17 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type { DiffLine } from "@/lib/diff-parser";
-import type { DiffPosition } from "@/types";
+import type { DiffPosition, ReviewComment } from "@/types";
 
 interface MobileCommentSheetProps {
   activeComment: { file: string; position: DiffPosition } | null;
   activeLines: DiffLine[];
   onAddComment: (body: string) => void;
   onCancel: () => void;
+  /** When set, the sheet opens in edit mode for this comment. */
+  editingComment?: ReviewComment | null;
+  onEditComment?: (id: string, body: string) => void;
+  onCancelEdit?: () => void;
 }
 
 export function MobileCommentSheet({
@@ -21,51 +25,85 @@ export function MobileCommentSheet({
   activeLines,
   onAddComment,
   onCancel,
+  editingComment,
+  onEditComment,
+  onCancelEdit,
 }: MobileCommentSheetProps) {
   const [body, setBody] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Reset body when a new comment target is selected
+  const isEditing = !!editingComment;
+  const isOpen = isEditing || activeComment !== null;
+
+  // Reset body when a new comment target is selected (creation mode)
   useEffect(() => {
-    if (activeComment) {
+    if (activeComment && !editingComment) {
       setBody("");
     }
-  }, [activeComment?.file, activeComment?.position?.side, activeComment?.position?.line]);
+  }, [activeComment?.file, activeComment?.position?.side, activeComment?.position?.line, editingComment]);
+
+  // Pre-populate body when entering edit mode
+  useEffect(() => {
+    if (editingComment) {
+      setBody(editingComment.body);
+    }
+  }, [editingComment?.id]);
 
   // Focus textarea when sheet opens
   useEffect(() => {
-    if (activeComment) {
+    if (isOpen) {
       const t = setTimeout(() => textareaRef.current?.focus(), 100);
       return () => clearTimeout(t);
     }
-  }, [activeComment]);
+  }, [isOpen]);
 
   const handleSubmit = () => {
-    if (body.trim()) {
+    if (!body.trim()) return;
+    if (isEditing && editingComment) {
+      if (body.trim() !== editingComment.body) {
+        onEditComment?.(editingComment.id, body.trim());
+      }
+      onCancelEdit?.();
+    } else {
       onAddComment(body.trim());
       setBody("");
     }
   };
 
-  const lineLabel = activeComment ? `${activeComment.position.side === "L" ? "Old" : "New"} Line ${activeComment.position.line}` : "";
+  const handleCancel = () => {
+    if (isEditing) {
+      onCancelEdit?.();
+    } else {
+      onCancel();
+    }
+  };
+
+  const file = isEditing ? editingComment!.file : activeComment?.file;
+  const lineLabel = isEditing
+    ? `${editingComment!.line.to.side === "L" ? "Old" : "New"} Line ${editingComment!.line.to.line}`
+    : activeComment
+      ? `${activeComment.position.side === "L" ? "Old" : "New"} Line ${activeComment.position.line}`
+      : "";
 
   return (
     <Sheet
-      open={activeComment !== null}
+      open={isOpen}
       onOpenChange={(open) => {
-        if (!open) onCancel();
+        if (!open) handleCancel();
       }}
     >
       <SheetContent side="bottom" hideCloseButton className="top-0 flex flex-col px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-center justify-between py-3">
           <div className="min-w-0 flex-1">
-            <SheetTitle className="text-base font-semibold">Add Comment</SheetTitle>
+            <SheetTitle className="text-base font-semibold">
+              {isEditing ? "Edit Comment" : "Add Comment"}
+            </SheetTitle>
             <p className="text-muted-foreground mt-0.5 truncate text-xs">
-              {activeComment?.file} &middot; {lineLabel}
+              {file} &middot; {lineLabel}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={onCancel}>
+            <Button size="sm" variant="ghost" onClick={handleCancel}>
               Cancel
             </Button>
             <Button
@@ -73,12 +111,12 @@ export function MobileCommentSheet({
               onClick={handleSubmit}
               disabled={!body.trim()}
             >
-              Comment
+              {isEditing ? "Save" : "Comment"}
             </Button>
           </div>
         </div>
 
-        {activeLines.length > 0 && (
+        {!isEditing && activeLines.length > 0 && (
           <div className="border-border mb-3 overflow-x-auto rounded-md border font-mono text-xs">
             {activeLines.map((line, i) => {
               const marker = line.type === "addition" ? "+" : line.type === "deletion" ? "-" : " ";
@@ -100,6 +138,18 @@ export function MobileCommentSheet({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {isEditing && editingComment?.snippet && (
+          <div className="border-border mb-3 overflow-x-auto rounded-md border font-mono text-xs">
+            <div className="text-foreground flex whitespace-pre">
+              <span className="text-muted-foreground w-8 shrink-0 select-none px-1.5 py-0.5 text-right">
+                {editingComment.line.to.line}
+              </span>
+              <span className="w-4 shrink-0 select-none py-0.5 text-center"> </span>
+              <span className="py-0.5 pr-2">{editingComment.snippet}</span>
+            </div>
           </div>
         )}
 
