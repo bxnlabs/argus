@@ -130,10 +130,12 @@ func RemoteTrackingBranchExists(repoDir, branch string) (bool, error) {
 	return strings.TrimSpace(out) != "", nil
 }
 
-// FetchBranch does a targeted fetch of a single branch from origin.
+// FetchBranch does a targeted fetch of a single branch from origin,
+// explicitly updating the remote-tracking ref refs/remotes/origin/<branch>.
 // Returns nil if the fetch succeeds, error otherwise.
 func FetchBranch(repoDir, branch string) error {
-	return Run(repoDir, "fetch", "origin", branch)
+	refspec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branch, branch)
+	return Run(repoDir, "fetch", "origin", refspec)
 }
 
 // HasRemote reports whether the repo has a remote named "origin".

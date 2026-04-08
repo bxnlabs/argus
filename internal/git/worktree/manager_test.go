@@ -50,7 +50,7 @@ func TestCreateForLocalRepo(t *testing.T) {
 	stateDir := t.TempDir()
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
-	wtPath, branch, created, err := mgr.CreateForLocalRepo(gitRoot, "Fix Auth Bug", "")
+	wtPath, branch, created, _, err := mgr.CreateForLocalRepo(gitRoot, "Fix Auth Bug", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestCreateForLocalRepoNoBranchPrefix(t *testing.T) {
 	stateDir := t.TempDir()
 
 	mgr := worktree.NewManager(stateDir, &config.Config{})
-	_, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+	_, branch, _, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestCreateForLocalRepoBranchConflict(t *testing.T) {
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
-	wtPath1, branch1, created1, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+	wtPath1, branch1, created1, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 	if err != nil {
 		t.Fatalf("first CreateForLocalRepo: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestCreateForLocalRepoBranchConflict(t *testing.T) {
 	}
 
 	// Second call with same name — should reuse the existing worktree
-	wtPath2, branch2, created2, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+	wtPath2, branch2, created2, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 	if err != nil {
 		t.Fatalf("second CreateForLocalRepo: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestCreateForRemoteRepo(t *testing.T) {
 	}
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
-	wtPath, branch, created, err := mgr.CreateForRemoteRepo(src, "my feature", "")
+	wtPath, branch, created, _, err := mgr.CreateForRemoteRepo(src, "my feature", "")
 	if err != nil {
 		t.Fatalf("CreateForRemoteRepo: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestFindWorktreeExists(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// Create a worktree first
-	wtPath, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+	wtPath, branch, _, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -236,11 +236,11 @@ func TestFindWorktreeFromWorktreeDir(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// Create two worktrees
-	wtPath1, _, _, err := mgr.CreateForLocalRepo(gitRoot, "first", "")
+	wtPath1, _, _, _, err := mgr.CreateForLocalRepo(gitRoot, "first", "")
 	if err != nil {
 		t.Fatalf("first CreateForLocalRepo: %v", err)
 	}
-	wtPath2, branch2, _, err := mgr.CreateForLocalRepo(gitRoot, "second", "")
+	wtPath2, branch2, _, _, err := mgr.CreateForLocalRepo(gitRoot, "second", "")
 	if err != nil {
 		t.Fatalf("second CreateForLocalRepo: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestCreateForLocalRepoReusesExistingWorktree(t *testing.T) {
 			mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: tc.prefix}})
 
 			// First creation
-			wtPath1, branch1, created1, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+			wtPath1, branch1, created1, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 			if err != nil {
 				t.Fatalf("first CreateForLocalRepo: %v", err)
 			}
@@ -283,7 +283,7 @@ func TestCreateForLocalRepoReusesExistingWorktree(t *testing.T) {
 			}
 
 			// Second creation with same name — should reuse existing worktree.
-			wtPath2, branch2, created2, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+			wtPath2, branch2, created2, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 			if err != nil {
 				t.Fatalf("second CreateForLocalRepo: %v", err)
 			}
@@ -307,7 +307,7 @@ func TestFindWorktreeByPath(t *testing.T) {
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
-	wtPath, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+	wtPath, branch, _, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestCreateForLocalRepoReusesExistingBranch(t *testing.T) {
 			mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: tc.prefix}})
 
 			// Create a worktree.
-			wtPath1, branch1, created1, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+			wtPath1, branch1, created1, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 			if err != nil {
 				t.Fatalf("first CreateForLocalRepo: %v", err)
 			}
@@ -371,7 +371,7 @@ func TestCreateForLocalRepoReusesExistingBranch(t *testing.T) {
 
 			// Create again with the same name. The branch still exists but has no
 			// worktree. Should reuse the branch, NOT create a suffixed variant.
-			_, branch2, created2, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+			_, branch2, created2, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 			if err != nil {
 				t.Fatalf("second CreateForLocalRepo: %v", err)
 			}
@@ -398,7 +398,7 @@ func TestCreateForLocalRepoExistingBranchCheckedOutInMain(t *testing.T) {
 
 	// Attempting to create a session with the same name should fail with a
 	// clear error because the branch is checked out in the main worktree.
-	wtPath, _, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
+	wtPath, _, _, _, err := mgr.CreateForLocalRepo(gitRoot, "my feature", "")
 	if err == nil {
 		t.Fatal("expected error when branch is checked out in main worktree, got nil")
 	}
@@ -418,7 +418,7 @@ func TestDeleteBranch(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// Create a worktree (which creates the branch), then remove it (preserving the branch).
-	wtPath, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "delete-me", "")
+	wtPath, branch, _, _, err := mgr.CreateForLocalRepo(gitRoot, "delete-me", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -478,13 +478,13 @@ func TestCreateForRemoteRepoAlreadyCloned(t *testing.T) {
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
 	// First call — clones the repo.
-	_, _, _, err := mgr.CreateForRemoteRepo(src, "first session", "")
+	_, _, _, _, err := mgr.CreateForRemoteRepo(src, "first session", "")
 	if err != nil {
 		t.Fatalf("first CreateForRemoteRepo: %v", err)
 	}
 
 	// Second call — repo already cloned; should fetch and create another worktree.
-	_, branch2, _, err := mgr.CreateForRemoteRepo(src, "second session", "")
+	_, branch2, _, _, err := mgr.CreateForRemoteRepo(src, "second session", "")
 	if err != nil {
 		t.Fatalf("second CreateForRemoteRepo: %v", err)
 	}
@@ -499,7 +499,7 @@ func TestCreateForLocalRepoBranchOverride(t *testing.T) {
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
 
-	wtPath, branch, created, err := mgr.CreateForLocalRepo(gitRoot, "ignored-name", "custom/my-branch")
+	wtPath, branch, created, branchCreated, err := mgr.CreateForLocalRepo(gitRoot, "ignored-name", "custom/my-branch")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo with override: %v", err)
 	}
@@ -508,6 +508,9 @@ func TestCreateForLocalRepoBranchOverride(t *testing.T) {
 	}
 	if !created {
 		t.Error("expected created=true")
+	}
+	if !branchCreated {
+		t.Error("expected branchCreated=true for new branch")
 	}
 	if _, err := os.Stat(wtPath); err != nil {
 		t.Errorf("worktree path %q does not exist: %v", wtPath, err)
@@ -524,7 +527,7 @@ func TestCreateForLocalRepoBranchOverrideReusesExisting(t *testing.T) {
 	}
 
 	mgr := worktree.NewManager(stateDir, &config.Config{})
-	_, branch, created, err := mgr.CreateForLocalRepo(gitRoot, "ignored", "existing-branch")
+	_, branch, created, branchCreated, err := mgr.CreateForLocalRepo(gitRoot, "ignored", "existing-branch")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo with existing override: %v", err)
 	}
@@ -534,6 +537,9 @@ func TestCreateForLocalRepoBranchOverrideReusesExisting(t *testing.T) {
 	if !created {
 		t.Error("expected created=true (worktree is new, branch was reused)")
 	}
+	if branchCreated {
+		t.Error("expected branchCreated=false (branch already existed)")
+	}
 }
 
 func TestCreateForLocalRepoBranchOverrideEmptyUsesSlug(t *testing.T) {
@@ -541,11 +547,71 @@ func TestCreateForLocalRepoBranchOverrideEmptyUsesSlug(t *testing.T) {
 	stateDir := t.TempDir()
 
 	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
-	_, branch, _, err := mgr.CreateForLocalRepo(gitRoot, "My Feature", "")
+	_, branch, _, _, err := mgr.CreateForLocalRepo(gitRoot, "My Feature", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo with empty override: %v", err)
 	}
 	if branch != "jeev/my-feature" {
 		t.Errorf("expected slug branch %q, got %q", "jeev/my-feature", branch)
+	}
+}
+
+func TestCreateForRemoteRepoBranchOverrideRemoteOnly(t *testing.T) {
+	// Test that branch override works when the branch exists only on the
+	// remote (no local branch). This exercises the remote-only worktree add
+	// path that uses "git worktree add -b <branch> <path> origin/<branch>".
+	remoteRepo := initGitRepo(t)
+
+	// Create a branch on the "remote" repo
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run(remoteRepo, "checkout", "-b", "feature/remote-only")
+	if err := os.WriteFile(filepath.Join(remoteRepo, "feature.txt"), []byte("feature"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run(remoteRepo, "add", ".")
+	run(remoteRepo, "commit", "-m", "add feature")
+	run(remoteRepo, "checkout", "main")
+
+	stateDir := t.TempDir()
+	src := &source.Source{
+		RemoteURL: remoteRepo,
+		Host:      "github.com",
+		Org:       "testorg",
+		Repo:      "testrepo",
+	}
+
+	mgr := worktree.NewManager(stateDir, &config.Config{})
+
+	// Create worktree with branch override pointing to remote-only branch.
+	// The branch doesn't exist locally in the clone — only on origin.
+	wtPath, branch, created, branchCreated, err := mgr.CreateForRemoteRepo(src, "ignored", "feature/remote-only")
+	if err != nil {
+		t.Fatalf("CreateForRemoteRepo with remote-only branch override: %v", err)
+	}
+	if branch != "feature/remote-only" {
+		t.Errorf("expected branch %q, got %q", "feature/remote-only", branch)
+	}
+	if !created {
+		t.Error("expected created=true")
+	}
+	if !branchCreated {
+		t.Error("expected branchCreated=true (Argus created the local tracking branch)")
+	}
+	// The feature file should exist in the worktree
+	if _, err := os.Stat(filepath.Join(wtPath, "feature.txt")); err != nil {
+		t.Errorf("feature.txt should exist in worktree: %v", err)
 	}
 }

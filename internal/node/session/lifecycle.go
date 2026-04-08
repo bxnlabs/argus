@@ -101,7 +101,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// Resolve source → working directory (and optional worktree branch).
 	// cleanup removes the git worktree if a later step fails; it is a no-op
 	// for non-worktree sessions or reused worktrees.
-	cwd, worktreeBranch, worktreeCreated, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name, provider.ProviderType(opts.ProviderType), branchOverride)
+	cwd, worktreeBranch, worktreeCreated, branchCreated, cleanup, err := m.resolveSourceToCWD(opts.Source, opts.Name, provider.ProviderType(opts.ProviderType), branchOverride)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
@@ -233,7 +233,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		AutoApprove:       opts.AutoApprove,
 		ProviderSessionID: providerSessionID,
 		WorktreeBranch:    worktreeBranch,
-		BranchCreated:     worktreeCreated,
+		BranchCreated:     branchCreated,
 		GitParentDir:      gitParentDir,
 		GitRemoteURL:      gitRemoteURL,
 		Profile:           profilePtr,
@@ -259,20 +259,20 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 // the worktree path, branch name, and a cleanup function that removes the
 // worktree if a subsequent step fails. For non-worktree or reused-worktree
 // sessions, cleanup is a no-op. If source is empty, defaults to home dir.
-func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider.ProviderType, branchOverride string) (cwd string, worktreeBranch *string, worktreeCreated bool, cleanup func(), err error) {
+func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider.ProviderType, branchOverride string) (cwd string, worktreeBranch *string, worktreeCreated, branchCreated bool, cleanup func(), err error) {
 	noop := func() {}
 
 	if src == "" {
 		home, err := shared.ExpandPath("~")
 		if err != nil {
-			return "", nil, false, noop, fmt.Errorf("expand home directory: %w", err)
+			return "", nil, false, false, noop, fmt.Errorf("expand home directory: %w", err)
 		}
-		return home, nil, false, noop, nil
+		return home, nil, false, false, noop, nil
 	}
 
 	resolved, err := source.Resolve(src)
 	if err != nil {
-		return "", nil, false, noop, err
+		return "", nil, false, false, noop, err
 	}
 
 	if resolved.IsRemote() {
@@ -282,48 +282,66 @@ func (m *Manager) resolveSourceToCWD(src, sessionName string, agentType provider
 			// from other shell sessions sharing the same clone dir.
 			cloneDir, err := m.wt.EnsureClone(resolved, true)
 			if err != nil {
-				return "", nil, false, noop, err
+				return "", nil, false, false, noop, err
 			}
-			return cloneDir, nil, false, noop, nil
+			return cloneDir, nil, false, false, noop, nil
 		}
-		wtPath, branch, created, err := m.wt.CreateForRemoteRepo(resolved, sessionName, branchOverride)
+		wtPath, branch, wtCreated, brCreated, err := m.wt.CreateForRemoteRepo(resolved, sessionName, branchOverride)
 		if err != nil {
-			return "", nil, false, noop, err
+			return "", nil, false, false, noop, err
 		}
 		cleanup := noop
-		if created {
-			cleanup = func() { m.wt.Cleanup(wtPath) }
+		if wtCreated {
+			cleanup = func() {
+				// Resolve repo dir before removing the worktree — after
+				// Cleanup the worktree path may no longer exist.
+				var repoDir string
+				if brCreated {
+					if dir, err := git.FindMainRepo(wtPath); err == nil {
+						repoDir = dir
+					}
+				}
+				m.wt.Cleanup(wtPath)
+				if brCreated && repoDir != "" {
+					_ = m.wt.DeleteBranch(repoDir, branch)
+				}
+			}
 		}
-		return wtPath, &branch, created, cleanup, nil
+		return wtPath, &branch, wtCreated, brCreated, cleanup, nil
 	}
 
 	// Local path: check if it's inside a git repo.
 	gitRoot, err := git.FindMainRepo(resolved.LocalPath)
 	if err != nil {
 		// Not a git repo — use the path directly.
-		return resolved.LocalPath, nil, false, noop, nil
+		return resolved.LocalPath, nil, false, false, noop, nil
 	}
 
 	if agentType == provider.ProviderShell {
 		// Shell sessions use the local path directly, no worktree.
-		return resolved.LocalPath, nil, false, noop, nil
+		return resolved.LocalPath, nil, false, false, noop, nil
 	}
 
 	// Check if the resolved path is already a worktree — reuse it.
 	existingBranch, err := m.wt.FindWorktreeByPath(resolved.LocalPath)
 	if err == nil && existingBranch != "" {
-		return resolved.LocalPath, &existingBranch, false, noop, nil
+		return resolved.LocalPath, &existingBranch, false, false, noop, nil
 	}
 
-	wtPath, branch, created, err := m.wt.CreateForLocalRepo(gitRoot, sessionName, branchOverride)
+	wtPath, branch, wtCreated, brCreated, err := m.wt.CreateForLocalRepo(gitRoot, sessionName, branchOverride)
 	if err != nil {
-		return "", nil, false, noop, err
+		return "", nil, false, false, noop, err
 	}
 	cleanup2 := noop
-	if created {
-		cleanup2 = func() { m.wt.Cleanup(wtPath) }
+	if wtCreated {
+		cleanup2 = func() {
+			m.wt.Cleanup(wtPath)
+			if brCreated {
+				_ = m.wt.DeleteBranch(gitRoot, branch)
+			}
+		}
 	}
-	return wtPath, &branch, created, cleanup2, nil
+	return wtPath, &branch, wtCreated, brCreated, cleanup2, nil
 }
 
 // DeleteResult contains the outcome of a session deletion.
@@ -376,9 +394,19 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 			}
 		}
 
+		// Branch ownership transfer: if this session created the branch but
+		// other sessions still share the worktree, transfer ownership to a
+		// sibling so the branch can be cleaned up when the last session is
+		// deleted. Without this, the ownership signal would be lost when the
+		// creating session is deleted first.
+		if !isLastSession && session.BranchCreated {
+			if err := m.db.TransferBranchOwnership(id, session.WorkingDirectory, *session.WorktreeBranch); err != nil {
+				log.Printf("transfer branch ownership for %s: %v", id, err)
+			}
+		}
+
 		// Branch deletion eligibility: only when this is the last session
-		// for a managed worktree. Uses IsManagedPath (path-only check) so it
-		// works even if the worktree was removed externally.
+		// for a managed worktree AND Argus originally created the branch.
 		if isLastSession && deleteBranch && m.wt.IsManagedPath(session.WorkingDirectory) && session.BranchCreated {
 			if session.GitParentDir == nil {
 				return nil, fmt.Errorf("%w: cannot delete branch without git_parent_dir; re-create the session or backfill metadata", ErrInvalidInput)

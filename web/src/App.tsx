@@ -121,6 +121,7 @@ function HomeContent() {
           provider_type: params.provider_type,
           auto_approve: params.auto_approve || false,
           profile: params.profile,
+          branch: params.branch,
         });
 
         if (result.session) {

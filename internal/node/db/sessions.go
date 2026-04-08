@@ -226,6 +226,24 @@ func (d *DB) ListSessionsForGitRemoteBackfill() ([]*Session, error) {
 	return sessions, rows.Err()
 }
 
+// TransferBranchOwnership transfers the branch_created flag from the session
+// being deleted to one sibling session sharing the same working directory and
+// worktree branch. Only worktree-backed sessions (worktree_branch IS NOT NULL)
+// are eligible recipients, since shell sessions skip branch cleanup on delete.
+func (d *DB) TransferBranchOwnership(excludeID, workingDir, branch string) error {
+	_, err := d.sql.Exec(
+		`UPDATE sessions SET branch_created = 1
+		 WHERE id = (
+		   SELECT id FROM sessions
+		   WHERE id != ? AND working_directory = ? AND worktree_branch = ?
+		   ORDER BY created_at ASC, id ASC
+		   LIMIT 1
+		 )`,
+		excludeID, workingDir, branch,
+	)
+	return err
+}
+
 // SetGitRemoteURL sets the git_remote_url for a session.
 func (d *DB) SetGitRemoteURL(id, url string) error {
 	_, err := d.sql.Exec(
