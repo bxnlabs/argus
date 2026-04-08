@@ -42,11 +42,11 @@ export function ReviewSubmitButton({
         buttonRef.current &&
         !buttonRef.current.contains(e.target as Node)
       ) {
+        setOpen(false);
         // Save draft on close
         if (localComment !== generalComment) {
           onGeneralCommentChange(localComment);
         }
-        setOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -75,10 +75,10 @@ export function ReviewSubmitButton({
           {buttonLabel}
         </Button>
         <Sheet open={open} onOpenChange={(v) => {
+          setOpen(v);
           if (!v && localComment !== generalComment) {
             onGeneralCommentChange(localComment);
           }
-          setOpen(v);
         }}>
           <SheetContent side="bottom" hideCloseButton className="top-0 flex flex-col px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
             <div className="flex items-center justify-between py-3">
@@ -88,10 +88,10 @@ export function ReviewSubmitButton({
                   size="sm"
                   variant="ghost"
                   onClick={() => {
+                    setOpen(false);
                     if (localComment !== generalComment) {
                       onGeneralCommentChange(localComment);
                     }
-                    setOpen(false);
                   }}
                 >
                   Cancel
@@ -160,10 +160,10 @@ export function ReviewSubmitButton({
               size="sm"
               variant="ghost"
               onClick={() => {
+                setOpen(false);
                 if (localComment !== generalComment) {
                   onGeneralCommentChange(localComment);
                 }
-                setOpen(false);
               }}
             >
               Cancel
