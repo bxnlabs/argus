@@ -311,7 +311,29 @@ func findSnippetWithContext(fileText, snippet, snippetContext string, priorLine 
 		if len(contextMatches) == 1 {
 			return contextMatches[0]
 		}
-		// Context provided but didn't uniquely match — ambiguous.
+		// Multiple context matches — pick nearest to prior line if it's
+		// uniquely closest. This handles common snippets (e.g. "}") that
+		// appear multiple times within the context window.
+		if len(contextMatches) > 1 {
+			best := contextMatches[0]
+			bestDist := int(math.Abs(float64(best - priorLine)))
+			tied := false
+			for _, line := range contextMatches[1:] {
+				dist := int(math.Abs(float64(line - priorLine)))
+				if dist < bestDist {
+					bestDist = dist
+					best = line
+					tied = false
+				} else if dist == bestDist {
+					tied = true
+				}
+			}
+			if tied {
+				return -2
+			}
+			return best
+		}
+		// Context provided but matched no candidates — ambiguous.
 		return -2
 	}
 

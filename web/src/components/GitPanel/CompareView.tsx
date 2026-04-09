@@ -487,25 +487,39 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       if (snippet) break;
     }
 
-    // Extract same-side snippet context (1-2 lines above/below)
+    // Extract same-side snippet context from contiguous line numbers across hunks.
+    // Uses ±10 lines to match the backend's context-matching window size.
+    // Only includes lines whose line numbers are consecutive on the anchor's side,
+    // so non-contiguous hunks don't produce a misleading context string.
     if (snippet) {
-      const sameSideLines: string[] = [];
+      // Collect all same-side (lineNum, content) pairs across hunks
+      const allLines: { num: number; content: string }[] = [];
       let anchorIdx = -1;
       for (const hunk of hunks) {
         for (const line of hunk.lines) {
           const lineNum = pos.side === "L" ? line.oldLineNumber : line.newLineNumber;
           if (lineNum != null) {
-            sameSideLines.push(line.content);
+            allLines.push({ num: lineNum, content: line.content });
             if (lineNum === pos.line) {
-              anchorIdx = sameSideLines.length - 1;
+              anchorIdx = allLines.length - 1;
             }
           }
         }
       }
       if (anchorIdx >= 0) {
-        const start = Math.max(0, anchorIdx - 2);
-        const end = Math.min(sameSideLines.length, anchorIdx + 3);
-        snippetContext = sameSideLines.slice(start, end).join("\n");
+        // Walk backward from anchor, stopping when line numbers are non-consecutive
+        let cStart = anchorIdx;
+        for (let i = anchorIdx - 1; i >= 0 && anchorIdx - i <= 10; i--) {
+          if (allLines[i + 1].num - allLines[i].num !== 1) break;
+          cStart = i;
+        }
+        // Walk forward from anchor, stopping when line numbers are non-consecutive
+        let cEnd = anchorIdx;
+        for (let i = anchorIdx + 1; i < allLines.length && i - anchorIdx <= 10; i++) {
+          if (allLines[i].num - allLines[i - 1].num !== 1) break;
+          cEnd = i;
+        }
+        snippetContext = allLines.slice(cStart, cEnd + 1).map((l) => l.content).join("\n");
       }
     }
 
