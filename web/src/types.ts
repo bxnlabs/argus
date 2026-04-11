@@ -37,6 +37,7 @@ export interface CreateSessionParams {
   source?: string;
   auto_approve?: boolean;
   profile?: string;
+  branch?: string;
 }
 
 // File system types (matches internal/node/files/types.go)

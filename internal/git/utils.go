@@ -119,3 +119,52 @@ func DefaultBranch(repoDir string) (string, error) {
 
 	return "", fmt.Errorf("cannot determine default branch for repo at %s", repoDir)
 }
+
+// RemoteTrackingBranchExists reports whether a remote tracking ref
+// origin/<branch> exists in the local repo.
+func RemoteTrackingBranchExists(repoDir, branch string) (bool, error) {
+	out, err := Output(repoDir, "branch", "-r", "--list", "origin/"+branch)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// FetchBranch does a targeted fetch of a single branch from origin,
+// explicitly updating the remote-tracking ref refs/remotes/origin/<branch>.
+// Returns nil if the fetch succeeds, error otherwise.
+func FetchBranch(repoDir, branch string) error {
+	refspec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branch, branch)
+	return Run(repoDir, "fetch", "origin", refspec)
+}
+
+// HasRemote reports whether the repo has a remote named "origin".
+func HasRemote(repoDir string) bool {
+	_, err := Output(repoDir, "remote", "get-url", "origin")
+	return err == nil
+}
+
+// LsRemoteBranches lists branch names from a remote URL using git ls-remote.
+// Returns branch names without the refs/heads/ prefix.
+func LsRemoteBranches(remoteURL string) ([]string, error) {
+	out, err := Output("", "ls-remote", "--heads", remoteURL)
+	if err != nil {
+		return nil, fmt.Errorf("ls-remote: %w", err)
+	}
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		ref := parts[1]
+		branch := strings.TrimPrefix(ref, "refs/heads/")
+		if branch != ref {
+			branches = append(branches, branch)
+		}
+	}
+	return branches, nil
+}

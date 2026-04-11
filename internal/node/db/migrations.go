@@ -30,6 +30,20 @@ var allMigrations = []migration{
 		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN git_remote_url TEXT`)
 		return err
 	}},
+	{"add_branch_created", func(d *DB) error {
+		var hasColumn int
+		row := d.sql.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'branch_created'`,
+		)
+		if err := row.Scan(&hasColumn); err != nil {
+			return err
+		}
+		if hasColumn > 0 {
+			return nil // column already exists (fresh schema)
+		}
+		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN branch_created INTEGER NOT NULL DEFAULT 0`)
+		return err
+	}},
 	{"rename_agent_type_to_provider_type", func(d *DB) error {
 		// Only rename if the old column still exists (no-op for fresh databases
 		// created with provider_type directly).

@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	gitutil "github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/node/git"
 	"github.com/bxnlabs/argus/internal/shared"
+	"github.com/bxnlabs/argus/internal/source"
 )
 
 // respondGitError maps git package sentinel errors to appropriate HTTP
@@ -69,7 +71,49 @@ func sanitizeFilePath(dir, file string) (string, error) {
 	return rel, nil
 }
 
-type gitHandler struct{}
+type gitHandler struct {
+	stateDir string
+}
+
+// GET /api/git/branches?source=...
+func (h *gitHandler) branches(w http.ResponseWriter, r *http.Request) {
+	src := r.URL.Query().Get("source")
+	if src == "" {
+		respondError(w, http.StatusBadRequest, "source parameter is required")
+		return
+	}
+
+	resolved, err := source.Resolve(src)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid source: %v", err))
+		return
+	}
+
+	var branches []string
+	if resolved.IsRemote() {
+		// Check for existing local clone
+		cloneDir := filepath.Join(h.stateDir, "projects", resolved.ParentKey(), "gitrepo")
+		if _, statErr := os.Stat(cloneDir); statErr == nil {
+			branches, err = git.GetAllBranches(cloneDir)
+		} else {
+			branches, err = gitutil.LsRemoteBranches(resolved.RemoteURL)
+		}
+	} else {
+		expandedPath, pathErr := shared.CleanPath(resolved.LocalPath)
+		if pathErr != nil {
+			respondError(w, http.StatusBadRequest, pathErr.Error())
+			return
+		}
+		branches, err = git.GetAllBranches(expandedPath)
+	}
+
+	if err != nil {
+		respondGitError(w, err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"branches": branches})
+}
 
 // GET /api/git/status?path=...
 func (h *gitHandler) status(w http.ResponseWriter, r *http.Request) {

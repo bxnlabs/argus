@@ -60,6 +60,7 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 		SessionManager: mgr,
 		StatusMonitor:  statusMon,
 		RepoIndexer:    repoIndexer,
+		StateDir:       stateDir,
 	})
 
 	cleanup := func() {
