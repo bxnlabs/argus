@@ -15,6 +15,7 @@ type Deps struct {
 	StatusMonitor      *status.Monitor
 	RepoIndexer        *ghservice.RepoIndexer
 	UploadDirOverride  string // override upload directory (for testing)
+	StateDir           string
 }
 
 // NewRouter creates the HTTP router with all node API routes.
@@ -35,7 +36,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/profiles", sh.listProfiles)
 
 	// Git routes (read-only)
-	gh := &gitHandler{}
+	gh := &gitHandler{stateDir: deps.StateDir}
 	mux.HandleFunc("GET /api/git/status", gh.status)
 	mux.HandleFunc("GET /api/git/diff", gh.diff)
 	mux.HandleFunc("GET /api/git/working-diff", gh.workingDiff)
@@ -47,6 +48,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/git/file-content", gh.fileContent)
 	mux.HandleFunc("GET /api/git/file-lines", gh.fileLines)
 	mux.HandleFunc("GET /api/git/check", gh.check)
+	mux.HandleFunc("GET /api/git/branches", gh.branches)
 
 	// Review routes
 	rh := &reviewHandler{}

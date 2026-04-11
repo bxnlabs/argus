@@ -22,4 +22,5 @@ type Session struct {
 	GitParentDir     *string `json:"git_parent_dir"`
 	GitRemoteURL     *string `json:"git_remote_url"`
 	Profile          *string `json:"profile"`
+	BranchCreated    bool    `json:"branch_created"`
 }

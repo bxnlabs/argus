@@ -190,6 +190,30 @@ export function useCommitFullDiffQuery(path: string, hash: string | null) {
   });
 }
 
+// --- Branches (for session creation) ---
+
+interface BranchesResponse {
+  branches: string[];
+}
+
+export function useBranchesQuery(
+  source: string,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: gitKeys.branches(source),
+    queryFn: async () => {
+      const data = await apiFetch<BranchesResponse>(
+        `/node/api/git/branches?source=${encodeURIComponent(source)}`,
+      );
+      return data.branches ?? [];
+    },
+    staleTime: 30_000,
+    enabled:
+      (options?.enabled ?? true) && source.trim().length > 0,
+  });
+}
+
 // --- Working Diff (full working-tree diff) ---
 
 export function useWorkingDiffQuery(

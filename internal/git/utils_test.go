@@ -237,3 +237,46 @@ func TestSanitizeRemoteURL(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteTrackingBranchExists(t *testing.T) {
+	dir := initRepo(t)
+	exists, err := git.RemoteTrackingBranchExists(dir, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exists {
+		t.Error("expected false for repo with no remote")
+	}
+}
+
+func TestHasRemote(t *testing.T) {
+	dir := initRepo(t)
+	if git.HasRemote(dir) {
+		t.Error("expected no remote for fresh repo")
+	}
+}
+
+func TestLsRemoteBranches(t *testing.T) {
+	remote := initRepo(t)
+	cmd := exec.Command("git", "branch", "feature/test")
+	cmd.Dir = remote
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git branch: %v\n%s", err, out)
+	}
+
+	branches, err := git.LsRemoteBranches(remote)
+	if err != nil {
+		t.Fatalf("LsRemoteBranches: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, b := range branches {
+		found[b] = true
+	}
+	if !found["main"] {
+		t.Error("expected 'main' in branches")
+	}
+	if !found["feature/test"] {
+		t.Error("expected 'feature/test' in branches")
+	}
+}

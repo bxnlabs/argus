@@ -36,6 +36,70 @@ func GetBranches(dir string) (*BranchList, error) {
 	}, nil
 }
 
+// GetAllBranches returns local + remote branches for a repo directory.
+// Remote tracking branches are stripped of the "origin/" prefix and
+// deduplicated against local branches. Symbolic refs like origin/HEAD
+// are filtered out.
+func GetAllBranches(dir string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), shortTimeout)
+	defer cancel()
+
+	// Local branches
+	localOut, err := runGit(ctx, dir, defaultMaxBuffer,
+		"branch", "--format=%(refname:short)")
+	if err != nil {
+		return nil, err
+	}
+
+	localSet := make(map[string]bool)
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(localOut), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			localSet[line] = true
+			branches = append(branches, line)
+		}
+	}
+
+	// Remote tracking branches (origin only)
+	remoteOut, err := runGit(ctx, dir, defaultMaxBuffer,
+		"branch", "-r", "--format=%(refname:short)")
+	if err != nil {
+		// No remotes is fine — just return local branches
+		sort.Strings(branches)
+		return branches, nil
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(remoteOut), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "origin/") {
+			continue
+		}
+		if line == "origin/HEAD" {
+			continue
+		}
+		short := strings.TrimPrefix(line, "origin/")
+		if !localSet[short] {
+			branches = append(branches, short)
+		}
+	}
+
+	sort.Strings(branches)
+	return branches, nil
+}
+
+// ValidateBranchName checks that the given string is a valid git branch name.
+// It trims whitespace and rejects leading dashes.
+// Exported wrapper around validateBranchRef for use at session creation time.
+func ValidateBranchName(dir, name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), shortTimeout)
+	defer cancel()
+	return validateBranchRef(ctx, dir, name)
+}
+
 // validateBranchRef checks that the given ref is a valid git branch name
 // and does not start with a dash (to prevent git option injection).
 func validateBranchRef(ctx context.Context, dir, ref string) error {

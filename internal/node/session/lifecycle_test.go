@@ -61,7 +61,7 @@ func TestResolveSourceToCWD_ShellSkipsWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Shell session with a local git repo as source — should NOT create worktree
-	cwd, branch, _, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.ProviderShell)
+	cwd, branch, _, _, _, err := mgr.resolveSourceToCWD(gitRoot, "my shell", provider.ProviderShell, "")
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -87,13 +87,13 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Create a worktree externally
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "existing work")
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "existing work", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
 
 	// Point an agent session at the worktree path — should reuse it
-	cwd, gotBranch, _, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.ProviderClaude)
+	cwd, gotBranch, _, _, _, err := mgr.resolveSourceToCWD(wtPath, "new session", provider.ProviderClaude, "")
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 
 // resolveSymlinks resolves symlinks in a path. On macOS t.TempDir() returns
 // /var/... which is a symlink to /private/var/...; without resolving, path
-// comparisons in IsManaged (which uses EvalSymlinks) fail.
+// comparisons in IsManagedPath and FindWorktreeByPath fail.
 func resolveSymlinks(t *testing.T, path string) string {
 	t.Helper()
 	resolved, err := filepath.EvalSymlinks(path)
@@ -135,7 +135,7 @@ func TestDeleteDirtyWorktreeBlocksBeforeSideEffects(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Create a worktree-backed session via the manager's worktree infrastructure
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "dirty-test")
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "dirty-test", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestDeletePreDestroyHookDirtyingWorktreeStillSucceeds(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "hook-dirty")
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "hook-dirty", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestDeleteForceBypassesDirtyCheck(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "force-test")
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "force-test", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestResolveSourceToCWD_AgentCreatesWorktree(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// Agent session with a local git repo — SHOULD create worktree
-	cwd, branch, _, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.ProviderClaude)
+	cwd, branch, _, _, cleanup, err := mgr.resolveSourceToCWD(gitRoot, "my agent", provider.ProviderClaude, "")
 	if err != nil {
 		t.Fatalf("resolveSourceToCWD: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestDeleteWithBranchDeletion(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "branch-del")
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "branch-del", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -412,6 +412,7 @@ func TestDeleteWithBranchDeletion(t *testing.T) {
 		WorkingDirectory: wtPath,
 		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
+		BranchCreated:    true,
 		GitParentDir:     &gitRoot,
 	}
 	if err := database.CreateSession(sess); err != nil {
@@ -463,7 +464,7 @@ func TestDeleteWithBranchDeletionSharedWorktree(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "shared-wt")
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "shared-wt", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -518,7 +519,7 @@ func TestDeleteWithBranchDeletionNilGitParentDir(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "no-parent")
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "no-parent", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -527,6 +528,7 @@ func TestDeleteWithBranchDeletionNilGitParentDir(t *testing.T) {
 		ID: "sess-no-parent", Name: "no-parent", TmuxName: "claude-sess-no-parent",
 		WorkingDirectory: wtPath, ProviderType: "claude",
 		WorktreeBranch: &branch,
+		BranchCreated:  true,
 		GitParentDir:   nil, // intentionally nil
 	}
 	if err := database.CreateSession(sess); err != nil {
@@ -562,7 +564,7 @@ func TestDeleteWithBranchDeletionFailureIsBestEffort(t *testing.T) {
 	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
 	mgr := NewManager(database, wt, stateDir)
 
-	wtPath, branch, _, err := wt.CreateForLocalRepo(gitRoot, "best-effort")
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "best-effort", "")
 	if err != nil {
 		t.Fatalf("CreateForLocalRepo: %v", err)
 	}
@@ -576,6 +578,7 @@ func TestDeleteWithBranchDeletionFailureIsBestEffort(t *testing.T) {
 		WorkingDirectory: wtPath,
 		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
+		BranchCreated:    true,
 		GitParentDir:     &bogusDir,
 	}
 	if err := database.CreateSession(sess); err != nil {
@@ -599,5 +602,84 @@ func TestDeleteWithBranchDeletionFailureIsBestEffort(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatal("session should be deleted even when branch deletion fails")
+	}
+}
+
+func TestDeleteSharedWorktreeBranchOwnershipSurvives(t *testing.T) {
+	// Regression test: session A creates branch (BranchCreated=true),
+	// session B reuses the worktree (BranchCreated=false). Deleting A
+	// first should NOT lose the ownership signal — when B is deleted
+	// last with deleteBranch=true, the branch should still be cleaned up.
+	gitRoot := resolveSymlinks(t, initTestGitRepo(t))
+	stateDir := resolveSymlinks(t, t.TempDir())
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "ownership-test", "")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	// Session A created the branch
+	sessA := &db.Session{
+		ID: "sess-owner-a", Name: "owner-a", TmuxName: "claude-sess-owner-a",
+		WorkingDirectory: wtPath, ProviderType: "claude",
+		WorktreeBranch: &branch, BranchCreated: true, GitParentDir: &gitRoot,
+	}
+	// Session B reused the worktree
+	sessB := &db.Session{
+		ID: "sess-owner-b", Name: "owner-b", TmuxName: "claude-sess-owner-b",
+		WorkingDirectory: wtPath, ProviderType: "claude",
+		WorktreeBranch: &branch, BranchCreated: false, GitParentDir: &gitRoot,
+	}
+	if err := database.CreateSession(sessA); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateSession(sessB); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete A first (not last session, branch/worktree preserved)
+	result, err := mgr.Delete(sessA.ID, true, true)
+	if err != nil {
+		t.Fatalf("Delete A: %v", err)
+	}
+	if result.BranchDeleted {
+		t.Error("A: expected BranchDeleted=false (B still shares worktree)")
+	}
+
+	// Branch should still exist
+	out, gitErr := exec.Command("git", "-C", gitRoot, "branch", "--list", branch).Output()
+	if gitErr != nil {
+		t.Fatalf("git branch --list: %v", gitErr)
+	}
+	if strings.TrimSpace(string(out)) == "" {
+		t.Fatal("branch should still exist after deleting A")
+	}
+
+	// Delete B last with deleteBranch=true — should succeed despite
+	// B having BranchCreated=false, because A's ownership is visible.
+	result, err = mgr.Delete(sessB.ID, true, true)
+	if err != nil {
+		t.Fatalf("Delete B: %v", err)
+	}
+	if !result.BranchDeleted {
+		t.Error("B: expected BranchDeleted=true (A created the branch, ownership should survive)")
+	}
+
+	// Branch should be gone
+	out, gitErr = exec.Command("git", "-C", gitRoot, "branch", "--list", branch).Output()
+	if gitErr != nil {
+		t.Fatalf("git branch --list: %v", gitErr)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		t.Errorf("branch %q should not exist after last session deleted with deleteBranch=true", branch)
 	}
 }
