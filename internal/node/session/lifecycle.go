@@ -381,7 +381,7 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 		isLastSession := others == 0
 
 		// Worktree removal: only for managed worktrees that still exist on disk.
-		if isLastSession && m.wt.IsManaged(session.WorkingDirectory) {
+		if isLastSession && m.wt.IsManagedPath(session.WorkingDirectory) {
 			if _, statErr := os.Stat(session.WorkingDirectory); os.IsNotExist(statErr) {
 				// Worktree was removed externally; skip git cleanup.
 			} else {

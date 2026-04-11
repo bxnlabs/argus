@@ -111,7 +111,7 @@ func TestResolveSourceToCWD_SourceIsExistingWorktree(t *testing.T) {
 
 // resolveSymlinks resolves symlinks in a path. On macOS t.TempDir() returns
 // /var/... which is a symlink to /private/var/...; without resolving, path
-// comparisons in IsManaged (which uses EvalSymlinks) fail.
+// comparisons in IsManagedPath and FindWorktreeByPath fail.
 func resolveSymlinks(t *testing.T, path string) string {
 	t.Helper()
 	resolved, err := filepath.EvalSymlinks(path)

@@ -29,24 +29,6 @@ func NewManager(stateDir string, cfg *config.Config) *Manager {
 	return &Manager{stateDir: stateDir, cfg: cfg}
 }
 
-// IsManaged reports whether the given worktree path matches the layout used
-// by argus-created worktrees: <stateDir>/projects/<parentKey>/worktrees/<name>.
-// It determines the parent key by resolving the worktree's parent git
-// repository and deriving the key from that path.
-// External worktrees (user-provided paths outside this structure) return false
-// and are never deleted on session cleanup.
-func (m *Manager) IsManaged(worktreePath string) bool {
-	mainRepo, err := git.FindMainRepo(worktreePath)
-	if err != nil {
-		return false
-	}
-
-	parentKey := source.ParentKeyFromPath(mainRepo)
-	name := filepath.Base(worktreePath)
-	expected := filepath.Join(m.stateDir, "projects", parentKey, "worktrees", name)
-	return worktreePath == expected
-}
-
 // IsManagedPath reports whether the given path matches the managed worktree
 // layout based solely on the path structure, without accessing the filesystem.
 // This is useful when the worktree directory may no longer exist.

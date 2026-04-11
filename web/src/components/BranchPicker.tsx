@@ -157,9 +157,10 @@ export function BranchPicker({
           </div>
         ) : filtered.length === 0 && query.trim() ? (
           <div className="text-muted-foreground px-4 py-8 text-center text-sm">
-            No matching branches. Press{" "}
-            <kbd className="bg-muted rounded px-1.5 py-0.5">↵</kbd> to use
-            &ldquo;{query.trim()}&rdquo; as a new branch.
+            No matching branches.
+            <br />
+            Press <kbd className="bg-muted rounded px-1.5 py-0.5">↵</kbd> to
+            use &ldquo;{query.trim()}&rdquo; as a new branch.
           </div>
         ) : (
           filtered.map((branch, index) => (
