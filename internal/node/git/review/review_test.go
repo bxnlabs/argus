@@ -683,6 +683,113 @@ func TestDetectStaleness_LSideRenamedFileRestoredLine(t *testing.T) {
 	}
 }
 
+// TestDetectStaleness_MultipleContextMatches_NearestWins verifies that when the snippet
+// appears at multiple locations and the snippetContext matches more than one of them,
+// the nearest match to the prior line is selected instead of marking as ambiguous.
+// This handles common patterns like "}" appearing multiple times within a small window.
+func TestDetectStaleness_MultipleContextMatches_NearestWins(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Build a Go-like file where "}" appears at lines 8, 13, and 18,
+	// each within similar surrounding context so the ±10 window overlaps.
+	lines := []string{
+		"func a() {",       // 1
+		"  if x != nil {",  // 2
+		"    return err",   // 3
+		"  }",              // 4
+		"",                 // 5
+		"  if y != nil {",  // 6
+		"    return err",   // 7
+		"  }",              // 8  — target
+		"",                 // 9
+		"  data := foo()",  // 10
+		"  if z != nil {",  // 11
+		"    return err",   // 12
+		"  }",              // 13
+		"",                 // 14
+		"  bar := baz()",   // 15
+		"  if w != nil {",  // 16
+		"    return err",   // 17
+		"  }",              // 18
+		"  return nil",     // 19
+		"}",                // 20
+	}
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Comment was placed on line 8 with context that matches both line 8 and nearby "}" lines.
+	// The context "return err\n  }" is shared by lines 8, 13, and 18.
+	comments := []ReviewComment{{
+		ID: "rc_multi_ctx", File: "src/handler.go",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 8},
+			To:   DiffPosition{Side: DiffSideRight, Line: 8},
+		},
+		Snippet:        "  }",
+		SnippetContext: "    return err\n  }",
+		Body:           "Should resolve to nearest, not ambiguous",
+		Submitted:      true,
+	}}
+	result := detectStaleness(dir, headRef, "", comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(result))
+	}
+	if result[0].AnchorStatus != "" {
+		t.Errorf("anchorStatus = %q, want empty (resolved to nearest match)", result[0].AnchorStatus)
+	}
+	if result[0].Line.From.Line != 8 {
+		t.Errorf("line = %d, want 8 (nearest context match)", result[0].Line.From.Line)
+	}
+}
+
+// TestDetectStaleness_MultipleContextMatches_TiedDistance verifies that when the snippet
+// appears at two locations equidistant from the prior line and the context matches both,
+// the comment is marked stale rather than silently picking one.
+func TestDetectStaleness_MultipleContextMatches_TiedDistance(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// "}" at lines 5 and 15, prior line is 10 — equidistant (5 lines each).
+	// Context "return err\n}" matches both.
+	var lines []string
+	for i := 1; i <= 20; i++ {
+		switch i {
+		case 4, 14:
+			lines = append(lines, "    return err")
+		case 5, 15:
+			lines = append(lines, "}")
+		default:
+			lines = append(lines, fmt.Sprintf("line %d", i))
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "src", "tied.go"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "init")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID: "rc_tied", File: "src/tied.go",
+		Line: LineRange{
+			From: DiffPosition{Side: DiffSideRight, Line: 10},
+			To:   DiffPosition{Side: DiffSideRight, Line: 10},
+		},
+		Snippet:        "}",
+		SnippetContext: "    return err\n}",
+		Body:           "Should be stale due to equidistant matches",
+		Submitted:      true,
+	}}
+	result := detectStaleness(dir, headRef, "", comments)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(result))
+	}
+	if result[0].AnchorStatus != AnchorStale {
+		t.Errorf("anchorStatus = %q, want %q (equidistant matches should be ambiguous)", result[0].AnchorStatus, AnchorStale)
+	}
+}
+
 // TestDetectStaleness_StaleWhenAmbiguous verifies that multiple snippet matches combined
 // with a non-matching snippetContext results in anchorStatus=stale.
 func TestDetectStaleness_StaleWhenAmbiguous(t *testing.T) {

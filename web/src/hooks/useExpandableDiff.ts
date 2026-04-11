@@ -226,11 +226,22 @@ export function useExpandableDiff(
         if (!hunk) return;
         end = hunk.newStart - 1;
         start = Math.max(1, end - EXPAND_INCREMENT + 1);
+        // Clamp to previous hunk's end to prevent overlap
+        if (hunkIndex > 0) {
+          const prev = hunks[hunkIndex - 1];
+          const prevEnd = prev.newStart + prev.newCount;
+          start = Math.max(start, prevEnd);
+        }
       } else {
         const hunk = hunks[hunkIndex];
         if (!hunk) return;
         start = hunk.newStart + hunk.newCount;
         end = Math.min(state.totalLines, start + EXPAND_INCREMENT - 1);
+        // Clamp to next hunk's start to prevent overlap
+        if (hunkIndex < hunks.length - 1) {
+          const next = hunks[hunkIndex + 1];
+          end = Math.min(end, next.newStart - 1);
+        }
       }
 
       if (start > end) return;
