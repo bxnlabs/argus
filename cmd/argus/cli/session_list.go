@@ -45,24 +45,25 @@ func newListCmd() *cobra.Command {
 			}
 
 			// Fetch session statuses (best-effort — don't fail if unavailable)
-			statuses := make(map[string]string)
+			type statusEntry struct {
+				Status      string  `json:"status"`
+				UnreadSince *string `json:"unreadSince"`
+			}
+			statuses := make(map[string]statusEntry)
 			if statusBody, err := c.get("/api/sessions/status"); err == nil {
 				var statusResp struct {
-					Statuses map[string]struct {
-						Status string `json:"status"`
-					} `json:"statuses"`
+					Statuses map[string]statusEntry `json:"statuses"`
 				}
 				if err := json.Unmarshal(statusBody, &statusResp); err == nil {
-					for id, s := range statusResp.Statuses {
-						statuses[id] = s.Status
-					}
+					statuses = statusResp.Statuses
 				}
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tSTATUS\tPROVIDER\tDIRECTORY\tBRANCH\tUPDATED")
+			fmt.Fprintln(w, "  ID\tNAME\tSTATUS\tPROVIDER\tDIRECTORY\tBRANCH\tUPDATED")
 			for _, s := range resp.Sessions {
-				st := statuses[s.ID]
+				entry := statuses[s.ID]
+				st := entry.Status
 				if st == "" {
 					st = "-"
 				}
@@ -79,8 +80,17 @@ func newListCmd() *cobra.Command {
 				} else {
 					dir = compressPath(dir, resp.HomeDir, 35)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					s.ID, s.Name, st, s.ProviderType, dir, branch, relativeTime(s.UpdatedAt))
+
+				// Unread marker
+				marker := " "
+				updated := relativeTime(s.UpdatedAt)
+				if entry.UnreadSince != nil {
+					marker = "*"
+					updated += " (unread " + relativeTime(*entry.UnreadSince) + ")"
+				}
+
+				fmt.Fprintf(w, "%s %s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					marker, s.ID, s.Name, st, s.ProviderType, dir, branch, updated)
 			}
 			w.Flush()
 			return nil
