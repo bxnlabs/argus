@@ -24,17 +24,17 @@ type StatusDetector interface {
 	GetAllStatuses(ctx context.Context, names []string) map[string]SessionStatus
 }
 
-// SnapshotEntry holds the status data for a single session.
-type SnapshotEntry struct {
+// monitorEntry holds the status data for a single session (internal to Monitor).
+type monitorEntry struct {
 	SessionName  string
 	Status       SessionStatus
 	ProviderType string
 }
 
-// Snapshot is the in-memory status snapshot read by the API handler.
-type Snapshot struct {
-	Statuses        map[string]SnapshotEntry // keyed by session ID
-	LastRefreshedAt time.Time                // when the last successful refresh completed
+// monitorSnapshot is the in-memory status snapshot used internally by Monitor.
+type monitorSnapshot struct {
+	Statuses        map[string]monitorEntry // keyed by session ID
+	LastRefreshedAt time.Time               // when the last successful refresh completed
 }
 
 // Monitor runs a background loop that detects session statuses and syncs
@@ -48,7 +48,7 @@ type Monitor struct {
 	detector StatusDetector
 
 	mu       sync.RWMutex
-	snapshot Snapshot
+	snapshot monitorSnapshot
 
 	ctrlMu  sync.Mutex
 	cancel  context.CancelFunc
@@ -62,7 +62,7 @@ func NewMonitor(lister SessionLister, toucher SessionToucher, detector StatusDet
 		lister:   lister,
 		toucher:  toucher,
 		detector: detector,
-		snapshot: Snapshot{Statuses: make(map[string]SnapshotEntry)},
+		snapshot: monitorSnapshot{Statuses: make(map[string]monitorEntry)},
 	}
 }
 
@@ -91,13 +91,13 @@ func (m *Monitor) Close() {
 	m.wg.Wait()
 }
 
-// Snapshot returns a defensive copy of the current status snapshot.
-func (m *Monitor) Snapshot() Snapshot {
+// StatusSnapshot returns a defensive copy of the current status snapshot.
+func (m *Monitor) StatusSnapshot() monitorSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	cp := Snapshot{
-		Statuses:        make(map[string]SnapshotEntry, len(m.snapshot.Statuses)),
+	cp := monitorSnapshot{
+		Statuses:        make(map[string]monitorEntry, len(m.snapshot.Statuses)),
 		LastRefreshedAt: m.snapshot.LastRefreshedAt,
 	}
 	for k, v := range m.snapshot.Statuses {
@@ -147,7 +147,7 @@ func (m *Monitor) refresh(ctx context.Context) {
 	now := time.Now()
 	nowUnix := now.Unix()
 
-	snap := Snapshot{Statuses: make(map[string]SnapshotEntry, len(sessions))}
+	snap := monitorSnapshot{Statuses: make(map[string]monitorEntry, len(sessions))}
 	for _, s := range sessions {
 		st, ok := statuses[s.TmuxName]
 		if !ok {
@@ -157,7 +157,7 @@ func (m *Monitor) refresh(ctx context.Context) {
 				st = StatusIdle
 			}
 		}
-		snap.Statuses[s.ID] = SnapshotEntry{
+		snap.Statuses[s.ID] = monitorEntry{
 			SessionName:  s.TmuxName,
 			Status:       st,
 			ProviderType: s.ProviderType,

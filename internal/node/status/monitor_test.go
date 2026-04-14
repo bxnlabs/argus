@@ -91,14 +91,14 @@ func waitForRefresh(t *testing.T, ch <-chan struct{}) {
 	}
 }
 
-// waitForSnapshot polls mon.Snapshot() until check returns true, or fails
+// waitForSnapshot polls mon.StatusSnapshot() until check returns true, or fails
 // after timeout. Use this when the lister signal fires before the snapshot
 // is committed.
-func waitForSnapshot(t *testing.T, mon *Monitor, timeout time.Duration, check func(Snapshot) bool) {
+func waitForSnapshot(t *testing.T, mon *Monitor, timeout time.Duration, check func(monitorSnapshot) bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if check(mon.Snapshot()) {
+		if check(mon.StatusSnapshot()) {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -133,7 +133,7 @@ func TestMonitorSnapshot(t *testing.T) {
 	waitForRefresh(t, toucher.ch)
 	mon.Close()
 
-	snap := mon.Snapshot()
+	snap := mon.StatusSnapshot()
 	if len(snap.Statuses) != 2 {
 		t.Fatalf("expected 2 statuses, got %d", len(snap.Statuses))
 	}
@@ -179,7 +179,7 @@ func TestMonitorSnapshotEmpty(t *testing.T) {
 	waitForRefresh(t, lister.ch)
 	mon.Close()
 
-	snap := mon.Snapshot()
+	snap := mon.StatusSnapshot()
 	if len(snap.Statuses) != 0 {
 		t.Errorf("expected 0 statuses, got %d", len(snap.Statuses))
 	}
@@ -228,15 +228,15 @@ func TestMonitorSnapshotIsDefensiveCopy(t *testing.T) {
 
 	mon := NewMonitor(lister, toucher, detector)
 	mon.Start(context.Background())
-	waitForSnapshot(t, mon, 5*time.Second, func(s Snapshot) bool {
+	waitForSnapshot(t, mon, 5*time.Second, func(s monitorSnapshot) bool {
 		return len(s.Statuses) == 1
 	})
 	mon.Close()
 
-	snap1 := mon.Snapshot()
-	snap1.Statuses["s1"] = SnapshotEntry{SessionName: "mutated", Status: StatusDead}
+	snap1 := mon.StatusSnapshot()
+	snap1.Statuses["s1"] = monitorEntry{SessionName: "mutated", Status: StatusDead}
 
-	snap2 := mon.Snapshot()
+	snap2 := mon.StatusSnapshot()
 	if snap2.Statuses["s1"].SessionName != "claude-s1" {
 		t.Errorf("internal state was mutated: SessionName = %q, want %q", snap2.Statuses["s1"].SessionName, "claude-s1")
 	}
@@ -256,7 +256,7 @@ func TestMonitorListError(t *testing.T) {
 	mon.Close()
 
 	// List error → refresh exits early → snapshot stays empty.
-	snap := mon.Snapshot()
+	snap := mon.StatusSnapshot()
 	if len(snap.Statuses) != 0 {
 		t.Errorf("expected 0 statuses after List error, got %d", len(snap.Statuses))
 	}
@@ -306,7 +306,7 @@ func TestMonitorCarriesForwardStatusOnDetectorOmission(t *testing.T) {
 
 	// Wait for first refresh, then poll until snapshot is committed.
 	waitForRefresh(t, listCh)
-	waitForSnapshot(t, mon, 5*time.Second, func(s Snapshot) bool {
+	waitForSnapshot(t, mon, 5*time.Second, func(s monitorSnapshot) bool {
 		return s.Statuses["s1"].Status == StatusRunning
 	})
 
@@ -314,7 +314,7 @@ func TestMonitorCarriesForwardStatusOnDetectorOmission(t *testing.T) {
 	waitForRefresh(t, listCh)
 	mon.Close()
 
-	snap2 := mon.Snapshot()
+	snap2 := mon.StatusSnapshot()
 	if snap2.Statuses["s1"].Status != StatusRunning {
 		t.Errorf("after detector omission: status = %q, want %q (should carry forward)", snap2.Statuses["s1"].Status, StatusRunning)
 	}

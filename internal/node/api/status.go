@@ -9,7 +9,7 @@ import (
 // handleStatus returns a handler for GET /api/sessions/status.
 func handleStatus(mon *status.Monitor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		snap := mon.Snapshot()
+		snap := mon.StatusSnapshot()
 		result := make(map[string]any, len(snap.Statuses))
 		for id, entry := range snap.Statuses {
 			result[id] = map[string]any{
