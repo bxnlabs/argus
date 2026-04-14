@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
-	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -39,16 +41,75 @@ func newAttachCmd() *cobra.Command {
 				return fmt.Errorf("ensure session: %w", err)
 			}
 
-			return attachTmux(session.TmuxName)
+			// Acknowledge unread state before attaching
+			_, _ = c.post("/api/sessions/"+session.ID+"/acknowledge", nil)
+
+			return attachTmux(session.ID, session.TmuxName, c.baseURL)
 		},
 	}
 }
 
-// attachTmux replaces the current process with tmux attach-session.
-func attachTmux(tmuxName string) error {
-	tmux, err := exec.LookPath("tmux")
+// attachTmux runs tmux attach-session as a subprocess with a heartbeat goroutine.
+func attachTmux(sessionID, tmuxName, baseURL string) error {
+	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("tmux not found: %w", err)
 	}
-	return syscall.Exec(tmux, []string{"tmux", "attach-session", "-t", tmuxName}, os.Environ())
+
+	tmuxCmd := exec.Command(tmuxPath, "attach-session", "-t", tmuxName)
+	tmuxCmd.Stdin = os.Stdin
+	tmuxCmd.Stdout = os.Stdout
+	tmuxCmd.Stderr = os.Stderr
+
+	if err := tmuxCmd.Start(); err != nil {
+		return fmt.Errorf("start tmux: %w", err)
+	}
+
+	// Start heartbeat goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		runHeartbeat(ctx, sessionID, baseURL)
+	}()
+
+	// Wait for tmux to exit (user detaches or session ends)
+	err = tmuxCmd.Wait()
+
+	// Stop heartbeat
+	cancel()
+	<-heartbeatDone
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		return fmt.Errorf("tmux: %w", err)
+	}
+	return nil
+}
+
+// runHeartbeat sends periodic heartbeat requests while the context is active.
+func runHeartbeat(ctx context.Context, sessionID, baseURL string) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	url := baseURL + "/api/sessions/" + sessionID + "/heartbeat"
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+			if err != nil {
+				continue
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				continue // heartbeat failures are silent
+			}
+			resp.Body.Close()
+		}
+	}
 }
