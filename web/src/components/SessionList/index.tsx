@@ -14,14 +14,10 @@ import type { Session, SessionStatusInfo } from "@/types";
 
 function getStatusColor(status?: string) {
   switch (status) {
-    case "running":
+    case "active":
       return "bg-green-500";
-    case "waiting":
-      return "bg-yellow-500";
-    case "idle":
+    case "inactive":
       return "bg-muted-foreground";
-    case "error":
-      return "bg-red-500";
     case "dead":
       return "bg-red-500/50";
     default:
@@ -31,10 +27,8 @@ function getStatusColor(status?: string) {
 
 function getStatusAnimation(status?: string) {
   switch (status) {
-    case "running":
+    case "active":
       return "animate-pulse-green";
-    case "waiting":
-      return "animate-pulse-yellow";
     default:
       return "";
   }
@@ -42,16 +36,12 @@ function getStatusAnimation(status?: string) {
 
 function getStatusLabel(status?: string) {
   switch (status) {
-    case "running":
-      return "Running";
-    case "waiting":
-      return "Needs input";
-    case "idle":
-      return "Idle";
+    case "active":
+      return "Active";
+    case "inactive":
+      return "Inactive";
     case "dead":
       return "Dead";
-    case "error":
-      return "Error";
     default:
       return "";
   }
@@ -69,6 +59,7 @@ interface SessionItemProps {
   homeDir: string;
   isActive: boolean;
   statusValue?: SessionStatusInfo["status"];
+  unreadSince?: string | null;
   minuteTick: number;
   isRenaming: boolean;
   renameValue: string;
@@ -87,6 +78,7 @@ const SessionItem = memo(function SessionItem({
   homeDir,
   isActive,
   statusValue,
+  unreadSince,
   minuteTick: _minuteTick,
   isRenaming,
   renameValue,
@@ -151,6 +143,9 @@ const SessionItem = memo(function SessionItem({
                   getStatusAnimation(statusValue)
                 )}
               />
+              {unreadSince && (
+                <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-500" />
+              )}
               <span className="text-muted-foreground text-xs">
                 {(() => {
                   const label = getStatusLabel(statusValue);
@@ -391,6 +386,7 @@ export const SessionList = memo(function SessionList({
                   homeDir={homeDir}
                   isActive={session.id === activeSessionId}
                   statusValue={sessionStatuses?.[session.id]?.status}
+                  unreadSince={sessionStatuses?.[session.id]?.unreadSince}
                   minuteTick={minuteTick}
                   isRenaming={isRenaming}
                   renameValue={isRenaming ? renameValue : ""}
