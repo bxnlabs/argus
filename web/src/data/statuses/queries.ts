@@ -16,6 +16,7 @@ interface UseSessionStatusesOptions {
       id: string;
       name: string;
       status: SessionStatusInfo["status"];
+      unreadSince?: string | null;
     }>,
     activeSessionId?: string | null,
   ) => void;
@@ -34,6 +35,17 @@ export function useSessionStatusesQuery({
     refetchInterval: sessions.length > 0 ? 2000 : false,
   });
 
+  // Send heartbeat for the actively viewed session, piggybacked on poll cadence.
+  useEffect(() => {
+    if (!activeSessionId || !query.data) return;
+    if (document.hidden) return;
+
+    // Fire-and-forget heartbeat — errors are silently ignored.
+    fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(activeSessionId)}/heartbeat`, {
+      method: "POST",
+    }).catch(() => {});
+  }, [query.data, activeSessionId]);
+
   useEffect(() => {
     if (!query.data?.statuses) return;
 
@@ -43,6 +55,7 @@ export function useSessionStatusesQuery({
       id: s.id,
       name: s.name,
       status: (statuses[s.id]?.status || "dead") as SessionStatusInfo["status"],
+      unreadSince: statuses[s.id]?.unreadSince,
     }));
     checkStateChanges(sessionStates, activeSessionId);
   }, [query.data, sessions, activeSessionId, checkStateChanges]);

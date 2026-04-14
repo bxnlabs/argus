@@ -56,15 +56,6 @@ function HomeContent() {
   // Set CSS variable for viewport height (handles mobile keyboard)
   useViewportHeight();
 
-  // Attach session to active tab — just updates tab state.
-  // The Terminal component handles WebSocket connection based on the session ID.
-  const attachToSession = useCallback(
-    (session: Session) => {
-      attachSession(session.id);
-    },
-    [attachSession]
-  );
-
   // Notifications
   const { checkStateChanges } = useNotifications();
 
@@ -74,6 +65,23 @@ function HomeContent() {
     activeSessionId: activeTab?.sessionId,
     checkStateChanges,
   });
+
+  // Attach session to active tab — just updates tab state.
+  // The Terminal component handles WebSocket connection based on the session ID.
+  const attachToSession = useCallback(
+    (session: Session) => {
+      attachSession(session.id);
+
+      // Acknowledge unread state when selecting a session
+      const status = sessionStatuses[session.id];
+      if (status?.unreadSince) {
+        fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
+          method: "POST",
+        }).catch(() => {});
+      }
+    },
+    [attachSession, sessionStatuses]
+  );
 
   // Open sidebar on desktop at startup (mobile starts collapsed)
   useEffect(() => {

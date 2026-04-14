@@ -25,7 +25,7 @@ export function useNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>(
     typeof Notification !== "undefined" ? Notification.permission : "default"
   );
-  const previousStates = useRef<Map<string, string>>(new Map());
+  const previousUnread = useRef<Set<string>>(new Set());
   const originalTitle = useRef(document.title);
 
   const requestPermission = useCallback(async () => {
@@ -44,27 +44,34 @@ export function useNotifications() {
 
   const checkStateChanges = useCallback(
     (
-      states: Array<{ id: string; name: string; status: string }>,
+      states: Array<{ id: string; name: string; status: string; unreadSince?: string | null }>,
       activeSessionId?: string | null
     ) => {
       if (!settings.enabled) return;
 
       for (const state of states) {
-        const prev = previousStates.current.get(state.id);
-        previousStates.current.set(state.id, state.status);
+        const wasUnread = previousUnread.current.has(state.id);
+        const isUnread = !!state.unreadSince;
 
-        if (prev === "running" && state.status === "waiting" && state.id !== activeSessionId) {
-          toast.info(`${state.name} is waiting for input`);
+        if (isUnread) {
+          previousUnread.current.add(state.id);
+        } else {
+          previousUnread.current.delete(state.id);
+        }
+
+        // Notify when unreadSince newly appears on a non-active session
+        if (!wasUnread && isUnread && state.id !== activeSessionId) {
+          toast.info(`${state.name} finished working`);
 
           if (permission === "granted" && document.hidden) {
             new Notification("Argus", {
-              body: `${state.name} is waiting for input`,
-              tag: `waiting-${state.id}`,
+              body: `${state.name} finished working`,
+              tag: `unread-${state.id}`,
             });
           }
 
           // Flash tab title
-          document.title = `⚡ ${state.name} waiting`;
+          document.title = `⚡ ${state.name} finished`;
           setTimeout(() => { document.title = originalTitle.current; }, 3000);
         }
       }
