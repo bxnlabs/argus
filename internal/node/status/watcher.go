@@ -243,7 +243,7 @@ func (w *SessionWatcher) transitionTo(ctx context.Context, state SessionState, n
 		}
 	}
 
-	if prevState != state {
+	if prevState != state && state != StateDead {
 		if err := w.db.TouchSession(ctx, w.sessionID, now.Unix()); err != nil {
 			log.Printf("watcher %s: touch: %v", w.sessionID, err)
 		}
