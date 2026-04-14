@@ -23,4 +23,6 @@ type Session struct {
 	GitRemoteURL     *string `json:"git_remote_url"`
 	Profile          *string `json:"profile"`
 	BranchCreated    bool    `json:"branch_created"`
+	UnreadSince      *string `json:"unread_since"`
+	LastViewedAt     *string `json:"last_viewed_at"`
 }

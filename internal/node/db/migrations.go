@@ -60,6 +60,13 @@ var allMigrations = []migration{
 		_, err := d.sql.Exec(`ALTER TABLE sessions RENAME COLUMN agent_type TO provider_type`)
 		return err
 	}},
+	{"add_unread_since_and_last_viewed_at", func(d *DB) error {
+		if _, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN unread_since TEXT`); err != nil {
+			return err
+		}
+		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN last_viewed_at TEXT`)
+		return err
+	}},
 }
 
 // CheckMigrations verifies that all expected migrations have been applied.
