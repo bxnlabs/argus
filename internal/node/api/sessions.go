@@ -11,8 +11,15 @@ import (
 	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
+// watcherEnsurer is satisfied by *status.WatcherManager.
+type watcherEnsurer interface {
+	EnsureWatching(sessionID, tmuxName, providerType string)
+	StopWatcher(sessionID string)
+}
+
 type sessionHandler struct {
-	manager *session.Manager
+	manager        *session.Manager
+	watcherManager watcherEnsurer
 }
 
 // GET /api/sessions
@@ -57,6 +64,10 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.watcherManager != nil {
+		h.watcherManager.EnsureWatching(sess.ID, sess.TmuxName, sess.ProviderType)
+	}
+
 	respondJSON(w, http.StatusCreated, map[string]any{"session": sess})
 }
 
@@ -82,6 +93,11 @@ func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "session not found")
 		return
 	}
+
+	if h.watcherManager != nil {
+		h.watcherManager.EnsureWatching(session.ID, session.TmuxName, session.ProviderType)
+	}
+
 	respondJSON(w, http.StatusOK, map[string]any{"session": session})
 }
 
@@ -129,6 +145,10 @@ func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	force := r.URL.Query().Get("force") == "true"
 	deleteBranch := r.URL.Query().Get("delete_branch") == "true"
+
+	if h.watcherManager != nil {
+		h.watcherManager.StopWatcher(id)
+	}
 
 	result, err := h.manager.Delete(id, force, deleteBranch)
 	if err != nil {

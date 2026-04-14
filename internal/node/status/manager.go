@@ -4,7 +4,14 @@ import (
 	"context"
 	"log"
 	"sync"
+
+	"github.com/bxnlabs/argus/internal/node/db"
 )
+
+// SessionLister lists sessions from the database.
+type SessionLister interface {
+	List(ctx context.Context) ([]*db.Session, error)
+}
 
 // WatcherManager manages the lifecycle of all SessionWatcher goroutines.
 type WatcherManager struct {

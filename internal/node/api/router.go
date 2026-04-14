@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/session"
 	"github.com/bxnlabs/argus/internal/node/status"
 	"github.com/bxnlabs/argus/internal/node/terminal"
@@ -11,11 +12,12 @@ import (
 
 // Deps holds the dependencies injected into API handlers.
 type Deps struct {
-	SessionManager     *session.Manager
-	StatusMonitor      *status.Monitor
-	RepoIndexer        *ghservice.RepoIndexer
-	UploadDirOverride  string // override upload directory (for testing)
-	StateDir           string
+	SessionManager    *session.Manager
+	WatcherManager    *status.WatcherManager
+	Database          *db.DB
+	RepoIndexer       *ghservice.RepoIndexer
+	UploadDirOverride string // override upload directory (for testing)
+	StateDir          string
 }
 
 // NewRouter creates the HTTP router with all node API routes.
@@ -25,7 +27,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/info", handleInfo)
 
 	// Session routes
-	sh := &sessionHandler{manager: deps.SessionManager}
+	sh := &sessionHandler{manager: deps.SessionManager, watcherManager: deps.WatcherManager}
 	mux.HandleFunc("GET /api/sessions", sh.list)
 	mux.HandleFunc("POST /api/sessions", sh.create)
 	mux.HandleFunc("GET /api/sessions/{id}", sh.get)
@@ -75,8 +77,15 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/github/repos", ghub.listRepos)
 
 	// Status route
-	if deps.StatusMonitor != nil {
-		mux.HandleFunc("GET /api/sessions/status", handleStatus(deps.StatusMonitor))
+	if deps.WatcherManager != nil {
+		mux.HandleFunc("GET /api/sessions/status", handleStatus(deps.WatcherManager, deps.Database))
+	}
+
+	// Heartbeat/acknowledge routes
+	if deps.Database != nil {
+		hb := &heartbeatHandler{db: deps.Database}
+		mux.HandleFunc("POST /api/sessions/{id}/heartbeat", hb.heartbeat)
+		mux.HandleFunc("POST /api/sessions/{id}/acknowledge", hb.acknowledge)
 	}
 
 	// Terminal WebSocket
