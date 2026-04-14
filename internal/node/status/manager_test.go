@@ -102,6 +102,56 @@ func TestManager_EnsureWatchingStartsNewWatcher(t *testing.T) {
 	}
 }
 
+func TestManager_EnsureWatchingReplacesDeadWatcher(t *testing.T) {
+	lister := &fakeManagerLister{}
+	tmux := newFakeManagerTmux()
+	tmux.alive["claude-revive"] = true
+	tmux.content["claude-revive"] = "content"
+	mdb := newMockDB()
+
+	mgr := NewWatcherManager(lister, mdb, tmux)
+	mgr.Start(context.Background())
+	defer mgr.Close()
+
+	// Start a watcher, then kill the tmux session so it transitions to dead.
+	mgr.EnsureWatching("revive-sess", "claude-revive", "claude")
+	time.Sleep(100 * time.Millisecond)
+
+	// Kill the tmux session — watcher will detect dead on next capture cycle (2s interval).
+	tmux.mu.Lock()
+	tmux.alive["claude-revive"] = false
+	tmux.mu.Unlock()
+
+	// Wait for the watcher to detect the dead session and exit.
+	time.Sleep(3 * time.Second)
+
+	snap := mgr.Snapshot()
+	entry, ok := snap.Statuses["revive-sess"]
+	if !ok {
+		t.Fatal("expected dead session in snapshot")
+	}
+	if entry.State != StateDead {
+		t.Fatalf("expected state dead, got %s", entry.State)
+	}
+
+	// Revive: bring the tmux session back and call EnsureWatching again.
+	tmux.mu.Lock()
+	tmux.alive["claude-revive"] = true
+	tmux.mu.Unlock()
+
+	mgr.EnsureWatching("revive-sess", "claude-revive", "claude")
+	time.Sleep(100 * time.Millisecond)
+
+	snap = mgr.Snapshot()
+	entry, ok = snap.Statuses["revive-sess"]
+	if !ok {
+		t.Fatal("expected revived session in snapshot")
+	}
+	if entry.State == StateDead {
+		t.Error("expected session to no longer be dead after EnsureWatching revival")
+	}
+}
+
 func TestManager_StopWatcher(t *testing.T) {
 	lister := &fakeManagerLister{}
 	tmux := newFakeManagerTmux()

@@ -89,7 +89,19 @@ func NewRouter(deps Deps) http.Handler {
 	}
 
 	// Terminal WebSocket
-	mux.HandleFunc("/ws/sessions/{id}", terminal.HandleSessionWebSocket(deps.SessionManager))
+	var onSessionReady terminal.SessionReadyFunc
+	if deps.WatcherManager != nil && deps.SessionManager != nil {
+		sm := deps.SessionManager
+		wm := deps.WatcherManager
+		onSessionReady = func(sessionID, tmuxName string) {
+			sess, err := sm.Get(sessionID)
+			if err != nil || sess == nil {
+				return
+			}
+			wm.EnsureWatching(sess.ID, sess.TmuxName, sess.ProviderType)
+		}
+	}
+	mux.HandleFunc("/ws/sessions/{id}", terminal.HandleSessionWebSocket(deps.SessionManager, onSessionReady))
 	mux.HandleFunc("/ws/terminal", terminal.HandleTerminalWebSocket)
 
 	return corsMiddleware(mux)
