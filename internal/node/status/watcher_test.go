@@ -102,8 +102,12 @@ func TestWatcher_ActiveOnContentChange(t *testing.T) {
 	// Wait for first capture cycle
 	time.Sleep(50 * time.Millisecond)
 
-	// Change content to trigger active
+	// Need sustained content changes to transition from idle → active
+	// (activation threshold = 2 consecutive changed frames)
 	tmux.setContent("new content here")
+	w.tick()
+	time.Sleep(50 * time.Millisecond)
+	tmux.setContent("still changing")
 	w.tick()
 	time.Sleep(50 * time.Millisecond)
 
@@ -195,6 +199,7 @@ func TestWatcher_UnreadNotSetWhenObserved(t *testing.T) {
 
 	w := newSessionWatcher("sess-obs", "tmux-sess-obs", "claude", tmux, db, snap)
 	w.stabilityThreshold = 1
+	w.activationThreshold = 1 // use low threshold for this test to focus on unread logic
 	w.nowFn = func() time.Time {
 		t, _ := time.Parse(sqliteDatetimeFormat, recentTime)
 		return t.Add(-1 * time.Second)
@@ -226,6 +231,97 @@ func TestWatcher_UnreadNotSetWhenObserved(t *testing.T) {
 	}
 
 	cancel()
+}
+
+func TestWatcher_SingleFrameChangeFromIdleDoesNotReactivate(t *testing.T) {
+	tmux := &mockTmuxWatcher{
+		content: "initial",
+		dims:    nodesession.PaneDimensions{Width: 80, Height: 24},
+		alive:   true,
+	}
+	db := newMockDB()
+	snap := NewActivitySnapshot()
+
+	w := newSessionWatcher("sess-flap", "tmux-sess-flap", "claude", tmux, db, snap)
+	w.stabilityThreshold = 2
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Phase 1: establish active state (need sustained changes from idle)
+	w.capture(ctx) // baseline frame (hasPrevFrame = true)
+
+	tmux.setContent("active content 1")
+	w.capture(ctx) // changed frame 1 (activationCounter = 1)
+	tmux.setContent("active content 2")
+	w.capture(ctx) // changed frame 2 → active
+	if w.currentState() != StateActive {
+		t.Fatalf("expected active after sustained changes, got %s", w.currentState())
+	}
+
+	// Phase 2: go idle (2 stable frames)
+	w.capture(ctx) // stable frame 1
+	w.capture(ctx) // stable frame 2 → idle
+	if w.currentState() != StateIdle {
+		t.Fatalf("expected idle after stable frames, got %s", w.currentState())
+	}
+
+	// Phase 3: single-frame content blip (e.g., status bar update)
+	tmux.setContent("status bar updated")
+	w.capture(ctx)
+
+	// BUG: with current code this transitions to Active immediately.
+	// EXPECTED: should remain Idle — a single frame change is not sustained activity.
+	entry, _ := snap.Read().Statuses["sess-flap"]
+	if entry.State != StateIdle {
+		t.Errorf("single-frame blip should not reactivate: got %s, want idle", entry.State)
+	}
+
+	// Phase 4: content stabilizes again
+	w.capture(ctx)
+	entry, _ = snap.Read().Statuses["sess-flap"]
+	if entry.State != StateIdle {
+		t.Errorf("expected idle after blip stabilized, got %s", entry.State)
+	}
+}
+
+func TestWatcher_SustainedChangeFromIdleReactivates(t *testing.T) {
+	tmux := &mockTmuxWatcher{
+		content: "initial",
+		dims:    nodesession.PaneDimensions{Width: 80, Height: 24},
+		alive:   true,
+	}
+	db := newMockDB()
+	snap := NewActivitySnapshot()
+
+	w := newSessionWatcher("sess-react", "tmux-sess-react", "claude", tmux, db, snap)
+	w.stabilityThreshold = 2
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Establish active, then idle
+	w.capture(ctx) // baseline
+	tmux.setContent("active 1")
+	w.capture(ctx) // changed frame 1
+	tmux.setContent("active 2")
+	w.capture(ctx) // changed frame 2 → active
+	w.capture(ctx) // stable 1
+	w.capture(ctx) // stable 2 → idle
+	if w.currentState() != StateIdle {
+		t.Fatalf("expected idle, got %s", w.currentState())
+	}
+
+	// Sustained content changes (user typing) should reactivate
+	tmux.setContent("typing line 1")
+	w.capture(ctx) // changed frame 1 — not yet active
+	tmux.setContent("typing line 2")
+	w.capture(ctx) // changed frame 2 — should now be active
+
+	entry, _ := snap.Read().Statuses["sess-react"]
+	if entry.State != StateActive {
+		t.Errorf("sustained changes should reactivate: got %s, want active", entry.State)
+	}
 }
 
 func TestWatcher_ResizeGuardDiscardsFrame(t *testing.T) {

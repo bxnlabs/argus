@@ -43,14 +43,16 @@ type SessionWatcher struct {
 	snapshot *ActivitySnapshot
 
 	// State machine (mu guards state for cross-goroutine reads from WatcherManager)
-	stateMu            sync.RWMutex
-	state              SessionState
-	prevContent        string
-	prevDims           nodesession.PaneDimensions
-	hasPrevFrame       bool
-	stabilityCounter   int
-	stabilityThreshold int
-	lastActivityTime   time.Time
+	stateMu             sync.RWMutex
+	state               SessionState
+	prevContent         string
+	prevDims            nodesession.PaneDimensions
+	hasPrevFrame        bool
+	stabilityCounter    int
+	stabilityThreshold  int
+	activationCounter   int
+	activationThreshold int
+	lastActivityTime    time.Time
 
 	// Manual tick channel for testing (bypasses timer)
 	tickCh chan struct{}
@@ -66,16 +68,17 @@ func newSessionWatcher(
 	snapshot *ActivitySnapshot,
 ) *SessionWatcher {
 	return &SessionWatcher{
-		sessionID:          sessionID,
-		tmuxName:           tmuxName,
-		providerType:       providerType,
-		tmux:               tmux,
-		db:                 db,
-		snapshot:           snapshot,
-		state:              StateIdle,
-		stabilityThreshold: defaultStabilityThreshold,
-		tickCh:             make(chan struct{}, 1),
-		nowFn:              time.Now,
+		sessionID:           sessionID,
+		tmuxName:            tmuxName,
+		providerType:        providerType,
+		tmux:                tmux,
+		db:                  db,
+		snapshot:            snapshot,
+		state:               StateIdle,
+		stabilityThreshold:  defaultStabilityThreshold,
+		activationThreshold: defaultStabilityThreshold,
+		tickCh:              make(chan struct{}, 1),
+		nowFn:               time.Now,
 	}
 }
 
@@ -170,9 +173,22 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 
 	// Compare content
 	if content != w.prevContent {
-		// Content changed → active
+		// Content changed
 		w.prevContent = content
 		w.stabilityCounter = 0
+
+		if w.currentState() == StateIdle {
+			// Require sustained changes before reactivating — prevents
+			// single-frame blips (status-bar updates, late TUI redraws)
+			// from causing idle→active→idle flapping.
+			w.activationCounter++
+			if w.activationCounter < w.activationThreshold {
+				w.writeSnapshot()
+				return
+			}
+		}
+
+		w.activationCounter = 0
 		w.lastActivityTime = now
 
 		prevState := w.currentState()
@@ -190,8 +206,9 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 			log.Printf("watcher %s: touch: %v", w.sessionID, err)
 		}
 	} else {
-		// Content identical → increment stability counter
+		// Content identical → increment stability counter, reset activation counter
 		w.stabilityCounter++
+		w.activationCounter = 0
 
 		if w.stabilityCounter >= w.stabilityThreshold && w.currentState() != StateIdle {
 			prevState := w.currentState()
