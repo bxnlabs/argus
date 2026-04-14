@@ -149,6 +149,58 @@ func GetPaneCwd(name string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// PaneDimensions holds the width and height of a tmux pane.
+type PaneDimensions struct {
+	Width  int
+	Height int
+}
+
+// parsePaneDimensions parses a "WxH" string into width and height integers.
+func parsePaneDimensions(s string) (width, height int, ok bool) {
+	s = strings.TrimSpace(s)
+	parts := strings.SplitN(s, "x", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	w, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	h, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	return w, h, true
+}
+
+// GetPaneDimensionsContext returns the dimensions of the named tmux pane.
+func GetPaneDimensionsContext(ctx context.Context, name string) (PaneDimensions, error) {
+	cmd := exec.CommandContext(ctx, "tmux", "display-message", "-t", name, "-p", "#{pane_width}x#{pane_height}")
+	out, err := cmd.Output()
+	if err != nil {
+		return PaneDimensions{}, fmt.Errorf("tmux display-message: %w", err)
+	}
+	w, h, ok := parsePaneDimensions(string(out))
+	if !ok {
+		return PaneDimensions{}, fmt.Errorf("invalid pane dimensions: %q", string(out))
+	}
+	return PaneDimensions{Width: w, Height: h}, nil
+}
+
+// HasSessionContext checks if a tmux session exists, with context for cancellation/timeout.
+func HasSessionContext(ctx context.Context, name string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "tmux", "has-session", "-t", name)
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return false, nil
+	}
+	return false, fmt.Errorf("tmux has-session: %w", err)
+}
+
 // SessionActivity holds tmux session activity timestamps.
 type SessionActivity struct {
 	Name      string
