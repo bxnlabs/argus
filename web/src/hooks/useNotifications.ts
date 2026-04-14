@@ -26,6 +26,7 @@ export function useNotifications() {
     typeof Notification !== "undefined" ? Notification.permission : "default"
   );
   const previousUnread = useRef<Set<string>>(new Set());
+  const initialized = useRef(false);
   const originalTitle = useRef(document.title);
 
   const requestPermission = useCallback(async () => {
@@ -48,6 +49,17 @@ export function useNotifications() {
       activeSessionId?: string | null
     ) => {
       if (!settings.enabled) return;
+
+      // Seed previousUnread on first call to avoid false notifications
+      if (!initialized.current) {
+        initialized.current = true;
+        for (const state of states) {
+          if (state.unreadSince) {
+            previousUnread.current.add(state.id);
+          }
+        }
+        return;
+      }
 
       for (const state of states) {
         const wasUnread = previousUnread.current.has(state.id);

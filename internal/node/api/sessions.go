@@ -146,10 +146,6 @@ func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	force := r.URL.Query().Get("force") == "true"
 	deleteBranch := r.URL.Query().Get("delete_branch") == "true"
 
-	if h.watcherManager != nil {
-		h.watcherManager.StopWatcher(id)
-	}
-
 	result, err := h.manager.Delete(id, force, deleteBranch)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
@@ -167,6 +163,11 @@ func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 		respondInternalError(w, err)
 		return
 	}
+
+	if h.watcherManager != nil {
+		h.watcherManager.StopWatcher(id)
+	}
+
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success":        true,
 		"branch_deleted": result.BranchDeleted,

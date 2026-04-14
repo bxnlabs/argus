@@ -190,9 +190,20 @@ func GetPaneDimensionsContext(ctx context.Context, name string) (PaneDimensions,
 // HasSessionContext checks if a tmux session exists, with context for cancellation/timeout.
 func HasSessionContext(ctx context.Context, name string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "tmux", "has-session", "-t", name)
-	err := cmd.Run()
+	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return true, nil
+	}
+	// Context cancellation kills the process, producing an ExitError.
+	// Return the context error so callers can distinguish cancellation from "not found".
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	// Distinguish connection/permission errors from "session not found".
+	// tmux exits non-zero for both, but connection errors should propagate
+	// so the caller can skip the cycle rather than falsely marking dead.
+	if msg := strings.TrimSpace(string(out)); strings.Contains(msg, "error connecting") {
+		return false, fmt.Errorf("tmux has-session: %s", msg)
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {

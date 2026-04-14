@@ -54,14 +54,15 @@ func (m *WatcherManager) Start(ctx context.Context) {
 	if m.started {
 		return
 	}
-	m.started = true
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
 	sessions, err := m.lister.List(m.ctx)
 	if err != nil {
 		log.Printf("watcher manager: list sessions on startup: %v", err)
+		// Leave m.ctx alive so EnsureWatching can still start individual watchers.
 		return
 	}
+	m.started = true
 
 	for _, s := range sessions {
 		m.startWatcherLocked(s.ID, s.TmuxName, s.ProviderType)

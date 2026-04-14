@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	nodesession "github.com/bxnlabs/argus/internal/node/session"
@@ -41,7 +42,8 @@ type SessionWatcher struct {
 	db       WatcherDB
 	snapshot *ActivitySnapshot
 
-	// State machine
+	// State machine (mu guards state for cross-goroutine reads from WatcherManager)
+	stateMu            sync.RWMutex
 	state              SessionState
 	prevContent        string
 	prevDims           nodesession.PaneDimensions
@@ -101,7 +103,7 @@ func (w *SessionWatcher) run(ctx context.Context) {
 		case <-w.tickCh:
 			w.capture(ctx)
 		}
-		if w.state == StateDead {
+		if w.currentState() == StateDead {
 			return
 		}
 	}
@@ -173,8 +175,8 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 		w.stabilityCounter = 0
 		w.lastActivityTime = now
 
-		prevState := w.state
-		w.state = StateActive
+		prevState := w.currentState()
+		w.setState(StateActive)
 
 		// Clear unread_since on activity resume (inactive -> active)
 		if prevState == StateInactive {
@@ -191,8 +193,8 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 		// Content identical → increment stability counter
 		w.stabilityCounter++
 
-		if w.stabilityCounter >= w.stabilityThreshold && w.state != StateInactive {
-			prevState := w.state
+		if w.stabilityCounter >= w.stabilityThreshold && w.currentState() != StateInactive {
+			prevState := w.currentState()
 			w.transitionToInactive(ctx, prevState, now)
 		}
 	}
@@ -201,7 +203,7 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 }
 
 func (w *SessionWatcher) transitionToInactive(ctx context.Context, prevState SessionState, now time.Time) {
-	w.state = StateInactive
+	w.setState(StateInactive)
 
 	if prevState == StateActive {
 		_, lastViewedAt, err := w.db.GetSession(w.sessionID)
@@ -232,8 +234,8 @@ func (w *SessionWatcher) transitionToInactive(ctx context.Context, prevState Ses
 }
 
 func (w *SessionWatcher) transitionTo(ctx context.Context, state SessionState, now time.Time) {
-	prevState := w.state
-	w.state = state
+	prevState := w.currentState()
+	w.setState(state)
 
 	if state == StateDead {
 		if err := w.db.SetUnreadSince(ctx, w.sessionID, nil); err != nil {
@@ -253,15 +255,23 @@ func (w *SessionWatcher) transitionTo(ctx context.Context, state SessionState, n
 func (w *SessionWatcher) writeSnapshot() {
 	w.snapshot.Set(w.sessionID, SnapshotEntry{
 		SessionName:  w.tmuxName,
-		State:        w.state,
+		State:        w.currentState(),
 		ProviderType: w.providerType,
 	})
 }
 
 func (w *SessionWatcher) currentState() SessionState {
+	w.stateMu.RLock()
+	defer w.stateMu.RUnlock()
 	return w.state
 }
 
+func (w *SessionWatcher) setState(s SessionState) {
+	w.stateMu.Lock()
+	w.state = s
+	w.stateMu.Unlock()
+}
+
 func (w *SessionWatcher) String() string {
-	return fmt.Sprintf("watcher[%s/%s state=%s]", w.sessionID, w.tmuxName, w.state)
+	return fmt.Sprintf("watcher[%s/%s state=%s]", w.sessionID, w.tmuxName, w.currentState())
 }
