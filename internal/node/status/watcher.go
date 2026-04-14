@@ -72,7 +72,7 @@ func newSessionWatcher(
 		tmux:               tmux,
 		db:                 db,
 		snapshot:           snapshot,
-		state:              StateInactive,
+		state:              StateIdle,
 		stabilityThreshold: defaultStabilityThreshold,
 		tickCh:             make(chan struct{}, 1),
 		nowFn:              time.Now,
@@ -178,8 +178,8 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 		prevState := w.currentState()
 		w.setState(StateActive)
 
-		// Clear unread_since on activity resume (inactive -> active)
-		if prevState == StateInactive {
+		// Clear unread_since on activity resume (idle -> active)
+		if prevState == StateIdle {
 			if err := w.db.SetUnreadSince(ctx, w.sessionID, nil); err != nil {
 				log.Printf("watcher %s: clear unread: %v", w.sessionID, err)
 			}
@@ -193,17 +193,17 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 		// Content identical → increment stability counter
 		w.stabilityCounter++
 
-		if w.stabilityCounter >= w.stabilityThreshold && w.currentState() != StateInactive {
+		if w.stabilityCounter >= w.stabilityThreshold && w.currentState() != StateIdle {
 			prevState := w.currentState()
-			w.transitionToInactive(ctx, prevState, now)
+			w.transitionToIdle(ctx, prevState, now)
 		}
 	}
 
 	w.writeSnapshot()
 }
 
-func (w *SessionWatcher) transitionToInactive(ctx context.Context, prevState SessionState, now time.Time) {
-	w.setState(StateInactive)
+func (w *SessionWatcher) transitionToIdle(ctx context.Context, prevState SessionState, now time.Time) {
+	w.setState(StateIdle)
 
 	if prevState == StateActive {
 		_, lastViewedAt, err := w.db.GetSession(w.sessionID)

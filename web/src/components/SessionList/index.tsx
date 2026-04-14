@@ -16,7 +16,7 @@ function getStatusColor(status?: string) {
   switch (status) {
     case "active":
       return "bg-green-500";
-    case "inactive":
+    case "idle":
       return "bg-muted-foreground";
     case "dead":
       return "bg-red-500/50";
@@ -38,8 +38,8 @@ function getStatusLabel(status?: string) {
   switch (status) {
     case "active":
       return "Active";
-    case "inactive":
-      return "Inactive";
+    case "idle":
+      return "Idle";
     case "dead":
       return "Dead";
     default:
@@ -139,16 +139,13 @@ const SessionItem = memo(function SessionItem({
               <div
                 className={cn(
                   "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                  getStatusColor(statusValue),
-                  getStatusAnimation(statusValue)
+                  unreadSince ? "bg-blue-500" : getStatusColor(statusValue),
+                  !unreadSince && getStatusAnimation(statusValue)
                 )}
               />
-              {unreadSince && (
-                <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-500" />
-              )}
               <span className="text-muted-foreground text-xs">
                 {(() => {
-                  const label = getStatusLabel(statusValue);
+                  const label = unreadSince ? "Unread" : getStatusLabel(statusValue);
                   return label ? `${label} · ` : "";
                 })()}
                 {formatRelativeTime(session.updated_at)}

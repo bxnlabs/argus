@@ -118,7 +118,7 @@ func TestWatcher_ActiveOnContentChange(t *testing.T) {
 	cancel()
 }
 
-func TestWatcher_InactiveAfterStableFrames(t *testing.T) {
+func TestWatcher_IdleAfterStableFrames(t *testing.T) {
 	tmux := &mockTmuxWatcher{
 		content: "stable content",
 		dims:    nodesession.PaneDimensions{Width: 80, Height: 24},
@@ -145,8 +145,8 @@ func TestWatcher_InactiveAfterStableFrames(t *testing.T) {
 	if !ok {
 		t.Fatal("session not in snapshot")
 	}
-	if entry.State != StateInactive {
-		t.Errorf("expected inactive, got %s", entry.State)
+	if entry.State != StateIdle {
+		t.Errorf("expected idle, got %s", entry.State)
 	}
 
 	cancel()
@@ -211,7 +211,7 @@ func TestWatcher_UnreadNotSetWhenObserved(t *testing.T) {
 	w.tick()
 	time.Sleep(30 * time.Millisecond)
 
-	// Stabilize to trigger active->inactive
+	// Stabilize to trigger active->idle
 	w.tick()
 	time.Sleep(30 * time.Millisecond)
 	w.tick()

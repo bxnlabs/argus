@@ -11,7 +11,7 @@ type SessionState string
 
 const (
 	StateActive   SessionState = "active"
-	StateInactive SessionState = "inactive"
+	StateIdle SessionState = "idle"
 	StateDead     SessionState = "dead"
 )
 

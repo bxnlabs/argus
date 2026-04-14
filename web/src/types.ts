@@ -17,7 +17,7 @@ export interface Session {
 
 export interface SessionStatusInfo {
   sessionName: string;
-  status: "active" | "inactive" | "dead";
+  status: "active" | "idle" | "dead";
   providerType: ProviderType;
   unreadSince?: string | null;
 }
