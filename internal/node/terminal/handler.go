@@ -294,10 +294,16 @@ type sessionFactory interface {
 	EnsureSession(id string) (tmuxName string, err error)
 }
 
+// SessionReadyFunc is an optional callback invoked after EnsureSession
+// succeeds. It receives (sessionID, tmuxName) so callers can start
+// ancillary work such as ensuring a status watcher is running.
+type SessionReadyFunc func(sessionID, tmuxName string)
+
 // HandleSessionWebSocket returns an http.HandlerFunc that resolves
 // the {id} path value to a tmux session (creating it if needed) and
-// attaches via WebSocket.
-func HandleSessionWebSocket(sf sessionFactory) http.HandlerFunc {
+// attaches via WebSocket. An optional onReady callback is invoked
+// after the session is ensured.
+func HandleSessionWebSocket(sf sessionFactory, onReady SessionReadyFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if id == "" {
@@ -313,6 +319,9 @@ func HandleSessionWebSocket(sf sessionFactory) http.HandlerFunc {
 				http.Error(w, "session not available", http.StatusInternalServerError)
 			}
 			return
+		}
+		if onReady != nil {
+			onReady(id, tmuxName)
 		}
 		cmd := exec.Command("tmux", "attach-session", "-t", tmuxName)
 		handleConnection(w, r, cmd, tmuxName)

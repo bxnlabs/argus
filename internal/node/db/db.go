@@ -47,7 +47,7 @@ func (d *DB) seedMigrations() error {
 	}
 	defer rows.Close()
 
-	var hasWorktreeBranch, hasGitParentDir, hasGitRemoteURL, hasProfile, hasProviderType bool
+	var hasWorktreeBranch, hasGitParentDir, hasGitRemoteURL, hasProfile, hasProviderType, hasUnreadSince, hasLastViewedAt bool
 	for rows.Next() {
 		var cid int
 		var name, colType string
@@ -67,6 +67,10 @@ func (d *DB) seedMigrations() error {
 			hasProfile = true
 		case "provider_type":
 			hasProviderType = true
+		case "unread_since":
+			hasUnreadSince = true
+		case "last_viewed_at":
+			hasLastViewedAt = true
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -109,6 +113,14 @@ func (d *DB) seedMigrations() error {
 		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
 			"rename_agent_type_to_provider_type",
+		); err != nil {
+			return err
+		}
+	}
+	if hasUnreadSince && hasLastViewedAt {
+		if _, err := d.sql.Exec(
+			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
+			"add_unread_since_and_last_viewed_at",
 		); err != nil {
 			return err
 		}

@@ -5,7 +5,7 @@ interface UseSessionStatusesOptions {
   sessions: Session[];
   activeSessionId?: string | null;
   checkStateChanges: (
-    states: Array<{ id: string; name: string; status: SessionStatusInfo["status"] }>,
+    states: Array<{ id: string; name: string; status: SessionStatusInfo["status"]; unreadSince?: string | null }>,
     activeSessionId?: string | null
   ) => void;
 }

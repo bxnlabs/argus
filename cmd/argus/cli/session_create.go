@@ -82,7 +82,7 @@ func newCreateCmd() *cobra.Command {
 			s := resp.Session
 			fmt.Fprintf(os.Stderr, "Created session %q (%s)\n", s.Name, s.ProviderType)
 
-			return attachTmux(s.TmuxName)
+			return attachTmux(s.ID, s.TmuxName, c.baseURL)
 		},
 	}
 

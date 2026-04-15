@@ -192,6 +192,34 @@ func TestBuildStatusRight(t *testing.T) {
 	}
 }
 
+func TestParsePaneDimensions(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantW     int
+		wantH     int
+		wantValid bool
+	}{
+		{"normal", "80x24", 80, 24, true},
+		{"large", "200x50", 200, 50, true},
+		{"empty", "", 0, 0, false},
+		{"no separator", "8024", 0, 0, false},
+		{"non-numeric width", "abcx24", 0, 0, false},
+		{"non-numeric height", "80xabc", 0, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w, h, ok := parsePaneDimensions(tt.input)
+			if ok != tt.wantValid {
+				t.Errorf("parsePaneDimensions(%q) valid=%v, want %v", tt.input, ok, tt.wantValid)
+			}
+			if ok && (w != tt.wantW || h != tt.wantH) {
+				t.Errorf("parsePaneDimensions(%q) = (%d,%d), want (%d,%d)", tt.input, w, h, tt.wantW, tt.wantH)
+			}
+		})
+	}
+}
+
 func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")

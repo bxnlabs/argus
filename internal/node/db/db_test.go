@@ -329,6 +329,112 @@ func TestMigrationAddProfile(t *testing.T) {
 	}
 }
 
+func TestSessionUnreadFields(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	err := db.CreateSession(&Session{
+		ID: "sess-unread-1", Name: "test", TmuxName: "claude-sess-unread-1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := db.GetSession("sess-unread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.UnreadSince != nil {
+		t.Errorf("expected nil UnreadSince, got %v", s.UnreadSince)
+	}
+	if s.LastViewedAt != nil {
+		t.Errorf("expected nil LastViewedAt, got %v", s.LastViewedAt)
+	}
+}
+
+func TestSetUnreadSince(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "sess-ur-1", Name: "test", TmuxName: "claude-sess-ur-1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	// Set unread
+	ts := "2026-04-13 12:00:00"
+	if err := db.SetUnreadSince(context.Background(), "sess-ur-1", &ts); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := db.GetSession("sess-ur-1")
+	if s.UnreadSince == nil || *s.UnreadSince != ts {
+		t.Errorf("expected unread_since=%q, got %v", ts, s.UnreadSince)
+	}
+
+	// Clear unread
+	if err := db.SetUnreadSince(context.Background(), "sess-ur-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = db.GetSession("sess-ur-1")
+	if s.UnreadSince != nil {
+		t.Errorf("expected nil unread_since, got %v", s.UnreadSince)
+	}
+}
+
+func TestSetLastViewedAt(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "sess-lv-1", Name: "test", TmuxName: "claude-sess-lv-1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	ts := "2026-04-13 12:00:00"
+	if err := db.SetLastViewedAt(context.Background(), "sess-lv-1", ts); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := db.GetSession("sess-lv-1")
+	if s.LastViewedAt == nil || *s.LastViewedAt != ts {
+		t.Errorf("expected last_viewed_at=%q, got %v", ts, s.LastViewedAt)
+	}
+}
+
+func TestAcknowledgeSession(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "sess-ack-1", Name: "test", TmuxName: "claude-sess-ack-1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	// Set unread first
+	ts := "2026-04-13 12:00:00"
+	db.SetUnreadSince(context.Background(), "sess-ack-1", &ts)
+
+	// Acknowledge
+	if err := db.AcknowledgeSession(context.Background(), "sess-ack-1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := db.GetSession("sess-ack-1")
+	if s.UnreadSince != nil {
+		t.Errorf("expected nil unread_since after acknowledge, got %v", s.UnreadSince)
+	}
+	if s.LastViewedAt == nil {
+		t.Error("expected last_viewed_at to be set after acknowledge")
+	}
+}
+
 func TestSessionNullableFields(t *testing.T) {
 	db := testDB(t)
 

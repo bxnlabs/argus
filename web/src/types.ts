@@ -17,9 +17,9 @@ export interface Session {
 
 export interface SessionStatusInfo {
   sessionName: string;
-  status: "running" | "waiting" | "idle" | "dead" | "error";
+  status: "active" | "idle" | "dead";
   providerType: ProviderType;
-  lastLine?: string;
+  unreadSince?: string | null;
 }
 
 export type ProviderType = "claude" | "codex" | "gemini" | "shell";

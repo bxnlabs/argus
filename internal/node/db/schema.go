@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   git_parent_dir TEXT,
   git_remote_url TEXT,
   profile TEXT,
-  branch_created INTEGER NOT NULL DEFAULT 0
+  branch_created INTEGER NOT NULL DEFAULT 0,
+  unread_since TEXT,
+  last_viewed_at TEXT
 );
 
 -- Migrations tracking

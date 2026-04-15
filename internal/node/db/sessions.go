@@ -9,7 +9,8 @@ import (
 // sessionColumns is the explicit column list matching scanSession's scan order.
 const sessionColumns = `id, name, tmux_name, created_at, updated_at,
 	working_directory, provider_session_id, model, system_prompt,
-	provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile, branch_created`
+	provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile, branch_created,
+	unread_since, last_viewed_at`
 
 func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var s Session
@@ -21,6 +22,7 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 		&s.ProviderSessionID, &s.Model, &s.SystemPrompt,
 		&s.ProviderType, &autoApprove, &s.WorktreeBranch,
 		&s.GitParentDir, &s.GitRemoteURL, &s.Profile, &branchCreated,
+		&s.UnreadSince, &s.LastViewedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -249,6 +251,43 @@ func (d *DB) SetGitRemoteURL(id, url string) error {
 	_, err := d.sql.Exec(
 		`UPDATE sessions SET git_remote_url = ? WHERE id = ?`,
 		url, id,
+	)
+	return err
+}
+
+// SetUnreadSince sets or clears the unread_since timestamp.
+// Pass nil to clear (mark as read).
+func (d *DB) SetUnreadSince(ctx context.Context, id string, ts *string) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE sessions SET unread_since = ? WHERE id = ?`,
+		ts, id,
+	)
+	return err
+}
+
+// SetLastViewedAt updates the last_viewed_at timestamp.
+func (d *DB) SetLastViewedAt(ctx context.Context, id, ts string) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE sessions SET last_viewed_at = ? WHERE id = ?`,
+		ts, id,
+	)
+	return err
+}
+
+// TouchLastViewedAt sets last_viewed_at to the current time.
+func (d *DB) TouchLastViewedAt(ctx context.Context, id string) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE sessions SET last_viewed_at = datetime('now') WHERE id = ?`,
+		id,
+	)
+	return err
+}
+
+// AcknowledgeSession clears unread_since and sets last_viewed_at to now.
+func (d *DB) AcknowledgeSession(ctx context.Context, id string) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE sessions SET unread_since = NULL, last_viewed_at = datetime('now') WHERE id = ?`,
+		id,
 	)
 	return err
 }
