@@ -90,9 +90,19 @@ func attachTmux(sessionID, tmuxName, baseURL string) error {
 }
 
 // runHeartbeat sends periodic heartbeat requests while the context is active.
+// Sends one immediate heartbeat before entering the ticker loop so that
+// last_viewed_at is fresh from the start (covers activity in the first 2s).
 func runHeartbeat(ctx context.Context, sessionID, baseURL string) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	url := baseURL + "/api/sessions/" + sessionID + "/heartbeat"
+
+	// Immediate heartbeat at attach start
+	if req, err := http.NewRequestWithContext(ctx, "POST", url, nil); err == nil {
+		if resp, err := client.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 

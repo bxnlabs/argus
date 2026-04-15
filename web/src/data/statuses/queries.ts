@@ -35,15 +35,32 @@ export function useSessionStatusesQuery({
     refetchInterval: sessions.length > 0 ? 2000 : false,
   });
 
-  // Send heartbeat for the actively viewed session, piggybacked on poll cadence.
+  // Send heartbeat for the actively viewed session. Fires immediately when
+  // activeSessionId is set (covering app-load before the first poll completes)
+  // and again on every poll result change (~2s cadence).
   useEffect(() => {
-    if (!activeSessionId || !query.data) return;
+    if (!activeSessionId) return;
     if (document.hidden) return;
 
     // Fire-and-forget heartbeat — errors are silently ignored.
     fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(activeSessionId)}/heartbeat`, {
       method: "POST",
     }).catch(() => {});
+  }, [query.data, activeSessionId]);
+
+  // Auto-acknowledge unread state for the actively viewed session.
+  // Covers the case where the app opens with a session already selected
+  // (from localStorage) that became unread while the user was away.
+  useEffect(() => {
+    if (!activeSessionId || !query.data) return;
+    if (document.hidden) return;
+
+    const status = query.data.statuses?.[activeSessionId];
+    if (status?.unreadSince) {
+      fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(activeSessionId)}/acknowledge`, {
+        method: "POST",
+      }).catch(() => {});
+    }
   }, [query.data, activeSessionId]);
 
   useEffect(() => {

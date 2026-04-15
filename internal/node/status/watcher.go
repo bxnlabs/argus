@@ -150,6 +150,7 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 	// Atomic resize guard: discard frame if dimensions changed during capture
 	if preDims != postDims {
 		w.stabilityCounter = 0
+		w.activationCounter = 0
 		return
 	}
 
@@ -167,6 +168,7 @@ func (w *SessionWatcher) capture(ctx context.Context) {
 		w.prevContent = content
 		w.prevDims = preDims
 		w.stabilityCounter = 0
+		w.activationCounter = 0
 		w.writeSnapshot()
 		return
 	}

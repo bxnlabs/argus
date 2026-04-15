@@ -382,3 +382,79 @@ func (m *changingDimsMock) HasSession(ctx context.Context, name string) (bool, e
 	defer m.mu.Unlock()
 	return m.alive, nil
 }
+
+func TestWatcher_ResizeGuardResetsActivationCounter(t *testing.T) {
+	dims80x24 := nodesession.PaneDimensions{Width: 80, Height: 24}
+	dims100x30 := nodesession.PaneDimensions{Width: 100, Height: 30}
+
+	db := newMockDB()
+	snap := NewActivitySnapshot()
+
+	// Phase 1: use stable dims, get to idle state with partial activation count.
+	tmux := &mockTmuxWatcher{
+		content: "initial",
+		dims:    dims80x24,
+		alive:   true,
+	}
+	w := newSessionWatcher("sess-rc", "tmux-sess-rc", "claude", tmux, db, snap)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	w.capture(ctx) // baseline
+	// Single content change while idle: activationCounter should be 1
+	tmux.setContent("changed once")
+	w.capture(ctx)
+	if w.activationCounter != 1 {
+		t.Fatalf("expected activationCounter=1 after one change, got %d", w.activationCounter)
+	}
+
+	// Phase 2: resize happens mid-capture (pre != post dims)
+	resizeMock := &changingDimsMock{
+		content:   "changed once",
+		alive:     true,
+		dimsCalls: []nodesession.PaneDimensions{dims80x24, dims100x30},
+	}
+	w.tmux = resizeMock
+	w.capture(ctx)
+
+	if w.activationCounter != 0 {
+		t.Errorf("expected activationCounter=0 after resize guard, got %d", w.activationCounter)
+	}
+}
+
+func TestWatcher_BaselineDimChangeResetsActivationCounter(t *testing.T) {
+	dims80x24 := nodesession.PaneDimensions{Width: 80, Height: 24}
+	dims100x30 := nodesession.PaneDimensions{Width: 100, Height: 30}
+
+	db := newMockDB()
+	snap := NewActivitySnapshot()
+
+	tmux := &mockTmuxWatcher{
+		content: "initial",
+		dims:    dims80x24,
+		alive:   true,
+	}
+	w := newSessionWatcher("sess-bd", "tmux-sess-bd", "claude", tmux, db, snap)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	w.capture(ctx) // baseline at 80x24
+	// Single content change while idle: activationCounter = 1
+	tmux.setContent("changed once")
+	w.capture(ctx)
+	if w.activationCounter != 1 {
+		t.Fatalf("expected activationCounter=1, got %d", w.activationCounter)
+	}
+
+	// Dimensions change between captures (stable pre==post but different from baseline)
+	tmux.mu.Lock()
+	tmux.dims = dims100x30
+	tmux.mu.Unlock()
+	w.capture(ctx) // new baseline stored, comparison skipped
+
+	if w.activationCounter != 0 {
+		t.Errorf("expected activationCounter=0 after baseline dim change, got %d", w.activationCounter)
+	}
+}

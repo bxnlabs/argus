@@ -18,22 +18,26 @@ func handleStatus(mgr *status.WatcherManager, database *db.DB) http.HandlerFunc 
 			respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		unreadMap := make(map[string]*string, len(sessions))
-		for _, s := range sessions {
-			unreadMap[s.ID] = s.UnreadSince
-		}
 
-		result := make(map[string]any, len(snap.Statuses))
-		for id, entry := range snap.Statuses {
+		// Build response from DB sessions (authoritative list) and overlay
+		// snapshot state. Sessions without a snapshot entry default to idle
+		// rather than being omitted (which the client would interpret as dead).
+		result := make(map[string]any, len(sessions))
+		for _, s := range sessions {
 			item := map[string]any{
-				"sessionName":  entry.SessionName,
-				"status":       string(entry.State),
-				"providerType": entry.ProviderType,
+				"sessionName":  s.TmuxName,
+				"status":       string(status.StateIdle),
+				"providerType": s.ProviderType,
 			}
-			if us, ok := unreadMap[id]; ok && us != nil {
-				item["unreadSince"] = *us
+			if entry, ok := snap.Statuses[s.ID]; ok {
+				item["sessionName"] = entry.SessionName
+				item["status"] = string(entry.State)
+				item["providerType"] = entry.ProviderType
 			}
-			result[id] = item
+			if s.UnreadSince != nil {
+				item["unreadSince"] = *s.UnreadSince
+			}
+			result[s.ID] = item
 		}
 		respondJSON(w, http.StatusOK, map[string]any{
 			"statuses":        result,
