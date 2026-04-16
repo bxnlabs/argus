@@ -224,7 +224,14 @@ export function App() {
     <TooltipProvider>
       <TabProvider>
         <HomeContent />
-        <Toaster theme="dark" position="bottom-center" />
+        <Toaster
+          theme="dark"
+          position="bottom-right"
+          richColors
+          toastOptions={{
+            className: "argus-toast",
+          }}
+        />
       </TabProvider>
     </TooltipProvider>
   );
