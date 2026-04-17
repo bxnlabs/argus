@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import type { ParsedDiff, DiffHunk } from "@/lib/diff-parser";
 import type { ReviewComment, DiffPosition } from "@/types";
 import { useExpandableDiff, type ExpansionContext } from "@/hooks/useExpandableDiff";
@@ -53,11 +53,11 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
     onRegisterInsertSynthetic?.(handleInsertSynthetic);
   }, [handleInsertSynthetic, onRegisterInsertSynthetic]);
 
-  // Create a modified diff with the expanded hunks
-  const expandedDiff: ParsedDiff = {
-    ...diff,
-    hunks,
-  };
+  // Stable diff object — only changes when the underlying diff or expanded hunks change
+  const expandedDiff = useMemo<ParsedDiff>(
+    () => ({ ...diff, hunks }),
+    [diff, hunks],
+  );
 
   return (
     <UnifiedDiff
