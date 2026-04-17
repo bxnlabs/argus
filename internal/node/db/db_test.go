@@ -648,3 +648,16 @@ func TestGCNotifications(t *testing.T) {
 		t.Error("expected s2 notification to survive GC")
 	}
 }
+
+func TestFreshDBCheckMigrations(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "fresh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.CheckMigrations(); err != nil {
+		t.Fatalf("CheckMigrations on fresh DB should pass: %v", err)
+	}
+}
