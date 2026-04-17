@@ -12,6 +12,8 @@ export interface DiffHunk {
   newStart: number;
   newCount: number;
   lines: DiffLine[];
+  /** Stable React key — set once at parse/insert time, preserved through expansions. */
+  stableKey: string;
 }
 
 export interface ParsedDiff {
@@ -97,6 +99,7 @@ export function parseDiff(diffText: string): ParsedDiff {
         newStart,
         newCount,
         lines: [],
+        stableKey: `${oldStart}:${newStart}`,
       };
 
       if (context.trim()) {

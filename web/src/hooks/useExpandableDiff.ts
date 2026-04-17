@@ -87,6 +87,7 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
 
       const hunks = [...state.hunks];
       const hunk = { ...hunks[hunkIndex] };
+      // Preserve the original stableKey through expansion
 
       // Offset: use previous hunk's end boundary, or 0 if first hunk
       const oldOffset = hunkIndex > 0 ? computeOldOffset(hunks[hunkIndex - 1]) : 0;
@@ -139,7 +140,9 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
         h.newStart + h.newCount - 1 >= hunk.newStart
       );
       if (isDuplicate) return state;
-      hunks.splice(insertIndex, 0, hunk);
+      // Assign a stable key to synthetic hunks if not already set
+      const keyedHunk = hunk.stableKey ? hunk : { ...hunk, stableKey: `syn:${hunk.oldStart}:${hunk.newStart}` };
+      hunks.splice(insertIndex, 0, keyedHunk);
       return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
     }
 

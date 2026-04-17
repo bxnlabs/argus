@@ -12,7 +12,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ExpandableUnifiedDiff } from "@/components/DiffViewer/ExpandableUnifiedDiff";
+import { LazyFileDiff } from "@/components/DiffViewer/LazyFileDiff";
 import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
@@ -23,7 +23,7 @@ import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { useViewport } from "@/hooks/useViewport";
 import { fetchFileLines } from "@/data/git/file-lines";
-import { computeOldToNewOffset } from "@/hooks/useExpandableDiff";
+import { computeOldToNewOffset, type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
@@ -63,6 +63,7 @@ async function fetchFileLinesForSynthetic(
       newStart,
       newCount: lines.length,
       lines,
+      stableKey: `syn:${oldStart}:${newStart}`,
     };
 
     // Find correct insertion position
@@ -102,6 +103,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     file: string;
     position: DiffPosition;
   } | null>(null);
+  const activeCommentRef = useRef(activeComment);
+  activeCommentRef.current = activeComment;
   const [editingComment, setEditingComment] = useState<ReviewComment | null>(null);
 
   const {
@@ -408,6 +411,20 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return map;
   }, [parsedDiffs]);
 
+  // Stable per-file expansion contexts — avoids creating new objects in the render loop
+  const fileExpansionContexts = useMemo(() => {
+    const map = new Map<string, ExpansionContext>();
+    for (const diff of parsedDiffs) {
+      const pathKey = getDiffPathKey(diff);
+      map.set(pathKey, {
+        repoPath: workingDirectory,
+        filePath: pathKey,
+        ref: compareData?.headRef,
+      });
+    }
+    return map;
+  }, [parsedDiffs, workingDirectory, compareData?.headRef]);
+
   // After review data loads, ensure all comments are visible by inserting synthetic hunks
   useEffect(() => {
     if (!comments.length || !parsedDiffs.length) return;
@@ -466,6 +483,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const handleAddComment = useCallback((body: string) => {
+    const activeComment = activeCommentRef.current;
     if (!activeComment) return;
 
     const hunks = getHunksForFile(activeComment.file);
@@ -549,7 +567,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       comments: [...prev.comments, newComment],
     }));
     setActiveComment(null);
-  }, [activeComment, getHunksForFile, saveAndUpdate, parsedDiffs]);
+  }, [getHunksForFile, saveAndUpdate, parsedDiffs]);
 
   const handleDeleteComment = useCallback((id: string) => {
     saveAndUpdate((prev) => ({
@@ -700,11 +718,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
         return (
           <div key={pathKey} ref={setDiffRef(pathKey)}>
-            <ExpandableUnifiedDiff
+            <LazyFileDiff
               diff={diff}
               fileName={fileName}
-              expanded
               wrapLines={wrapLines}
+              forceMount={commentsByFile.has(pathKey)}
               comments={fileComments}
               activeCommentLine={fileActiveCommentLine}
               onLineClick={fileLineClickHandlers.get(pathKey)}
@@ -717,11 +735,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               totalLines={compareData?.totalLines[pathKey] ?? 0}
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
               onRegisterInsertSynthetic={fileRegisterInsertSyntheticHandlers.get(pathKey)}
-              expansionContext={{
-                repoPath: workingDirectory,
-                filePath: pathKey,
-                ref: compareData?.headRef,
-              }}
+              expansionContext={fileExpansionContexts.get(pathKey)!}
             />
           </div>
         );
