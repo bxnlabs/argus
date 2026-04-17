@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment, memo, useMemo } from "react";
+import { useState, useEffect, Fragment, memo, useMemo, useCallback } from "react";
 import { ChevronDown, ChevronUp, ChevronRight, Plus, Minus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ParsedDiff, DiffHunk, DiffLine } from "@/lib/diff-parser";
@@ -212,7 +212,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
   );
 });
 
-function Hunk({
+const Hunk = memo(function Hunk({
   hunk,
   wrapLines,
   commentsByLine,
@@ -239,8 +239,22 @@ function Hunk({
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   commentingEnabled: boolean;
 }) {
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      const el = target.closest<HTMLElement>("[data-comment-side]");
+      if (!el) return;
+      const side = el.dataset.commentSide as "L" | "R";
+      const line = Number(el.dataset.commentLine);
+      if (side && !isNaN(line)) {
+        onLineClick?.({ side, line });
+      }
+    },
+    [onLineClick],
+  );
+
   return (
-    <div className="min-w-full">
+    <div className="min-w-full" onClick={commentingEnabled ? handleClick : undefined}>
       <div className="border-border border-y bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
         {hunk.header}
       </div>
@@ -272,7 +286,6 @@ function Hunk({
               line={line}
               wrapLines={wrapLines}
               isInActiveRange={isInActiveRange}
-              onLineClick={onLineClick}
               commentingEnabled={commentingEnabled}
             />
             {lineComments.map((c) => (
@@ -299,19 +312,17 @@ function Hunk({
       })}
     </div>
   );
-}
+});
 
-function DiffLineRow({
+const DiffLineRow = memo(function DiffLineRow({
   line,
   wrapLines,
   isInActiveRange,
-  onLineClick,
   commentingEnabled,
 }: {
   line: DiffLine;
   wrapLines: boolean;
   isInActiveRange: boolean;
-  onLineClick?: (position: DiffPosition) => void;
   commentingEnabled: boolean;
 }) {
   if (line.type === "header") return null;
@@ -347,11 +358,8 @@ function DiffLineRow({
           "text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none",
           isCommentable && isDeletion && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
         )}
-        onClick={
-          isCommentable && isDeletion
-            ? () => onLineClick?.({ side: "L", line: line.oldLineNumber! })
-            : undefined
-        }
+        data-comment-side={isCommentable && isDeletion ? "L" : undefined}
+        data-comment-line={isCommentable && isDeletion ? line.oldLineNumber : undefined}
       >
         {isDeletion ? (line.oldLineNumber ?? "") : ""}
       </div>
@@ -360,11 +368,8 @@ function DiffLineRow({
           "text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none",
           isCommentable && !isDeletion && "cursor-pointer hover:bg-blue-500/20 hover:text-blue-400",
         )}
-        onClick={
-          isCommentable && !isDeletion
-            ? () => onLineClick?.({ side: "R", line: line.newLineNumber! })
-            : undefined
-        }
+        data-comment-side={isCommentable && !isDeletion ? "R" : undefined}
+        data-comment-line={isCommentable && !isDeletion ? line.newLineNumber : undefined}
       >
         {line.newLineNumber ?? ""}
       </div>
@@ -380,7 +385,7 @@ function DiffLineRow({
       </div>
     </div>
   );
-}
+});
 
 function ExpandRow({
   direction,
