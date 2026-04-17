@@ -12,7 +12,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ExpandableUnifiedDiff } from "@/components/DiffViewer/ExpandableUnifiedDiff";
+import { LazyFileDiff } from "@/components/DiffViewer/LazyFileDiff";
 import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
@@ -717,10 +717,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
         return (
           <div key={pathKey} ref={setDiffRef(pathKey)}>
-            <ExpandableUnifiedDiff
+            <LazyFileDiff
               diff={diff}
               fileName={fileName}
-              expanded
               wrapLines={wrapLines}
               comments={fileComments}
               activeCommentLine={fileActiveCommentLine}
