@@ -9,7 +9,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
  */
 export function useLazyMount(rootMargin = "200px") {
   const [shouldMount, setShouldMount] = useState(false);
-  const elementRef = useRef<HTMLElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const mountedRef = useRef(false);
 
@@ -20,8 +19,6 @@ export function useLazyMount(rootMargin = "200px") {
         observerRef.current.disconnect();
         observerRef.current = null;
       }
-
-      elementRef.current = node;
 
       // Already mounted — no need to observe
       if (mountedRef.current || !node) return;

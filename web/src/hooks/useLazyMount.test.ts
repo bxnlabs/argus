@@ -49,7 +49,7 @@ describe("useLazyMount", () => {
     const { act } = await import("@testing-library/react");
     act(() => {
       observerCallback(
-        [{ isIntersecting: true, target: div } as IntersectionObserverEntry],
+        [{ isIntersecting: true, target: div } as unknown as IntersectionObserverEntry],
         observerInstance as unknown as IntersectionObserver,
       );
     });
@@ -69,7 +69,7 @@ describe("useLazyMount", () => {
     // Enter viewport
     act(() => {
       observerCallback(
-        [{ isIntersecting: true, target: div } as IntersectionObserverEntry],
+        [{ isIntersecting: true, target: div } as unknown as IntersectionObserverEntry],
         observerInstance as unknown as IntersectionObserver,
       );
     });
@@ -78,7 +78,7 @@ describe("useLazyMount", () => {
     // Leave viewport — should stay mounted
     act(() => {
       observerCallback(
-        [{ isIntersecting: false, target: div } as IntersectionObserverEntry],
+        [{ isIntersecting: false, target: div } as unknown as IntersectionObserverEntry],
         observerInstance as unknown as IntersectionObserver,
       );
     });
