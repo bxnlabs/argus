@@ -35,12 +35,12 @@ func (d *DB) UnreadSessions(ctx context.Context) ([]UnreadSession, error) {
 // HasNotification checks if a notification exists for the given session
 // with sent_at > the provided timestamp. Used for deduplication.
 func (d *DB) HasNotification(ctx context.Context, sessionID, after string) (bool, error) {
-	var count int
+	var exists bool
 	err := d.sql.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM notifications WHERE session_id = ? AND sent_at > ?`,
+		`SELECT EXISTS(SELECT 1 FROM notifications WHERE session_id = ? AND sent_at > ? LIMIT 1)`,
 		sessionID, after,
-	).Scan(&count)
-	return count > 0, err
+	).Scan(&exists)
+	return exists, err
 }
 
 // InsertNotification records that a notification was sent for a session.
@@ -50,4 +50,16 @@ func (d *DB) InsertNotification(ctx context.Context, sessionID, sentAt string) e
 		sessionID, sentAt,
 	)
 	return err
+}
+
+// GCNotifications removes all but the latest notification per session.
+func (d *DB) GCNotifications(ctx context.Context) (int64, error) {
+	result, err := d.sql.ExecContext(ctx,
+		`DELETE FROM notifications WHERE id NOT IN (
+			SELECT MAX(id) FROM notifications GROUP BY session_id
+		)`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

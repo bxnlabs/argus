@@ -3,10 +3,19 @@ package notifications
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/slack-go/slack"
 )
+
+// escapeSlack escapes characters that are special in Slack mrkdwn.
+func escapeSlack(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
+}
 
 // slackClient abstracts the Slack API for testing.
 type slackClient interface {
@@ -46,9 +55,9 @@ func buildBlocks(msg Message) []slack.Block {
 	)
 
 	fields := []*slack.TextBlockObject{
-		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Session:*\n%s", msg.SessionName), false, false),
-		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Provider:*\n%s", msg.Provider), false, false),
-		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Directory:*\n%s", msg.WorkingDir), false, false),
+		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Session:*\n%s", escapeSlack(msg.SessionName)), false, false),
+		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Provider:*\n%s", escapeSlack(msg.Provider)), false, false),
+		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Directory:*\n%s", escapeSlack(msg.WorkingDir)), false, false),
 		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Unread for:*\n%s", formatDuration(msg.UnreadFor)), false, false),
 	}
 

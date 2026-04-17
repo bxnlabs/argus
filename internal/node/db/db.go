@@ -77,13 +77,6 @@ func (d *DB) seedMigrations() error {
 		return err
 	}
 
-	// Check if notifications table exists (fresh schema includes it).
-	var notifTableCount int
-	row := d.sql.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='notifications'`)
-	if err := row.Scan(&notifTableCount); err != nil {
-		return err
-	}
-
 	if hasWorktreeBranch {
 		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
@@ -128,14 +121,6 @@ func (d *DB) seedMigrations() error {
 		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
 			"add_unread_since_and_last_viewed_at",
-		); err != nil {
-			return err
-		}
-	}
-	if notifTableCount > 0 {
-		if _, err := d.sql.Exec(
-			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
-			"create_notifications_table",
 		); err != nil {
 			return err
 		}

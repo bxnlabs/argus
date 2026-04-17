@@ -68,12 +68,16 @@ var allMigrations = []migration{
 		return err
 	}},
 	{"create_notifications_table", func(d *DB) error {
-		_, err := d.sql.Exec(`CREATE TABLE IF NOT EXISTS notifications (
+		if _, err := d.sql.Exec(`CREATE TABLE IF NOT EXISTS notifications (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			session_id TEXT NOT NULL,
 			sent_at TEXT NOT NULL,
 			FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-		)`)
+		)`); err != nil {
+			return err
+		}
+		_, err := d.sql.Exec(`CREATE INDEX IF NOT EXISTS idx_notifications_session_sent_at
+			ON notifications(session_id, sent_at)`)
 		return err
 	}},
 }

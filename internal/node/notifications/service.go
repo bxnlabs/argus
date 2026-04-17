@@ -10,6 +10,7 @@ import (
 )
 
 const pollInterval = 30 * time.Second
+const gcInterval = 10 * time.Minute
 
 const sqliteDatetimeFormat = "2006-01-02 15:04:05"
 
@@ -18,6 +19,7 @@ type NotificationDB interface {
 	UnreadSessions(ctx context.Context) ([]db.UnreadSession, error)
 	HasNotification(ctx context.Context, sessionID, after string) (bool, error)
 	InsertNotification(ctx context.Context, sessionID, sentAt string) error
+	GCNotifications(ctx context.Context) (int64, error)
 }
 
 // Service polls for unread sessions and sends notifications via the configured Sender.
@@ -67,16 +69,32 @@ func (s *Service) loop(ctx context.Context) {
 	// Poll immediately on start.
 	s.poll(ctx)
 
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
+	pollTicker := time.NewTicker(pollInterval)
+	defer pollTicker.Stop()
+
+	gcTicker := time.NewTicker(gcInterval)
+	defer gcTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-pollTicker.C:
 			s.poll(ctx)
+		case <-gcTicker.C:
+			s.gc(ctx)
 		}
+	}
+}
+
+func (s *Service) gc(ctx context.Context) {
+	deleted, err := s.db.GCNotifications(ctx)
+	if err != nil {
+		log.Printf("notifications: gc: %v", err)
+		return
+	}
+	if deleted > 0 {
+		log.Printf("notifications: gc cleaned up %d old notification(s)", deleted)
 	}
 }
 

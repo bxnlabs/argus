@@ -47,6 +47,19 @@ func (m *mockNotificationDB) InsertNotification(ctx context.Context, sessionID, 
 	return nil
 }
 
+func (m *mockNotificationDB) GCNotifications(ctx context.Context) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var deleted int64
+	for sid, sentAts := range m.notifications {
+		if len(sentAts) > 1 {
+			deleted += int64(len(sentAts) - 1)
+			m.notifications[sid] = sentAts[len(sentAts)-1:]
+		}
+	}
+	return deleted, nil
+}
+
 func (m *mockNotificationDB) setUnreadSessions(sessions []nodedb.UnreadSession) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -222,6 +235,33 @@ func TestServiceNewUnreadEventAfterRead(t *testing.T) {
 	svc.poll(context.Background())
 	if sender.messageCount() != 2 {
 		t.Fatalf("expected 2 messages (new unread event), got %d", sender.messageCount())
+	}
+}
+
+func TestServiceGCKeepsLatest(t *testing.T) {
+	mockDB := newMockNotificationDB()
+	sender := &mockSender{}
+	threshold := 5 * time.Minute
+
+	svc := NewService(sender, mockDB, threshold)
+
+	// Simulate multiple notifications for the same session
+	mockDB.mu.Lock()
+	mockDB.notifications["s1"] = []string{
+		"2026-04-17 12:10:00",
+		"2026-04-17 12:20:00",
+		"2026-04-17 12:30:00",
+	}
+	mockDB.mu.Unlock()
+
+	svc.gc(context.Background())
+
+	mockDB.mu.Lock()
+	remaining := len(mockDB.notifications["s1"])
+	mockDB.mu.Unlock()
+
+	if remaining != 1 {
+		t.Fatalf("expected 1 notification after GC, got %d", remaining)
 	}
 }
 

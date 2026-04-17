@@ -606,3 +606,45 @@ func TestNotificationsCascadeOnSessionDelete(t *testing.T) {
 		t.Error("expected notification to be cascade-deleted with session")
 	}
 }
+
+func TestGCNotifications(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+	db.CreateSession(&Session{
+		ID: "s2", Name: "test2", TmuxName: "claude-s2",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	// Insert multiple notifications for s1 and one for s2
+	db.InsertNotification(context.Background(), "s1", "2026-04-17 12:05:00")
+	db.InsertNotification(context.Background(), "s1", "2026-04-17 12:15:00")
+	db.InsertNotification(context.Background(), "s1", "2026-04-17 12:25:00")
+	db.InsertNotification(context.Background(), "s2", "2026-04-17 12:10:00")
+
+	deleted, err := db.GCNotifications(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 2 {
+		t.Errorf("expected 2 deleted, got %d", deleted)
+	}
+
+	// Latest notification for s1 should still exist
+	has, _ := db.HasNotification(context.Background(), "s1", "2026-04-17 12:20:00")
+	if !has {
+		t.Error("expected latest s1 notification to survive GC")
+	}
+
+	// s2's only notification should still exist
+	has, _ = db.HasNotification(context.Background(), "s2", "2026-04-17 12:00:00")
+	if !has {
+		t.Error("expected s2 notification to survive GC")
+	}
+}

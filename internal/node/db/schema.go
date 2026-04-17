@@ -30,11 +30,4 @@ CREATE TABLE IF NOT EXISTS _migrations (
   applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Notifications tracking
-CREATE TABLE IF NOT EXISTS notifications (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id TEXT NOT NULL,
-  sent_at TEXT NOT NULL,
-  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
 `

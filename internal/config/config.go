@@ -154,8 +154,12 @@ func validate(cfg *Config) error {
 		}
 	}
 	if cfg.Notifications.Channel != "" {
-		if _, err := time.ParseDuration(cfg.Notifications.NotifyAfterUnreadFor); err != nil {
+		dur, err := time.ParseDuration(cfg.Notifications.NotifyAfterUnreadFor)
+		if err != nil {
 			return fmt.Errorf("notifications.notify_after_unread_for must be a valid duration (e.g. \"5m\"), got %q", cfg.Notifications.NotifyAfterUnreadFor)
+		}
+		if dur < time.Second {
+			return fmt.Errorf("notifications.notify_after_unread_for must be at least 1s, got %q", cfg.Notifications.NotifyAfterUnreadFor)
 		}
 		switch cfg.Notifications.Channel {
 		case "slack":

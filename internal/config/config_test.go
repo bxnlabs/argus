@@ -596,6 +596,32 @@ channel_id = "C1234567890"
 	}
 }
 
+func TestValidation_NotifyAfterUnreadForTooShort(t *testing.T) {
+	clearArgusEnv(t)
+	for _, dur := range []string{"0s", "500ms", "-5m"} {
+		t.Run(dur, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.toml")
+			content := fmt.Sprintf(`
+[notifications]
+channel = "slack"
+notify_after_unread_for = %q
+
+[notifications.slack]
+bot_token = "xoxb-test-token"
+channel_id = "C1234567890"
+`, dur)
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := config.Load(config.Options{ConfigFile: path})
+			if err == nil {
+				t.Fatalf("expected validation error for duration %q, got nil", dur)
+			}
+		})
+	}
+}
+
 func TestValidation_UnknownNotificationChannel(t *testing.T) {
 	clearArgusEnv(t)
 	dir := t.TempDir()

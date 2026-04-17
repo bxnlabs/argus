@@ -55,6 +55,24 @@ func TestSlackSenderSend(t *testing.T) {
 	}
 }
 
+func TestEscapeSlack(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"hello", "hello"},
+		{"<script>", "&lt;script&gt;"},
+		{"<!channel>", "&lt;!channel&gt;"},
+		{"A & B", "A &amp; B"},
+		{"<a&b>", "&lt;a&amp;b&gt;"},
+	}
+	for _, tt := range tests {
+		got := escapeSlack(tt.input)
+		if got != tt.want {
+			t.Errorf("escapeSlack(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 func TestSlackSenderSendError(t *testing.T) {
 	client := &fakeSlackClient{err: fmt.Errorf("slack API error")}
 	sender := &SlackSender{
