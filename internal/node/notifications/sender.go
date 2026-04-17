@@ -7,12 +7,14 @@ import (
 
 // Message holds the data needed to compose a notification.
 type Message struct {
-	SessionID   string
-	SessionName string
-	Provider    string
-	WorkingDir  string
-	UnreadSince time.Time
-	UnreadFor   time.Duration
+	SessionID      string
+	SessionName    string
+	WorkingDir     string
+	UnreadSince    time.Time
+	UnreadFor      time.Duration
+	WorktreeBranch *string
+	GitParentDir   *string
+	GitRemoteURL   *string
 }
 
 // Sender sends a notification message. Implementations are channel-specific

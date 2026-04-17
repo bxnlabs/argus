@@ -56,7 +56,6 @@ func buildBlocks(msg Message) []slack.Block {
 
 	fields := []*slack.TextBlockObject{
 		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Session:*\n%s", escapeSlack(msg.SessionName)), false, false),
-		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Provider:*\n%s", escapeSlack(msg.Provider)), false, false),
 		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Directory:*\n%s", escapeSlack(msg.WorkingDir)), false, false),
 		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Unread for:*\n%s", formatDuration(msg.UnreadFor)), false, false),
 	}

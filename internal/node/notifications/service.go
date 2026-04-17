@@ -130,12 +130,14 @@ func (s *Service) poll(ctx context.Context) {
 		}
 
 		msg := Message{
-			SessionID:   sess.ID,
-			SessionName: sess.Name,
-			Provider:    sess.ProviderType,
-			WorkingDir:  sess.WorkingDirectory,
-			UnreadSince: unreadSince,
-			UnreadFor:   unreadFor,
+			SessionID:      sess.ID,
+			SessionName:    sess.Name,
+			WorkingDir:     sess.WorkingDirectory,
+			UnreadSince:    unreadSince,
+			UnreadFor:      unreadFor,
+			WorktreeBranch: sess.WorktreeBranch,
+			GitParentDir:   sess.GitParentDir,
+			GitRemoteURL:   sess.GitRemoteURL,
 		}
 
 		if err := s.sender.Send(ctx, msg); err != nil {
