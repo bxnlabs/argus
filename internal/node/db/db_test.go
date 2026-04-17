@@ -2,8 +2,10 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -659,5 +661,74 @@ func TestFreshDBCheckMigrations(t *testing.T) {
 
 	if err := db.CheckMigrations(); err != nil {
 		t.Fatalf("CheckMigrations on fresh DB should pass: %v", err)
+	}
+}
+
+func TestUpgradeDBRequiresNotificationsMigration(t *testing.T) {
+	// Simulate an existing database that has all current session columns
+	// (fully migrated) but predates the notifications feature.
+	path := filepath.Join(t.TempDir(), "upgraded.db")
+
+	rawDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Current session schema with all columns.
+	_, err = rawDB.Exec(`
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  tmux_name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  working_directory TEXT NOT NULL DEFAULT '~',
+  provider_session_id TEXT,
+  model TEXT DEFAULT 'sonnet',
+  system_prompt TEXT,
+  provider_type TEXT NOT NULL DEFAULT 'claude',
+  auto_approve INTEGER NOT NULL DEFAULT 0,
+  worktree_branch TEXT,
+  git_parent_dir TEXT,
+  git_remote_url TEXT,
+  profile TEXT,
+  branch_created INTEGER NOT NULL DEFAULT 0,
+  unread_since TEXT,
+  last_viewed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS _migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`)
+	if err != nil {
+		rawDB.Close()
+		t.Fatal(err)
+	}
+	// Record prior column migrations as applied.
+	for _, name := range []string{
+		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
+		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
+		"add_unread_since_and_last_viewed_at",
+	} {
+		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
+			rawDB.Close()
+			t.Fatal(err)
+		}
+	}
+	rawDB.Close()
+
+	// Open with current code — should NOT auto-seed create_notifications_table.
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	err = d.CheckMigrations()
+	if err == nil {
+		t.Fatal("expected CheckMigrations to report create_notifications_table as pending")
+	}
+	if !strings.Contains(err.Error(), "create_notifications_table") {
+		t.Fatalf("expected error to mention create_notifications_table, got: %v", err)
 	}
 }

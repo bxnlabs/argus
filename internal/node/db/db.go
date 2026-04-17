@@ -41,6 +41,15 @@ func Open(path string) (*DB, error) {
 // On an existing database that lacks an artifact, that migration is left
 // pending so that CheckMigrations reports it and RunMigrations applies it.
 func (d *DB) seedMigrations() error {
+	// Check whether any migrations have previously been recorded. An empty
+	// _migrations table means this is either a brand-new database or one that
+	// predates the migration system entirely. Combined with the column checks
+	// below, this distinguishes fresh DBs from old ones.
+	var priorMigrations int
+	if err := d.sql.QueryRow(`SELECT COUNT(*) FROM _migrations`).Scan(&priorMigrations); err != nil {
+		return err
+	}
+
 	rows, err := d.sql.Query(`PRAGMA table_info(sessions)`)
 	if err != nil {
 		return err
@@ -79,7 +88,7 @@ func (d *DB) seedMigrations() error {
 		return err
 	}
 
-	// Seed each migration whose artifact already exists in the schema.
+	// Seed each column migration whose artifact already exists.
 	seeds := []struct {
 		condition bool
 		name      string
@@ -107,9 +116,12 @@ func (d *DB) seedMigrations() error {
 
 	// The notifications table is in the base schema (CREATE TABLE IF NOT
 	// EXISTS), so it exists on both fresh and existing databases. Only seed
-	// it on a fresh database — indicated by all session columns being
-	// present — so existing databases go through the migration gate.
-	if allColumnsPresent {
+	// it on a truly fresh database. A fresh database has:
+	//   1. No prior migration records (_migrations was empty)
+	//   2. All session columns present (base schema just created them)
+	// An existing database with all columns but prior migration records is
+	// an upgrade — let CheckMigrations flag create_notifications_table.
+	if priorMigrations == 0 && allColumnsPresent {
 		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
 			"create_notifications_table",
