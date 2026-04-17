@@ -150,7 +150,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
                   expandErrors?.[downKey] !== "permanent";
 
                 return (
-                  <Fragment key={index}>
+                  <Fragment key={`${hunk.oldStart}:${hunk.newStart}`}>
                     {showExpandUp && (
                       <ExpandRow
                         direction="up"
@@ -267,7 +267,7 @@ function Hunk({
         const showForm = isInActiveRange;
 
         return (
-          <Fragment key={index}>
+          <Fragment key={`${line.type}:${line.oldLineNumber ?? ""}:${line.newLineNumber ?? ""}:${index}`}>
             <DiffLineRow
               line={line}
               wrapLines={wrapLines}
