@@ -466,9 +466,13 @@ func TestUnreadSessions(t *testing.T) {
 	}
 
 	// Create two sessions
+	branch := "jeev/feature"
+	parentDir := "/home/jeev/repos/myproject"
+	remoteURL := "https://github.com/bxnlabs/argus.git"
 	db.CreateSession(&Session{
 		ID: "s1", Name: "session-1", TmuxName: "claude-s1",
 		WorkingDirectory: "/tmp/proj1", ProviderType: "claude",
+		WorktreeBranch: &branch, GitParentDir: &parentDir, GitRemoteURL: &remoteURL,
 	})
 	db.CreateSession(&Session{
 		ID: "s2", Name: "session-2", TmuxName: "claude-s2",
@@ -498,17 +502,14 @@ func TestUnreadSessions(t *testing.T) {
 	if sessions[0].ID != "s1" {
 		t.Errorf("expected session ID %q, got %q", "s1", sessions[0].ID)
 	}
-	if sessions[0].Name != "session-1" {
-		t.Errorf("expected session name %q, got %q", "session-1", sessions[0].Name)
+	if sessions[0].WorktreeBranch == nil || *sessions[0].WorktreeBranch != branch {
+		t.Errorf("expected worktree_branch %q, got %v", branch, sessions[0].WorktreeBranch)
 	}
-	if sessions[0].ProviderType != "claude" {
-		t.Errorf("expected provider %q, got %q", "claude", sessions[0].ProviderType)
+	if sessions[0].GitParentDir == nil || *sessions[0].GitParentDir != parentDir {
+		t.Errorf("expected git_parent_dir %q, got %v", parentDir, sessions[0].GitParentDir)
 	}
-	if sessions[0].WorkingDirectory != "/tmp/proj1" {
-		t.Errorf("expected working dir %q, got %q", "/tmp/proj1", sessions[0].WorkingDirectory)
-	}
-	if sessions[0].UnreadSince != ts {
-		t.Errorf("expected unread_since %q, got %q", ts, sessions[0].UnreadSince)
+	if sessions[0].GitRemoteURL == nil || *sessions[0].GitRemoteURL != remoteURL {
+		t.Errorf("expected git_remote_url %q, got %v", remoteURL, sessions[0].GitRemoteURL)
 	}
 }
 

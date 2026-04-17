@@ -9,12 +9,16 @@ type UnreadSession struct {
 	ProviderType     string
 	WorkingDirectory string
 	UnreadSince      string
+	WorktreeBranch   *string
+	GitParentDir     *string
+	GitRemoteURL     *string
 }
 
 // UnreadSessions returns sessions where unread_since IS NOT NULL.
 func (d *DB) UnreadSessions(ctx context.Context) ([]UnreadSession, error) {
 	rows, err := d.sql.QueryContext(ctx,
-		`SELECT id, name, provider_type, working_directory, unread_since
+		`SELECT id, name, provider_type, working_directory, unread_since,
+		        worktree_branch, git_parent_dir, git_remote_url
 		 FROM sessions WHERE unread_since IS NOT NULL`)
 	if err != nil {
 		return nil, err
@@ -24,7 +28,8 @@ func (d *DB) UnreadSessions(ctx context.Context) ([]UnreadSession, error) {
 	var sessions []UnreadSession
 	for rows.Next() {
 		var s UnreadSession
-		if err := rows.Scan(&s.ID, &s.Name, &s.ProviderType, &s.WorkingDirectory, &s.UnreadSince); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.ProviderType, &s.WorkingDirectory, &s.UnreadSince,
+			&s.WorktreeBranch, &s.GitParentDir, &s.GitRemoteURL); err != nil {
 			return nil, err
 		}
 		sessions = append(sessions, s)
