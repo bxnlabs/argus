@@ -67,6 +67,15 @@ var allMigrations = []migration{
 		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN last_viewed_at TEXT`)
 		return err
 	}},
+	{"create_notifications_table", func(d *DB) error {
+		_, err := d.sql.Exec(`CREATE TABLE IF NOT EXISTS notifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL,
+			sent_at TEXT NOT NULL,
+			FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+		)`)
+		return err
+	}},
 }
 
 // CheckMigrations verifies that all expected migrations have been applied.

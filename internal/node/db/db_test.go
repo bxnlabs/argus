@@ -454,3 +454,155 @@ func TestSessionNullableFields(t *testing.T) {
 		t.Error("expected nil system_prompt")
 	}
 }
+
+// --- Notifications ---
+
+func TestUnreadSessions(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create two sessions
+	db.CreateSession(&Session{
+		ID: "s1", Name: "session-1", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp/proj1", ProviderType: "claude",
+	})
+	db.CreateSession(&Session{
+		ID: "s2", Name: "session-2", TmuxName: "claude-s2",
+		WorkingDirectory: "/tmp/proj2", ProviderType: "codex",
+	})
+
+	// No unread sessions initially
+	sessions, err := db.UnreadSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 unread sessions, got %d", len(sessions))
+	}
+
+	// Mark s1 as unread
+	ts := "2026-04-17 12:00:00"
+	db.SetUnreadSince(context.Background(), "s1", &ts)
+
+	sessions, err = db.UnreadSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 unread session, got %d", len(sessions))
+	}
+	if sessions[0].ID != "s1" {
+		t.Errorf("expected session ID %q, got %q", "s1", sessions[0].ID)
+	}
+	if sessions[0].Name != "session-1" {
+		t.Errorf("expected session name %q, got %q", "session-1", sessions[0].Name)
+	}
+	if sessions[0].ProviderType != "claude" {
+		t.Errorf("expected provider %q, got %q", "claude", sessions[0].ProviderType)
+	}
+	if sessions[0].WorkingDirectory != "/tmp/proj1" {
+		t.Errorf("expected working dir %q, got %q", "/tmp/proj1", sessions[0].WorkingDirectory)
+	}
+	if sessions[0].UnreadSince != ts {
+		t.Errorf("expected unread_since %q, got %q", ts, sessions[0].UnreadSince)
+	}
+}
+
+func TestHasNotification(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	// No notification exists
+	has, err := db.HasNotification(context.Background(), "s1", "2026-04-17 12:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("expected no notification, got true")
+	}
+
+	// Insert a notification
+	if err := db.InsertNotification(context.Background(), "s1", "2026-04-17 12:05:00"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Notification exists after the unread_since timestamp
+	has, err = db.HasNotification(context.Background(), "s1", "2026-04-17 12:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("expected notification to exist, got false")
+	}
+
+	// Notification does NOT exist after a later timestamp (new unread event)
+	has, err = db.HasNotification(context.Background(), "s1", "2026-04-17 12:10:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("expected no notification after later timestamp, got true")
+	}
+}
+
+func TestInsertNotification(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	err := db.InsertNotification(context.Background(), "s1", "2026-04-17 12:05:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify via HasNotification
+	has, err := db.HasNotification(context.Background(), "s1", "2026-04-17 12:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("expected notification to exist after insert")
+	}
+}
+
+func TestNotificationsCascadeOnSessionDelete(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+	db.InsertNotification(context.Background(), "s1", "2026-04-17 12:05:00")
+
+	// Delete the session
+	if err := db.DeleteSession("s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Notification should be gone (cascade delete)
+	has, err := db.HasNotification(context.Background(), "s1", "2026-04-17 12:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("expected notification to be cascade-deleted with session")
+	}
+}
