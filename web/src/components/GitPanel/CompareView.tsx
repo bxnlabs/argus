@@ -241,8 +241,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return diff?.hunks ?? [];
   }, [parsedDiffs]);
 
-  // Comment navigation
-  const [focusedCommentIdx, setFocusedCommentIdx] = useState(-1);
+  // Comment navigation — track by stable comment ID so index stays correct
+  // across deletes, reorders, and context_unavailable filtering.
+  const [focusedCommentId, setFocusedCommentId] = useState<string | null>(null);
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const sortedComments = useMemo(() => {
@@ -279,19 +280,24 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     });
   }, [comments, parsedDiffs]);
 
-  // Clamp focusedCommentIdx when sortedComments shrinks (e.g. comment becomes context_unavailable)
-  useEffect(() => {
-    if (sortedComments.length === 0) {
-      if (focusedCommentIdx !== -1) setFocusedCommentIdx(-1);
-    } else if (focusedCommentIdx >= sortedComments.length) {
-      setFocusedCommentIdx(sortedComments.length - 1);
-    }
-  }, [sortedComments.length, focusedCommentIdx]);
+  // Derive focused index from the tracked ID. Returns -1 when the focused
+  // comment no longer exists (deleted or filtered), which re-enables "next".
+  const focusedCommentIdx = useMemo(
+    () => focusedCommentId
+      ? sortedComments.findIndex((c) => c.id === focusedCommentId)
+      : -1,
+    [focusedCommentId, sortedComments],
+  );
+
+  // Ref for reading the latest sortedComments inside async continuations
+  // (avoids stale-closure scrolls after synthetic-hunk fetches settle).
+  const sortedCommentsRef = useRef(sortedComments);
+  sortedCommentsRef.current = sortedComments;
 
   const scrollToComment = useCallback(async (index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
-    setFocusedCommentIdx(index);
+    setFocusedCommentId(comment.id);
 
     // Ensure the comment's line is visible in the current hunks before scrolling
     const pathKey = comment.file;
@@ -321,6 +327,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
       }
     }
+
+    // The target may have been deleted or marked context_unavailable during
+    // the async settle. Bail before a stale fallback scroll surprises the user.
+    if (!sortedCommentsRef.current.some((c) => c.id === comment.id)) return;
 
     const el = commentRefs.current.get(comment.id);
     if (el) {
