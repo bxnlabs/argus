@@ -26,7 +26,7 @@ describe("parseDiff hunk keys", () => {
     const firstHunk = result.hunks[0];
     // Each line should have a unique combination of type + oldLineNumber + newLineNumber
     const lineKeys = firstHunk.lines.map(
-      (l, i) => `${l.type}:${l.oldLineNumber ?? ""}:${l.newLineNumber ?? ""}:${i}`,
+      (l) => `${l.type}:${l.oldLineNumber ?? ""}:${l.newLineNumber ?? ""}`,
     );
     expect(new Set(lineKeys).size).toBe(lineKeys.length);
   });

@@ -150,7 +150,7 @@ export const UnifiedDiff = memo(function UnifiedDiff({
                   expandErrors?.[downKey] !== "permanent";
 
                 return (
-                  <Fragment key={`${hunk.oldStart}:${hunk.newStart}`}>
+                  <Fragment key={hunk.stableKey}>
                     {showExpandUp && (
                       <ExpandRow
                         direction="up"

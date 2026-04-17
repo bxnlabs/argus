@@ -24,15 +24,18 @@ interface LazyFileDiffProps {
   onExpandedHunksChange?: (hunks: DiffHunk[]) => void;
   onRegisterInsertSynthetic?: (handler: (hunk: DiffHunk, insertIndex: number) => void) => void;
   expansionContext: ExpansionContext;
+  /** When true, skip lazy mounting and render content immediately. */
+  forceMount?: boolean;
 }
 
 export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps) {
   // 300px gives extra pre-load buffer so tall file diffs start mounting before scrolling into view
   const { ref, shouldMount } = useLazyMount("300px");
+  const mounted = props.forceMount || shouldMount;
 
   return (
     <div ref={ref}>
-      {shouldMount ? (
+      {mounted ? (
         <ExpandableUnifiedDiff
           diff={props.diff}
           fileName={props.fileName}

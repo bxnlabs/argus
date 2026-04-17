@@ -78,6 +78,7 @@ export function useCommentVisibility(options: CommentVisibilityOptions) {
         newStart,
         newCount: lines.length,
         lines,
+        stableKey: `syn:${oldStart}:${newStart}`,
       };
 
       const insertIdx = findInsertIndex(options.hunks, start, pos.side);

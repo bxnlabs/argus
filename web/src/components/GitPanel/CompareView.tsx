@@ -63,6 +63,7 @@ async function fetchFileLinesForSynthetic(
       newStart,
       newCount: lines.length,
       lines,
+      stableKey: `syn:${oldStart}:${newStart}`,
     };
 
     // Find correct insertion position
@@ -721,6 +722,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               diff={diff}
               fileName={fileName}
               wrapLines={wrapLines}
+              forceMount={commentsByFile.has(pathKey)}
               comments={fileComments}
               activeCommentLine={fileActiveCommentLine}
               onLineClick={fileLineClickHandlers.get(pathKey)}
