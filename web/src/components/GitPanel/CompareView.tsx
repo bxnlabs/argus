@@ -283,8 +283,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [comments, parsedDiffs]);
 
   // Tracks the last visited position so navigation can resume near it when
-  // the focused comment is deleted. Updated on every scrollToComment call
-  // (outside render) and consumed only by the Next handler.
+  // the focused comment is deleted. Updated from scrollToComment and from
+  // a sync effect that mirrors the live focused index.
   const lastFocusedIdxRef = useRef(-1);
 
   // Derive focused index from the tracked ID. Returns -1 when the focused
@@ -296,6 +296,19 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       : -1,
     [focusedCommentId, sortedComments],
   );
+
+  // Keep lastFocusedIdxRef aligned with the focused comment's live position
+  // so inserts/deletes/filters that move it don't leave the fallback stale.
+  useEffect(() => {
+    if (focusedCommentIdx !== -1) {
+      lastFocusedIdxRef.current = focusedCommentIdx;
+    }
+  }, [focusedCommentIdx]);
+
+  // True once a comment has been focused but then removed from the visible
+  // list. Distinct from the initial unfocused state (focusedCommentId === null)
+  // even though both leave focusedCommentIdx at -1.
+  const isFocusStale = focusedCommentId !== null && focusedCommentIdx === -1;
 
   // Ref for reading the latest sortedComments inside async continuations
   // (avoids stale-closure scrolls after synthetic-hunk fetches settle).
@@ -359,9 +372,22 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markContextUnavailable]);
 
   const handlePrevComment = useCallback(() => {
+    // Stale focus (previous comment was deleted): target the slot that was
+    // BEFORE the deleted comment so Prev actually moves backward. Contrast
+    // with handleNextComment, which targets the slot at the deleted index
+    // (now occupied by what was the next comment).
+    if (focusedCommentIdx === -1) {
+      if (sortedComments.length === 0) return;
+      const target = Math.max(
+        0,
+        Math.min(lastFocusedIdxRef.current - 1, sortedComments.length - 1),
+      );
+      scrollToComment(target);
+      return;
+    }
     const next = focusedCommentIdx <= 0 ? 0 : focusedCommentIdx - 1;
     scrollToComment(next);
-  }, [focusedCommentIdx, scrollToComment]);
+  }, [focusedCommentIdx, sortedComments.length, scrollToComment]);
 
   const handleNextComment = useCallback(() => {
     // Stale focus (previous comment was deleted): resume from the last
@@ -865,6 +891,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
                 onPrev={handlePrevComment}
                 onNext={handleNextComment}
                 variant="pill"
+                isStale={isFocusStale}
               />
             </div>
           </div>
@@ -964,6 +991,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               total={sortedComments.length}
               onPrev={handlePrevComment}
               onNext={handleNextComment}
+              isStale={isFocusStale}
             />
             <span className="text-muted-foreground flex-1 text-xs">
               {pendingCount > 0

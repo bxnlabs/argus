@@ -8,6 +8,10 @@ interface CommentNavProps {
   onPrev: () => void;
   onNext: () => void;
   variant?: "inline" | "pill";
+  // True when the focused comment was deleted — distinct from the initial
+  // unfocused state (both render currentIndex === -1). Enables both buttons
+  // so the user can re-orient in either direction.
+  isStale?: boolean;
 }
 
 export function CommentNav({
@@ -16,10 +20,13 @@ export function CommentNav({
   onPrev,
   onNext,
   variant = "inline",
+  isStale = false,
 }: CommentNavProps) {
   if (total === 0) return null;
 
   const isPill = variant === "pill";
+  const canPrev = isStale ? true : currentIndex > 0;
+  const canNext = isStale ? true : currentIndex < total - 1;
 
   return (
     <div
@@ -34,7 +41,7 @@ export function CommentNav({
         variant="ghost"
         size="icon-sm"
         onClick={onPrev}
-        disabled={currentIndex <= 0}
+        disabled={!canPrev}
         aria-label="Previous comment"
         className={cn("rounded-full", isPill ? "h-9 w-9" : "h-7 w-7")}
       >
@@ -50,7 +57,7 @@ export function CommentNav({
         variant="ghost"
         size="icon-sm"
         onClick={onNext}
-        disabled={currentIndex >= total - 1}
+        disabled={!canNext}
         aria-label="Next comment"
         className={cn("rounded-full", isPill ? "h-9 w-9" : "h-7 w-7")}
       >
