@@ -3,11 +3,11 @@ package api
 import (
 	"net/http"
 
+	ghservice "github.com/bxnlabs/argus/internal/github"
 	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/session"
 	"github.com/bxnlabs/argus/internal/node/status"
 	"github.com/bxnlabs/argus/internal/node/terminal"
-	ghservice "github.com/bxnlabs/argus/internal/github"
 )
 
 // Deps holds the dependencies injected into API handlers.
@@ -51,6 +51,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/git/file-lines", gh.fileLines)
 	mux.HandleFunc("GET /api/git/check", gh.check)
 	mux.HandleFunc("GET /api/git/branches", gh.branches)
+	mux.HandleFunc("POST /api/git/fetch", gh.fetch)
 
 	// Review routes
 	rh := &reviewHandler{}

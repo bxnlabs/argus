@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -145,4 +146,56 @@ func TestSanitizeFilePath_Symlinks(t *testing.T) {
 			t.Fatal("expected error for bare symlink escaping repo, got nil")
 		}
 	})
+}
+
+func TestGitFetch_ReturnsOKForRealRepo(t *testing.T) {
+	remote := homeTempDir(t)
+	for _, args := range [][]string{
+		{"git", "init", "-b", "main"},
+		{"git", "config", "user.email", "t@t.com"},
+		{"git", "config", "user.name", "T"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = remote
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(remote, "a.txt"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"git", "add", "a.txt"},
+		{"git", "commit", "-m", "init"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = remote
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+
+	dir := homeTempDir(t)
+	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v\n%s", err, out)
+	}
+
+	router := NewRouter(Deps{})
+	req := httptest.NewRequest(http.MethodPost, "/api/git/fetch?path="+dir, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGitFetch_MissingPathIs400(t *testing.T) {
+	router := NewRouter(Deps{})
+	req := httptest.NewRequest(http.MethodPost, "/api/git/fetch", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
 }

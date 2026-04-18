@@ -281,6 +281,27 @@ func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
+// POST /api/git/fetch?path=...
+func (h *gitHandler) fetch(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		respondError(w, http.StatusBadRequest, "path parameter is required")
+		return
+	}
+	expandedPath, err := shared.SafeExpandPath(path)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := git.Fetch(expandedPath); err != nil {
+		log.Printf("git fetch failed: path=%s err=%v", path, err)
+		respondGitError(w, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // GET /api/git/compare/branches?path=...
 func (h *gitHandler) compareBranches(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
