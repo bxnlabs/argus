@@ -119,6 +119,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setBaseBranch(null);
     setSelectedPath(null);
     setEditingComment(null);
+    setFocusedCommentId(null);
+    lastFocusedIdxRef.current = -1;
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
     insertSyntheticHandlers.current.clear();
@@ -241,8 +243,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return diff?.hunks ?? [];
   }, [parsedDiffs]);
 
-  // Comment navigation
-  const [focusedCommentIdx, setFocusedCommentIdx] = useState(-1);
+  // Comment navigation — track by stable comment ID so index stays correct
+  // across deletes, reorders, and context_unavailable filtering.
+  const [focusedCommentId, setFocusedCommentId] = useState<string | null>(null);
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const sortedComments = useMemo(() => {
@@ -279,19 +282,49 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     });
   }, [comments, parsedDiffs]);
 
-  // Clamp focusedCommentIdx when sortedComments shrinks (e.g. comment becomes context_unavailable)
+  // Tracks the last visited position so navigation can resume near it when
+  // the focused comment is deleted. Updated from scrollToComment and from
+  // a sync effect that mirrors the live focused index.
+  const lastFocusedIdxRef = useRef(-1);
+
+  // Derive focused index from the tracked ID. Returns -1 when the focused
+  // comment no longer exists, which keeps Next enabled so the user can
+  // resume navigation even when only one comment remains.
+  const focusedCommentIdx = useMemo(
+    () => focusedCommentId
+      ? sortedComments.findIndex((c) => c.id === focusedCommentId)
+      : -1,
+    [focusedCommentId, sortedComments],
+  );
+
+  // Keep lastFocusedIdxRef aligned with the focused comment's live position
+  // so inserts/deletes/filters that move it don't leave the fallback stale.
   useEffect(() => {
-    if (sortedComments.length === 0) {
-      if (focusedCommentIdx !== -1) setFocusedCommentIdx(-1);
-    } else if (focusedCommentIdx >= sortedComments.length) {
-      setFocusedCommentIdx(sortedComments.length - 1);
+    if (focusedCommentIdx !== -1) {
+      lastFocusedIdxRef.current = focusedCommentIdx;
     }
-  }, [sortedComments.length, focusedCommentIdx]);
+  }, [focusedCommentIdx]);
+
+  // True once a comment has been focused but then removed from the visible
+  // list. Distinct from the initial unfocused state (focusedCommentId === null)
+  // even though both leave focusedCommentIdx at -1.
+  const isFocusStale = focusedCommentId !== null && focusedCommentIdx === -1;
+
+  // Ref for reading the latest sortedComments inside async continuations
+  // (avoids stale-closure scrolls after synthetic-hunk fetches settle).
+  const sortedCommentsRef = useRef(sortedComments);
+  sortedCommentsRef.current = sortedComments;
+
+  // Monotonic token so async continuations from superseded scrollToComment
+  // calls bail out instead of scrolling back to a stale target.
+  const scrollRequestRef = useRef(0);
 
   const scrollToComment = useCallback(async (index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
-    setFocusedCommentIdx(index);
+    const requestId = ++scrollRequestRef.current;
+    setFocusedCommentId(comment.id);
+    lastFocusedIdxRef.current = index;
 
     // Ensure the comment's line is visible in the current hunks before scrolling
     const pathKey = comment.file;
@@ -322,6 +355,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       }
     }
 
+    // Bail if a newer scrollToComment has superseded this one, or if the
+    // target was deleted / marked context_unavailable during the async settle.
+    if (requestId !== scrollRequestRef.current) return;
+    if (!sortedCommentsRef.current.some((c) => c.id === comment.id)) return;
+
     const el = commentRefs.current.get(comment.id);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -334,11 +372,36 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markContextUnavailable]);
 
   const handlePrevComment = useCallback(() => {
+    // Stale focus (previous comment was deleted): target the slot that was
+    // BEFORE the deleted comment so Prev actually moves backward. Contrast
+    // with handleNextComment, which targets the slot at the deleted index
+    // (now occupied by what was the next comment).
+    if (focusedCommentIdx === -1) {
+      if (sortedComments.length === 0) return;
+      const target = Math.max(
+        0,
+        Math.min(lastFocusedIdxRef.current - 1, sortedComments.length - 1),
+      );
+      scrollToComment(target);
+      return;
+    }
     const next = focusedCommentIdx <= 0 ? 0 : focusedCommentIdx - 1;
     scrollToComment(next);
-  }, [focusedCommentIdx, scrollToComment]);
+  }, [focusedCommentIdx, sortedComments.length, scrollToComment]);
 
   const handleNextComment = useCallback(() => {
+    // Stale focus (previous comment was deleted): resume from the last
+    // visited position clamped into the surviving list, so single-comment
+    // remainders stay reachable and middle deletes don't snap to the top.
+    if (focusedCommentIdx === -1) {
+      if (sortedComments.length === 0) return;
+      const fallback = Math.min(
+        Math.max(0, lastFocusedIdxRef.current),
+        sortedComments.length - 1,
+      );
+      scrollToComment(fallback);
+      return;
+    }
     const next = focusedCommentIdx >= sortedComments.length - 1
       ? sortedComments.length - 1
       : focusedCommentIdx + 1;
@@ -828,6 +891,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
                 onPrev={handlePrevComment}
                 onNext={handleNextComment}
                 variant="pill"
+                isStale={isFocusStale}
               />
             </div>
           </div>
@@ -927,6 +991,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               total={sortedComments.length}
               onPrev={handlePrevComment}
               onNext={handleNextComment}
+              isStale={isFocusStale}
             />
             <span className="text-muted-foreground flex-1 text-xs">
               {pendingCount > 0
