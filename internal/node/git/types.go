@@ -70,6 +70,16 @@ type CompareResult struct {
 	BaseRef        string         `json:"baseRef"`
 	HeadRef        string         `json:"headRef"`
 	TotalLines     map[string]int `json:"totalLines"`
+
+	// BaseUpstream is the short name of the upstream tracking branch that was
+	// used as the effective comparison base (e.g. "origin/main"). Empty when
+	// the local base had no upstream, or when local was not behind upstream.
+	BaseUpstream string `json:"baseUpstream"`
+
+	// BaseBehindBy is the number of commits the local base ref is behind its
+	// upstream. >0 means the diff was computed against the upstream tip
+	// instead of the local ref; 0 means the local ref was used as-is.
+	BaseBehindBy int `json:"baseBehindBy"`
 }
 
 // BranchList holds available branches and the auto-detected default base.
