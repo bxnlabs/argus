@@ -119,6 +119,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setBaseBranch(null);
     setSelectedPath(null);
     setEditingComment(null);
+    setFocusedCommentId(null);
+    lastFocusedIdxRef.current = -1;
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
     insertSyntheticHandlers.current.clear();
@@ -280,24 +282,40 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     });
   }, [comments, parsedDiffs]);
 
-  // Derive focused index from the tracked ID. Returns -1 when the focused
-  // comment no longer exists (deleted or filtered), which re-enables "next".
-  const focusedCommentIdx = useMemo(
-    () => focusedCommentId
-      ? sortedComments.findIndex((c) => c.id === focusedCommentId)
-      : -1,
-    [focusedCommentId, sortedComments],
-  );
+  // Preserves the last known positional index so that when the focused
+  // comment disappears, navigation can resume from its prior slot instead
+  // of jumping back to the top of the list.
+  const lastFocusedIdxRef = useRef(-1);
+
+  // Derive focused index from the tracked ID. When the focused comment is
+  // gone, fall back to the last known position (clamped into bounds) so
+  // Next/Prev continue from the nearest surviving neighbor.
+  const focusedCommentIdx = useMemo(() => {
+    if (!focusedCommentId) return -1;
+    const idx = sortedComments.findIndex((c) => c.id === focusedCommentId);
+    if (idx !== -1) {
+      lastFocusedIdxRef.current = idx;
+      return idx;
+    }
+    if (sortedComments.length === 0) return -1;
+    return Math.min(lastFocusedIdxRef.current, sortedComments.length - 1);
+  }, [focusedCommentId, sortedComments]);
 
   // Ref for reading the latest sortedComments inside async continuations
   // (avoids stale-closure scrolls after synthetic-hunk fetches settle).
   const sortedCommentsRef = useRef(sortedComments);
   sortedCommentsRef.current = sortedComments;
 
+  // Monotonic token so async continuations from superseded scrollToComment
+  // calls bail out instead of scrolling back to a stale target.
+  const scrollRequestRef = useRef(0);
+
   const scrollToComment = useCallback(async (index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
+    const requestId = ++scrollRequestRef.current;
     setFocusedCommentId(comment.id);
+    lastFocusedIdxRef.current = index;
 
     // Ensure the comment's line is visible in the current hunks before scrolling
     const pathKey = comment.file;
@@ -328,8 +346,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       }
     }
 
-    // The target may have been deleted or marked context_unavailable during
-    // the async settle. Bail before a stale fallback scroll surprises the user.
+    // Bail if a newer scrollToComment has superseded this one, or if the
+    // target was deleted / marked context_unavailable during the async settle.
+    if (requestId !== scrollRequestRef.current) return;
     if (!sortedCommentsRef.current.some((c) => c.id === comment.id)) return;
 
     const el = commentRefs.current.get(comment.id);
