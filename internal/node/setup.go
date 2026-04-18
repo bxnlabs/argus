@@ -60,7 +60,7 @@ func (p *prodWatcherDB) GetSession(id string) (unreadSince, lastViewedAt *string
 
 // Setup initializes the node: opens the database, verifies migrations are
 // current, and returns an HTTP handler with all node API routes.
-func Setup(cfg *config.Config) (http.Handler, func(), error) {
+func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open db: %w", err)
@@ -112,6 +112,7 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 			sender = notifications.NewSlackSender(
 				cfg.Notifications.Slack.BotToken,
 				cfg.Notifications.Slack.ChannelID,
+				baseURL,
 			)
 		default:
 			watcherMgr.Close()
