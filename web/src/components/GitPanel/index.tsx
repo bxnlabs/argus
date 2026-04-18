@@ -22,6 +22,7 @@ import { useViewport } from "@/hooks/useViewport";
 import {
   gitKeys,
   useGitCurrentBranchQuery,
+  useGitFetchMutation,
   useGitStatusFilesQuery,
   useWorkingDiffQuery,
 } from "@/data/git";
@@ -108,12 +109,18 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
+  const fetchMutation = useGitFetchMutation();
   const handleRefresh = useCallback(() => {
+    // Always invalidate locally so cached ahead/behind counts and the working
+    // diff refresh immediately, even if the network fetch is slow or fails.
     queryClient.invalidateQueries({ queryKey: gitKeys.status(workingDirectory) });
     if (activeTab === "changes") {
       queryClient.invalidateQueries({ queryKey: gitKeys.workingDiff(workingDirectory) });
     }
-  }, [queryClient, workingDirectory, activeTab]);
+    // Run git fetch in the background; onSuccess invalidates any caches whose
+    // values depend on origin/* tracking refs.
+    fetchMutation.mutate(workingDirectory);
+  }, [queryClient, workingDirectory, activeTab, fetchMutation]);
 
   const handleFileClick = useCallback(
     (file: GitFile) => {
