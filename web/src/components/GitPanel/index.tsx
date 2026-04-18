@@ -109,7 +109,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
-  const fetchMutation = useGitFetchMutation();
+  const { mutate: gitFetch, isPending: isFetching } = useGitFetchMutation();
   const handleRefresh = useCallback(() => {
     // Always invalidate locally so cached ahead/behind counts and the working
     // diff refresh immediately, even if the network fetch is slow or fails.
@@ -119,8 +119,8 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     }
     // Run git fetch in the background; onSuccess invalidates any caches whose
     // values depend on origin/* tracking refs.
-    fetchMutation.mutate(workingDirectory);
-  }, [queryClient, workingDirectory, activeTab, fetchMutation]);
+    gitFetch(workingDirectory);
+  }, [queryClient, workingDirectory, activeTab, gitFetch]);
 
   const handleFileClick = useCallback(
     (file: GitFile) => {
@@ -202,7 +202,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   if (loading) {
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />
+        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} isFetching={isFetching} />
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
         </div>
@@ -213,7 +213,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   if (isError) {
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />
+        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} isFetching={isFetching} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
           <AlertCircle className="text-muted-foreground mb-2 h-8 w-8" />
           <p className="text-muted-foreground text-center text-sm">
@@ -230,7 +230,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     (fileStatus?.unstaged.length ?? 0) > 0 ||
     (fileStatus?.untracked.length ?? 0) > 0;
 
-  const gitHeader = <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />;
+  const gitHeader = <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} isFetching={isFetching} />;
 
   const stackedDiffs = (
     <div className="space-y-3 p-3">

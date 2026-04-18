@@ -5,9 +5,10 @@ import { useGitStatusSummaryQuery } from "@/data/git";
 interface GitStatusHeaderProps {
   workingDirectory: string;
   onRefresh: () => void;
+  isFetching?: boolean;
 }
 
-export function GitStatusHeader({ workingDirectory, onRefresh }: GitStatusHeaderProps) {
+export function GitStatusHeader({ workingDirectory, onRefresh, isFetching = false }: GitStatusHeaderProps) {
   const {
     data: summary,
     isRefetching,
@@ -16,6 +17,7 @@ export function GitStatusHeader({ workingDirectory, onRefresh }: GitStatusHeader
   const branch = summary?.branch ?? "";
   const ahead = summary?.ahead ?? 0;
   const behind = summary?.behind ?? 0;
+  const busy = isRefetching || isFetching;
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5">
@@ -45,10 +47,10 @@ export function GitStatusHeader({ workingDirectory, onRefresh }: GitStatusHeader
         variant="ghost"
         size="icon-sm"
         onClick={onRefresh}
-        disabled={isRefetching}
+        disabled={busy}
         className="h-6 w-6"
       >
-        <RefreshCw className={`h-4 w-4 ${isRefetching ? "animate-spin" : ""}`} />
+        <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
       </Button>
     </div>
   );
