@@ -1,0 +1,37 @@
+package git
+
+import (
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+// TestFetch_AdvancesOriginWhenRemoteMoved verifies that Fetch updates the
+// local origin/<branch> tracking ref after the remote advances.
+func TestFetch_AdvancesOriginWhenRemoteMoved(t *testing.T) {
+	remote := initTestRepo(t)
+	commitFile(t, remote, "base.txt", "base", "base commit")
+
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	// Advance remote.
+	commitFile(t, remote, "ham.txt", "ham", "advance")
+
+	if err := Fetch(dir); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	// After fetch, local origin/main must include the advance.
+	cmd := exec.Command("git", "log", "--oneline", "origin/main")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "advance") {
+		t.Errorf("origin/main did not advance; log:\n%s", out)
+	}
+}
