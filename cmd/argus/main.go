@@ -102,7 +102,7 @@ func newNodeCmd() *cobra.Command {
 		Short:        "Start only the node API",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			listeners, discoveryAddr, tsFQDN, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Node.BindAddress, cfg.Node.Port, "node")
+			listeners, discoveryAddr, _, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Node.BindAddress, cfg.Node.Port, "node")
 			if err != nil {
 				return err
 			}
@@ -114,12 +114,7 @@ func newNodeCmd() *cobra.Command {
 				}()
 			}
 
-			var baseURL string
-			if tsFQDN != "" {
-				baseURL = fmt.Sprintf("https://%s:%d", tsFQDN, cfg.Node.Port)
-			}
-
-			nodeHandler, cleanup, err := node.Setup(cfg, baseURL)
+			nodeHandler, cleanup, err := node.Setup(cfg, "")
 			if err != nil {
 				return err
 			}
@@ -170,7 +165,7 @@ func runCombined(ctx context.Context) error {
 
 	var baseURL string
 	if tsFQDN != "" {
-		baseURL = fmt.Sprintf("https://%s:%d", tsFQDN, cfg.Server.Port)
+		baseURL = fmt.Sprintf("http://%s:%d", tsFQDN, cfg.Server.Port)
 	}
 
 	nodeHandler, cleanup, err := node.Setup(cfg, baseURL)

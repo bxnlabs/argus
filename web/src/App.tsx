@@ -104,7 +104,7 @@ function HomeContent() {
     // Clear query param to avoid re-triggering on refresh
     const url = new URL(window.location.href);
     url.searchParams.delete("session");
-    window.history.replaceState({}, "", url.pathname + url.hash);
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }, [sessionsLoaded, sessions, attachToSession, isMobile]);
 
   // Open sidebar on desktop at startup (mobile starts collapsed)
