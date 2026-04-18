@@ -35,3 +35,22 @@ func TestFetch_AdvancesOriginWhenRemoteMoved(t *testing.T) {
 		t.Errorf("origin/main did not advance; log:\n%s", out)
 	}
 }
+
+// TestFetch_NoRemoteIsNoop verifies that fetching a repo with no remotes
+// configured succeeds and does nothing.
+func TestFetch_NoRemoteIsNoop(t *testing.T) {
+	dir := initTestRepo(t)
+	commitFile(t, dir, "a.txt", "a", "init")
+
+	if err := Fetch(dir); err != nil {
+		t.Fatalf("Fetch with no remote: %v", err)
+	}
+}
+
+// TestFetch_BadDirReturnsError verifies that Fetch surfaces git's error when
+// the directory is not a git working tree.
+func TestFetch_BadDirReturnsError(t *testing.T) {
+	if err := Fetch(t.TempDir()); err == nil {
+		t.Error("expected error for non-git directory, got nil")
+	}
+}
