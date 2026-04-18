@@ -282,24 +282,20 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     });
   }, [comments, parsedDiffs]);
 
-  // Preserves the last known positional index so that when the focused
-  // comment disappears, navigation can resume from its prior slot instead
-  // of jumping back to the top of the list.
+  // Tracks the last visited position so navigation can resume near it when
+  // the focused comment is deleted. Updated on every scrollToComment call
+  // (outside render) and consumed only by the Next handler.
   const lastFocusedIdxRef = useRef(-1);
 
-  // Derive focused index from the tracked ID. When the focused comment is
-  // gone, fall back to the last known position (clamped into bounds) so
-  // Next/Prev continue from the nearest surviving neighbor.
-  const focusedCommentIdx = useMemo(() => {
-    if (!focusedCommentId) return -1;
-    const idx = sortedComments.findIndex((c) => c.id === focusedCommentId);
-    if (idx !== -1) {
-      lastFocusedIdxRef.current = idx;
-      return idx;
-    }
-    if (sortedComments.length === 0) return -1;
-    return Math.min(lastFocusedIdxRef.current, sortedComments.length - 1);
-  }, [focusedCommentId, sortedComments]);
+  // Derive focused index from the tracked ID. Returns -1 when the focused
+  // comment no longer exists, which keeps Next enabled so the user can
+  // resume navigation even when only one comment remains.
+  const focusedCommentIdx = useMemo(
+    () => focusedCommentId
+      ? sortedComments.findIndex((c) => c.id === focusedCommentId)
+      : -1,
+    [focusedCommentId, sortedComments],
+  );
 
   // Ref for reading the latest sortedComments inside async continuations
   // (avoids stale-closure scrolls after synthetic-hunk fetches settle).
@@ -368,6 +364,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [focusedCommentIdx, scrollToComment]);
 
   const handleNextComment = useCallback(() => {
+    // Stale focus (previous comment was deleted): resume from the last
+    // visited position clamped into the surviving list, so single-comment
+    // remainders stay reachable and middle deletes don't snap to the top.
+    if (focusedCommentIdx === -1) {
+      if (sortedComments.length === 0) return;
+      const fallback = Math.min(
+        Math.max(0, lastFocusedIdxRef.current),
+        sortedComments.length - 1,
+      );
+      scrollToComment(fallback);
+      return;
+    }
     const next = focusedCommentIdx >= sortedComments.length - 1
       ? sortedComments.length - 1
       : focusedCommentIdx + 1;
