@@ -126,3 +126,25 @@ func TestBuildBlocksWithoutBaseURL(t *testing.T) {
 		t.Errorf("expected 4 blocks without git metadata, got %d", len(blocks))
 	}
 }
+
+func TestExtractRepoName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"https with .git", "https://github.com/bxnlabs/argus.git", "bxnlabs/argus"},
+		{"https without .git", "https://github.com/flyteorg/flyte-sdk", "flyteorg/flyte-sdk"},
+		{"ssh url", "git@github.com:bxnlabs/argus.git", "bxnlabs/argus"},
+		{"single segment", "https://github.com/argus.git", "argus"},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractRepoName(tt.input)
+			if got != tt.expected {
+				t.Errorf("extractRepoName(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
