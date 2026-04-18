@@ -147,6 +147,12 @@ export interface CompareResult {
   baseRef: string;
   headRef: string;
   totalLines: Record<string, number>;
+  /** Short name of the upstream tracking branch (e.g. "origin/main") when the
+   * compare fell back to the upstream tip because the local base was behind.
+   * Empty string otherwise. */
+  baseUpstream: string;
+  /** Commits the local base is behind its upstream. 0 when local was used. */
+  baseBehindBy: number;
 }
 
 export interface WorkingDiffResult {
