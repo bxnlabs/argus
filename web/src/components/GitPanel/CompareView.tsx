@@ -8,10 +8,16 @@ import {
   ArrowRight,
   ArrowLeft,
   AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { LazyFileDiff } from "@/components/DiffViewer/LazyFileDiff";
 import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
@@ -744,13 +750,29 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const summary = compareData ? (
-    <div className="text-muted-foreground border-border/50 border-b px-3 py-1.5 text-xs">
-      {compareData.files.length} file{compareData.files.length !== 1 ? "s" : ""} changed
-      {compareData.totalAdditions > 0 && (
-        <span className="ml-2 text-green-500">+{compareData.totalAdditions}</span>
-      )}
-      {compareData.totalDeletions > 0 && (
-        <span className="ml-1 text-red-500">-{compareData.totalDeletions}</span>
+    <div className="text-muted-foreground border-border/50 flex flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-1.5 text-xs">
+      <span>
+        {compareData.files.length} file{compareData.files.length !== 1 ? "s" : ""} changed
+        {compareData.totalAdditions > 0 && (
+          <span className="ml-2 text-green-500">+{compareData.totalAdditions}</span>
+        )}
+        {compareData.totalDeletions > 0 && (
+          <span className="ml-1 text-red-500">-{compareData.totalDeletions}</span>
+        )}
+      </span>
+      {compareData.baseBehindBy > 0 && compareData.baseUpstream && baseBranch && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex cursor-help items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-3 w-3" />
+              {baseBranch} is {compareData.baseBehindBy} commit
+              {compareData.baseBehindBy === 1 ? "" : "s"} behind {compareData.baseUpstream} — compared against {compareData.baseUpstream}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            Your local <code>{baseBranch}</code> is behind its upstream. Pull the latest in this worktree to compare against local <code>{baseBranch}</code> instead.
+          </TooltipContent>
+        </Tooltip>
       )}
     </div>
   ) : null;
