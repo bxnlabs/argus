@@ -37,17 +37,26 @@ func Open(path string) (*DB, error) {
 }
 
 // seedMigrations pre-marks schema-embedded migrations as applied for fresh
-// databases where the columns are already present in the CREATE TABLE statement.
-// On an existing database that lacks the column, this is a no-op so that
-// RunMigrations can apply the ALTER TABLE normally.
+// databases where the columns/tables are already present in the base schema.
+// On an existing database that lacks an artifact, that migration is left
+// pending so that CheckMigrations reports it and RunMigrations applies it.
 func (d *DB) seedMigrations() error {
+	// Check whether any migrations have previously been recorded. An empty
+	// _migrations table means this is either a brand-new database or one that
+	// predates the migration system entirely. Combined with the column checks
+	// below, this distinguishes fresh DBs from old ones.
+	var priorMigrations int
+	if err := d.sql.QueryRow(`SELECT COUNT(*) FROM _migrations`).Scan(&priorMigrations); err != nil {
+		return err
+	}
+
 	rows, err := d.sql.Query(`PRAGMA table_info(sessions)`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	var hasWorktreeBranch, hasGitParentDir, hasGitRemoteURL, hasProfile, hasProviderType, hasUnreadSince, hasLastViewedAt bool
+	var hasWorktreeBranch, hasBranchCreated, hasGitParentDir, hasGitRemoteURL, hasProfile, hasProviderType, hasUnreadSince, hasLastViewedAt bool
 	for rows.Next() {
 		var cid int
 		var name, colType string
@@ -59,6 +68,8 @@ func (d *DB) seedMigrations() error {
 		switch name {
 		case "worktree_branch":
 			hasWorktreeBranch = true
+		case "branch_created":
+			hasBranchCreated = true
 		case "git_parent_dir":
 			hasGitParentDir = true
 		case "git_remote_url":
@@ -77,50 +88,43 @@ func (d *DB) seedMigrations() error {
 		return err
 	}
 
-	if hasWorktreeBranch {
+	// Seed each column migration whose artifact already exists.
+	seeds := []struct {
+		condition bool
+		name      string
+	}{
+		{hasWorktreeBranch, "add_worktree_branch"},
+		{hasGitParentDir, "add_git_parent_dir"},
+		{hasGitRemoteURL, "add_git_remote_url"},
+		{hasProfile, "add_profile"},
+		{hasBranchCreated, "add_branch_created"},
+		{hasProviderType, "rename_agent_type_to_provider_type"},
+		{hasUnreadSince && hasLastViewedAt, "add_unread_since_and_last_viewed_at"},
+	}
+	allColumnsPresent := true
+	for _, s := range seeds {
+		if !s.condition {
+			allColumnsPresent = false
+			continue
+		}
 		if _, err := d.sql.Exec(
-			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
-			"add_worktree_branch",
+			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`, s.name,
 		); err != nil {
 			return err
 		}
 	}
-	if hasGitParentDir {
+
+	// The notifications table is in the base schema (CREATE TABLE IF NOT
+	// EXISTS), so it exists on both fresh and existing databases. Only seed
+	// it on a truly fresh database. A fresh database has:
+	//   1. No prior migration records (_migrations was empty)
+	//   2. All session columns present (base schema just created them)
+	// An existing database with all columns but prior migration records is
+	// an upgrade — let CheckMigrations flag create_notifications_table.
+	if priorMigrations == 0 && allColumnsPresent {
 		if _, err := d.sql.Exec(
 			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
-			"add_git_parent_dir",
-		); err != nil {
-			return err
-		}
-	}
-	if hasGitRemoteURL {
-		if _, err := d.sql.Exec(
-			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
-			"add_git_remote_url",
-		); err != nil {
-			return err
-		}
-	}
-	if hasProfile {
-		if _, err := d.sql.Exec(
-			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
-			"add_profile",
-		); err != nil {
-			return err
-		}
-	}
-	if hasProviderType {
-		if _, err := d.sql.Exec(
-			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
-			"rename_agent_type_to_provider_type",
-		); err != nil {
-			return err
-		}
-	}
-	if hasUnreadSince && hasLastViewedAt {
-		if _, err := d.sql.Exec(
-			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
-			"add_unread_since_and_last_viewed_at",
+			"create_notifications_table",
 		); err != nil {
 			return err
 		}

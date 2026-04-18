@@ -21,6 +21,10 @@ func clearArgusEnv(t *testing.T) {
 		"ARGUS_TAILSCALE_HOSTNAME_PREFIX",
 		"ARGUS_TAILSCALE_AUTH_KEY",
 		"ARGUS_TAILSCALE_PORT",
+		"ARGUS_NOTIFICATIONS_CHANNEL",
+		"ARGUS_NOTIFICATIONS_NOTIFY_AFTER_UNREAD_FOR",
+		"ARGUS_NOTIFICATIONS_SLACK_BOT_TOKEN",
+		"ARGUS_NOTIFICATIONS_SLACK_CHANNEL_ID",
 	} {
 		if v, ok := os.LookupEnv(key); ok {
 			t.Cleanup(func() { os.Setenv(key, v) })
@@ -477,5 +481,173 @@ hostname_prefix = "my-argus-node"
 	}
 	if cfg.Tailscale.HostnamePrefix != "my-argus-node" {
 		t.Errorf("Tailscale.HostnamePrefix = %q, want %q", cfg.Tailscale.HostnamePrefix, "my-argus-node")
+	}
+}
+
+func TestNotificationsDefaults(t *testing.T) {
+	clearArgusEnv(t)
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.Load(config.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Notifications.Channel != "" {
+		t.Errorf("Notifications.Channel = %q, want empty", cfg.Notifications.Channel)
+	}
+	if cfg.Notifications.NotifyAfterUnreadFor != "5m" {
+		t.Errorf("Notifications.NotifyAfterUnreadFor = %q, want %q", cfg.Notifications.NotifyAfterUnreadFor, "5m")
+	}
+}
+
+func TestNotificationsSlackFromFile(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[notifications]
+channel = "slack"
+notify_after_unread_for = "10m"
+
+[notifications.slack]
+bot_token = "xoxb-test-token"
+channel_id = "C1234567890"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.Options{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Notifications.Channel != "slack" {
+		t.Errorf("Notifications.Channel = %q, want %q", cfg.Notifications.Channel, "slack")
+	}
+	if cfg.Notifications.NotifyAfterUnreadFor != "10m" {
+		t.Errorf("Notifications.NotifyAfterUnreadFor = %q, want %q", cfg.Notifications.NotifyAfterUnreadFor, "10m")
+	}
+	if cfg.Notifications.Slack.BotToken != "xoxb-test-token" {
+		t.Errorf("Slack.BotToken = %q, want %q", cfg.Notifications.Slack.BotToken, "xoxb-test-token")
+	}
+	if cfg.Notifications.Slack.ChannelID != "C1234567890" {
+		t.Errorf("Slack.ChannelID = %q, want %q", cfg.Notifications.Slack.ChannelID, "C1234567890")
+	}
+}
+
+func TestValidation_SlackMissingBotToken(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[notifications]
+channel = "slack"
+
+[notifications.slack]
+channel_id = "C1234567890"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(config.Options{ConfigFile: path})
+	if err == nil {
+		t.Fatal("expected validation error for missing bot_token, got nil")
+	}
+}
+
+func TestValidation_SlackMissingChannelID(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[notifications]
+channel = "slack"
+
+[notifications.slack]
+bot_token = "xoxb-test-token"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(config.Options{ConfigFile: path})
+	if err == nil {
+		t.Fatal("expected validation error for missing channel_id, got nil")
+	}
+}
+
+func TestValidation_InvalidNotifyAfterUnreadFor(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[notifications]
+channel = "slack"
+notify_after_unread_for = "not-a-duration"
+
+[notifications.slack]
+bot_token = "xoxb-test-token"
+channel_id = "C1234567890"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(config.Options{ConfigFile: path})
+	if err == nil {
+		t.Fatal("expected validation error for invalid duration, got nil")
+	}
+}
+
+func TestValidation_NotifyAfterUnreadForTooShort(t *testing.T) {
+	clearArgusEnv(t)
+	for _, dur := range []string{"0s", "500ms", "-5m"} {
+		t.Run(dur, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.toml")
+			content := fmt.Sprintf(`
+[notifications]
+channel = "slack"
+notify_after_unread_for = %q
+
+[notifications.slack]
+bot_token = "xoxb-test-token"
+channel_id = "C1234567890"
+`, dur)
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := config.Load(config.Options{ConfigFile: path})
+			if err == nil {
+				t.Fatalf("expected validation error for duration %q, got nil", dur)
+			}
+		})
+	}
+}
+
+func TestValidation_UnknownNotificationChannel(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[notifications]
+channel = "email"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(config.Options{ConfigFile: path})
+	if err == nil {
+		t.Fatal("expected validation error for unknown channel, got nil")
+	}
+}
+
+func TestNotificationsDisabledByDefault(t *testing.T) {
+	clearArgusEnv(t)
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.Load(config.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Empty channel means disabled — no validation of slack fields
+	if cfg.Notifications.Channel != "" {
+		t.Errorf("Notifications.Channel = %q, want empty (disabled)", cfg.Notifications.Channel)
 	}
 }

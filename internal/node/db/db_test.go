@@ -2,8 +2,10 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -452,5 +454,282 @@ func TestSessionNullableFields(t *testing.T) {
 	}
 	if got.SystemPrompt != nil {
 		t.Error("expected nil system_prompt")
+	}
+}
+
+// --- Notifications ---
+
+func TestUnreadSessions(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create two sessions
+	branch := "jeev/feature"
+	parentDir := "/home/jeev/repos/myproject"
+	remoteURL := "https://github.com/bxnlabs/argus.git"
+	db.CreateSession(&Session{
+		ID: "s1", Name: "session-1", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp/proj1", ProviderType: "claude",
+		WorktreeBranch: &branch, GitParentDir: &parentDir, GitRemoteURL: &remoteURL,
+	})
+	db.CreateSession(&Session{
+		ID: "s2", Name: "session-2", TmuxName: "claude-s2",
+		WorkingDirectory: "/tmp/proj2", ProviderType: "codex",
+	})
+
+	// No unread sessions initially
+	sessions, err := db.UnreadSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 unread sessions, got %d", len(sessions))
+	}
+
+	// Mark s1 as unread
+	ts := "2026-04-17 12:00:00"
+	db.SetUnreadSince(context.Background(), "s1", &ts)
+
+	sessions, err = db.UnreadSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 unread session, got %d", len(sessions))
+	}
+	if sessions[0].ID != "s1" {
+		t.Errorf("expected session ID %q, got %q", "s1", sessions[0].ID)
+	}
+	if sessions[0].WorktreeBranch == nil || *sessions[0].WorktreeBranch != branch {
+		t.Errorf("expected worktree_branch %q, got %v", branch, sessions[0].WorktreeBranch)
+	}
+	if sessions[0].GitParentDir == nil || *sessions[0].GitParentDir != parentDir {
+		t.Errorf("expected git_parent_dir %q, got %v", parentDir, sessions[0].GitParentDir)
+	}
+	if sessions[0].GitRemoteURL == nil || *sessions[0].GitRemoteURL != remoteURL {
+		t.Errorf("expected git_remote_url %q, got %v", remoteURL, sessions[0].GitRemoteURL)
+	}
+}
+
+func TestHasNotification(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	// No notification exists
+	has, err := db.HasNotification(context.Background(), "s1", "2026-04-17 12:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("expected no notification, got true")
+	}
+
+	// Insert a notification
+	if err := db.InsertNotification(context.Background(), "s1", "2026-04-17 12:05:00"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Notification exists after the unread_since timestamp
+	has, err = db.HasNotification(context.Background(), "s1", "2026-04-17 12:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("expected notification to exist, got false")
+	}
+
+	// Notification does NOT exist after a later timestamp (new unread event)
+	has, err = db.HasNotification(context.Background(), "s1", "2026-04-17 12:10:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("expected no notification after later timestamp, got true")
+	}
+}
+
+func TestInsertNotification(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	err := db.InsertNotification(context.Background(), "s1", "2026-04-17 12:05:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify via HasNotification
+	has, err := db.HasNotification(context.Background(), "s1", "2026-04-17 12:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("expected notification to exist after insert")
+	}
+}
+
+func TestNotificationsCascadeOnSessionDelete(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+	db.InsertNotification(context.Background(), "s1", "2026-04-17 12:05:00")
+
+	// Delete the session
+	if err := db.DeleteSession("s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Notification should be gone (cascade delete)
+	has, err := db.HasNotification(context.Background(), "s1", "2026-04-17 12:00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("expected notification to be cascade-deleted with session")
+	}
+}
+
+func TestGCNotifications(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+	db.CreateSession(&Session{
+		ID: "s2", Name: "test2", TmuxName: "claude-s2",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	// Insert multiple notifications for s1 and one for s2
+	db.InsertNotification(context.Background(), "s1", "2026-04-17 12:05:00")
+	db.InsertNotification(context.Background(), "s1", "2026-04-17 12:15:00")
+	db.InsertNotification(context.Background(), "s1", "2026-04-17 12:25:00")
+	db.InsertNotification(context.Background(), "s2", "2026-04-17 12:10:00")
+
+	deleted, err := db.GCNotifications(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 2 {
+		t.Errorf("expected 2 deleted, got %d", deleted)
+	}
+
+	// Latest notification for s1 should still exist
+	has, _ := db.HasNotification(context.Background(), "s1", "2026-04-17 12:20:00")
+	if !has {
+		t.Error("expected latest s1 notification to survive GC")
+	}
+
+	// s2's only notification should still exist
+	has, _ = db.HasNotification(context.Background(), "s2", "2026-04-17 12:00:00")
+	if !has {
+		t.Error("expected s2 notification to survive GC")
+	}
+}
+
+func TestFreshDBCheckMigrations(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "fresh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.CheckMigrations(); err != nil {
+		t.Fatalf("CheckMigrations on fresh DB should pass: %v", err)
+	}
+}
+
+func TestUpgradeDBRequiresNotificationsMigration(t *testing.T) {
+	// Simulate an existing database that has all current session columns
+	// (fully migrated) but predates the notifications feature.
+	path := filepath.Join(t.TempDir(), "upgraded.db")
+
+	rawDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Current session schema with all columns.
+	_, err = rawDB.Exec(`
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  tmux_name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  working_directory TEXT NOT NULL DEFAULT '~',
+  provider_session_id TEXT,
+  model TEXT DEFAULT 'sonnet',
+  system_prompt TEXT,
+  provider_type TEXT NOT NULL DEFAULT 'claude',
+  auto_approve INTEGER NOT NULL DEFAULT 0,
+  worktree_branch TEXT,
+  git_parent_dir TEXT,
+  git_remote_url TEXT,
+  profile TEXT,
+  branch_created INTEGER NOT NULL DEFAULT 0,
+  unread_since TEXT,
+  last_viewed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS _migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`)
+	if err != nil {
+		rawDB.Close()
+		t.Fatal(err)
+	}
+	// Record prior column migrations as applied.
+	for _, name := range []string{
+		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
+		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
+		"add_unread_since_and_last_viewed_at",
+	} {
+		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
+			rawDB.Close()
+			t.Fatal(err)
+		}
+	}
+	rawDB.Close()
+
+	// Open with current code — should NOT auto-seed create_notifications_table.
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	err = d.CheckMigrations()
+	if err == nil {
+		t.Fatal("expected CheckMigrations to report create_notifications_table as pending")
+	}
+	if !strings.Contains(err.Error(), "create_notifications_table") {
+		t.Fatalf("expected error to mention create_notifications_table, got: %v", err)
 	}
 }

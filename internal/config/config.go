@@ -6,17 +6,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
 
 // Config holds all Argus configuration.
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server"`
-	Node      NodeConfig      `mapstructure:"node"`
-	Database  DatabaseConfig  `mapstructure:"database"`
-	Git       GitConfig       `mapstructure:"git"`
-	Tailscale TailscaleConfig `mapstructure:"tailscale"`
+	Server        ServerConfig        `mapstructure:"server"`
+	Node          NodeConfig          `mapstructure:"node"`
+	Database      DatabaseConfig      `mapstructure:"database"`
+	Git           GitConfig           `mapstructure:"git"`
+	Tailscale     TailscaleConfig     `mapstructure:"tailscale"`
+	Notifications NotificationsConfig `mapstructure:"notifications"`
 }
 
 type ServerConfig struct {
@@ -42,6 +44,17 @@ type TailscaleConfig struct {
 	HostnamePrefix string `mapstructure:"hostname_prefix"`
 	AuthKey        string `mapstructure:"auth_key"`
 	Port           int    `mapstructure:"port"`
+}
+
+type NotificationsConfig struct {
+	Channel              string            `mapstructure:"channel"`
+	NotifyAfterUnreadFor string            `mapstructure:"notify_after_unread_for"`
+	Slack                SlackNotifyConfig `mapstructure:"slack"`
+}
+
+type SlackNotifyConfig struct {
+	BotToken  string `mapstructure:"bot_token"`
+	ChannelID string `mapstructure:"channel_id"`
 }
 
 // Options controls how config is loaded.
@@ -70,6 +83,8 @@ func Load(opts Options) (*Config, error) {
 	v.SetDefault("tailscale.hostname_prefix", "")
 	v.SetDefault("tailscale.auth_key", "")
 	v.SetDefault("tailscale.port", 0)
+	v.SetDefault("notifications.channel", "")
+	v.SetDefault("notifications.notify_after_unread_for", "5m")
 
 	// Environment variables: ARGUS_SERVER_PORT, etc.
 	v.SetEnvPrefix("ARGUS")
@@ -136,6 +151,26 @@ func validate(cfg *Config) error {
 	if cfg.Tailscale.Enabled && cfg.Tailscale.HostnamePrefix != "" {
 		if strings.ContainsAny(cfg.Tailscale.HostnamePrefix, "/\\") || strings.Contains(cfg.Tailscale.HostnamePrefix, "..") {
 			return fmt.Errorf("tailscale.hostname_prefix must not contain path separators or '..'")
+		}
+	}
+	if cfg.Notifications.Channel != "" {
+		dur, err := time.ParseDuration(cfg.Notifications.NotifyAfterUnreadFor)
+		if err != nil {
+			return fmt.Errorf("notifications.notify_after_unread_for must be a valid duration (e.g. \"5m\"), got %q", cfg.Notifications.NotifyAfterUnreadFor)
+		}
+		if dur < time.Second {
+			return fmt.Errorf("notifications.notify_after_unread_for must be at least 1s, got %q", cfg.Notifications.NotifyAfterUnreadFor)
+		}
+		switch cfg.Notifications.Channel {
+		case "slack":
+			if cfg.Notifications.Slack.BotToken == "" {
+				return fmt.Errorf("notifications.slack.bot_token is required when notifications.channel = \"slack\"")
+			}
+			if cfg.Notifications.Slack.ChannelID == "" {
+				return fmt.Errorf("notifications.slack.channel_id is required when notifications.channel = \"slack\"")
+			}
+		default:
+			return fmt.Errorf("notifications.channel must be \"slack\" or empty, got %q", cfg.Notifications.Channel)
 		}
 	}
 	return nil

@@ -47,6 +47,19 @@ func (s *Server) Listen(network, addr string) (net.Listener, error) {
 	return s.ts.Listen(network, addr)
 }
 
+// FQDN returns the Tailscale fully-qualified domain name after Up() succeeds.
+// Returns empty string if the server hasn't started or has no cert domains.
+func (s *Server) FQDN() string {
+	if !s.started {
+		return ""
+	}
+	domains := s.ts.CertDomains()
+	if len(domains) == 0 {
+		return ""
+	}
+	return domains[0]
+}
+
 // Close shuts down the tsnet node. If Up() was never called, Close is a no-op.
 func (s *Server) Close() error {
 	if !s.started {

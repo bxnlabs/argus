@@ -3,11 +3,14 @@ package node
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"github.com/bxnlabs/argus/internal/node/api"
 	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/notifications"
 	"github.com/bxnlabs/argus/internal/node/session"
 	"github.com/bxnlabs/argus/internal/node/status"
 	"github.com/bxnlabs/argus/internal/config"
@@ -57,7 +60,7 @@ func (p *prodWatcherDB) GetSession(id string) (unreadSince, lastViewedAt *string
 
 // Setup initializes the node: opens the database, verifies migrations are
 // current, and returns an HTTP handler with all node API routes.
-func Setup(cfg *config.Config) (http.Handler, func(), error) {
+func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open db: %w", err)
@@ -91,6 +94,39 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 	repoIndexer := ghsvc.NewRepoIndexer(stateDir)
 	repoIndexer.Start(context.Background())
 
+	// Notification service (optional — only started when a channel is configured).
+	var notifService *notifications.Service
+	if cfg.Notifications.Channel != "" {
+		threshold, err := time.ParseDuration(cfg.Notifications.NotifyAfterUnreadFor)
+		if err != nil {
+			// Should not happen — validated in config.Load
+			watcherMgr.Close()
+			repoIndexer.Close()
+			database.Close()
+			return nil, nil, fmt.Errorf("parse notification threshold: %w", err)
+		}
+
+		var sender notifications.Sender
+		switch cfg.Notifications.Channel {
+		case "slack":
+			sender = notifications.NewSlackSender(
+				cfg.Notifications.Slack.BotToken,
+				cfg.Notifications.Slack.ChannelID,
+				baseURL,
+			)
+		default:
+			watcherMgr.Close()
+			repoIndexer.Close()
+			database.Close()
+			return nil, nil, fmt.Errorf("notification channel %q is not implemented", cfg.Notifications.Channel)
+		}
+
+		notifService = notifications.NewService(sender, database, threshold)
+		notifService.Start(context.Background())
+		log.Printf("notification service started (channel=%s, threshold=%s)",
+			cfg.Notifications.Channel, cfg.Notifications.NotifyAfterUnreadFor)
+	}
+
 	handler := api.NewRouter(api.Deps{
 		SessionManager: mgr,
 		WatcherManager: watcherMgr,
@@ -100,6 +136,9 @@ func Setup(cfg *config.Config) (http.Handler, func(), error) {
 	})
 
 	cleanup := func() {
+		if notifService != nil {
+			notifService.Close()
+		}
 		watcherMgr.Close()
 		repoIndexer.Close()
 		database.Close()

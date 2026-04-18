@@ -23,10 +23,22 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_viewed_at TEXT
 );
 
+-- Notifications tracking
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  sent_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_session_sent_at
+  ON notifications(session_id, sent_at);
+
 -- Migrations tracking
 CREATE TABLE IF NOT EXISTS _migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
   applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
 `
