@@ -31,6 +31,7 @@ func TestSlackSenderSend(t *testing.T) {
 	sender := &SlackSender{
 		client:    client,
 		channelID: "C1234567890",
+		baseURL:   "https://argus.tail123.ts.net:3000",
 	}
 
 	msg := Message{
@@ -90,5 +91,38 @@ func TestSlackSenderSendError(t *testing.T) {
 	err := sender.Send(context.Background(), msg)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestBuildBlocksWithBaseURL(t *testing.T) {
+	remoteURL := "https://github.com/bxnlabs/argus.git"
+	branch := "jeev/feature"
+	msg := Message{
+		SessionID:      "sess-1",
+		SessionName:    "my-session",
+		WorkingDir:     "/tmp/proj",
+		UnreadFor:      6 * time.Minute,
+		GitRemoteURL:   &remoteURL,
+		WorktreeBranch: &branch,
+	}
+
+	blocks := buildBlocks(msg, "https://argus.ts.net:3000")
+	// Header + Session (with button) + Divider + Context + Duration = 5 blocks
+	if len(blocks) != 5 {
+		t.Errorf("expected 5 blocks with baseURL, got %d", len(blocks))
+	}
+}
+
+func TestBuildBlocksWithoutBaseURL(t *testing.T) {
+	msg := Message{
+		SessionID:   "sess-1",
+		SessionName: "my-session",
+		UnreadFor:   6 * time.Minute,
+	}
+
+	blocks := buildBlocks(msg, "")
+	// Header + Session (no button) + Divider + Duration = 4 blocks (no context — no git metadata)
+	if len(blocks) != 4 {
+		t.Errorf("expected 4 blocks without git metadata, got %d", len(blocks))
 	}
 }

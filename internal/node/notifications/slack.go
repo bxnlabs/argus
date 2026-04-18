@@ -26,19 +26,21 @@ type slackClient interface {
 type SlackSender struct {
 	client    slackClient
 	channelID string
+	baseURL   string
 }
 
-// NewSlackSender creates a SlackSender from a bot token and channel ID.
-func NewSlackSender(botToken, channelID string) *SlackSender {
+// NewSlackSender creates a SlackSender from a bot token, channel ID, and optional base URL for deep links.
+func NewSlackSender(botToken, channelID, baseURL string) *SlackSender {
 	return &SlackSender{
 		client:    slack.New(botToken),
 		channelID: channelID,
+		baseURL:   baseURL,
 	}
 }
 
 // Send posts a Block Kit message to the configured Slack channel.
 func (s *SlackSender) Send(ctx context.Context, msg Message) error {
-	blocks := buildBlocks(msg)
+	blocks := buildBlocks(msg, s.baseURL)
 	_, _, err := s.client.PostMessageContext(ctx, s.channelID,
 		slack.MsgOptionBlocks(blocks...),
 	)
@@ -49,20 +51,68 @@ func (s *SlackSender) Send(ctx context.Context, msg Message) error {
 }
 
 // buildBlocks constructs Block Kit blocks for the notification message.
-func buildBlocks(msg Message) []slack.Block {
-	header := slack.NewHeaderBlock(
-		slack.NewTextBlockObject(slack.PlainTextType, "Session waiting for attention", false, false),
-	)
+func buildBlocks(msg Message, baseURL string) []slack.Block {
+	var blocks []slack.Block
 
-	fields := []*slack.TextBlockObject{
-		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Session:*\n%s", escapeSlack(msg.SessionName)), false, false),
-		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Directory:*\n%s", escapeSlack(msg.WorkingDir)), false, false),
-		slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Unread for:*\n%s", formatDuration(msg.UnreadFor)), false, false),
+	// Header
+	header := slack.NewHeaderBlock(
+		slack.NewTextBlockObject(slack.PlainTextType, "\U0001f514 Session waiting for attention", true, false),
+	)
+	blocks = append(blocks, header)
+
+	// Session name + ID section
+	sessionText := fmt.Sprintf("*%s*\nID: `%s`", escapeSlack(msg.SessionName), escapeSlack(msg.SessionID))
+	sessionSection := slack.NewSectionBlock(
+		slack.NewTextBlockObject(slack.MarkdownType, sessionText, false, false),
+		nil, nil,
+	)
+	if baseURL != "" {
+		link := fmt.Sprintf("%s?session=%s", baseURL, msg.SessionID)
+		sessionSection.Accessory = slack.NewAccessory(
+			slack.NewButtonBlockElement("view_session", msg.SessionID,
+				slack.NewTextBlockObject(slack.PlainTextType, "View in Argus \u2192", true, false),
+			).WithURL(link),
+		)
+	}
+	blocks = append(blocks, sessionSection)
+
+	// Divider
+	blocks = append(blocks, slack.NewDividerBlock())
+
+	// Location context: repo, local path, branch
+	workingDir := msg.WorkingDir
+	repo, localPath, branch := buildLocationLine(msg.GitRemoteURL, msg.GitParentDir, &workingDir, msg.WorktreeBranch)
+
+	var contextParts []string
+	if repo != "" {
+		line := fmt.Sprintf("\U0001f4c2  %s", escapeSlack(repo))
+		if localPath != "" {
+			line += fmt.Sprintf("\n      %s", escapeSlack(localPath))
+		}
+		contextParts = append(contextParts, line)
+	}
+	if branch != "" {
+		contextParts = append(contextParts, fmt.Sprintf("\U0001f500  %s", escapeSlack(branch)))
 	}
 
-	section := slack.NewSectionBlock(nil, fields, nil)
+	if len(contextParts) > 0 {
+		contextText := strings.Join(contextParts, "\n")
+		contextSection := slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType, contextText, false, false),
+			nil, nil,
+		)
+		blocks = append(blocks, contextSection)
+	}
 
-	return []slack.Block{header, section}
+	// Unread duration
+	durationSection := slack.NewSectionBlock(
+		slack.NewTextBlockObject(slack.MarkdownType,
+			fmt.Sprintf("\u23f3  Unread for %s", formatDuration(msg.UnreadFor)), false, false),
+		nil, nil,
+	)
+	blocks = append(blocks, durationSection)
+
+	return blocks
 }
 
 // formatDuration formats a duration into a human-readable string.
