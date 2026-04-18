@@ -73,12 +73,15 @@ type CompareResult struct {
 
 	// BaseUpstream is the short name of the upstream tracking branch that was
 	// used as the effective comparison base (e.g. "origin/main"). Empty when
-	// the local base had no upstream, or when local was not behind upstream.
+	// the local base had no upstream, matched upstream, or had diverged (both
+	// ahead of and behind upstream) — in all of those cases no substitution
+	// happened and the local ref was used as-is.
 	BaseUpstream string `json:"baseUpstream"`
 
 	// BaseBehindBy is the number of commits the local base ref is behind its
-	// upstream. >0 means the diff was computed against the upstream tip
-	// instead of the local ref; 0 means the local ref was used as-is.
+	// upstream when the substitution fired. >0 means the diff was computed
+	// against the upstream tip; 0 means the local ref was used as-is (no
+	// upstream, not behind, or diverged).
 	BaseBehindBy int `json:"baseBehindBy"`
 }
 

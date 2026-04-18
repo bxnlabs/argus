@@ -114,9 +114,11 @@ func validateBranchRef(ctx context.Context, dir, ref string) error {
 
 // resolveComparisonBase returns the ref that should be used as the effective
 // comparison base, along with staleness metadata. If `base` has an upstream
-// tracking branch and the local ref is behind that upstream, the upstream ref
-// is returned so the compare behaves like GitHub (diff against the freshest
-// known tip of the base). Otherwise the original `base` is returned unchanged.
+// tracking branch and the local ref is strictly behind that upstream (behind
+// but not also ahead), the upstream ref is returned so the compare behaves
+// like GitHub (diff against the freshest known tip of the base). Diverged
+// bases keep the local ref so local-only commits remain on the base side of
+// the diff. Otherwise the original `base` is returned unchanged.
 //
 // The returned upstreamName is the abbreviated upstream ref (e.g. "origin/main")
 // when substitution occurred, and empty otherwise. behindBy is the number of
@@ -134,17 +136,24 @@ func resolveComparisonBase(ctx context.Context, dir, base string) (effectiveRef,
 		return base, "", 0
 	}
 
+	// Use a symmetric count so we can distinguish "behind only" from "diverged".
+	// A diverged base has local-only commits that belong on the base side of the
+	// diff; substituting upstream would misattribute them to the feature branch.
 	countOut, err := runGit(ctx, dir, defaultMaxBuffer,
-		"rev-list", "--count", base+".."+upstream)
+		"rev-list", "--left-right", "--count", base+"..."+upstream)
 	if err != nil {
 		return base, "", 0
 	}
-	count, convErr := strconv.Atoi(strings.TrimSpace(countOut))
-	if convErr != nil || count <= 0 {
-		// Local is equal to or ahead of upstream — use local as-is.
+	parts := strings.Fields(strings.TrimSpace(countOut))
+	if len(parts) != 2 {
 		return base, "", 0
 	}
-	return upstream, upstream, count
+	ahead, aheadErr := strconv.Atoi(parts[0])
+	behind, behindErr := strconv.Atoi(parts[1])
+	if aheadErr != nil || behindErr != nil || ahead > 0 || behind <= 0 {
+		return base, "", 0
+	}
+	return upstream, upstream, behind
 }
 
 // GetCompare returns the full diff and per-file metadata comparing base to HEAD.

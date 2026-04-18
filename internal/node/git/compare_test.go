@@ -290,6 +290,69 @@ func TestGetCompare_FallsBackToUpstreamWhenLocalBaseIsStale(t *testing.T) {
 	}
 }
 
+func TestGetCompare_KeepsLocalBaseWhenDiverged(t *testing.T) {
+	// When local base is both ahead of and behind its upstream, the substitution
+	// must not fire — the user selected the local ref and its local-only commits
+	// belong on the base side of the diff, not in the feature changes.
+	remote := initTestRepo(t)
+	commitFile(t, remote, "base.txt", "base", "base commit")
+
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+	gitRun := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	gitRun("git", "config", "user.email", "test@test.com")
+	gitRun("git", "config", "user.name", "Test")
+
+	// Local-only commit on main → local main is ahead of origin/main by 1.
+	commitFile(t, dir, "local.txt", "local-only", "local main commit")
+
+	// Upstream advances independently → now local main is also behind by 1.
+	commitFile(t, remote, "ham.txt", "ham", "upstream advances")
+	gitRun("git", "fetch", "origin")
+
+	// Feature branch cut from local main (carries the local-only commit).
+	gitRun("git", "checkout", "-b", "feature")
+	commitFile(t, dir, "feature.txt", "mine", "feature commit")
+
+	result, err := GetCompare(dir, "main")
+	if err != nil {
+		t.Fatalf("GetCompare: %v", err)
+	}
+
+	// Diff must contain the feature commit, must NOT contain the local-only
+	// base commit (it belongs to the base), and must NOT contain the upstream
+	// commit (it's not in either history from local main's perspective).
+	if !strings.Contains(result.Diff, "feature.txt") {
+		t.Errorf("expected feature.txt in diff, got:\n%s", result.Diff)
+	}
+	if strings.Contains(result.Diff, "local.txt") {
+		t.Errorf("diff should NOT contain local.txt (base commit), got:\n%s", result.Diff)
+	}
+	if strings.Contains(result.Diff, "ham.txt") {
+		t.Errorf("diff should NOT contain ham.txt (upstream commit), got:\n%s", result.Diff)
+	}
+	if len(result.Files) != 1 || result.Files[0].Path != "feature.txt" {
+		t.Errorf("expected exactly [feature.txt], got %+v", result.Files)
+	}
+
+	// Divergence (ahead > 0) must suppress the upstream substitution.
+	if result.BaseUpstream != "" {
+		t.Errorf("BaseUpstream = %q, want empty when local base is diverged", result.BaseUpstream)
+	}
+	if result.BaseBehindBy != 0 {
+		t.Errorf("BaseBehindBy = %d, want 0 when local base is diverged", result.BaseBehindBy)
+	}
+}
+
 func TestGetCompare_NoUpstreamLeavesFieldsEmpty(t *testing.T) {
 	// A repo with no remote has no upstream; the new fields must stay zero-valued.
 	dir := initTestRepo(t)
