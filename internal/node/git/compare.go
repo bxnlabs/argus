@@ -112,6 +112,41 @@ func validateBranchRef(ctx context.Context, dir, ref string) error {
 	return nil
 }
 
+// resolveComparisonBase returns the ref that should be used as the effective
+// comparison base, along with staleness metadata. If `base` has an upstream
+// tracking branch and the local ref is behind that upstream, the upstream ref
+// is returned so the compare behaves like GitHub (diff against the freshest
+// known tip of the base). Otherwise the original `base` is returned unchanged.
+//
+// The returned upstreamName is the abbreviated upstream ref (e.g. "origin/main")
+// when substitution occurred, and empty otherwise. behindBy is the number of
+// commits local base is behind upstream (0 when no substitution happened).
+func resolveComparisonBase(ctx context.Context, dir, base string) (effectiveRef, upstreamName string, behindBy int) {
+	upstream, err := runGit(ctx, dir, defaultMaxBuffer,
+		"rev-parse", "--abbrev-ref", base+"@{upstream}")
+	if err != nil {
+		// No upstream configured, or upstream ref missing locally. Fall back
+		// to local base — behavior matches the pre-upstream-resolution code.
+		return base, "", 0
+	}
+	upstream = strings.TrimSpace(upstream)
+	if upstream == "" || upstream == base {
+		return base, "", 0
+	}
+
+	countOut, err := runGit(ctx, dir, defaultMaxBuffer,
+		"rev-list", "--count", base+".."+upstream)
+	if err != nil {
+		return base, "", 0
+	}
+	count, convErr := strconv.Atoi(strings.TrimSpace(countOut))
+	if convErr != nil || count <= 0 {
+		// Local is equal to or ahead of upstream — use local as-is.
+		return base, "", 0
+	}
+	return upstream, upstream, count
+}
+
 // GetCompare returns the full diff and per-file metadata comparing base to HEAD.
 func GetCompare(dir, base string) (*CompareResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
@@ -121,8 +156,12 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 		return nil, err
 	}
 
+	// Resolve base to its upstream tip when local is stale. Matches GitHub PR
+	// compare semantics so users do not have to keep worktree refs in sync.
+	effectiveBase, upstreamName, behindBy := resolveComparisonBase(ctx, dir, base)
+
 	// Find the merge base
-	mergeBase, err := runGit(ctx, dir, defaultMaxBuffer, "merge-base", base, "HEAD")
+	mergeBase, err := runGit(ctx, dir, defaultMaxBuffer, "merge-base", effectiveBase, "HEAD")
 	if err != nil {
 		// merge-base exits 1 when no common ancestor exists (disconnected
 		// histories). Together with isNotFoundError (bad ref), these are
@@ -247,6 +286,8 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 		BaseRef:        mergeBase,
 		HeadRef:        headRef,
 		TotalLines:     fileTotalLines,
+		BaseUpstream:   upstreamName,
+		BaseBehindBy:   behindBy,
 	}, nil
 }
 
