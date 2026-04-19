@@ -92,6 +92,42 @@ func TestFetch_UsesHEADUpstreamRemote(t *testing.T) {
 	}
 }
 
+// TestFetch_HandlesRemoteNameContainingSlash verifies that Fetch correctly
+// resolves an upstream when the remote's name itself contains '/' — git
+// permits names like "team/upstream", which would produce an upstream ref
+// of "team/upstream/main" that a naive first-slash split would misparse.
+func TestFetch_HandlesRemoteNameContainingSlash(t *testing.T) {
+	remote := initTestRepo(t)
+	commitFile(t, remote, "base.txt", "base", "base commit")
+
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	rename := exec.Command("git", "remote", "rename", "origin", "team/upstream")
+	rename.Dir = dir
+	if out, err := rename.CombinedOutput(); err != nil {
+		t.Fatalf("git remote rename: %v\n%s", err, out)
+	}
+
+	commitFile(t, remote, "ham.txt", "ham", "advance")
+
+	if err := Fetch(dir); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	cmd := exec.Command("git", "log", "--oneline", "team/upstream/main")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "advance") {
+		t.Errorf("team/upstream/main did not advance; log:\n%s", out)
+	}
+}
+
 // TestFetch_FallsBackToOriginWhenHEADHasNoUpstream verifies that when HEAD has
 // no upstream tracking branch, Fetch falls back to `origin` if it exists.
 func TestFetch_FallsBackToOriginWhenHEADHasNoUpstream(t *testing.T) {

@@ -50,13 +50,18 @@ func refreshRemote(ctx context.Context, dir string) (string, error) {
 	// HEAD's upstream typically looks like "origin/main" or "upstream/main".
 	// An error here usually means HEAD has no upstream configured (detached,
 	// or a branch without tracking) — fall through to the origin fallback.
+	// Match the upstream against configured remote names by longest prefix so
+	// names containing `/` (e.g. "team/upstream") resolve correctly.
 	if out, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--abbrev-ref", "HEAD@{upstream}"); err == nil {
 		upstream := strings.TrimSpace(out)
-		if slash := strings.IndexByte(upstream, '/'); slash > 0 {
-			name := upstream[:slash]
-			if _, ok := remotes[name]; ok {
-				return name, nil
+		var best string
+		for r := range remotes {
+			if strings.HasPrefix(upstream, r+"/") && len(r) > len(best) {
+				best = r
 			}
+		}
+		if best != "" {
+			return best, nil
 		}
 	}
 
