@@ -8,11 +8,12 @@ interface GitFetchResponse {
 }
 
 /**
- * Runs `git fetch --prune origin` on the backend for the given working
- * directory, then invalidates cache entries whose values depend on origin/*
- * tracking refs (status ahead/behind, compare-base resolution, branch lists).
- * Surfaces remote-side failures (auth, network, missing remote) as a toast so
- * the stale-base hint does not silently remain stale.
+ * Runs `git fetch --prune` on the backend for the remote that drives the UI's
+ * freshness signals (HEAD's upstream remote, falling back to origin), then
+ * invalidates cache entries whose values depend on those tracking refs
+ * (status ahead/behind, compare-base resolution, branch lists). Surfaces
+ * fetch failures (auth, network, git errors) as a toast so the stale-base
+ * hint does not silently remain stale.
  */
 export function useGitFetchMutation() {
   const queryClient = useQueryClient();

@@ -55,6 +55,78 @@ func TestFetch_BadDirReturnsError(t *testing.T) {
 	}
 }
 
+// TestFetch_UsesHEADUpstreamRemote verifies that Fetch targets the remote
+// HEAD's upstream points at, so fork-style workflows (where HEAD tracks
+// upstream/*, not origin/*) keep their tracking refs fresh.
+func TestFetch_UsesHEADUpstreamRemote(t *testing.T) {
+	remote := initTestRepo(t)
+	commitFile(t, remote, "base.txt", "base", "base commit")
+
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	// Rename the only remote from "origin" to "upstream"; main now tracks
+	// upstream/main (git remote rename rewrites branch.*.remote config too).
+	rename := exec.Command("git", "remote", "rename", "origin", "upstream")
+	rename.Dir = dir
+	if out, err := rename.CombinedOutput(); err != nil {
+		t.Fatalf("git remote rename: %v\n%s", err, out)
+	}
+
+	commitFile(t, remote, "ham.txt", "ham", "advance")
+
+	if err := Fetch(dir); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	cmd := exec.Command("git", "log", "--oneline", "upstream/main")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "advance") {
+		t.Errorf("upstream/main did not advance; log:\n%s", out)
+	}
+}
+
+// TestFetch_FallsBackToOriginWhenHEADHasNoUpstream verifies that when HEAD has
+// no upstream tracking branch, Fetch falls back to `origin` if it exists.
+func TestFetch_FallsBackToOriginWhenHEADHasNoUpstream(t *testing.T) {
+	remote := initTestRepo(t)
+	commitFile(t, remote, "base.txt", "base", "base commit")
+
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	// Create a local branch with no upstream configured.
+	checkout := exec.Command("git", "checkout", "-b", "no-upstream")
+	checkout.Dir = dir
+	if out, err := checkout.CombinedOutput(); err != nil {
+		t.Fatalf("git checkout: %v\n%s", err, out)
+	}
+
+	commitFile(t, remote, "ham.txt", "ham", "advance")
+
+	if err := Fetch(dir); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	cmd := exec.Command("git", "log", "--oneline", "origin/main")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "advance") {
+		t.Errorf("origin/main did not advance via origin fallback; log:\n%s", out)
+	}
+}
+
 // TestFetch_PrunesDeletedRemoteBranch verifies that Fetch removes the local
 // tracking ref when the corresponding branch has been deleted on the remote.
 // This guards the --prune contract — a regression to plain `git fetch` would
