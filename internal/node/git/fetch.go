@@ -2,18 +2,33 @@ package git
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
 
 const fetchTimeout = 60 * time.Second
 
-// Fetch runs `git fetch --prune` for the remote whose tracking refs drive the
-// UI's freshness signals (status ahead/behind, compare stale-base). It prefers
-// HEAD's upstream remote — so fork workflows where HEAD tracks `upstream/*`
-// update the right refs — and falls back to `origin` when HEAD has no
-// upstream. When no suitable remote is configured the call is a no-op and nil
-// is returned.
+// Fetch runs `git fetch --prune` for the remotes whose tracking refs drive the
+// UI's freshness signals: HEAD's upstream remote (so status ahead/behind stays
+// fresh) and, when `base` is non-empty, the base branch's upstream remote (so
+// the compare stale-base detector can be unstuck — without this, fork
+// workflows where HEAD tracks `origin/*` but the compare base tracks
+// `upstream/*` would never refresh `upstream/*` on click). When neither
+// upstream resolves, falls back to `origin` if configured. When no suitable
+// remote is configured at all, the call is a no-op and nil is returned.
+//
+// `base` is the local branch name selected as the compare base (e.g. "main"),
+// or empty when the caller has no compare base in scope. An invalid `base`
+// value is silently ignored — fetching HEAD's remote is more useful than
+// failing the whole refresh on a malformed compare selector.
+//
+// Selected remotes are fetched best-effort: every remote is attempted even if
+// an earlier one fails, so a broken secondary remote (dead URL, expired auth)
+// can't block the other from advancing. Per-remote failures are aggregated
+// and returned wrapped so errors.Is(err, ErrFetchFailed) matches and the
+// underlying git stderr is preserved for the user-facing toast.
 //
 // Unlike other operations in this package, Fetch accepts a context: it is the
 // only network-bound op and the only one with a 60s budget, so cancellation
@@ -24,56 +39,91 @@ const fetchTimeout = 60 * time.Second
 // tree. Authentication is inherited from the ambient environment (credential
 // helpers, SSH agent) — the caller must ensure those are usable in this
 // process.
-func Fetch(ctx context.Context, dir string) error {
+func Fetch(ctx context.Context, dir, base string) error {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 
-	remote, err := refreshRemote(ctx, dir)
+	targets, err := fetchTargets(ctx, dir, base)
 	if err != nil {
 		return err
 	}
-	if remote == "" {
+	var fetchErrs []error
+	for _, remote := range targets {
+		if _, err := runGit(ctx, dir, defaultMaxBuffer, "fetch", "--prune", remote); err != nil {
+			fetchErrs = append(fetchErrs, wrapFetchError(remote, err))
+		}
+	}
+	if len(fetchErrs) == 0 {
 		return nil
 	}
-
-	_, err = runGit(ctx, dir, defaultMaxBuffer, "fetch", "--prune", remote)
-	return err
+	if len(fetchErrs) == 1 {
+		return fetchErrs[0]
+	}
+	// errors.Join preserves errors.Is matching against ErrFetchFailed via
+	// each wrapped fetchFailureError's Is method, and produces a multi-line
+	// message the toast can render verbatim.
+	return errors.Join(fetchErrs...)
 }
 
-// refreshRemote selects the remote to fetch in Fetch. See Fetch's doc comment
-// for the selection rules.
-func refreshRemote(ctx context.Context, dir string) (string, error) {
+// fetchTargets returns the deduped, ordered set of remotes to fetch in Fetch.
+// HEAD's upstream remote is placed first so the most user-visible freshness
+// signal (status ahead/behind) advances even if a later remote fails. Base's
+// upstream remote follows. See Fetch's doc comment for the selection rules.
+func fetchTargets(ctx context.Context, dir, base string) ([]string, error) {
 	remotesOut, err := runGit(ctx, dir, defaultMaxBuffer, "remote")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	remotes := parseRemotes(remotesOut)
 	if len(remotes) == 0 {
-		return "", nil
+		return nil, nil
 	}
 
-	// HEAD's upstream typically looks like "origin/main" or "upstream/main".
-	// An error here usually means HEAD has no upstream configured (detached,
-	// or a branch without tracking) — fall through to the origin fallback.
-	// Match the upstream against configured remote names by longest prefix so
-	// names containing `/` (e.g. "team/upstream") resolve correctly.
-	if out, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--abbrev-ref", "HEAD@{upstream}"); err == nil {
-		upstream := strings.TrimSpace(out)
-		var best string
-		for r := range remotes {
-			if strings.HasPrefix(upstream, r+"/") && len(r) > len(best) {
-				best = r
-			}
+	var ordered []string
+	seen := map[string]bool{}
+	addUpstream := func(ref string) {
+		// `ref@{upstream}` returns errors here when the branch has no upstream
+		// configured (detached HEAD, branch without tracking, missing local
+		// ref) — fall through silently and let the other selector or the
+		// origin fallback cover it.
+		out, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--abbrev-ref", ref+"@{upstream}")
+		if err != nil {
+			return
 		}
-		if best != "" {
-			return best, nil
+		remote := matchRemote(strings.TrimSpace(out), remotes)
+		if remote == "" || seen[remote] {
+			return
 		}
+		seen[remote] = true
+		ordered = append(ordered, remote)
 	}
 
-	if _, ok := remotes["origin"]; ok {
-		return "origin", nil
+	addUpstream("HEAD")
+	if base != "" && validateBranchRef(ctx, dir, base) == nil {
+		addUpstream(base)
 	}
-	return "", nil
+
+	if len(ordered) == 0 {
+		if _, ok := remotes["origin"]; ok {
+			return []string{"origin"}, nil
+		}
+		return nil, nil
+	}
+	return ordered, nil
+}
+
+// matchRemote picks the longest-matching remote name whose `<name>/` is a
+// prefix of upstream. Longest-match handles remote names that contain '/'
+// (git permits e.g. "team/upstream"), where a naive first-slash split would
+// pick "team" instead of the actual remote.
+func matchRemote(upstream string, remotes map[string]struct{}) string {
+	var best string
+	for r := range remotes {
+		if strings.HasPrefix(upstream, r+"/") && len(r) > len(best) {
+			best = r
+		}
+	}
+	return best
 }
 
 func parseRemotes(remotesOut string) map[string]struct{} {
@@ -84,4 +134,22 @@ func parseRemotes(remotesOut string) map[string]struct{} {
 		}
 	}
 	return out
+}
+
+// wrapFetchError turns a runGit fetch failure into an error that satisfies
+// errors.Is(err, ErrFetchFailed) and carries a clean, user-facing message
+// (`<remote>: <git stderr>`). Strips runGit's "git fetch:" prefix because the
+// UI's "Git fetch failed:" toast prefix already says it.
+func wrapFetchError(remote string, err error) error {
+	msg := strings.TrimPrefix(err.Error(), "git fetch: ")
+	return &fetchFailureError{msg: fmt.Sprintf("%s: %s", remote, msg)}
+}
+
+type fetchFailureError struct {
+	msg string
+}
+
+func (e *fetchFailureError) Error() string { return e.msg }
+func (e *fetchFailureError) Is(target error) bool {
+	return target == ErrFetchFailed
 }

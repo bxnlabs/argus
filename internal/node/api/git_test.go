@@ -1,9 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,6 +49,37 @@ func TestRespondGitError(t *testing.T) {
 		}
 		if !strings.Contains(body, "internal error") {
 			t.Errorf("expected generic 'internal error' message, got: %s", body)
+		}
+	})
+
+	t.Run("ErrFetchFailed returns 502 with surfaced message", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		// Use the real wrapping path so we exercise both Is() matching and
+		// the user-facing message format Fetch produces in production.
+		dir := t.TempDir()
+		if out, err := exec.Command("git", "init", dir).CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+		if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", filepath.Join(t.TempDir(), "missing")).CombinedOutput(); err != nil {
+			t.Fatalf("git remote add: %v\n%s", err, out)
+		}
+		fetchErr := git.Fetch(t.Context(), dir, "")
+		if fetchErr == nil {
+			t.Fatal("setup error: Fetch was expected to fail against missing remote")
+		}
+
+		respondGitError(w, fetchErr)
+		if w.Code != http.StatusBadGateway {
+			t.Errorf("expected 502, got %d", w.Code)
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, "origin") {
+			t.Errorf("expected error body to mention failing remote 'origin', got: %s", body)
+		}
+		// Generic fallback ("internal error") would mask the real failure —
+		// guard against a regression that drops the ErrFetchFailed case.
+		if strings.Contains(body, "internal error") {
+			t.Errorf("ErrFetchFailed should not be collapsed to 'internal error', got: %s", body)
 		}
 	})
 }
@@ -175,5 +208,34 @@ func TestGitFetch_MissingPathIs400(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+// TestGitFetch_AcceptsBaseQueryParam verifies that the handler reads the
+// optional `base` parameter and forwards it through to git.Fetch — without
+// this wiring, the fork-workflow fix in git.Fetch is unreachable. The
+// downstream "did the right remote actually advance" assertion lives in
+// internal/node/git/fetch_test.go (TestFetch_FetchesBaseUpstreamRemote).
+func TestGitFetch_AcceptsBaseQueryParam(t *testing.T) {
+	dir := homeTempDir(t)
+	if out, err := exec.Command("git", "init", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+
+	router := NewRouter(Deps{})
+	q := url.Values{"path": {dir}, "base": {"main"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/git/fetch?"+q.Encode(), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status=ok, got %v", resp)
 	}
 }

@@ -90,9 +90,15 @@ interface CompareViewProps {
   header?: React.ReactNode;
   listWidth?: number;
   onResizeMouseDown?: (e: React.MouseEvent) => void;
+  /**
+   * Notifies the parent (GitPanel) of the active compare base so the global
+   * refresh button can include it in the fetch request. Required for fork
+   * workflows where HEAD and the compare base track different remotes.
+   */
+  onBaseChange?: (base: string | null) => void;
 }
 
-export function CompareView({ workingDirectory, header, listWidth, onResizeMouseDown }: CompareViewProps) {
+export function CompareView({ workingDirectory, header, listWidth, onResizeMouseDown, onBaseChange }: CompareViewProps) {
   const { isMobile } = useViewport();
   const queryClient = useQueryClient();
 
@@ -162,6 +168,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       setBaseBranch(null);
     }
   }, [currentBranch, baseBranch]);
+
+  // Mirror the active base up to GitPanel so its refresh button can include
+  // the right remote in the fetch request. Tracked here (not lifted to
+  // GitPanel) because the resolution logic depends on branch data that's
+  // already loaded inside this component.
+  useEffect(() => {
+    onBaseChange?.(baseBranch);
+  }, [baseBranch, onBaseChange]);
 
   const {
     data: compareData,
