@@ -2,9 +2,11 @@ package git
 
 import (
 	"context"
-	"fmt"
 	"strings"
+	"time"
 )
+
+const fetchTimeout = 60 * time.Second
 
 // Fetch runs `git fetch --prune` for the remote whose tracking refs drive the
 // UI's freshness signals (status ahead/behind, compare stale-base). It prefers
@@ -13,26 +15,29 @@ import (
 // upstream. When no suitable remote is configured the call is a no-op and nil
 // is returned.
 //
+// Unlike other operations in this package, Fetch accepts a context: it is the
+// only network-bound op and the only one with a 60s budget, so cancellation
+// (e.g. an HTTP client disconnect) should kill the in-flight git subprocess
+// rather than letting it run to completion.
+//
 // It is the caller's responsibility to ensure dir is a valid git working
 // tree. Authentication is inherited from the ambient environment (credential
 // helpers, SSH agent) — the caller must ensure those are usable in this
 // process.
-func Fetch(dir string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+func Fetch(ctx context.Context, dir string) error {
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 
 	remote, err := refreshRemote(ctx, dir)
 	if err != nil {
-		return fmt.Errorf("git fetch failed: %w", err)
+		return err
 	}
 	if remote == "" {
 		return nil
 	}
 
-	if _, err := runGit(ctx, dir, defaultMaxBuffer, "fetch", "--prune", remote); err != nil {
-		return fmt.Errorf("git fetch failed: %w", err)
-	}
-	return nil
+	_, err = runGit(ctx, dir, defaultMaxBuffer, "fetch", "--prune", remote)
+	return err
 }
 
 // refreshRemote selects the remote to fetch in Fetch. See Fetch's doc comment

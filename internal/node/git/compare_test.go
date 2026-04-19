@@ -146,24 +146,7 @@ func TestGetCompare(t *testing.T) {
 	dir := initTestRepo(t)
 	commitFile(t, dir, "base.txt", "base content", "base commit")
 
-	// Create a feature branch and add changes
-	for _, args := range [][]string{
-		{"git", "checkout", "-b", "feature"},
-		{"git", "checkout", "-b", "main", "HEAD~0"},
-	} {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		cmd.CombinedOutput()
-	}
-	// Switch back to set up main as a branch at current commit
-	run := func(args ...string) {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v failed: %s: %s", args, err, out)
-		}
-	}
-	run("git", "checkout", "feature")
+	gitInDir(t, dir, "checkout", "-b", "feature")
 	commitFile(t, dir, "new.txt", "new content", "add new file")
 	commitFile(t, dir, "base.txt", "modified content", "modify base file")
 
@@ -196,16 +179,6 @@ func TestGetCompare(t *testing.T) {
 		}
 	})
 
-	t.Run("nonexistent branch wraps ErrNotFound", func(t *testing.T) {
-		_, err := GetCompare(dir, "nonexistent")
-		if err == nil {
-			t.Fatal("expected error")
-		}
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got: %v", err)
-		}
-	})
-
 	t.Run("invalid base ref", func(t *testing.T) {
 		_, err := GetCompare(dir, "nonexistent-branch")
 		if err == nil {
@@ -218,9 +191,9 @@ func TestGetCompare(t *testing.T) {
 
 	t.Run("disconnected histories wraps ErrNotFound", func(t *testing.T) {
 		// Create an orphan branch with no common ancestor
-		run("git", "checkout", "--orphan", "orphan-branch")
+		gitInDir(t, dir, "checkout", "--orphan", "orphan-branch")
 		commitFile(t, dir, "orphan.txt", "orphan", "orphan commit")
-		run("git", "checkout", "feature")
+		gitInDir(t, dir, "checkout", "feature")
 
 		_, err := GetCompare(dir, "orphan-branch")
 		if err == nil {
@@ -232,50 +205,46 @@ func TestGetCompare(t *testing.T) {
 	})
 }
 
+// setupStaleBaseRepo creates a clone whose local `main` is `nCommitsAhead`
+// commits behind `origin/main`, with a `feature` branch cut from the freshest
+// upstream tip and carrying one `feature.txt` commit. Shared by the tests that
+// exercise the stale-base substitution.
+func setupStaleBaseRepo(t *testing.T, nCommitsAhead int) string {
+	t.Helper()
+	remote := initTestRepo(t)
+	commitFile(t, remote, "base.txt", "base", "base commit")
+
+	dir := cloneTestRepo(t, remote)
+
+	for i := 0; i < nCommitsAhead; i++ {
+		name := string(rune('a' + i)) + ".txt"
+		commitFile(t, remote, name, name, "advance "+name)
+	}
+	gitInDir(t, dir, "fetch", "origin")
+	gitInDir(t, dir, "checkout", "-b", "feature", "origin/main")
+	commitFile(t, dir, "feature.txt", "mine", "feature commit")
+	return dir
+}
+
 func TestGetCompare_FallsBackToUpstreamWhenLocalBaseIsStale(t *testing.T) {
 	// Simulate the real-world bug: local `main` is behind `origin/main`, and the
 	// feature branch was cut from the upstream tip. The compare must show only
 	// the feature branch's own changes, not the commits the local base is
 	// missing.
-	remote := initTestRepo(t)
-	commitFile(t, remote, "base.txt", "base", "base (bar)")
-
-	// Clone creates origin/main tracking the remote's main branch.
-	dir := t.TempDir()
-	clone := exec.Command("git", "clone", remote, dir)
-	if out, err := clone.CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
-	gitRun := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v\n%s", args, err, out)
-		}
-	}
-	gitRun("git", "config", "user.email", "test@test.com")
-	gitRun("git", "config", "user.name", "Test")
-
-	// Advance the remote so local `main` is 1 commit behind `origin/main`.
-	commitFile(t, remote, "ham.txt", "ham", "advance to ham")
-	gitRun("git", "fetch", "origin")
-	// Cut feature branch from the freshest upstream tip (origin/main), NOT local main.
-	gitRun("git", "checkout", "-b", "feature", "origin/main")
-	commitFile(t, dir, "feature.txt", "mine", "feature commit")
+	dir := setupStaleBaseRepo(t, 1)
 
 	result, err := GetCompare(dir, "main")
 	if err != nil {
 		t.Fatalf("GetCompare: %v", err)
 	}
 
-	// The diff must contain feature.txt (own work) but must NOT contain ham.txt
-	// (which came from the upstream commits local main is missing).
+	// The diff must contain feature.txt (own work) but must NOT contain the
+	// upstream-only commit local main is missing.
 	if !strings.Contains(result.Diff, "feature.txt") {
 		t.Errorf("expected feature.txt in diff, got:\n%s", result.Diff)
 	}
-	if strings.Contains(result.Diff, "ham.txt") {
-		t.Errorf("diff should NOT contain ham.txt (upstream commit), got:\n%s", result.Diff)
+	if strings.Contains(result.Diff, "a.txt") {
+		t.Errorf("diff should NOT contain a.txt (upstream commit), got:\n%s", result.Diff)
 	}
 	if len(result.Files) != 1 || result.Files[0].Path != "feature.txt" {
 		t.Errorf("expected exactly [feature.txt], got %+v", result.Files)
@@ -290,6 +259,26 @@ func TestGetCompare_FallsBackToUpstreamWhenLocalBaseIsStale(t *testing.T) {
 	}
 }
 
+func TestGetCompare_BehindByMultipleCommits(t *testing.T) {
+	// Guards the rev-list --count parsing for behindBy > 1: every other test
+	// exercises behindBy == 1, which can't catch a regression like an off-by-one
+	// or a hard-coded "1".
+	dir := setupStaleBaseRepo(t, 3)
+
+	result, err := GetCompare(dir, "main")
+	if err != nil {
+		t.Fatalf("GetCompare: %v", err)
+	}
+	if result.BaseBehindBy != 3 {
+		t.Errorf("BaseBehindBy = %d, want 3", result.BaseBehindBy)
+	}
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if strings.Contains(result.Diff, name) {
+			t.Errorf("diff should NOT contain %s (upstream commit), got:\n%s", name, result.Diff)
+		}
+	}
+}
+
 func TestGetCompare_KeepsLocalBaseWhenDiverged(t *testing.T) {
 	// When local base is both ahead of and behind its upstream, the substitution
 	// must not fire — the user selected the local ref and its local-only commits
@@ -297,30 +286,17 @@ func TestGetCompare_KeepsLocalBaseWhenDiverged(t *testing.T) {
 	remote := initTestRepo(t)
 	commitFile(t, remote, "base.txt", "base", "base commit")
 
-	dir := t.TempDir()
-	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
-	gitRun := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v\n%s", args, err, out)
-		}
-	}
-	gitRun("git", "config", "user.email", "test@test.com")
-	gitRun("git", "config", "user.name", "Test")
+	dir := cloneTestRepo(t, remote)
 
 	// Local-only commit on main → local main is ahead of origin/main by 1.
 	commitFile(t, dir, "local.txt", "local-only", "local main commit")
 
 	// Upstream advances independently → now local main is also behind by 1.
 	commitFile(t, remote, "ham.txt", "ham", "upstream advances")
-	gitRun("git", "fetch", "origin")
+	gitInDir(t, dir, "fetch", "origin")
 
 	// Feature branch cut from local main (carries the local-only commit).
-	gitRun("git", "checkout", "-b", "feature")
+	gitInDir(t, dir, "checkout", "-b", "feature")
 	commitFile(t, dir, "feature.txt", "mine", "feature commit")
 
 	result, err := GetCompare(dir, "main")
@@ -358,16 +334,8 @@ func TestGetCompare_NoUpstreamLeavesFieldsEmpty(t *testing.T) {
 	dir := initTestRepo(t)
 	commitFile(t, dir, "base.txt", "base", "base commit")
 
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v\n%s", args, err, out)
-		}
-	}
-	run("git", "checkout", "-B", "main")
-	run("git", "checkout", "-b", "feature")
+	gitInDir(t, dir, "checkout", "-B", "main")
+	gitInDir(t, dir, "checkout", "-b", "feature")
 	commitFile(t, dir, "feature.txt", "mine", "feature commit")
 
 	result, err := GetCompare(dir, "main")
@@ -387,21 +355,8 @@ func TestGetCompare_UpstreamEqualToLocalLeavesFieldsEmpty(t *testing.T) {
 	remote := initTestRepo(t)
 	commitFile(t, remote, "base.txt", "base", "base commit")
 
-	dir := t.TempDir()
-	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v\n%s", args, err, out)
-		}
-	}
-	run("git", "config", "user.email", "test@test.com")
-	run("git", "config", "user.name", "Test")
-	run("git", "checkout", "-b", "feature")
+	dir := cloneTestRepo(t, remote)
+	gitInDir(t, dir, "checkout", "-b", "feature")
 	commitFile(t, dir, "feature.txt", "mine", "feature commit")
 
 	result, err := GetCompare(dir, "main")

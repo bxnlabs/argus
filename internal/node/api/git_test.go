@@ -149,35 +149,13 @@ func TestSanitizeFilePath_Symlinks(t *testing.T) {
 }
 
 func TestGitFetch_ReturnsOKForRealRepo(t *testing.T) {
-	remote := homeTempDir(t)
-	for _, args := range [][]string{
-		{"git", "init", "-b", "main"},
-		{"git", "config", "user.email", "t@t.com"},
-		{"git", "config", "user.name", "T"},
-	} {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = remote
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v\n%s", args, err, out)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(remote, "a.txt"), []byte("a"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{
-		{"git", "add", "a.txt"},
-		{"git", "commit", "-m", "init"},
-	} {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = remote
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v\n%s", args, err, out)
-		}
-	}
-
+	// Fetch behavior (remote resolution, prune, upstream selection) is covered
+	// in internal/node/git/fetch_test.go. This test only verifies the HTTP
+	// handler is wired correctly: a no-remote repo makes Fetch a no-op, so a
+	// 200 response proves routing → handler → git.Fetch.
 	dir := homeTempDir(t)
-	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
-		t.Fatalf("clone: %v\n%s", err, out)
+	if out, err := exec.Command("git", "init", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
 	}
 
 	router := NewRouter(Deps{})

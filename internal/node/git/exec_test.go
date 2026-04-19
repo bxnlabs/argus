@@ -9,23 +9,36 @@ import (
 	"time"
 )
 
+// gitInDir runs a git command in dir and fails the test on non-zero exit.
+func gitInDir(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
 // initTestRepo creates a git repo with one commit for testing.
 func initTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	gitInDir(t, dir, "init", "-b", "main")
+	gitInDir(t, dir, "config", "user.email", "test@test.com")
+	gitInDir(t, dir, "config", "user.name", "Test")
+	return dir
+}
 
-	commands := [][]string{
-		{"git", "init", "-b", "main"},
-		{"git", "config", "user.email", "test@test.com"},
-		{"git", "config", "user.name", "Test"},
+// cloneTestRepo clones remote into a fresh temp dir and configures the local
+// user identity (required for any subsequent commits in the clone).
+func cloneTestRepo(t *testing.T, remote string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
 	}
-	for _, args := range commands {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v failed: %s: %s", args, err, out)
-		}
-	}
+	gitInDir(t, dir, "config", "user.email", "test@test.com")
+	gitInDir(t, dir, "config", "user.name", "Test")
 	return dir
 }
 
@@ -35,16 +48,8 @@ func commitFile(t *testing.T, dir, name, content, message string) {
 	if err := writeTestFile(dir, name, content); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{
-		{"git", "add", name},
-		{"git", "commit", "-m", message},
-	} {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v failed: %s: %s", args, err, out)
-		}
-	}
+	gitInDir(t, dir, "add", name)
+	gitInDir(t, dir, "commit", "-m", message)
 }
 
 func writeTestFile(dir, name, content string) error {

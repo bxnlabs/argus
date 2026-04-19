@@ -37,7 +37,7 @@ func NewRouter(deps Deps) http.Handler {
 	// Profile routes
 	mux.HandleFunc("GET /api/profiles", sh.listProfiles)
 
-	// Git routes (read-only)
+	// Git routes
 	gh := &gitHandler{stateDir: deps.StateDir}
 	mux.HandleFunc("GET /api/git/status", gh.status)
 	mux.HandleFunc("GET /api/git/diff", gh.diff)

@@ -294,8 +294,8 @@ func (h *gitHandler) fetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := git.Fetch(expandedPath); err != nil {
-		log.Printf("git fetch failed: path=%s err=%v", path, err)
+	if err := git.Fetch(r.Context(), expandedPath); err != nil {
+		log.Printf("git fetch failed: path=%s err=%v", expandedPath, err)
 		respondGitError(w, err)
 		return
 	}

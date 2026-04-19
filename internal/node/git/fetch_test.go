@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"testing"
@@ -12,15 +13,12 @@ func TestFetch_AdvancesOriginWhenRemoteMoved(t *testing.T) {
 	remote := initTestRepo(t)
 	commitFile(t, remote, "base.txt", "base", "base commit")
 
-	dir := t.TempDir()
-	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
+	dir := cloneTestRepo(t, remote)
 
 	// Advance remote.
 	commitFile(t, remote, "ham.txt", "ham", "advance")
 
-	if err := Fetch(dir); err != nil {
+	if err := Fetch(context.Background(), dir); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 
@@ -42,7 +40,7 @@ func TestFetch_NoRemoteIsNoop(t *testing.T) {
 	dir := initTestRepo(t)
 	commitFile(t, dir, "a.txt", "a", "init")
 
-	if err := Fetch(dir); err != nil {
+	if err := Fetch(context.Background(), dir); err != nil {
 		t.Fatalf("Fetch with no remote: %v", err)
 	}
 }
@@ -50,7 +48,7 @@ func TestFetch_NoRemoteIsNoop(t *testing.T) {
 // TestFetch_BadDirReturnsError verifies that Fetch surfaces git's error when
 // the directory is not a git working tree.
 func TestFetch_BadDirReturnsError(t *testing.T) {
-	if err := Fetch(t.TempDir()); err == nil {
+	if err := Fetch(context.Background(), t.TempDir()); err == nil {
 		t.Error("expected error for non-git directory, got nil")
 	}
 }
@@ -62,22 +60,15 @@ func TestFetch_UsesHEADUpstreamRemote(t *testing.T) {
 	remote := initTestRepo(t)
 	commitFile(t, remote, "base.txt", "base", "base commit")
 
-	dir := t.TempDir()
-	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
+	dir := cloneTestRepo(t, remote)
 
 	// Rename the only remote from "origin" to "upstream"; main now tracks
 	// upstream/main (git remote rename rewrites branch.*.remote config too).
-	rename := exec.Command("git", "remote", "rename", "origin", "upstream")
-	rename.Dir = dir
-	if out, err := rename.CombinedOutput(); err != nil {
-		t.Fatalf("git remote rename: %v\n%s", err, out)
-	}
+	gitInDir(t, dir, "remote", "rename", "origin", "upstream")
 
 	commitFile(t, remote, "ham.txt", "ham", "advance")
 
-	if err := Fetch(dir); err != nil {
+	if err := Fetch(context.Background(), dir); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 
@@ -100,20 +91,13 @@ func TestFetch_HandlesRemoteNameContainingSlash(t *testing.T) {
 	remote := initTestRepo(t)
 	commitFile(t, remote, "base.txt", "base", "base commit")
 
-	dir := t.TempDir()
-	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
+	dir := cloneTestRepo(t, remote)
 
-	rename := exec.Command("git", "remote", "rename", "origin", "team/upstream")
-	rename.Dir = dir
-	if out, err := rename.CombinedOutput(); err != nil {
-		t.Fatalf("git remote rename: %v\n%s", err, out)
-	}
+	gitInDir(t, dir, "remote", "rename", "origin", "team/upstream")
 
 	commitFile(t, remote, "ham.txt", "ham", "advance")
 
-	if err := Fetch(dir); err != nil {
+	if err := Fetch(context.Background(), dir); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 
@@ -134,21 +118,14 @@ func TestFetch_FallsBackToOriginWhenHEADHasNoUpstream(t *testing.T) {
 	remote := initTestRepo(t)
 	commitFile(t, remote, "base.txt", "base", "base commit")
 
-	dir := t.TempDir()
-	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
+	dir := cloneTestRepo(t, remote)
 
 	// Create a local branch with no upstream configured.
-	checkout := exec.Command("git", "checkout", "-b", "no-upstream")
-	checkout.Dir = dir
-	if out, err := checkout.CombinedOutput(); err != nil {
-		t.Fatalf("git checkout: %v\n%s", err, out)
-	}
+	gitInDir(t, dir, "checkout", "-b", "no-upstream")
 
 	commitFile(t, remote, "ham.txt", "ham", "advance")
 
-	if err := Fetch(dir); err != nil {
+	if err := Fetch(context.Background(), dir); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 
@@ -172,21 +149,10 @@ func TestFetch_PrunesDeletedRemoteBranch(t *testing.T) {
 	commitFile(t, remote, "base.txt", "base", "base commit")
 
 	// Create a branch on the remote so the client has something to prune.
-	for _, args := range [][]string{
-		{"git", "checkout", "-b", "feature"},
-		{"git", "checkout", "main"},
-	} {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = remote
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v\n%s", args, err, out)
-		}
-	}
+	gitInDir(t, remote, "checkout", "-b", "feature")
+	gitInDir(t, remote, "checkout", "main")
 
-	dir := t.TempDir()
-	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
-		t.Fatalf("git clone: %v\n%s", err, out)
-	}
+	dir := cloneTestRepo(t, remote)
 
 	// Precondition: origin/feature exists locally after clone.
 	pre := exec.Command("git", "rev-parse", "--verify", "refs/remotes/origin/feature")
@@ -196,13 +162,9 @@ func TestFetch_PrunesDeletedRemoteBranch(t *testing.T) {
 	}
 
 	// Delete the branch on the remote.
-	del := exec.Command("git", "branch", "-D", "feature")
-	del.Dir = remote
-	if out, err := del.CombinedOutput(); err != nil {
-		t.Fatalf("git branch -D feature: %v\n%s", err, out)
-	}
+	gitInDir(t, remote, "branch", "-D", "feature")
 
-	if err := Fetch(dir); err != nil {
+	if err := Fetch(context.Background(), dir); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 
