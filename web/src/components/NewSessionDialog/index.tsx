@@ -84,6 +84,11 @@ export function NewSessionDialog({
     setBranch("");
   }, [source, sourceTab, providerType]);
 
+  const closeBranchPicker = () => {
+    childPickerClosingRef.current = true;
+    setShowBranchPicker(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -262,9 +267,9 @@ export function NewSessionDialog({
               source={source}
               onSelect={(b) => {
                 setBranch(b);
-                setShowBranchPicker(false);
+                closeBranchPicker();
               }}
-              onClose={() => setShowBranchPicker(false)}
+              onClose={closeBranchPicker}
             />
           </BranchDialogContent>
         </BranchDialog>
