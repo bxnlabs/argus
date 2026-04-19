@@ -113,14 +113,15 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   const handleRefresh = useCallback(() => {
     // Always invalidate locally so cached ahead/behind counts and the working
     // diff refresh immediately, even if the network fetch is slow or fails.
+    // workingDiff's own `enabled` flag gates the refetch to the Changes tab;
+    // invalidating unconditionally also ensures a stale working diff isn't
+    // served when the user switches tabs after refreshing on Compare/History.
     queryClient.invalidateQueries({ queryKey: gitKeys.status(workingDirectory) });
-    if (activeTab === "changes") {
-      queryClient.invalidateQueries({ queryKey: gitKeys.workingDiff(workingDirectory) });
-    }
+    queryClient.invalidateQueries({ queryKey: gitKeys.workingDiff(workingDirectory) });
     // Run git fetch in the background; onSuccess invalidates any caches whose
     // values depend on origin/* tracking refs.
     gitFetch(workingDirectory);
-  }, [queryClient, workingDirectory, activeTab, gitFetch]);
+  }, [queryClient, workingDirectory, gitFetch]);
 
   const handleFileClick = useCallback(
     (file: GitFile) => {
