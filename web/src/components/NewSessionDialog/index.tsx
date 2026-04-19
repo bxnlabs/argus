@@ -53,7 +53,7 @@ export function NewSessionDialog({
   const [branch, setBranch] = useState("");
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
-  const sourcePickerClosingRef = useRef(false);
+  const childPickerClosingRef = useRef(false);
   const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
   const { isMobile } = useViewport();
@@ -121,12 +121,12 @@ export function NewSessionDialog({
         <DialogContent
           className="top-[env(safe-area-inset-top)] translate-y-0 max-h-[85vh] overflow-y-auto sm:top-[50%] sm:translate-y-[-50%]"
           onPointerDownOutside={(e) => {
-            if (sourcePickerClosingRef.current) e.preventDefault();
+            if (childPickerClosingRef.current) e.preventDefault();
           }}
           onFocusOutside={(e) => {
-            if (sourcePickerClosingRef.current) {
+            if (childPickerClosingRef.current) {
               e.preventDefault();
-              sourcePickerClosingRef.current = false;
+              childPickerClosingRef.current = false;
             }
           }}
           onKeyDown={(e) => {
@@ -226,7 +226,7 @@ export function NewSessionDialog({
       <SourcePicker
         open={showSourcePicker}
         onOpenChange={(o) => {
-          if (!o) sourcePickerClosingRef.current = true;
+          if (!o) childPickerClosingRef.current = true;
           setShowSourcePicker(o);
         }}
         onSelect={(value, tab) => {
@@ -240,7 +240,10 @@ export function NewSessionDialog({
       {showBranchField && (
         <BranchDialog
           open={showBranchPicker}
-          onOpenChange={(o) => setShowBranchPicker(o)}
+          onOpenChange={(o) => {
+            if (!o) childPickerClosingRef.current = true;
+            setShowBranchPicker(o);
+          }}
         >
           <BranchDialogContent
             className={cn(
