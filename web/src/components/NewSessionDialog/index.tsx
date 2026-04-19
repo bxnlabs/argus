@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { BranchPicker } from "@/components/BranchPicker";
 import { cn } from "@/lib/utils";
+import { useViewport } from "@/hooks/useViewport";
 import type { ProviderType, CreateSessionParams } from "@/types";
 
 type SourceTab = "local" | "remote";
@@ -55,6 +56,7 @@ export function NewSessionDialog({
   const sourcePickerClosingRef = useRef(false);
   const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
+  const { isMobile } = useViewport();
 
   const isRemoteSource = sourceTab === "remote" && source !== "";
   const { data: isLocalGitRepo = false } = useGitCheckQuery(
@@ -243,7 +245,9 @@ export function NewSessionDialog({
           <BranchDialogContent
             className={cn(
               "gap-0 overflow-hidden p-0",
-              "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] sm:max-w-md",
+              isMobile
+                ? "top-[env(safe-area-inset-top)] left-0 right-0 h-[calc(var(--app-height)_-_env(safe-area-inset-top))] flex flex-col max-w-none translate-x-0 translate-y-0 rounded-none border-0"
+                : "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] sm:max-w-md",
             )}
             showCloseButton={false}
           >
