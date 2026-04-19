@@ -48,6 +48,7 @@ export function GitStatusHeader({ workingDirectory, onRefresh, isFetching = fals
         size="icon-sm"
         onClick={onRefresh}
         disabled={busy}
+        aria-label={busy ? "Fetching…" : "Refresh"}
         className="h-6 w-6"
       >
         <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />

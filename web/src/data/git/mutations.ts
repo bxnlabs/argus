@@ -3,10 +3,6 @@ import { toast } from "sonner";
 import { apiFetch } from "@/api/client";
 import { gitKeys } from "./keys";
 
-interface GitFetchResponse {
-  status: string;
-}
-
 /**
  * Runs `git fetch --prune` on the backend for the remote that drives the UI's
  * freshness signals (HEAD's upstream remote, falling back to origin), then
@@ -20,7 +16,7 @@ export function useGitFetchMutation() {
 
   return useMutation({
     mutationFn: async (path: string) => {
-      return apiFetch<GitFetchResponse>(
+      return apiFetch<{ status: string }>(
         `/node/api/git/fetch?path=${encodeURIComponent(path)}`,
         { method: "POST" },
       );
@@ -28,10 +24,8 @@ export function useGitFetchMutation() {
     onSuccess: (_data, path) => {
       queryClient.invalidateQueries({ queryKey: gitKeys.status(path) });
       queryClient.invalidateQueries({ queryKey: gitKeys.compareBranches(path) });
-      queryClient.invalidateQueries({
-        queryKey: [...gitKeys.all, "compare", path],
-      });
-      queryClient.invalidateQueries({ queryKey: [...gitKeys.all, "branches"] });
+      queryClient.invalidateQueries({ queryKey: gitKeys.comparesByPath(path) });
+      queryClient.invalidateQueries({ queryKey: gitKeys.branchesAll() });
     },
     onError: (error) => {
       toast.error(

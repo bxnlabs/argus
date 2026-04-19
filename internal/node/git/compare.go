@@ -28,7 +28,7 @@ func GetBranches(dir string) (*BranchList, error) {
 	}
 	sort.Strings(branches)
 
-	defaultBase := detectDefaultBase(ctx, dir, branches)
+	defaultBase := detectDefaultBase(branches)
 
 	return &BranchList{
 		Branches:    branches,
@@ -123,7 +123,7 @@ func validateBranchRef(ctx context.Context, dir, ref string) error {
 // The returned upstreamName is the abbreviated upstream ref (e.g. "origin/main")
 // when substitution occurred, and empty otherwise. behindBy is the number of
 // commits local base is behind upstream (0 when no substitution happened).
-func resolveComparisonBase(ctx context.Context, dir, base string) (effectiveRef, upstreamName string, behindBy int) {
+func resolveComparisonBase(ctx context.Context, dir, base string) (string, string, int) {
 	upstream, err := runGit(ctx, dir, defaultMaxBuffer,
 		"rev-parse", "--abbrev-ref", base+"@{upstream}")
 	if err != nil {
@@ -329,7 +329,7 @@ func truncateRef(ref string) string {
 }
 
 // detectDefaultBase returns main or master as the default comparison base.
-func detectDefaultBase(_ context.Context, _ string, branches []string) string {
+func detectDefaultBase(branches []string) string {
 	branchSet := make(map[string]bool, len(branches))
 	for _, b := range branches {
 		branchSet[b] = true

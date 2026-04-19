@@ -760,22 +760,33 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           <span className="ml-1 text-red-500">-{compareData.totalDeletions}</span>
         )}
       </span>
-      {compareData.baseBehindBy > 0 && compareData.baseUpstream && baseBranch && (
+      {compareData.baseBehindBy > 0 && baseBranch && (
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex cursor-help items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
               <AlertTriangle className="h-3 w-3" />
               {baseBranch} is {compareData.baseBehindBy} commit
-              {compareData.baseBehindBy === 1 ? "" : "s"} behind {compareData.baseUpstream} — compared against {compareData.baseUpstream}
+              {compareData.baseBehindBy === 1 ? "" : "s"} behind {compareData.baseUpstream}
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-xs">
-            Your local <code>{baseBranch}</code> is behind its upstream. Pull the latest in this worktree to compare against local <code>{baseBranch}</code> instead.
+            Diff is computed against <code>{compareData.baseUpstream}</code>. Pull the latest in this worktree to compare against local <code>{baseBranch}</code> instead.
           </TooltipContent>
         </Tooltip>
       )}
     </div>
   ) : null;
+
+  const compareErrorView = (
+    <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
+      <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
+      <p className="text-sm">
+        {compareErrorDetail instanceof Error
+          ? compareErrorDetail.message
+          : "Failed to compare branches"}
+      </p>
+    </div>
+  );
 
   const fileList = compareData?.files.length ? (
     <div className="flex-1 overflow-y-auto">
@@ -835,14 +846,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
         </div>
       ) : compareError ? (
-        <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
-          <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
-          <p className="text-sm">
-            {compareErrorDetail instanceof Error
-              ? compareErrorDetail.message
-              : "Failed to compare branches"}
-          </p>
-        </div>
+        compareErrorView
       ) : parsedDiffs.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
           <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
@@ -892,14 +896,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
             </div>
           ) : compareError ? (
-            <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
-              <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
-              <p className="text-sm">
-                {compareErrorDetail instanceof Error
-                  ? compareErrorDetail.message
-                  : "Failed to compare branches"}
-              </p>
-            </div>
+            compareErrorView
           ) : (
             <div className="p-3">{renderDiffs(false, false, handleEditCommentRequest)}</div>
           )}
@@ -959,14 +956,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
             </div>
           ) : compareError ? (
-            <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
-              <AlertCircle className="mb-4 h-12 w-12 opacity-50" />
-              <p className="text-sm">
-                {compareErrorDetail instanceof Error
-                  ? compareErrorDetail.message
-                  : "Failed to compare branches"}
-              </p>
-            </div>
+            compareErrorView
           ) : compareData?.files.length ? (
             compareData.files.map((file) => (
               <CompareFileRow
