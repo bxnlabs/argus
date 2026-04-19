@@ -15,3 +15,4 @@ export {
   useGitCurrentBranchQuery,
   useGitStatusFilesQuery,
 } from "./hooks";
+export { useGitFetchMutation } from "./mutations";

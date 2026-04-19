@@ -28,6 +28,12 @@ func respondGitError(w http.ResponseWriter, err error) {
 		respondError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, git.ErrBinaryFile):
 		respondError(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, git.ErrFetchFailed):
+		// Fetch failures must surface the underlying message — auth, network,
+		// or remote-config errors are the only signal the user has for what
+		// to fix. The wrapped message is git's own stderr, which doesn't leak
+		// internal server details.
+		respondError(w, http.StatusBadGateway, err.Error())
 	default:
 		respondInternalError(w, err)
 	}
@@ -279,6 +285,33 @@ func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, result)
+}
+
+// POST /api/git/fetch?path=...&base=...
+//
+// `base` is optional — when set (typically by the Compare tab), Fetch will
+// also refresh the remote that the base branch's upstream lives on, so the
+// stale-base banner can be cleared in fork workflows where HEAD and the base
+// track different remotes.
+func (h *gitHandler) fetch(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	base := r.URL.Query().Get("base")
+	if path == "" {
+		respondError(w, http.StatusBadRequest, "path parameter is required")
+		return
+	}
+	expandedPath, err := shared.SafeExpandPath(path)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := git.Fetch(r.Context(), expandedPath, base); err != nil {
+		log.Printf("git fetch failed: path=%s base=%s err=%v", expandedPath, base, err)
+		respondGitError(w, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // GET /api/git/compare/branches?path=...

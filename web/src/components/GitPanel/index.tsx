@@ -22,6 +22,7 @@ import { useViewport } from "@/hooks/useViewport";
 import {
   gitKeys,
   useGitCurrentBranchQuery,
+  useGitFetchMutation,
   useGitStatusFilesQuery,
   useWorkingDiffQuery,
 } from "@/data/git";
@@ -83,11 +84,23 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     [],
   );
 
+  // Latest compare base reported by CompareView. Stored in a ref (not state)
+  // because handleRefresh only needs to read it at click time — re-rendering
+  // GitPanel on every base change would churn the file list and diff panes.
+  const compareBaseRef = useRef<string | null>(null);
+  const handleCompareBaseChange = useCallback((base: string | null) => {
+    compareBaseRef.current = base;
+  }, []);
+
   // Clear state when working directory changes
   useEffect(() => {
     setSelectedPath(null);
     setMobileShowDiffs(false);
     diffRefs.current.clear();
+    // CompareView is unmounted on tab switches, so its workingDirectory
+    // reset effect can't run here. Drop the stale base ourselves to avoid
+    // sending another repo's base in the next fetch request.
+    compareBaseRef.current = null;
   }, [workingDirectory]);
 
   // Clear stale selection when file disappears from status
@@ -108,12 +121,23 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
+  const { mutate: gitFetch, isPending: isFetching } = useGitFetchMutation();
   const handleRefresh = useCallback(() => {
+    // Always invalidate locally so cached ahead/behind counts and the working
+    // diff refresh immediately, even if the network fetch is slow or fails.
+    // workingDiff's own `enabled` flag gates the refetch to the Changes tab;
+    // invalidating unconditionally also ensures a stale working diff isn't
+    // served when the user switches tabs after refreshing on Compare/History.
     queryClient.invalidateQueries({ queryKey: gitKeys.status(workingDirectory) });
-    if (activeTab === "changes") {
-      queryClient.invalidateQueries({ queryKey: gitKeys.workingDiff(workingDirectory) });
-    }
-  }, [queryClient, workingDirectory, activeTab]);
+    queryClient.invalidateQueries({ queryKey: gitKeys.workingDiff(workingDirectory) });
+    // Pass the active compare base so the backend also fetches the remote
+    // its upstream lives on — fork workflows where HEAD and base track
+    // different remotes can't clear the stale-base banner otherwise.
+    // Sending base unconditionally (not gated on activeTab) is intentional:
+    // the user may have refreshed from Changes/History after viewing Compare,
+    // and the next visit to Compare should see fresh data.
+    gitFetch({ path: workingDirectory, base: compareBaseRef.current });
+  }, [queryClient, workingDirectory, gitFetch]);
 
   const handleFileClick = useCallback(
     (file: GitFile) => {
@@ -195,7 +219,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   if (loading) {
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />
+        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} isFetching={isFetching} />
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
         </div>
@@ -206,7 +230,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
   if (isError) {
     return (
       <div className="bg-background flex h-full w-full flex-col">
-        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />
+        <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} isFetching={isFetching} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
           <AlertCircle className="text-muted-foreground mb-2 h-8 w-8" />
           <p className="text-muted-foreground text-center text-sm">
@@ -223,7 +247,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
     (fileStatus?.unstaged.length ?? 0) > 0 ||
     (fileStatus?.untracked.length ?? 0) > 0;
 
-  const gitHeader = <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} />;
+  const gitHeader = <GitStatusHeader workingDirectory={workingDirectory} onRefresh={handleRefresh} isFetching={isFetching} />;
 
   const stackedDiffs = (
     <div className="space-y-3 p-3">
@@ -258,6 +282,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
           <CompareView
             workingDirectory={workingDirectory}
             header={<>{gitHeader}<GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} /></>}
+            onBaseChange={handleCompareBaseChange}
           />
         </div>
       );
@@ -382,6 +407,7 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
           header={<>{gitHeader}<GitPanelTabs activeTab={activeTab} onTabChange={setActiveTab} /></>}
           listWidth={listWidth}
           onResizeMouseDown={handleMouseDown}
+          onBaseChange={handleCompareBaseChange}
         />
       </div>
     );

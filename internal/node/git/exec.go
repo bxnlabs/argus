@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	shortTimeout     = 10 * time.Second
-	longTimeout      = 30 * time.Second
+	shortTimeout           = 10 * time.Second
+	longTimeout            = 30 * time.Second
 	defaultMaxBuffer int64 = 10 * 1024 * 1024 // 10MB
 	diffMaxBuffer    int64 = 5 * 1024 * 1024  // 5MB
 )

@@ -17,3 +17,10 @@ var ErrFileTooLarge = errors.New("file too large")
 // ErrBinaryFile is returned when a binary file is detected during
 // line-based reads.
 var ErrBinaryFile = errors.New("binary file")
+
+// ErrFetchFailed is returned by Fetch when an underlying `git fetch` invocation
+// exits non-zero (auth failure, network error, dead remote, etc.). Callers
+// should surface the wrapped error's message rather than masking it as a
+// generic internal error — the message is the user's only signal for what to
+// fix (re-auth, check connectivity, remove a stale remote, …).
+var ErrFetchFailed = errors.New("git fetch failed")

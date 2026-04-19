@@ -13,9 +13,15 @@ export const gitKeys = {
     [...gitKeys.all, "compare-branches", path] as const,
   compare: (path: string, base: string) =>
     [...gitKeys.all, "compare", path, base] as const,
+  // Prefix matching all compare queries for a path across any base — used to
+  // sweep cached compares when the base's upstream tip may have moved.
+  comparesByPath: (path: string) =>
+    [...gitKeys.all, "compare", path] as const,
   commitFullDiff: (path: string, hash: string) =>
     [...gitKeys.all, "commit-full-diff", path, hash] as const,
   workingDiff: (path: string) => [...gitKeys.all, "working-diff", path] as const,
   branches: (source: string) =>
     [...gitKeys.all, "branches", source] as const,
+  // Prefix matching every branches query regardless of source.
+  branchesAll: () => [...gitKeys.all, "branches"] as const,
 };
