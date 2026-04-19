@@ -54,3 +54,54 @@ func TestFetch_BadDirReturnsError(t *testing.T) {
 		t.Error("expected error for non-git directory, got nil")
 	}
 }
+
+// TestFetch_PrunesDeletedRemoteBranch verifies that Fetch removes the local
+// tracking ref when the corresponding branch has been deleted on the remote.
+// This guards the --prune contract — a regression to plain `git fetch` would
+// leave origin/<branch> in place and this test would catch it.
+func TestFetch_PrunesDeletedRemoteBranch(t *testing.T) {
+	remote := initTestRepo(t)
+	commitFile(t, remote, "base.txt", "base", "base commit")
+
+	// Create a branch on the remote so the client has something to prune.
+	for _, args := range [][]string{
+		{"git", "checkout", "-b", "feature"},
+		{"git", "checkout", "main"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = remote
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "clone", remote, dir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	// Precondition: origin/feature exists locally after clone.
+	pre := exec.Command("git", "rev-parse", "--verify", "refs/remotes/origin/feature")
+	pre.Dir = dir
+	if err := pre.Run(); err != nil {
+		t.Fatalf("origin/feature missing after clone: %v", err)
+	}
+
+	// Delete the branch on the remote.
+	del := exec.Command("git", "branch", "-D", "feature")
+	del.Dir = remote
+	if out, err := del.CombinedOutput(); err != nil {
+		t.Fatalf("git branch -D feature: %v\n%s", err, out)
+	}
+
+	if err := Fetch(dir); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	// After prune, the tracking ref must be gone.
+	post := exec.Command("git", "rev-parse", "--verify", "refs/remotes/origin/feature")
+	post.Dir = dir
+	if err := post.Run(); err == nil {
+		t.Error("origin/feature should have been pruned")
+	}
+}
