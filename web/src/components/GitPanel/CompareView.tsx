@@ -115,6 +115,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // re-trigger the scroll effect.
   const [scrollRequestId, setScrollRequestId] = useState(0);
   const scrollToFileRequestRef = useRef(0);
+  // True while a scroll-to-file is in flight. Force-mounts every diff so
+  // scrollHeight exceeds target.offsetTop + clientHeight; otherwise the
+  // browser clamps scrollTop short of the target when files after it are
+  // still lazy placeholders. Cleared one frame after the scroll lands.
+  const [isScrollPending, setIsScrollPending] = useState(false);
   const [activeComment, setActiveComment] = useState<{
     file: string;
     position: DiffPosition;
@@ -134,6 +139,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
+    setIsScrollPending(false);
     setEditingComment(null);
     setFocusedCommentId(null);
     lastFocusedIdxRef.current = -1;
@@ -461,6 +467,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const scrollToFile = useCallback((path: string) => {
     setSelectedPath(path);
+    setIsScrollPending(true);
     if (isMobile) {
       setMobileShowDiffs(true);
     }
@@ -728,11 +735,23 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     // One rAF lets the browser finalize layout for newly-mounted children
     // before we measure. useLayoutEffect alone is not enough because
     // ExpandableUnifiedDiff may render its hunks in a secondary effect.
+    let releaseHandle: number | null = null;
     const handle = requestAnimationFrame(() => {
       if (rid !== scrollToFileRequestRef.current) return;
       el.scrollIntoView({ behavior: "auto", block: "start" });
+      // Release the transient force-mount one frame after the scroll lands.
+      // Shrinkage only happens BELOW the target (later files unmounting), so
+      // target stays at viewport top across browsers regardless of scroll
+      // anchoring. Browsers without anchoring (Safari/iOS) are not affected.
+      releaseHandle = requestAnimationFrame(() => {
+        if (rid !== scrollToFileRequestRef.current) return;
+        setIsScrollPending(false);
+      });
     });
-    return () => cancelAnimationFrame(handle);
+    return () => {
+      cancelAnimationFrame(handle);
+      if (releaseHandle !== null) cancelAnimationFrame(releaseHandle);
+    };
   }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
 
   if (loadingBranches) {
@@ -850,10 +869,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const fileName = getDiffFileName(diff);
         const fileComments = commentsByFile.get(pathKey) ?? EMPTY_COMMENTS;
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
-        // Force-mount predecessors up to and including the selected file so
-        // their heights are real BEFORE we scrollIntoView. Files past the
-        // target keep their lazy behavior — mounting them would not improve
-        // target placement and would only add main-thread cost.
+        // Persistent force-mount for predecessors up to and including the
+        // selected file so their heights are real BEFORE scrollIntoView.
         const inScrollTargetRange = selectedIdx >= 0 && idx <= selectedIdx;
         return (
           <div key={pathKey} ref={setDiffRef(pathKey)}>
@@ -861,7 +878,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               diff={diff}
               fileName={fileName}
               wrapLines={wrapLines}
-              forceMount={commentsByFile.has(pathKey) || inScrollTargetRange}
+              // isScrollPending extends force-mount to files AFTER the target
+              // during the scroll so scrollHeight is large enough for the
+              // scroll to land. Released immediately after the scroll.
+              forceMount={
+                commentsByFile.has(pathKey) ||
+                inScrollTargetRange ||
+                isScrollPending
+              }
               comments={fileComments}
               activeCommentLine={fileActiveCommentLine}
               onLineClick={fileLineClickHandlers.get(pathKey)}
