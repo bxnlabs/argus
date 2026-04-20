@@ -77,6 +77,7 @@ export function NewSessionDialog({
       setShowSourcePicker(false);
       setBranch("");
       setShowBranchPicker(false);
+      childPickerClosingRef.current = false;
     }
   }, [open]);
 
@@ -126,7 +127,10 @@ export function NewSessionDialog({
         <DialogContent
           className="top-[env(safe-area-inset-top)] translate-y-0 max-h-[85vh] overflow-y-auto sm:top-[50%] sm:translate-y-[-50%]"
           onPointerDownOutside={(e) => {
-            if (childPickerClosingRef.current) e.preventDefault();
+            if (childPickerClosingRef.current) {
+              e.preventDefault();
+              childPickerClosingRef.current = false;
+            }
           }}
           onFocusOutside={(e) => {
             if (childPickerClosingRef.current) {
