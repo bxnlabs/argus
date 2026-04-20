@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect, memo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect, memo } from "react";
 import {
   Loader2,
   GitCompareArrows,
@@ -111,6 +111,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
   const insertSyntheticHandlers = useRef<Map<string, (hunk: DiffHunk, idx: number) => void>>(new Map());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // Bumped on each scroll-to-file request so repeat clicks on the same path
+  // re-trigger the scroll effect.
+  const [scrollRequestId, setScrollRequestId] = useState(0);
+  const scrollToFileRequestRef = useRef(0);
   const [activeComment, setActiveComment] = useState<{
     file: string;
     position: DiffPosition;
@@ -190,6 +194,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     expandedHunksRef.current.clear();
     return parseMultiFileDiff(compareData.diff);
   }, [compareData?.diff]);
+
+  // Index of the selected file in the rendered diff order. -1 when nothing is
+  // selected, or when the selected path is no longer present in parsedDiffs
+  // (e.g. after the base branch changes).
+  const selectedIdx = useMemo(() => {
+    if (!selectedPath) return -1;
+    return parsedDiffs.findIndex((d) => getDiffPathKey(d) === selectedPath);
+  }, [selectedPath, parsedDiffs]);
 
   const {
     data: reviewData,
@@ -451,12 +463,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setSelectedPath(path);
     if (isMobile) {
       setMobileShowDiffs(true);
-    } else {
-      const el = diffRefs.current.get(path);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
     }
+    // Bumping the request id triggers the unified scroll effect below, which
+    // runs in useLayoutEffect AFTER the force-mount propagation commits.
+    // Re-firing on repeat clicks to the same path is intentional.
+    setScrollRequestId((n) => n + 1);
   }, [isMobile]);
 
   // --- Stable callbacks for UnifiedDiff ---
@@ -702,14 +713,27 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     saveAndUpdate((prev) => ({ ...prev, body: undefined }));
   }, [saveAndUpdate]);
 
-  // Scroll to selected file once diffs are rendered and refs are ready
-  useEffect(() => {
-    if (!selectedPath || !mobileShowDiffs) return;
+  // Unified scroll-to-selected-file effect. Runs in useLayoutEffect AFTER the
+  // commit that applies forceMount to predecessor diffs (see renderDiffs
+  // below), so preceding LazyFileDiff instances have real heights before we
+  // measure. Uses behavior: "auto" (instant) because smooth scrolling during
+  // active reflow is what caused the original drift-to-wrong-file bug —
+  // placeholders kept inflating mid-animation and pushed the target down.
+  useLayoutEffect(() => {
+    if (!selectedPath) return;
+    if (isMobile && !mobileShowDiffs) return;
     const el = diffRefs.current.get(selectedPath);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [selectedPath, parsedDiffs, mobileShowDiffs]);
+    if (!el) return;
+    const rid = ++scrollToFileRequestRef.current;
+    // One rAF lets the browser finalize layout for newly-mounted children
+    // before we measure. useLayoutEffect alone is not enough because
+    // ExpandableUnifiedDiff may render its hunks in a secondary effect.
+    const handle = requestAnimationFrame(() => {
+      if (rid !== scrollToFileRequestRef.current) return;
+      el.scrollIntoView({ behavior: "auto", block: "start" });
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
 
   if (loadingBranches) {
     return (
@@ -821,18 +845,23 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       {reviewData?.body?.body && (
         <ReviewBodyCard body={reviewData.body} onDelete={handleDeleteBody} />
       )}
-      {parsedDiffs.map((diff) => {
+      {parsedDiffs.map((diff, idx) => {
         const pathKey = getDiffPathKey(diff);
         const fileName = getDiffFileName(diff);
         const fileComments = commentsByFile.get(pathKey) ?? EMPTY_COMMENTS;
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
+        // Force-mount predecessors up to and including the selected file so
+        // their heights are real BEFORE we scrollIntoView. Files past the
+        // target keep their lazy behavior — mounting them would not improve
+        // target placement and would only add main-thread cost.
+        const inScrollTargetRange = selectedIdx >= 0 && idx <= selectedIdx;
         return (
           <div key={pathKey} ref={setDiffRef(pathKey)}>
             <LazyFileDiff
               diff={diff}
               fileName={fileName}
               wrapLines={wrapLines}
-              forceMount={commentsByFile.has(pathKey)}
+              forceMount={commentsByFile.has(pathKey) || inScrollTargetRange}
               comments={fileComments}
               activeCommentLine={fileActiveCommentLine}
               onLineClick={fileLineClickHandlers.get(pathKey)}
