@@ -183,6 +183,32 @@ func getFileContent(repoDir, ref, filePath string) (string, error) {
 	return string(out), nil
 }
 
+// changedFilesBetween returns the set of file paths that differ between baseRef
+// and headRef, including both old and new paths for renames. Returns nil if the
+// diff command fails (callers should treat nil as "don't prune").
+func changedFilesBetween(repoDir, baseRef, headRef string) map[string]struct{} {
+	cmd := exec.Command("git", "diff", "--find-renames", "--name-status", baseRef, headRef)
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	set := make(map[string]struct{})
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		// Format: "<status>\t<path>" for A/M/D, "R<pct>\t<old>\t<new>" for renames.
+		fields := strings.Split(line, "\t")
+		for _, p := range fields[1:] {
+			if p != "" {
+				set[p] = struct{}{}
+			}
+		}
+	}
+	return set
+}
+
 // detectStaleness re-anchors submitted comments to their current line positions
 // using immutable git refs rather than the working tree.
 //
@@ -192,12 +218,32 @@ func getFileContent(repoDir, ref, filePath string) (string, error) {
 // A comment that cannot be found at all is pruned (dropped).
 // A comment that matches ambiguously and whose snippetContext cannot disambiguate
 // is kept with AnchorStatus=AnchorStale.
+// A submitted comment whose file has no diff between baseRef and headRef is
+// pruned — the compare view only renders changed files, so such a comment would
+// appear in the nav with no reachable target.
 func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment) []ReviewComment {
+	// When both refs are known, pre-compute the set of files that differ so
+	// submitted comments on unchanged files can be pruned.
+	var changedFiles map[string]struct{}
+	if headRef != "" && baseRef != "" {
+		changedFiles = changedFilesBetween(repoDir, baseRef, headRef)
+	}
+
 	result := make([]ReviewComment, 0)
 	for _, c := range comments {
 		if !c.Submitted {
 			result = append(result, c)
 			continue
+		}
+
+		if changedFiles != nil {
+			_, inDiff := changedFiles[c.File]
+			if !inDiff && c.OldPath != "" {
+				_, inDiff = changedFiles[c.OldPath]
+			}
+			if !inDiff {
+				continue
+			}
 		}
 
 		side := c.Line.From.Side
