@@ -8,6 +8,13 @@ import { useLazyMount } from "@/hooks/useLazyMount";
 import { Plus, Minus, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Placeholder sizing: matches real UnifiedDiff row layout so lazy
+// mount/unmount doesn't shift surrounding scroll. Header = sticky file
+// header at min-h-[44px]. Line = text-xs (16px line-height) + py-0.5
+// (4px total padding) = 20px per DiffLine row.
+export const FILE_HEADER_HEIGHT_PX = 44;
+export const PLACEHOLDER_LINE_HEIGHT_PX = 20;
+
 interface LazyFileDiffProps {
   diff: ParsedDiff;
   fileName: string;
@@ -64,21 +71,38 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
           onAutoExpandFailuresChange={props.onAutoExpandFailuresChange}
         />
       ) : (
-        <FilePlaceholder diff={props.diff} fileName={props.fileName} />
+        <FilePlaceholder diff={props.diff} fileName={props.fileName} totalLines={props.totalLines} />
       )}
     </div>
   );
 });
 
-/** Lightweight placeholder matching the UnifiedDiff file header style. */
-function FilePlaceholder({ diff, fileName }: { diff: ParsedDiff; fileName: string }) {
+/**
+ * Lightweight placeholder matching the UnifiedDiff file header style and
+ * reserving vertical space equal to the mounted diff's approximate height.
+ * The sizing lets predecessor and successor files stay lazy without layout
+ * shift: scrollHeight is stable whether a file is a placeholder or mounted,
+ * so scrollIntoView lands at the target's true offsetTop and
+ * IntersectionObserver-driven mounts don't drift upward scroll on browsers
+ * without scroll anchoring (iOS/Safari).
+ */
+export function FilePlaceholder({
+  diff,
+  fileName,
+  totalLines,
+}: {
+  diff: ParsedDiff;
+  fileName: string;
+  totalLines: number;
+}) {
+  const minHeight = FILE_HEADER_HEIGHT_PX + Math.max(0, totalLines) * PLACEHOLDER_LINE_HEIGHT_PX;
   return (
     <div
       className={cn(
-        "border-border flex w-full items-center gap-2 border px-3 py-2.5 text-sm",
+        "border-border flex w-full items-start gap-2 border px-3 py-2.5 text-sm",
         "bg-muted text-left",
-        "min-h-[44px]",
       )}
+      style={{ minHeight: `${minHeight}px` }}
     >
       <ChevronRight className="text-muted-foreground h-4 w-4 flex-shrink-0" />
       <span className="flex-1 truncate text-xs font-medium">{fileName}</span>
