@@ -8,12 +8,29 @@ import { useLazyMount } from "@/hooks/useLazyMount";
 import { Plus, Minus, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Placeholder sizing: matches real UnifiedDiff row layout so lazy
-// mount/unmount doesn't shift surrounding scroll. Header = sticky file
-// header at min-h-[44px]. Line = text-xs (16px line-height) + py-0.5
-// (4px total padding) = 20px per DiffLine row.
+// Placeholder sizing — computed from diff.hunks (what UnifiedDiff actually
+// renders), not from the source file's totalLines. This matches the plan's
+// follow-up review: totalLines = full file line count (e.g. 2000 for a
+// 2000-line file) would produce a hugely over-sized placeholder for a small
+// change, and on iOS Safari without scroll anchoring a predecessor mounting
+// above the viewport would shrink document height and jolt the user.
+//
+// Per-file overhead:
+//   FILE_HEADER_HEIGHT_PX — sticky file header (min-h-[44px] in UnifiedDiff)
+// Per-hunk overhead:
+//   HUNK_OVERHEAD_PX     — hunk header row (~24px, py-1 + text-xs) plus
+//                          amortized expand-row padding (~16px per hunk)
+// Per-row overhead:
+//   PLACEHOLDER_LINE_HEIGHT_PX — DiffLine row (text-xs 16px + py-0.5 4px)
+//
+// The sum is deliberately a close approximation, not exact. Slight overshoot
+// (e.g. missing trailing expand-down row) is preferable to undershoot
+// because scrollHeight stability only needs same-order-of-magnitude accuracy
+// for the IntersectionObserver-driven lazy mount to behave well across
+// browsers that do and don't support CSS scroll anchoring.
 export const FILE_HEADER_HEIGHT_PX = 44;
 export const PLACEHOLDER_LINE_HEIGHT_PX = 20;
+export const HUNK_OVERHEAD_PX = 40;
 
 interface LazyFileDiffProps {
   diff: ParsedDiff;
@@ -71,7 +88,7 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
           onAutoExpandFailuresChange={props.onAutoExpandFailuresChange}
         />
       ) : (
-        <FilePlaceholder diff={props.diff} fileName={props.fileName} totalLines={props.totalLines} />
+        <FilePlaceholder diff={props.diff} fileName={props.fileName} />
       )}
     </div>
   );
@@ -89,13 +106,14 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
 export function FilePlaceholder({
   diff,
   fileName,
-  totalLines,
 }: {
   diff: ParsedDiff;
   fileName: string;
-  totalLines: number;
 }) {
-  const minHeight = FILE_HEADER_HEIGHT_PX + Math.max(0, totalLines) * PLACEHOLDER_LINE_HEIGHT_PX;
+  const rowCount = diff.hunks.reduce((n, h) => n + h.lines.length, 0);
+  const hunkOverhead = diff.hunks.length * HUNK_OVERHEAD_PX;
+  const minHeight =
+    FILE_HEADER_HEIGHT_PX + rowCount * PLACEHOLDER_LINE_HEIGHT_PX + hunkOverhead;
   return (
     <div
       className={cn(
