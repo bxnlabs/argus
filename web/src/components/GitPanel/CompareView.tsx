@@ -728,30 +728,31 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // placeholders kept inflating mid-animation and pushed the target down.
   useLayoutEffect(() => {
     if (!selectedPath) return;
-    if (isMobile && !mobileShowDiffs) return;
+    // Drop the pending flag on any early-return path so predecessors don't
+    // stay in the expensive all-mounted state if the effect can't execute
+    // the scroll (mobile back-nav, target not in the current diff set, etc).
+    if (isMobile && !mobileShowDiffs) {
+      setIsScrollPending(false);
+      return;
+    }
     const el = diffRefs.current.get(selectedPath);
-    if (!el) return;
+    if (!el) {
+      setIsScrollPending(false);
+      return;
+    }
     const rid = ++scrollToFileRequestRef.current;
     // One rAF lets the browser finalize layout for newly-mounted children
     // before we measure. useLayoutEffect alone is not enough because
     // ExpandableUnifiedDiff may render its hunks in a secondary effect.
-    let releaseHandle: number | null = null;
     const handle = requestAnimationFrame(() => {
       if (rid !== scrollToFileRequestRef.current) return;
       el.scrollIntoView({ behavior: "auto", block: "start" });
-      // Release the transient force-mount one frame after the scroll lands.
-      // Shrinkage only happens BELOW the target (later files unmounting), so
-      // target stays at viewport top across browsers regardless of scroll
-      // anchoring. Browsers without anchoring (Safari/iOS) are not affected.
-      releaseHandle = requestAnimationFrame(() => {
-        if (rid !== scrollToFileRequestRef.current) return;
-        setIsScrollPending(false);
-      });
+      // Release the transient force-mount once the scroll lands. Shrinkage
+      // only happens BELOW the target (later files unmounting), so target
+      // stays at viewport top across browsers regardless of scroll anchoring.
+      setIsScrollPending(false);
     });
-    return () => {
-      cancelAnimationFrame(handle);
-      if (releaseHandle !== null) cancelAnimationFrame(releaseHandle);
-    };
+    return () => cancelAnimationFrame(handle);
   }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
 
   if (loadingBranches) {
