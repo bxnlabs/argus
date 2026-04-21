@@ -744,15 +744,24 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     // One rAF lets the browser finalize layout for newly-mounted children
     // before we measure. useLayoutEffect alone is not enough because
     // ExpandableUnifiedDiff may render its hunks in a secondary effect.
+    let releaseHandle: number | null = null;
     const handle = requestAnimationFrame(() => {
       if (rid !== scrollToFileRequestRef.current) return;
       el.scrollIntoView({ behavior: "auto", block: "start" });
-      // Release the transient force-mount once the scroll lands. Shrinkage
-      // only happens BELOW the target (later files unmounting), so target
-      // stays at viewport top across browsers regardless of scroll anchoring.
-      setIsScrollPending(false);
+      // Wait one more frame before clearing isScrollPending so useLazyMount's
+      // IntersectionObserver has time to latch successors that came into view
+      // with the scroll. Without that delay, those successors unmount back to
+      // 44px placeholders in the same paint cycle, scrollHeight shrinks, and
+      // the browser can re-clamp scrollTop short of the target.
+      releaseHandle = requestAnimationFrame(() => {
+        if (rid !== scrollToFileRequestRef.current) return;
+        setIsScrollPending(false);
+      });
     });
-    return () => cancelAnimationFrame(handle);
+    return () => {
+      cancelAnimationFrame(handle);
+      if (releaseHandle !== null) cancelAnimationFrame(releaseHandle);
+    };
   }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
 
   if (loadingBranches) {
