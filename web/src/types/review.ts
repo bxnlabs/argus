@@ -23,6 +23,14 @@ export interface ReviewComment {
   body: string;
   submitted: boolean;
   createdAt: string;
+
+  /** Populated by the server on GET; never sent on POST (the server strips
+   * them anyway, but client code should not read these fields to decide
+   * what to persist). */
+  orphaned?: boolean;
+  orphanLine?: number;
+  orphanSide?: DiffSide;
+  orphanDeleted?: boolean;
 }
 
 export interface ReviewBody {
