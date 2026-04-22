@@ -218,6 +218,78 @@ func changedFilesBetween(repoDir, baseRef, headRef string) map[string]struct{} {
 	return set
 }
 
+// annotateOrphans returns a copy of comments where each submitted comment on
+// a file not present in the compare diff between baseRef and headRef is
+// marked Orphaned and, when possible, re-anchored to a line in the relevant
+// ref's content. The helper is a read-only annotation pass: it never drops
+// comments, never reorders, and never mutates the input.
+//
+// Re-anchoring rules:
+//   - R-side comments are re-anchored against headRef using c.File.
+//   - L-side comments are re-anchored against baseRef using c.OldPath when
+//     non-empty, otherwise c.File.
+//   - When neither ref can produce the file, OrphanDeleted is set and
+//     OrphanLine remains 0. Callers should render a degraded view.
+//   - When the snippet cannot be located at all, OrphanLine is 0 but the
+//     comment is still flagged Orphaned so the UI can still surface it.
+//
+// Drafts and non-orphan comments are returned unchanged (orphan fields zero).
+//
+// When baseRef == headRef the compare diff is empty and all submitted
+// comments are orphaned; callers should avoid calling with equal refs
+// unless that annotation is desired.
+func annotateOrphans(repoDir, headRef, baseRef string, comments []ReviewComment) []ReviewComment {
+	if headRef == "" || baseRef == "" {
+		return comments
+	}
+	changedFiles := changedFilesBetween(repoDir, baseRef, headRef)
+	if changedFiles == nil {
+		return comments
+	}
+	result := make([]ReviewComment, len(comments))
+	for i, c := range comments {
+		result[i] = c
+		if !c.Submitted {
+			continue
+		}
+		_, inDiff := changedFiles[c.File]
+		if !inDiff && c.OldPath != "" {
+			_, inDiff = changedFiles[c.OldPath]
+		}
+		if inDiff {
+			continue
+		}
+
+		result[i].Orphaned = true
+
+		side := c.Line.From.Side
+		ref := headRef
+		lookupPath := c.File
+		if side == DiffSideLeft {
+			ref = baseRef
+			if c.OldPath != "" {
+				lookupPath = c.OldPath
+			}
+		}
+
+		if err := ValidateFilePath(repoDir, lookupPath); err != nil {
+			result[i].OrphanDeleted = true
+			continue
+		}
+		fileText, err := getFileContent(repoDir, ref, lookupPath)
+		if err != nil {
+			result[i].OrphanDeleted = true
+			continue
+		}
+		line := findSnippetWithContext(fileText, c.Snippet, c.SnippetContext, c.Line.From.Line)
+		if line >= 1 {
+			result[i].OrphanLine = line
+			result[i].OrphanSide = side
+		}
+	}
+	return result
+}
+
 // detectStaleness re-anchors submitted comments to their current line positions
 // using immutable git refs rather than the working tree.
 //

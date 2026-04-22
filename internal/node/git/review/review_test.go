@@ -871,6 +871,147 @@ func TestReviewComment_OrphanFieldsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestAnnotateOrphans_DeletedFile verifies that a comment whose file does
+// not exist at the relevant ref is flagged OrphanDeleted.
+func TestAnnotateOrphans_DeletedFile(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID: "rc_gone", File: "src/never-existed.ts",
+		Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
+		Snippet: "something", Submitted: true,
+	}}
+	got := annotateOrphans(dir, headRef, baseRef, comments)
+	if !got[0].Orphaned {
+		t.Errorf("expected Orphaned=true")
+	}
+	if !got[0].OrphanDeleted {
+		t.Errorf("expected OrphanDeleted=true")
+	}
+	if got[0].OrphanLine != 0 {
+		t.Errorf("expected OrphanLine=0 for deleted file, got %d", got[0].OrphanLine)
+	}
+}
+
+// TestAnnotateOrphans_InDiffUntouched verifies that a comment whose file
+// IS in the compare diff receives no orphan annotation.
+func TestAnnotateOrphans_InDiffUntouched(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID: "rc_changed", File: "src/changed.ts",
+		Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
+		Snippet: "v2", Submitted: true,
+	}}
+	got := annotateOrphans(dir, headRef, baseRef, comments)
+	if got[0].Orphaned || got[0].OrphanLine != 0 || got[0].OrphanSide != "" {
+		t.Errorf("in-diff comment must not be annotated, got %+v", got[0])
+	}
+}
+
+// TestAnnotateOrphans_RSideUnchangedFile verifies an R-side comment whose
+// file has no diff between refs is marked orphaned and its line is
+// re-anchored against headRef content.
+func TestAnnotateOrphans_RSideUnchangedFile(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Base: two files.
+	os.WriteFile(filepath.Join(dir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Head: only changed.ts differs.
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID: "rc_unchanged", File: "src/unchanged.ts",
+		Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+		Snippet: "static line", Submitted: true,
+	}}
+	got := annotateOrphans(dir, headRef, baseRef, comments)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(got))
+	}
+	if !got[0].Orphaned {
+		t.Errorf("expected Orphaned=true, got false")
+	}
+	if got[0].OrphanLine != 2 {
+		t.Errorf("expected OrphanLine=2, got %d", got[0].OrphanLine)
+	}
+	if got[0].OrphanSide != DiffSideRight {
+		t.Errorf("expected OrphanSide=R, got %q", got[0].OrphanSide)
+	}
+	if got[0].OrphanDeleted {
+		t.Errorf("expected OrphanDeleted=false")
+	}
+}
+
+// TestAnnotateOrphans_LSideUnchangedFile verifies an L-side comment whose
+// file has no diff between refs is re-anchored against baseRef content and
+// marked with OrphanSide=L.
+func TestAnnotateOrphans_LSideUnchangedFile(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Base: two files.
+	os.WriteFile(filepath.Join(dir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Head: only changed.ts differs; unchanged.ts is literally unchanged.
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID: "rc_lside", File: "src/unchanged.ts",
+		Line:    LineRange{From: DiffPosition{Side: DiffSideLeft, Line: 2}, To: DiffPosition{Side: DiffSideLeft, Line: 2}},
+		Snippet: "static line", Submitted: true,
+	}}
+	got := annotateOrphans(dir, headRef, baseRef, comments)
+	if !got[0].Orphaned {
+		t.Errorf("expected Orphaned=true")
+	}
+	if got[0].OrphanLine != 2 {
+		t.Errorf("expected OrphanLine=2, got %d", got[0].OrphanLine)
+	}
+	if got[0].OrphanSide != DiffSideLeft {
+		t.Errorf("expected OrphanSide=L, got %q", got[0].OrphanSide)
+	}
+	if got[0].OrphanDeleted {
+		t.Errorf("expected OrphanDeleted=false")
+	}
+}
+
 // TestDetectStaleness_ContextDisambiguatesMatch verifies that when a snippet appears
 // at multiple locations, a snippetContext that uniquely identifies one of them causes
 // the comment to be re-anchored to that specific location (not the nearest one).
