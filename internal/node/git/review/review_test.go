@@ -596,10 +596,7 @@ func TestDetectStaleness_LSideRenamedFile(t *testing.T) {
 }
 
 // TestDetectStaleness_LSideRestoredLine verifies that an L-side comment becomes
-// stale when the deleted line is restored in the head ref. The head file must
-// still differ from base elsewhere (an added line here) so the file actually
-// appears in the compare diff — otherwise the unchanged-file prune would drop
-// the comment before staleness flagging runs.
+// stale when the deleted line is restored in the head ref.
 func TestDetectStaleness_LSideRestoredLine(t *testing.T) {
 	dir := initTestRepo(t)
 	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
@@ -615,11 +612,10 @@ func TestDetectStaleness_LSideRestoredLine(t *testing.T) {
 	runCmd(t, dir, "git", "add", ".")
 	runCmd(t, dir, "git", "commit", "-m", "remove comment line")
 
-	// Head commit 2: restore the comment line AND add another change so the
-	// file still differs from base and appears in the compare diff.
-	os.WriteFile(filepath.Join(dir, "src", "utils.ts"), []byte("line1\n// important comment\nline3\nline4\n"), 0o644)
+	// Head commit 2: restore the comment line.
+	os.WriteFile(filepath.Join(dir, "src", "utils.ts"), []byte("line1\n// important comment\nline3\n"), 0o644)
 	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "restore comment line and extend")
+	runCmd(t, dir, "git", "commit", "-m", "restore comment line")
 	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
 
 	comments := []ReviewComment{{
@@ -889,115 +885,3 @@ func TestDetectStaleness_ContextDisambiguatesMatch(t *testing.T) {
 	}
 }
 
-// TestDetectStaleness_UnchangedFilePruned verifies that a submitted comment on a
-// file whose content is identical between baseRef and headRef is pruned. The
-// compare view only renders files that differ between refs, so a comment on an
-// unchanged file would otherwise appear in the nav with no target to scroll to.
-func TestDetectStaleness_UnchangedFilePruned(t *testing.T) {
-	dir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-
-	// Base commit: two files exist.
-	os.WriteFile(filepath.Join(dir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "base commit")
-	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	// Head commit: only changed.ts is modified. unchanged.ts stays identical.
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "head commit")
-	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	comments := []ReviewComment{
-		{
-			ID: "rc_unchanged", File: "src/unchanged.ts",
-			Line: LineRange{
-				From: DiffPosition{Side: DiffSideRight, Line: 2},
-				To:   DiffPosition{Side: DiffSideRight, Line: 2},
-			},
-			Snippet: "static line", Body: "orphan comment", Submitted: true,
-		},
-		{
-			ID: "rc_changed", File: "src/changed.ts",
-			Line: LineRange{
-				From: DiffPosition{Side: DiffSideRight, Line: 1},
-				To:   DiffPosition{Side: DiffSideRight, Line: 1},
-			},
-			Snippet: "v2", Body: "valid comment", Submitted: true,
-		},
-	}
-	result := detectStaleness(dir, headRef, baseRef, comments)
-	if len(result) != 1 {
-		t.Fatalf("expected 1 comment (unchanged-file comment pruned), got %d", len(result))
-	}
-	if result[0].ID != "rc_changed" {
-		t.Errorf("expected surviving comment to be rc_changed, got %s", result[0].ID)
-	}
-}
-
-// TestDetectStaleness_UnchangedFileDraftPreserved verifies that draft (unsubmitted)
-// comments on unchanged files are still preserved — the unchanged-file prune only
-// applies to submitted comments, since drafts may reference pending changes the
-// user hasn't committed yet.
-func TestDetectStaleness_UnchangedFileDraftPreserved(t *testing.T) {
-	dir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-
-	os.WriteFile(filepath.Join(dir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "base commit")
-	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "head commit")
-	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	comments := []ReviewComment{{
-		ID: "rc_draft", File: "src/unchanged.ts",
-		Line: LineRange{
-			From: DiffPosition{Side: DiffSideRight, Line: 2},
-			To:   DiffPosition{Side: DiffSideRight, Line: 2},
-		},
-		Snippet: "static line", Body: "draft", Submitted: false,
-	}}
-	result := detectStaleness(dir, headRef, baseRef, comments)
-	if len(result) != 1 {
-		t.Fatalf("expected draft to be preserved, got %d comments", len(result))
-	}
-}
-
-// TestDetectStaleness_RenamedFileNotPruned verifies that a submitted comment on
-// a renamed file (both paths present in the diff via rename detection) is not
-// pruned by the unchanged-file rule, since renames do appear in the compare view.
-func TestDetectStaleness_RenamedFileNotPruned(t *testing.T) {
-	dir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-
-	os.WriteFile(filepath.Join(dir, "src", "old_name.ts"), []byte("line1\nfunc oldLogic() {}\nline3\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "base commit")
-	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	runCmd(t, dir, "git", "mv", "src/old_name.ts", "src/new_name.ts")
-	runCmd(t, dir, "git", "commit", "-m", "rename file")
-	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	comments := []ReviewComment{{
-		ID:      "rc_renamed",
-		File:    "src/new_name.ts",
-		OldPath: "src/old_name.ts",
-		Line: LineRange{
-			From: DiffPosition{Side: DiffSideLeft, Line: 2},
-			To:   DiffPosition{Side: DiffSideLeft, Line: 2},
-		},
-		Snippet: "func oldLogic() {}", Body: "comment on renamed file", Submitted: true,
-	}}
-	result := detectStaleness(dir, headRef, baseRef, comments)
-	if len(result) != 1 {
-		t.Fatalf("expected 1 comment (rename-detected file kept), got %d", len(result))
-	}
-}
