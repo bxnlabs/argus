@@ -12,20 +12,28 @@ export interface OrphanHunk {
   start: number;
   end: number;
   lines: OrphanHunkLine[];
+  /** Total lines in the file at this ref — required by ExpandableUnifiedDiff
+   * to know whether downward expansion can still yield more lines. */
+  totalLines: number;
 }
 
-const WINDOW = 10; // lines above and below the anchor
+const WINDOW = 10; // lines above and below the anchor band
 
 export function useOrphanHunk(params: {
   path: string;
   file: string;
   ref: string;
-  anchorLine: number;
+  /** Smallest anchor line in the group. */
+  startLine: number;
+  /** Largest anchor line in the group. Pass the same value as startLine for a
+   * single-anchor group; the fetched window is [start - WINDOW, end + WINDOW]
+   * so the resulting hunk covers every anchor in the group. */
+  endLine: number;
   enabled?: boolean;
 }) {
-  const { path, file, ref, anchorLine } = params;
-  const start = Math.max(1, anchorLine - WINDOW);
-  const end = anchorLine + WINDOW;
+  const { path, file, ref, startLine, endLine } = params;
+  const start = Math.max(1, startLine - WINDOW);
+  const end = endLine + WINDOW;
   return useQuery({
     queryKey: ["orphanHunk", path, file, ref, start, end],
     queryFn: async (): Promise<OrphanHunk> => {
@@ -39,9 +47,10 @@ export function useOrphanHunk(params: {
           content,
           lineNumber: result.start + i,
         })),
+        totalLines: result.totalLines,
       };
     },
-    enabled: (params.enabled ?? true) && anchorLine >= 1 && !!ref && !!file,
+    enabled: (params.enabled ?? true) && startLine >= 1 && endLine >= startLine && !!ref && !!file,
     staleTime: 60_000,
   });
 }
