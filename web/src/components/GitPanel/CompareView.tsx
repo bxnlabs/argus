@@ -27,6 +27,7 @@ import { ReviewSubmitButton } from "./ReviewSubmitButton";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
+import { OrphanedCommentsSection } from "./OrphanedCommentsSection";
 import { useViewport } from "@/hooks/useViewport";
 import { fetchFileLines } from "@/data/git/file-lines";
 import { computeOldToNewOffset, type ExpansionContext } from "@/hooks/useExpandableDiff";
@@ -107,6 +108,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
+  const [selectedOrphanKey, setSelectedOrphanKey] = useState<string | null>(null);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
   const insertSyntheticHandlers = useRef<Map<string, (hunk: DiffHunk, idx: number) => void>>(new Map());
@@ -226,6 +228,21 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
     return { visibleComments: visible, orphanedComments: orphaned };
   }, [comments]);
+
+  const orphanGroups = useMemo(() => {
+    const byKey = new Map<string, { displayFile: string; comments: ReviewComment[] }>();
+    for (const c of orphanedComments) {
+      const key = c.oldPath ? `${c.oldPath}→${c.file}` : c.file;
+      const displayFile = c.oldPath ? `${c.oldPath} → ${c.file}` : c.file;
+      let g = byKey.get(key);
+      if (!g) {
+        g = { displayFile, comments: [] };
+        byKey.set(key, g);
+      }
+      g.comments.push(c);
+    }
+    return Array.from(byKey, ([key, g]) => ({ key, ...g }));
+  }, [orphanedComments]);
 
   // --- Pre-indexed comments by file (referentially stable per-file) ---
   const prevCommentsByFile = useRef(new Map<string, ReviewComment[]>());
@@ -471,6 +488,15 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       } else {
         diffRefs.current.delete(path);
       }
+    },
+    [],
+  );
+
+  const orphanRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const setOrphanRef = useCallback(
+    (key: string) => (el: HTMLElement | null) => {
+      if (el) orphanRefs.current.set(key, el);
+      else orphanRefs.current.delete(key);
     },
     [],
   );
@@ -866,16 +892,27 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const fileList = compareData?.files.length ? (
-    <div className="flex-1 overflow-y-auto">
-      {compareData.files.map((file) => (
-        <CompareFileRow
-          key={file.path}
-          file={file}
-          isSelected={selectedPath === file.path}
-          onClick={() => scrollToFile(file.path)}
-        />
-      ))}
-    </div>
+    <>
+      <div className="flex-1 overflow-y-auto">
+        {compareData.files.map((file) => (
+          <CompareFileRow
+            key={file.path}
+            file={file}
+            isSelected={selectedPath === file.path}
+            onClick={() => scrollToFile(file.path)}
+          />
+        ))}
+      </div>
+      <OrphanedCommentsSection
+        groups={orphanGroups}
+        selectedKey={selectedOrphanKey ?? undefined}
+        onFileClick={(key) => {
+          setSelectedOrphanKey(key);
+          const el = orphanRefs.current.get(key);
+          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
+    </>
   ) : null;
 
   // --- Shared diff rendering helper ---
