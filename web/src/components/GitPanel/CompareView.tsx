@@ -315,7 +315,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const sortedComments = useMemo(() => {
-    if (!visibleComments.length || !parsedDiffs.length) return [];
+    if (!parsedDiffs.length && !orphanedComments.length) return [];
+
+    // --- Visible (in-diff) comments, ordered by file then diff-row index ---
     const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
 
     // Build a line position index for each file
@@ -334,19 +336,31 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       linePositions.set(pathKey, posMap);
     }
 
-    return [...visibleComments].filter((c) => c.anchorStatus !== "context_unavailable").sort((a, b) => {
-      const ai = fileOrder.indexOf(a.file);
-      const bi = fileOrder.indexOf(b.file);
-      if (ai !== bi) return ai - bi;
-      const posA = linePositions.get(a.file);
-      const posB = linePositions.get(b.file);
-      const keyA = `${a.line.from.side}${a.line.from.line}`;
-      const keyB = `${b.line.from.side}${b.line.from.line}`;
-      const idxA = posA?.get(keyA) ?? a.line.from.line;
-      const idxB = posB?.get(keyB) ?? b.line.from.line;
-      return idxA - idxB;
+    const visible = [...visibleComments]
+      .filter((c) => c.anchorStatus !== "context_unavailable")
+      .sort((a, b) => {
+        const ai = fileOrder.indexOf(a.file);
+        const bi = fileOrder.indexOf(b.file);
+        if (ai !== bi) return ai - bi;
+        const posA = linePositions.get(a.file);
+        const posB = linePositions.get(b.file);
+        const keyA = `${a.line.from.side}${a.line.from.line}`;
+        const keyB = `${b.line.from.side}${b.line.from.line}`;
+        const idxA = posA?.get(keyA) ?? a.line.from.line;
+        const idxB = posB?.get(keyB) ?? b.line.from.line;
+        return idxA - idxB;
+      });
+
+    // --- Orphan comments, ordered by group key then orphanLine ---
+    const orphans = [...orphanedComments].sort((a, b) => {
+      const aKey = a.oldPath ? `${a.oldPath}→${a.file}` : a.file;
+      const bKey = b.oldPath ? `${b.oldPath}→${b.file}` : b.file;
+      if (aKey !== bKey) return aKey < bKey ? -1 : 1;
+      return (a.orphanLine ?? 0) - (b.orphanLine ?? 0);
     });
-  }, [visibleComments, parsedDiffs]);
+
+    return [...visible, ...orphans];
+  }, [visibleComments, orphanedComments, parsedDiffs]);
 
   // Tracks the last visited position so navigation can resume near it when
   // the focused comment is deleted. Updated from scrollToComment and from
