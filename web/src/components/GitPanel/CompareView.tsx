@@ -138,7 +138,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     error: branchErrorDetail,
   } = useCompareBranchesQuery(workingDirectory);
 
-  // Reset repo-scoped state when working directory changes
+  // Reset repo-scoped state when working directory changes. The
+  // scrollRequestRef bump invalidates any tick of the orphan poll that was
+  // already queued in the event loop before clearInterval landed, so the
+  // callback bails via its requestId check if it does fire one last time.
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
@@ -149,7 +152,25 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
     insertSyntheticHandlers.current.clear();
+    scrollRequestRef.current++;
+    if (orphanPollRef.current !== null) {
+      window.clearInterval(orphanPollRef.current);
+      orphanPollRef.current = null;
+    }
   }, [workingDirectory]);
+
+  // Clear any in-flight orphan poll on unmount so it can't outlive the view.
+  // Same pattern as above: bump scrollRequestRef to defeat any already-queued
+  // tick that clearInterval might not cancel.
+  useEffect(() => {
+    return () => {
+      scrollRequestRef.current++;
+      if (orphanPollRef.current !== null) {
+        window.clearInterval(orphanPollRef.current);
+        orphanPollRef.current = null;
+      }
+    };
+  }, []);
 
   // Branches excluding the current one
   const availableBranches = useMemo(() => {
@@ -196,6 +217,19 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     isError: compareError,
     error: compareErrorDetail,
   } = useCompareQuery(workingDirectory, baseBranch);
+
+  // Invalidate any in-flight orphan-mount poll when the compare context
+  // changes. Without this, a poll started just before a branch switch could
+  // fire in the new review and scroll to a coincidentally same-id comment.
+  // The scrollRequestRef bump makes the poll's next tick bail; the interval
+  // clear is belt+suspenders so we don't leave dead ticks running.
+  useEffect(() => {
+    scrollRequestRef.current++;
+    if (orphanPollRef.current !== null) {
+      window.clearInterval(orphanPollRef.current);
+      orphanPollRef.current = null;
+    }
+  }, [baseBranch, compareData?.headRef, compareData?.baseRef]);
 
   const parsedDiffs = useMemo(() => {
     if (!compareData?.diff) return [];
@@ -401,6 +435,12 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // calls bail out instead of scrolling back to a stale target.
   const scrollRequestRef = useRef(0);
 
+  // Tracks the in-flight orphan-mount poll so we can clear it on unmount or
+  // compare-context change. Without this, a poll started just before a branch
+  // switch could fire in the new review and scroll to a coincidentally same-id
+  // comment the user didn't ask for.
+  const orphanPollRef = useRef<number | null>(null);
+
   const scrollToComment = useCallback(async (index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
@@ -453,6 +493,35 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       if (orphanEl) {
         orphanEl.scrollIntoView({ behavior: "smooth", block: "start" });
       }
+      // Orphan groups lazy-mount their body and fetch hunk data async, so the
+      // comment's DOM ref isn't populated yet on first visit. Poll briefly for
+      // the ref to appear and re-scroll so Prev/Next lands on the specific
+      // comment rather than the group header. Bail if a newer scroll request
+      // supersedes this one mid-poll. We retain the id so the compare-reset
+      // effect and component unmount can cancel an in-flight poll.
+      if (orphanPollRef.current !== null) {
+        window.clearInterval(orphanPollRef.current);
+      }
+      const startedAt = Date.now();
+      const pollId = window.setInterval(() => {
+        if (requestId !== scrollRequestRef.current) {
+          window.clearInterval(pollId);
+          if (orphanPollRef.current === pollId) orphanPollRef.current = null;
+          return;
+        }
+        const targetEl = commentRefs.current.get(comment.id);
+        if (targetEl) {
+          window.clearInterval(pollId);
+          if (orphanPollRef.current === pollId) orphanPollRef.current = null;
+          targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+        if (Date.now() - startedAt >= 1500) {
+          window.clearInterval(pollId);
+          if (orphanPollRef.current === pollId) orphanPollRef.current = null;
+        }
+      }, 100);
+      orphanPollRef.current = pollId;
       return;
     }
     const fileEl = diffRefs.current.get(comment.file);
@@ -916,26 +985,43 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     </div>
   );
 
-  const fileList = compareData?.files.length ? (
+  // Route orphan clicks through a small helper so mobile users land in the
+  // diff pane (where orphanRefs are mounted) before we attempt the scroll.
+  const scrollToOrphan = useCallback((key: string) => {
+    setSelectedOrphanKey(key);
+    const runScroll = () => {
+      const el = orphanRefs.current.get(key);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    if (isMobile) {
+      setMobileShowDiffs(true);
+      // Two frames: one for the transition, one for layout.
+      requestAnimationFrame(() => requestAnimationFrame(runScroll));
+    } else {
+      runScroll();
+    }
+  }, [isMobile]);
+
+  const hasChangedFiles = !!compareData?.files.length;
+  const hasOrphans = orphanGroups.length > 0;
+  const fileList = hasChangedFiles || hasOrphans ? (
     <>
-      <div className="flex-1 overflow-y-auto">
-        {compareData.files.map((file) => (
-          <CompareFileRow
-            key={file.path}
-            file={file}
-            isSelected={selectedPath === file.path}
-            onClick={() => scrollToFile(file.path)}
-          />
-        ))}
-      </div>
+      {hasChangedFiles && (
+        <div className="flex-1 overflow-y-auto">
+          {compareData!.files.map((file) => (
+            <CompareFileRow
+              key={file.path}
+              file={file}
+              isSelected={selectedPath === file.path}
+              onClick={() => scrollToFile(file.path)}
+            />
+          ))}
+        </div>
+      )}
       <OrphanedCommentsSection
         groups={orphanGroups}
         selectedKey={selectedOrphanKey ?? undefined}
-        onFileClick={(key) => {
-          setSelectedOrphanKey(key);
-          const el = orphanRefs.current.get(key);
-          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-        }}
+        onFileClick={scrollToOrphan}
       />
     </>
   ) : null;
@@ -1017,7 +1103,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         </div>
       ) : compareError ? (
         compareErrorView
-      ) : parsedDiffs.length === 0 ? (
+      ) : parsedDiffs.length === 0 && orphanGroups.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
           <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
           <p className="text-sm">No changes between branches</p>
@@ -1127,15 +1213,23 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
             </div>
           ) : compareError ? (
             compareErrorView
-          ) : compareData?.files.length ? (
-            compareData.files.map((file) => (
-              <CompareFileRow
-                key={file.path}
-                file={file}
-                isSelected={selectedPath === file.path}
-                onClick={() => scrollToFile(file.path)}
+          ) : hasChangedFiles || hasOrphans ? (
+            <>
+              {hasChangedFiles &&
+                compareData!.files.map((file) => (
+                  <CompareFileRow
+                    key={file.path}
+                    file={file}
+                    isSelected={selectedPath === file.path}
+                    onClick={() => scrollToFile(file.path)}
+                  />
+                ))}
+              <OrphanedCommentsSection
+                groups={orphanGroups}
+                selectedKey={selectedOrphanKey ?? undefined}
+                onFileClick={scrollToOrphan}
               />
-            ))
+            </>
           ) : compareData ? (
             <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
               <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
