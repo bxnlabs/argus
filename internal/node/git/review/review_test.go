@@ -1154,6 +1154,115 @@ func TestSave_StripsOrphanAnnotations(t *testing.T) {
 }
 
 
+// TestAnnotateOrphans_DraftOnUnchangedFile verifies that a draft comment on a
+// file not in the compare diff is still flagged Orphaned. This is the case
+// hit when a user edits a previously-submitted orphan comment: the edit
+// flips submitted to false, but the comment must remain visible (in the
+// orphan UI) rather than disappearing because its file is still not in the
+// compare diff.
+func TestAnnotateOrphans_DraftOnUnchangedFile(t *testing.T) {
+	dir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	// Base: two files.
+	os.WriteFile(filepath.Join(dir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	comments := []ReviewComment{{
+		ID: "rc_draft_orph", File: "src/unchanged.ts",
+		Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+		Snippet: "static line", Submitted: false,
+	}}
+	got := annotateOrphans(dir, headRef, baseRef, comments)
+	if !got[0].Orphaned {
+		t.Errorf("expected Orphaned=true for draft on unchanged file")
+	}
+	if got[0].OrphanLine != 2 {
+		t.Errorf("expected OrphanLine=2, got %d", got[0].OrphanLine)
+	}
+	if got[0].OrphanSide != DiffSideRight {
+		t.Errorf("expected OrphanSide=R, got %q", got[0].OrphanSide)
+	}
+}
+
+// TestLoadSaveLoad_EditedOrphanSurvivesDraftFlip verifies the edit-orphan
+// flow: Load annotates an orphan comment, the client edits it (flipping
+// submitted to false) and saves, then Load re-annotates and the comment
+// remains flagged Orphaned. Without annotating drafts, the edited comment
+// would be absent from both the in-diff and orphan UI groups after refetch.
+func TestLoadSaveLoad_EditedOrphanSurvivesDraftFlip(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID: "rc_orph", File: "src/unchanged.ts",
+			Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+			Snippet: "static line", Body: "original", Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load 1: %v", err)
+	}
+	if !loaded.Comments[0].Orphaned {
+		t.Fatalf("preconditions: expected orphan annotation on first load")
+	}
+
+	// Simulate the client editing the orphan comment — flipping it to a draft.
+	loaded.Comments[0].Body = "edited"
+	loaded.Comments[0].Submitted = false
+	if err := Save(projectDir, loaded); err != nil {
+		t.Fatalf("Save 2: %v", err)
+	}
+
+	loaded2, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load 2: %v", err)
+	}
+	if len(loaded2.Comments) != 1 {
+		t.Fatalf("expected 1 comment after edit round-trip, got %d", len(loaded2.Comments))
+	}
+	c := loaded2.Comments[0]
+	if c.Submitted {
+		t.Errorf("expected submitted=false after edit, got true")
+	}
+	if !c.Orphaned {
+		t.Errorf("expected Orphaned=true on edited draft — otherwise the comment disappears from the UI")
+	}
+	if c.OrphanLine != 2 {
+		t.Errorf("expected OrphanLine=2, got %d", c.OrphanLine)
+	}
+	if c.Body != "edited" {
+		t.Errorf("expected body=edited, got %q", c.Body)
+	}
+}
+
 // TestLoadSaveLoad_OrphanRoundTripSafe verifies the full round-trip:
 // Load (annotates orphans), Save (strips them), Load (re-annotates fresh).
 // The orphan comment must survive intact after an arbitrary intermediate

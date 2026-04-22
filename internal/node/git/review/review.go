@@ -218,10 +218,10 @@ func changedFilesBetween(repoDir, baseRef, headRef string) map[string]struct{} {
 	return set
 }
 
-// annotateOrphans returns a copy of comments where each submitted comment on
-// a file not present in the compare diff between baseRef and headRef is
-// marked Orphaned and, when possible, re-anchored to a line in the relevant
-// ref's content. The helper is a read-only annotation pass: it never drops
+// annotateOrphans returns a copy of comments where each comment whose file
+// is not present in the compare diff between baseRef and headRef is marked
+// Orphaned and, when possible, re-anchored to a line in the relevant ref's
+// content. The helper is a read-only annotation pass: it never drops
 // comments, never reorders, and never mutates the input.
 //
 // Re-anchoring rules:
@@ -233,11 +233,16 @@ func changedFilesBetween(repoDir, baseRef, headRef string) map[string]struct{} {
 //   - When the snippet cannot be located at all, OrphanLine is 0 but the
 //     comment is still flagged Orphaned so the UI can still surface it.
 //
-// Drafts and non-orphan comments are returned unchanged (orphan fields zero).
+// Drafts are annotated identically to submitted comments: orphan-ness is a
+// property of the file's presence in the compare diff, independent of
+// submission state. This keeps an edited orphan (flipped to draft) visible
+// after refetch, since the UI partitions on Orphaned rather than Submitted.
+// Comments whose file IS in the diff are returned unchanged (orphan fields
+// zero).
 //
-// When baseRef == headRef the compare diff is empty and all submitted
-// comments are orphaned; callers should avoid calling with equal refs
-// unless that annotation is desired.
+// When baseRef == headRef the compare diff is empty and all comments are
+// orphaned; callers should avoid calling with equal refs unless that
+// annotation is desired.
 func annotateOrphans(repoDir, headRef, baseRef string, comments []ReviewComment) []ReviewComment {
 	if headRef == "" || baseRef == "" {
 		return comments
@@ -249,9 +254,6 @@ func annotateOrphans(repoDir, headRef, baseRef string, comments []ReviewComment)
 	result := make([]ReviewComment, len(comments))
 	for i, c := range comments {
 		result[i] = c
-		if !c.Submitted {
-			continue
-		}
 		_, inDiff := changedFiles[c.File]
 		if !inDiff && c.OldPath != "" {
 			_, inDiff = changedFiles[c.OldPath]
