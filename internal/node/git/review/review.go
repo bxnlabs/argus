@@ -523,6 +523,7 @@ func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, er
 	if err := writeReviewFile(path, r); err != nil {
 		return nil, err
 	}
+	r.Comments = annotateOrphans(repoDir, headRef, baseRef, r.Comments)
 	return r, nil
 }
 

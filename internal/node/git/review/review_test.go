@@ -1012,6 +1012,62 @@ func TestAnnotateOrphans_LSideUnchangedFile(t *testing.T) {
 	}
 }
 
+// TestLoad_AnnotatesOrphansInResponseNotOnDisk verifies the persistence
+// invariant: Load populates orphan fields on the returned Review but the
+// on-disk file remains free of them. This is the core safety property for
+// the view-layer annotation approach.
+func TestLoad_AnnotatesOrphansInResponseNotOnDisk(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	// Base: two files.
+	os.WriteFile(filepath.Join(repoDir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID: "rc_u", File: "src/unchanged.ts",
+			Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+			Snippet: "static line", Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded.Comments) != 1 {
+		t.Fatalf("response: expected 1 comment, got %d", len(loaded.Comments))
+	}
+	if !loaded.Comments[0].Orphaned || loaded.Comments[0].OrphanLine != 2 {
+		t.Errorf("response: expected orphaned with line 2, got %+v", loaded.Comments[0])
+	}
+
+	onDisk, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
+	if err != nil {
+		t.Fatalf("readReviewFile: %v", err)
+	}
+	if len(onDisk.Comments) != 1 {
+		t.Fatalf("on-disk: expected 1 comment, got %d", len(onDisk.Comments))
+	}
+	if onDisk.Comments[0].Orphaned || onDisk.Comments[0].OrphanLine != 0 {
+		t.Errorf("on-disk: orphan fields must be zero, got %+v", onDisk.Comments[0])
+	}
+}
+
 // TestDetectStaleness_ContextDisambiguatesMatch verifies that when a snippet appears
 // at multiple locations, a snippetContext that uniquely identifies one of them causes
 // the comment to be re-anchored to that specific location (not the nearest one).
