@@ -1153,3 +1153,98 @@ func TestSave_StripsOrphanAnnotations(t *testing.T) {
 	}
 }
 
+
+// TestLoadSaveLoad_OrphanRoundTripSafe verifies the full round-trip:
+// Load (annotates orphans), Save (strips them), Load (re-annotates fresh).
+// The orphan comment must survive intact after an arbitrary intermediate
+// mutation (here, editing a separate in-diff comment's body).
+func TestLoadSaveLoad_OrphanRoundTripSafe(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{
+			{
+				ID: "rc_orph", File: "src/unchanged.ts",
+				Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+				Snippet: "static line", Body: "keep me", Submitted: true,
+			},
+			{
+				ID: "rc_in_diff", File: "src/changed.ts",
+				Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
+				Snippet: "v2", Body: "original", Submitted: true,
+			},
+		},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded.Comments) != 2 {
+		t.Fatalf("first Load: expected 2 comments, got %d", len(loaded.Comments))
+	}
+
+	// Simulate the client editing the in-diff comment and echoing the full
+	// Review back (including the populated orphan fields on rc_orph).
+	for i := range loaded.Comments {
+		if loaded.Comments[i].ID == "rc_in_diff" {
+			loaded.Comments[i].Body = "edited"
+		}
+	}
+	if err := Save(projectDir, loaded); err != nil {
+		t.Fatalf("Save 2: %v", err)
+	}
+
+	// On disk: orphan fields must be stripped.
+	onDisk, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
+	if err != nil {
+		t.Fatalf("readReviewFile: %v", err)
+	}
+	if len(onDisk.Comments) != 2 {
+		t.Fatalf("on-disk: expected 2 comments, got %d", len(onDisk.Comments))
+	}
+	for _, c := range onDisk.Comments {
+		if c.Orphaned || c.OrphanLine != 0 || c.OrphanSide != "" || c.OrphanDeleted {
+			t.Errorf("on-disk comment %q has orphan fields: %+v", c.ID, c)
+		}
+	}
+
+	// Second Load: orphan is re-annotated fresh from the (clean) disk state.
+	loaded2, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load 2: %v", err)
+	}
+	var orph *ReviewComment
+	var inDiff *ReviewComment
+	for i := range loaded2.Comments {
+		switch loaded2.Comments[i].ID {
+		case "rc_orph":
+			orph = &loaded2.Comments[i]
+		case "rc_in_diff":
+			inDiff = &loaded2.Comments[i]
+		}
+	}
+	if orph == nil || !orph.Orphaned || orph.OrphanLine != 2 {
+		t.Errorf("orphan lost or mis-annotated after round-trip: %+v", orph)
+	}
+	if inDiff == nil || inDiff.Body != "edited" {
+		t.Errorf("in-diff edit lost after round-trip: %+v", inDiff)
+	}
+}
