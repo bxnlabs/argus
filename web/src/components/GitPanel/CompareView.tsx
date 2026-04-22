@@ -217,11 +217,21 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const comments = reviewData?.comments ?? EMPTY_COMMENTS;
 
+  const { visibleComments, orphanedComments } = useMemo(() => {
+    const visible: ReviewComment[] = [];
+    const orphaned: ReviewComment[] = [];
+    for (const c of comments) {
+      if (c.orphaned) orphaned.push(c);
+      else visible.push(c);
+    }
+    return { visibleComments: visible, orphanedComments: orphaned };
+  }, [comments]);
+
   // --- Pre-indexed comments by file (referentially stable per-file) ---
   const prevCommentsByFile = useRef(new Map<string, ReviewComment[]>());
   const commentsByFile = useMemo(() => {
     const next = new Map<string, ReviewComment[]>();
-    for (const c of comments) {
+    for (const c of visibleComments) {
       const arr = next.get(c.file);
       if (arr) arr.push(c);
       else next.set(c.file, [c]);
@@ -239,7 +249,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
     prevCommentsByFile.current = stable;
     return stable;
-  }, [comments]);
+  }, [visibleComments]);
 
   // Optimistically update the review cache and persist to server.
   // Accepts a functional updater so callers don't close over reviewData/comments.
@@ -287,7 +297,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const sortedComments = useMemo(() => {
-    if (!comments.length || !parsedDiffs.length) return [];
+    if (!visibleComments.length || !parsedDiffs.length) return [];
     const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
 
     // Build a line position index for each file
@@ -306,7 +316,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       linePositions.set(pathKey, posMap);
     }
 
-    return [...comments].filter((c) => c.anchorStatus !== "context_unavailable").sort((a, b) => {
+    return [...visibleComments].filter((c) => c.anchorStatus !== "context_unavailable").sort((a, b) => {
       const ai = fileOrder.indexOf(a.file);
       const bi = fileOrder.indexOf(b.file);
       if (ai !== bi) return ai - bi;
@@ -318,7 +328,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       const idxB = posB?.get(keyB) ?? b.line.from.line;
       return idxA - idxB;
     });
-  }, [comments, parsedDiffs]);
+  }, [visibleComments, parsedDiffs]);
 
   // Tracks the last visited position so navigation can resume near it when
   // the focused comment is deleted. Updated from scrollToComment and from
@@ -528,7 +538,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   // After review data loads, ensure all comments are visible by inserting synthetic hunks
   useEffect(() => {
-    if (!comments.length || !parsedDiffs.length) return;
+    if (!visibleComments.length || !parsedDiffs.length) return;
 
     // Group comments by file and ensure visibility for each
     for (const [pathKey, fileComments] of commentsByFile) {
@@ -565,7 +575,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comments, parsedDiffs, compareData?.headRef, compareData?.baseRef]);
+  }, [visibleComments, parsedDiffs, compareData?.headRef, compareData?.baseRef]);
 
   // Stable per-file onLineClick handlers — avoids creating new closures in the render loop
   const fileLineClickHandlers = useMemo(() => {
