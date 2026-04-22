@@ -97,6 +97,15 @@ type ReviewComment struct {
 	Submitted      bool         `json:"submitted"`
 	CreatedAt      string       `json:"createdAt"`
 	AnchorStatus   AnchorStatus `json:"anchorStatus,omitempty"`
+
+	// Orphan annotation — populated by Load, stripped by Save. Never persisted.
+	// A comment is "orphaned" when its file is not present in the compare diff
+	// for the current ref pair (e.g. the file is unchanged between refs, so the
+	// compare view has no rendered file container to host the inline card).
+	Orphaned      bool     `json:"orphaned,omitempty"`
+	OrphanLine    int      `json:"orphanLine,omitempty"`    // 1-indexed line in the reference content; 0 when unanchorable
+	OrphanSide    DiffSide `json:"orphanSide,omitempty"`    // which ref the line refers to (R = headRef, L = baseRef)
+	OrphanDeleted bool     `json:"orphanDeleted,omitempty"` // file no longer exists at either ref
 }
 
 // ReviewBody is the top-level review feedback (not anchored to a line).

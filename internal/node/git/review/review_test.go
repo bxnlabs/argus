@@ -831,6 +831,46 @@ func TestDetectStaleness_StaleWhenAmbiguous(t *testing.T) {
 	}
 }
 
+// TestReviewComment_OrphanFieldsRoundTrip verifies the orphan-annotation
+// fields serialize and deserialize correctly. These fields are populated by
+// Load at runtime and represent view-layer state — they are transient by
+// contract, but the type must still round-trip if a client echoes them.
+func TestReviewComment_OrphanFieldsRoundTrip(t *testing.T) {
+	c := ReviewComment{
+		ID:            "rc_orph",
+		File:          "src/foo.ts",
+		Line:          LineRange{From: DiffPosition{Side: DiffSideRight, Line: 5}, To: DiffPosition{Side: DiffSideRight, Line: 5}},
+		Snippet:       "doThing()",
+		Body:          "why this still matters",
+		Submitted:     true,
+		Orphaned:      true,
+		OrphanLine:    42,
+		OrphanSide:    DiffSideRight,
+		OrphanDeleted: true,
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got ReviewComment
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !got.Orphaned || got.OrphanLine != 42 || got.OrphanSide != DiffSideRight || !got.OrphanDeleted {
+		t.Errorf("round-trip failed: %+v", got)
+	}
+
+	// Empty orphan fields must omit cleanly (no "orphaned":false noise in JSON).
+	plain := ReviewComment{ID: "rc_plain", File: "src/x.ts", Submitted: false}
+	plainData, err := json.Marshal(plain)
+	if err != nil {
+		t.Fatalf("Marshal plain: %v", err)
+	}
+	if strings.Contains(string(plainData), "orphan") {
+		t.Errorf("empty orphan fields must omit; got %s", plainData)
+	}
+}
+
 // TestDetectStaleness_ContextDisambiguatesMatch verifies that when a snippet appears
 // at multiple locations, a snippetContext that uniquely identifies one of them causes
 // the comment to be re-anchored to that specific location (not the nearest one).
