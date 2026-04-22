@@ -242,7 +242,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       }
       g.comments.push(c);
     }
-    return Array.from(byKey, ([key, g]) => ({ key, ...g }));
+    return Array.from(byKey, ([key, g]) => ({ key, ...g })).sort((a, b) =>
+      a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+    );
   }, [orphanedComments]);
 
   // --- Pre-indexed comments by file (referentially stable per-file) ---
@@ -443,6 +445,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     const el = commentRefs.current.get(comment.id);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (comment.orphaned) {
+      const key = comment.oldPath ? `${comment.oldPath}→${comment.file}` : comment.file;
+      const orphanEl = orphanRefs.current.get(key);
+      if (orphanEl) {
+        orphanEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
       return;
     }
     const fileEl = diffRefs.current.get(comment.file);
