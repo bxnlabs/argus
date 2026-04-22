@@ -1122,3 +1122,34 @@ func TestDetectStaleness_ContextDisambiguatesMatch(t *testing.T) {
 	}
 }
 
+// TestSave_StripsOrphanAnnotations verifies that if a client POSTs a Review
+// whose comments still carry orphan annotations (they shouldn't, but the
+// server is defensive), Save writes a clean slice with zero orphan fields.
+func TestSave_StripsOrphanAnnotations(t *testing.T) {
+	projectDir := t.TempDir()
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID: "rc_echoed", File: "src/foo.ts",
+			Line:          LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
+			Snippet:       "x",
+			Submitted:     true,
+			Orphaned:      true,
+			OrphanLine:    99,
+			OrphanSide:    DiffSideRight,
+			OrphanDeleted: false,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	onDisk, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
+	if err != nil {
+		t.Fatalf("readReviewFile: %v", err)
+	}
+	c := onDisk.Comments[0]
+	if c.Orphaned || c.OrphanLine != 0 || c.OrphanSide != "" || c.OrphanDeleted {
+		t.Errorf("orphan fields must be stripped on disk, got %+v", c)
+	}
+}
+

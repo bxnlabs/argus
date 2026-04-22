@@ -527,10 +527,22 @@ func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, er
 	return r, nil
 }
 
-// Save writes the Review to disk.
+// Save writes the Review to disk. Orphan annotations are stripped defensively
+// so that a client echoing them back cannot cause them to be persisted.
 func Save(projectDir string, r *Review) error {
-	path := reviewPath(projectDir, r.Head, r.Base)
-	return writeReviewFile(path, r)
+	stripped := *r
+	if len(r.Comments) > 0 {
+		stripped.Comments = make([]ReviewComment, len(r.Comments))
+		for i, c := range r.Comments {
+			c.Orphaned = false
+			c.OrphanLine = 0
+			c.OrphanSide = ""
+			c.OrphanDeleted = false
+			stripped.Comments[i] = c
+		}
+	}
+	path := reviewPath(projectDir, stripped.Head, stripped.Base)
+	return writeReviewFile(path, &stripped)
 }
 
 // Delete removes the review file for the given branch pair.
