@@ -28,6 +28,7 @@ import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { OrphanedCommentsSection } from "./OrphanedCommentsSection";
+import { OrphanedFileView } from "./OrphanedFileView";
 import { useViewport } from "@/hooks/useViewport";
 import { fetchFileLines } from "@/data/git/file-lines";
 import { computeOldToNewOffset, type ExpansionContext } from "@/hooks/useExpandableDiff";
@@ -956,6 +957,27 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
               onRegisterInsertSynthetic={fileRegisterInsertSyntheticHandlers.get(pathKey)}
               expansionContext={fileExpansionContexts.get(pathKey)!}
+            />
+          </div>
+        );
+      })}
+      {orphanGroups.map((g) => {
+        const first = g.comments[0];
+        const targetFile = first.orphanSide === "L" && first.oldPath ? first.oldPath : first.file;
+        return (
+          <div key={g.key} ref={setOrphanRef(g.key)}>
+            <OrphanedFileView
+              workingDirectory={workingDirectory}
+              groupKey={g.key}
+              displayFile={g.displayFile}
+              file={targetFile}
+              comments={g.comments}
+              headRef={compareData?.headRef ?? ""}
+              baseRef={compareData?.baseRef ?? ""}
+              onDeleteComment={handleDeleteComment}
+              onEditComment={handleEditComment}
+              onEditCommentRequest={editCommentRequestHandler}
+              onCommentRef={setCommentRef}
             />
           </div>
         );
