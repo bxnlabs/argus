@@ -3,7 +3,7 @@ import { ChevronRight, FileWarning } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ReviewComment } from "@/types";
 
-export interface OrphanedFileGroup {
+export interface OutOfDiffFileGroup {
   /** Stable scroll-target key, typically the file path (or {file, oldPath} composite). */
   key: string;
   /** User-facing file label; for renames, show both paths. */
@@ -13,12 +13,12 @@ export interface OrphanedFileGroup {
 }
 
 interface Props {
-  groups: OrphanedFileGroup[];
+  groups: OutOfDiffFileGroup[];
   onFileClick: (key: string) => void;
   selectedKey?: string;
 }
 
-export function OrphanedCommentsSection({ groups, onFileClick, selectedKey }: Props) {
+export function OutOfDiffSection({ groups, onFileClick, selectedKey }: Props) {
   const [expanded, setExpanded] = useState(true);
   if (groups.length === 0) return null;
 
@@ -35,7 +35,7 @@ export function OrphanedCommentsSection({ groups, onFileClick, selectedKey }: Pr
             className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")}
           />
           <FileWarning className="h-4 w-4" />
-          <span>Orphaned comments</span>
+          <span>Out-of-diff comments</span>
         </button>
         <span className="bg-muted ml-auto rounded-full px-2 py-0.5 text-xs">
           {totalComments}

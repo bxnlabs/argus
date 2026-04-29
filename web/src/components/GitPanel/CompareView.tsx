@@ -27,14 +27,32 @@ import { ReviewSubmitButton } from "./ReviewSubmitButton";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
-import { OrphanedCommentsSection } from "./OrphanedCommentsSection";
-import { OrphanedFileView } from "./OrphanedFileView";
+import { OutOfDiffSection } from "./OutOfDiffSection";
+import { OutOfDiffFile } from "./OutOfDiffFile";
 import { useViewport } from "@/hooks/useViewport";
 import { fetchFileLines } from "@/data/git/file-lines";
 import { computeOldToNewOffset, type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
+
+/** Returns a Review whose comments have transient anchor statuses stripped.
+ * `context_unavailable` is set client-side from a failed synthetic-hunk fetch
+ * and must never be persisted; without this stripping it would leak through
+ * any saveReview that uses the cached Review as `prev`. */
+function stripTransientAnchorStatus(r: Review): Review {
+  let mutated = false;
+  const comments = r.comments.map((c) => {
+    if (c.anchorStatus === "context_unavailable") {
+      mutated = true;
+      const { anchorStatus: _drop, ...rest } = c;
+      void _drop;
+      return rest;
+    }
+    return c;
+  });
+  return mutated ? { ...r, comments } : r;
+}
 
 /** Fire-and-forget helper: fetch lines and insert a synthetic hunk for an off-screen comment. */
 async function fetchFileLinesForSynthetic(
@@ -109,7 +127,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
-  const [selectedOrphanKey, setSelectedOrphanKey] = useState<string | null>(null);
+  const [selectedOutOfDiffKey, setSelectedOutOfDiffKey] = useState<string | null>(null);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
   const insertSyntheticHandlers = useRef<Map<string, (hunk: DiffHunk, idx: number) => void>>(new Map());
@@ -123,6 +141,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // browser clamps scrollTop short of the target when files after it are
   // still lazy placeholders. Cleared one frame after the scroll lands.
   const [isScrollPending, setIsScrollPending] = useState(false);
+  // Records which map (file diffs vs out-of-diff groups) the most recent scroll
+  // request targets. Read by the unified scroll effect to look up the target
+  // element in the correct ref map without branching on which piece of state
+  // changed most recently.
+  const lastScrollTargetKindRef = useRef<"file" | "outOfDiff">("file");
   const [activeComment, setActiveComment] = useState<{
     file: string;
     position: DiffPosition;
@@ -139,7 +162,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   } = useCompareBranchesQuery(workingDirectory);
 
   // Reset repo-scoped state when working directory changes. The
-  // scrollRequestRef bump invalidates any tick of the orphan poll that was
+  // scrollRequestRef bump invalidates any tick of the out-of-diff poll that was
   // already queued in the event loop before clearInterval landed, so the
   // callback bails via its requestId check if it does fire one last time.
   useEffect(() => {
@@ -153,21 +176,21 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     expandedHunksRef.current.clear();
     insertSyntheticHandlers.current.clear();
     scrollRequestRef.current++;
-    if (orphanPollRef.current !== null) {
-      window.clearInterval(orphanPollRef.current);
-      orphanPollRef.current = null;
+    if (outOfDiffPollRef.current !== null) {
+      window.clearInterval(outOfDiffPollRef.current);
+      outOfDiffPollRef.current = null;
     }
   }, [workingDirectory]);
 
-  // Clear any in-flight orphan poll on unmount so it can't outlive the view.
+  // Clear any in-flight out-of-diff poll on unmount so it can't outlive the view.
   // Same pattern as above: bump scrollRequestRef to defeat any already-queued
   // tick that clearInterval might not cancel.
   useEffect(() => {
     return () => {
       scrollRequestRef.current++;
-      if (orphanPollRef.current !== null) {
-        window.clearInterval(orphanPollRef.current);
-        orphanPollRef.current = null;
+      if (outOfDiffPollRef.current !== null) {
+        window.clearInterval(outOfDiffPollRef.current);
+        outOfDiffPollRef.current = null;
       }
     };
   }, []);
@@ -218,16 +241,16 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     error: compareErrorDetail,
   } = useCompareQuery(workingDirectory, baseBranch);
 
-  // Invalidate any in-flight orphan-mount poll when the compare context
+  // Invalidate any in-flight out-of-diff-mount poll when the compare context
   // changes. Without this, a poll started just before a branch switch could
   // fire in the new review and scroll to a coincidentally same-id comment.
   // The scrollRequestRef bump makes the poll's next tick bail; the interval
   // clear is belt+suspenders so we don't leave dead ticks running.
   useEffect(() => {
     scrollRequestRef.current++;
-    if (orphanPollRef.current !== null) {
-      window.clearInterval(orphanPollRef.current);
-      orphanPollRef.current = null;
+    if (outOfDiffPollRef.current !== null) {
+      window.clearInterval(outOfDiffPollRef.current);
+      outOfDiffPollRef.current = null;
     }
   }, [baseBranch, compareData?.headRef, compareData?.baseRef]);
 
@@ -254,19 +277,79 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const comments = reviewData?.comments ?? EMPTY_COMMENTS;
 
-  const { visibleComments, orphanedComments } = useMemo(() => {
-    const visible: ReviewComment[] = [];
-    const orphaned: ReviewComment[] = [];
-    for (const c of comments) {
-      if (c.orphaned) orphaned.push(c);
-      else visible.push(c);
+  // Set of paths represented in the compare diff (both new paths and old
+  // paths for renames). A comment whose file is not in this set is "out of
+  // diff" — its anchor isn't hosted by any rendered file row in the diff
+  // pane, so we render it via a synthetic hunk fetched from the relevant ref.
+  const diffPathSet = useMemo(() => {
+    const s = new Set<string>();
+    if (compareData) {
+      for (const f of compareData.files) {
+        s.add(f.path);
+        if (f.oldPath) s.add(f.oldPath);
+      }
     }
-    return { visibleComments: visible, orphanedComments: orphaned };
-  }, [comments]);
+    return s;
+  }, [compareData]);
+  const isInDiff = useCallback(
+    (c: ReviewComment) => diffPathSet.has(c.file) || (!!c.oldPath && diffPathSet.has(c.oldPath)),
+    [diffPathSet],
+  );
 
-  const orphanGroups = useMemo(() => {
+  // Map every alias path (oldPath included) to the file's canonical pathKey.
+  // CommitFile.path already matches what getDiffPathKey returns for the
+  // corresponding ParsedDiff (newFile for modify/rename/add, oldFile for
+  // delete), so a single lookup resolves any pre-rename comment whose
+  // `c.file` points at the old name to the rendered diff's key.
+  const canonicalKeyByPath = useMemo(() => {
+    const m = new Map<string, string>();
+    if (compareData) {
+      for (const f of compareData.files) {
+        m.set(f.path, f.path);
+        if (f.oldPath) m.set(f.oldPath, f.path);
+      }
+    }
+    return m;
+  }, [compareData]);
+  // Resolve a comment to the canonical compare key. Falls back to c.file so
+  // out-of-diff comments still get a stable identifier — they won't match any
+  // rendered diff anyway, but the key drives outOfDiff group identity too.
+  const canonicalKeyForComment = useCallback(
+    (c: ReviewComment): string => {
+      const fromFile = canonicalKeyByPath.get(c.file);
+      if (fromFile) return fromFile;
+      if (c.oldPath) {
+        const fromOld = canonicalKeyByPath.get(c.oldPath);
+        if (fromOld) return fromOld;
+      }
+      return c.file;
+    },
+    [canonicalKeyByPath],
+  );
+
+  // Only partition once the compare diff has actually loaded. Otherwise an
+  // empty diffPathSet would tag every comment as out-of-diff and the desktop
+  // sidebar would render a bogus OutOfDiffSection while the right pane is
+  // still showing its loader. Treating the pre-data state as "all visible"
+  // keeps comment-by-file lookups empty and keeps the out-of-diff UI hidden
+  // until classification is meaningful.
+  const canClassify = !!compareData && !loadingCompare && !compareError;
+  const { visibleComments, outOfDiffComments } = useMemo(() => {
+    if (!canClassify) {
+      return { visibleComments: comments, outOfDiffComments: EMPTY_COMMENTS };
+    }
+    const visible: ReviewComment[] = [];
+    const outOfDiff: ReviewComment[] = [];
+    for (const c of comments) {
+      if (isInDiff(c)) visible.push(c);
+      else outOfDiff.push(c);
+    }
+    return { visibleComments: visible, outOfDiffComments: outOfDiff };
+  }, [comments, isInDiff, canClassify]);
+
+  const outOfDiffGroups = useMemo(() => {
     const byKey = new Map<string, { displayFile: string; comments: ReviewComment[] }>();
-    for (const c of orphanedComments) {
+    for (const c of outOfDiffComments) {
       const key = c.oldPath ? `${c.oldPath}→${c.file}` : c.file;
       const displayFile = c.oldPath ? `${c.oldPath} → ${c.file}` : c.file;
       let g = byKey.get(key);
@@ -279,16 +362,21 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return Array.from(byKey, ([key, g]) => ({ key, ...g })).sort((a, b) =>
       a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
     );
-  }, [orphanedComments]);
+  }, [outOfDiffComments]);
 
   // --- Pre-indexed comments by file (referentially stable per-file) ---
+  // Bucketed by canonical compare key so comments authored before a rename
+  // (c.file = old name, no c.oldPath) still land under the rendered diff's
+  // pathKey — without this remap the bucket is keyed by the old name and
+  // renderDiffs.commentsByFile.get(pathKey) returns undefined.
   const prevCommentsByFile = useRef(new Map<string, ReviewComment[]>());
   const commentsByFile = useMemo(() => {
     const next = new Map<string, ReviewComment[]>();
     for (const c of visibleComments) {
-      const arr = next.get(c.file);
+      const key = canonicalKeyForComment(c);
+      const arr = next.get(key);
       if (arr) arr.push(c);
-      else next.set(c.file, [c]);
+      else next.set(key, [c]);
     }
     // Preserve previous array refs for files whose comments didn't change
     const prev = prevCommentsByFile.current;
@@ -303,7 +391,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
     prevCommentsByFile.current = stable;
     return stable;
-  }, [visibleComments]);
+  }, [visibleComments, canonicalKeyForComment]);
 
   // Optimistically update the review cache and persist to server.
   // Accepts a functional updater so callers don't close over reviewData/comments.
@@ -319,7 +407,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     if (!prev) return;
     const updated = updater(prev);
     queryClient.setQueryData(reviewQueryKey, updated);
-    saveReview.mutate(updated);
+    // Drop transient anchorStatus values (e.g. context_unavailable from a
+    // failed synthetic-hunk fetch) before persisting. Without this, the
+    // client-only annotation written by markContextUnavailable would ride
+    // along on the next save and become permanent on disk.
+    saveReview.mutate(stripTransientAnchorStatus(updated));
   }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
 
   // Mark a comment's anchor as context_unavailable when synthetic hunk fetch fails.
@@ -351,7 +443,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const sortedComments = useMemo(() => {
-    if (!parsedDiffs.length && !orphanedComments.length) return [];
+    if (!parsedDiffs.length && !outOfDiffComments.length) return [];
 
     // --- Visible (in-diff) comments, ordered by file then diff-row index ---
     const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
@@ -375,11 +467,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     const visible = [...visibleComments]
       .filter((c) => c.anchorStatus !== "context_unavailable")
       .sort((a, b) => {
-        const ai = fileOrder.indexOf(a.file);
-        const bi = fileOrder.indexOf(b.file);
+        const aKey = canonicalKeyForComment(a);
+        const bKey = canonicalKeyForComment(b);
+        const ai = fileOrder.indexOf(aKey);
+        const bi = fileOrder.indexOf(bKey);
         if (ai !== bi) return ai - bi;
-        const posA = linePositions.get(a.file);
-        const posB = linePositions.get(b.file);
+        const posA = linePositions.get(aKey);
+        const posB = linePositions.get(bKey);
         const keyA = `${a.line.from.side}${a.line.from.line}`;
         const keyB = `${b.line.from.side}${b.line.from.line}`;
         const idxA = posA?.get(keyA) ?? a.line.from.line;
@@ -387,16 +481,16 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         return idxA - idxB;
       });
 
-    // --- Orphan comments, ordered by group key then orphanLine ---
-    const orphans = [...orphanedComments].sort((a, b) => {
+    // --- Out-of-diff comments, ordered by group key then stored line anchor ---
+    const outOfDiff = [...outOfDiffComments].sort((a, b) => {
       const aKey = a.oldPath ? `${a.oldPath}→${a.file}` : a.file;
       const bKey = b.oldPath ? `${b.oldPath}→${b.file}` : b.file;
       if (aKey !== bKey) return aKey < bKey ? -1 : 1;
-      return (a.orphanLine ?? 0) - (b.orphanLine ?? 0);
+      return a.line.from.line - b.line.from.line;
     });
 
-    return [...visible, ...orphans];
-  }, [visibleComments, orphanedComments, parsedDiffs]);
+    return [...visible, ...outOfDiff];
+  }, [visibleComments, outOfDiffComments, parsedDiffs, canonicalKeyForComment]);
 
   // Tracks the last visited position so navigation can resume near it when
   // the focused comment is deleted. Updated from scrollToComment and from
@@ -435,11 +529,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // calls bail out instead of scrolling back to a stale target.
   const scrollRequestRef = useRef(0);
 
-  // Tracks the in-flight orphan-mount poll so we can clear it on unmount or
+  // Tracks the in-flight out-of-diff-mount poll so we can clear it on unmount or
   // compare-context change. Without this, a poll started just before a branch
   // switch could fire in the new review and scroll to a coincidentally same-id
   // comment the user didn't ask for.
-  const orphanPollRef = useRef<number | null>(null);
+  const outOfDiffPollRef = useRef<number | null>(null);
 
   const scrollToComment = useCallback(async (index: number) => {
     const comment = sortedComments[index];
@@ -448,8 +542,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setFocusedCommentId(comment.id);
     lastFocusedIdxRef.current = index;
 
-    // Ensure the comment's line is visible in the current hunks before scrolling
-    const pathKey = comment.file;
+    // Ensure the comment's line is visible in the current hunks before scrolling.
+    // Uses the canonical key so a comment whose c.file points at a pre-rename
+    // alias still resolves to the rendered diff's hunks and refs.
+    const pathKey = canonicalKeyForComment(comment);
     const pos = comment.line.to;
     const currentHunks = getHunksForFile(pathKey);
     let visible = false;
@@ -465,7 +561,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       const handler = insertSyntheticHandlers.current.get(pathKey);
       if (handler) {
         const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
-        const file = pos.side === "L" && comment.oldPath ? comment.oldPath : comment.file;
+        // L-side fetch wants the path that exists at baseRef (oldPath when
+        // present, otherwise c.file is already the L-side path). R-side fetch
+        // wants the path that exists at headRef — the canonical key, so a
+        // pre-rename comment whose c.file is the old name still resolves to
+        // the new name at headRef.
+        const file = pos.side === "L"
+          ? (comment.oldPath ?? comment.file)
+          : pathKey;
         const start = Math.max(1, pos.line - 3);
         const end = pos.line + 3;
         await fetchFileLinesForSynthetic(
@@ -487,48 +590,48 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-    if (comment.orphaned) {
+    if (!isInDiff(comment)) {
       const key = comment.oldPath ? `${comment.oldPath}→${comment.file}` : comment.file;
-      const orphanEl = orphanRefs.current.get(key);
-      if (orphanEl) {
-        orphanEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      const groupEl = outOfDiffRefs.current.get(key);
+      if (groupEl) {
+        groupEl.scrollIntoView({ behavior: "smooth", block: "start" });
       }
-      // Orphan groups lazy-mount their body and fetch hunk data async, so the
-      // comment's DOM ref isn't populated yet on first visit. Poll briefly for
-      // the ref to appear and re-scroll so Prev/Next lands on the specific
-      // comment rather than the group header. Bail if a newer scroll request
-      // supersedes this one mid-poll. We retain the id so the compare-reset
-      // effect and component unmount can cancel an in-flight poll.
-      if (orphanPollRef.current !== null) {
-        window.clearInterval(orphanPollRef.current);
+      // Out-of-diff groups lazy-mount their body and fetch hunk data async,
+      // so the comment's DOM ref isn't populated yet on first visit. Poll
+      // briefly for the ref to appear and re-scroll so Prev/Next lands on the
+      // specific comment rather than the group header. Bail if a newer scroll
+      // request supersedes this one mid-poll. We retain the id so the
+      // compare-reset effect and component unmount can cancel an in-flight poll.
+      if (outOfDiffPollRef.current !== null) {
+        window.clearInterval(outOfDiffPollRef.current);
       }
       const startedAt = Date.now();
       const pollId = window.setInterval(() => {
         if (requestId !== scrollRequestRef.current) {
           window.clearInterval(pollId);
-          if (orphanPollRef.current === pollId) orphanPollRef.current = null;
+          if (outOfDiffPollRef.current === pollId) outOfDiffPollRef.current = null;
           return;
         }
         const targetEl = commentRefs.current.get(comment.id);
         if (targetEl) {
           window.clearInterval(pollId);
-          if (orphanPollRef.current === pollId) orphanPollRef.current = null;
+          if (outOfDiffPollRef.current === pollId) outOfDiffPollRef.current = null;
           targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
           return;
         }
         if (Date.now() - startedAt >= 1500) {
           window.clearInterval(pollId);
-          if (orphanPollRef.current === pollId) orphanPollRef.current = null;
+          if (outOfDiffPollRef.current === pollId) outOfDiffPollRef.current = null;
         }
       }, 100);
-      orphanPollRef.current = pollId;
+      outOfDiffPollRef.current = pollId;
       return;
     }
-    const fileEl = diffRefs.current.get(comment.file);
+    const fileEl = diffRefs.current.get(pathKey);
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markContextUnavailable]);
+  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markContextUnavailable, canonicalKeyForComment]);
 
   const handlePrevComment = useCallback(() => {
     // Stale focus (previous comment was deleted): target the slot that was
@@ -586,17 +689,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     [],
   );
 
-  const orphanRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const setOrphanRef = useCallback(
+  const outOfDiffRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const setOutOfDiffRef = useCallback(
     (key: string) => (el: HTMLElement | null) => {
-      if (el) orphanRefs.current.set(key, el);
-      else orphanRefs.current.delete(key);
+      if (el) outOfDiffRefs.current.set(key, el);
+      else outOfDiffRefs.current.delete(key);
     },
     [],
   );
 
   const scrollToFile = useCallback((path: string) => {
     setSelectedPath(path);
+    lastScrollTargetKindRef.current = "file";
     setIsScrollPending(true);
     if (isMobile) {
       setMobileShowDiffs(true);
@@ -683,7 +787,12 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         }
         if (!visible) {
           const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
-          const file = pos.side === "L" && comment.oldPath ? comment.oldPath : comment.file;
+          // L-side fetch wants the path that exists at baseRef (oldPath when
+          // present, else c.file). R-side fetch wants the canonical key so
+          // pre-rename comments still resolve to the new name at headRef.
+          const file = pos.side === "L"
+            ? (comment.oldPath ?? comment.file)
+            : pathKey;
           const start = Math.max(1, pos.line - 3);
           const end = pos.line + 3;
 
@@ -857,7 +966,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // active reflow is what caused the original drift-to-wrong-file bug —
   // placeholders kept inflating mid-animation and pushed the target down.
   useLayoutEffect(() => {
-    if (!selectedPath) return;
+    const kind = lastScrollTargetKindRef.current;
+    const key = kind === "outOfDiff" ? selectedOutOfDiffKey : selectedPath;
+    if (!key) return;
     // Drop the pending flag on any early-return path so predecessors don't
     // stay in the expensive all-mounted state if the effect can't execute
     // the scroll (mobile back-nav, target not in the current diff set, etc).
@@ -865,7 +976,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       setIsScrollPending(false);
       return;
     }
-    const el = diffRefs.current.get(selectedPath);
+    const el = kind === "outOfDiff"
+      ? outOfDiffRefs.current.get(key)
+      : diffRefs.current.get(key);
     if (!el) {
       setIsScrollPending(false);
       return;
@@ -892,7 +1005,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       cancelAnimationFrame(handle);
       if (releaseHandle !== null) cancelAnimationFrame(releaseHandle);
     };
-  }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
+  }, [scrollRequestId, selectedPath, selectedOutOfDiffKey, isMobile, mobileShowDiffs]);
 
   if (loadingBranches) {
     return (
@@ -985,29 +1098,27 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     </div>
   );
 
-  // Route orphan clicks through a small helper so mobile users land in the
-  // diff pane (where orphanRefs are mounted) before we attempt the scroll.
-  const scrollToOrphan = useCallback((key: string) => {
-    setSelectedOrphanKey(key);
-    const runScroll = () => {
-      const el = orphanRefs.current.get(key);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    };
+  // Route out-of-diff clicks through the unified scroll pipeline so the
+  // groups benefit from the same force-mount-predecessors stabilization as
+  // file diffs. Without this, the bare scrollIntoView would drift as lazy
+  // LazyFileDiff entries between the current viewport and the out-of-diff
+  // section mount and expand mid-animation.
+  const scrollToOutOfDiff = useCallback((key: string) => {
+    setSelectedOutOfDiffKey(key);
+    lastScrollTargetKindRef.current = "outOfDiff";
+    setIsScrollPending(true);
     if (isMobile) {
       setMobileShowDiffs(true);
-      // Two frames: one for the transition, one for layout.
-      requestAnimationFrame(() => requestAnimationFrame(runScroll));
-    } else {
-      runScroll();
     }
+    setScrollRequestId((n) => n + 1);
   }, [isMobile]);
 
   const hasChangedFiles = !!compareData?.files.length;
-  const hasOrphans = orphanGroups.length > 0;
-  const fileList = hasChangedFiles || hasOrphans ? (
-    <>
+  const hasOutOfDiff = outOfDiffGroups.length > 0;
+  const fileList = hasChangedFiles || hasOutOfDiff ? (
+    <div className="flex-1 overflow-y-auto">
       {hasChangedFiles && (
-        <div className="flex-1 overflow-y-auto">
+        <div>
           {compareData!.files.map((file) => (
             <CompareFileRow
               key={file.path}
@@ -1018,12 +1129,12 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           ))}
         </div>
       )}
-      <OrphanedCommentsSection
-        groups={orphanGroups}
-        selectedKey={selectedOrphanKey ?? undefined}
-        onFileClick={scrollToOrphan}
+      <OutOfDiffSection
+        groups={outOfDiffGroups}
+        selectedKey={selectedOutOfDiffKey ?? undefined}
+        onFileClick={scrollToOutOfDiff}
       />
-    </>
+    </div>
   ) : null;
 
   // --- Shared diff rendering helper ---
@@ -1071,16 +1182,16 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           </div>
         );
       })}
-      {orphanGroups.map((g) => {
+      {outOfDiffGroups.map((g) => {
         const first = g.comments[0];
-        const targetFile = first.orphanSide === "L" && first.oldPath ? first.oldPath : first.file;
         return (
-          <div key={g.key} ref={setOrphanRef(g.key)}>
-            <OrphanedFileView
+          <div key={g.key} ref={setOutOfDiffRef(g.key)}>
+            <OutOfDiffFile
               workingDirectory={workingDirectory}
               groupKey={g.key}
               displayFile={g.displayFile}
-              file={targetFile}
+              file={first.file}
+              oldPath={first.oldPath}
               comments={g.comments}
               headRef={compareData?.headRef ?? ""}
               baseRef={compareData?.baseRef ?? ""}
@@ -1103,7 +1214,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         </div>
       ) : compareError ? (
         compareErrorView
-      ) : parsedDiffs.length === 0 && orphanGroups.length === 0 ? (
+      ) : parsedDiffs.length === 0 && outOfDiffGroups.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
           <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
           <p className="text-sm">No changes between branches</p>
@@ -1213,7 +1324,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
             </div>
           ) : compareError ? (
             compareErrorView
-          ) : hasChangedFiles || hasOrphans ? (
+          ) : hasChangedFiles || hasOutOfDiff ? (
             <>
               {hasChangedFiles &&
                 compareData!.files.map((file) => (
@@ -1224,10 +1335,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
                     onClick={() => scrollToFile(file.path)}
                   />
                 ))}
-              <OrphanedCommentsSection
-                groups={orphanGroups}
-                selectedKey={selectedOrphanKey ?? undefined}
-                onFileClick={scrollToOrphan}
+              <OutOfDiffSection
+                groups={outOfDiffGroups}
+                selectedKey={selectedOutOfDiffKey ?? undefined}
+                onFileClick={scrollToOutOfDiff}
               />
             </>
           ) : compareData ? (

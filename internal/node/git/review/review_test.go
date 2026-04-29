@@ -151,7 +151,7 @@ func TestDetectStaleness_SingleMatch(t *testing.T) {
 	}
 }
 
-func TestDetectStaleness_NoMatch(t *testing.T) {
+func TestDetectStaleness_NoMatch_Preserves(t *testing.T) {
 	dir := initTestRepo(t)
 	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
 	os.WriteFile(filepath.Join(dir, "src", "auth.ts"), []byte("completely different content\n"), 0o644)
@@ -167,12 +167,16 @@ func TestDetectStaleness_NoMatch(t *testing.T) {
 		Body: "Change to 3600", Submitted: true,
 	}}
 	result := detectStaleness(dir, headRef, "", comments)
-	if len(result) != 0 {
-		t.Fatalf("expected 0 comments (pruned), got %d", len(result))
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment preserved when snippet not found, got %d", len(result))
+	}
+	// Anchor should be unchanged (no re-anchor on -1).
+	if result[0].Line.From.Line != 5 {
+		t.Errorf("expected anchor preserved at line 5, got %d", result[0].Line.From.Line)
 	}
 }
 
-func TestDetectStaleness_FileDeleted(t *testing.T) {
+func TestDetectStaleness_FileDeleted_Preserves(t *testing.T) {
 	dir := initTestRepo(t)
 	// Commit a placeholder file so the repo is valid, but src/deleted.ts is not committed.
 	os.WriteFile(filepath.Join(dir, "README"), []byte("placeholder\n"), 0o644)
@@ -188,8 +192,8 @@ func TestDetectStaleness_FileDeleted(t *testing.T) {
 		Body: "Comment on deleted file", Submitted: true,
 	}}
 	result := detectStaleness(dir, headRef, "", comments)
-	if len(result) != 0 {
-		t.Fatalf("expected 0 comments (file deleted), got %d", len(result))
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment preserved when file missing at ref, got %d", len(result))
 	}
 }
 
@@ -245,7 +249,12 @@ func TestDetectStaleness_SkipsUnsubmitted(t *testing.T) {
 	}
 }
 
-func TestDetectStaleness_PathTraversal(t *testing.T) {
+func TestDetectStaleness_PathTraversal_Drops(t *testing.T) {
+	// Path traversal attempts are dropped at Load. Preserving them would
+	// leave the Review unsaveable, since the POST handler validates every
+	// persisted comment's path and 400s on the first failure. The comment
+	// has no rendered host (the file is unreachable), so dropping it is the
+	// only outcome that keeps later edits/submits working.
 	dir := initTestRepo(t)
 	os.WriteFile(filepath.Join(dir, "README"), []byte("placeholder\n"), 0o644)
 	runCmd(t, dir, "git", "add", ".")
@@ -261,7 +270,7 @@ func TestDetectStaleness_PathTraversal(t *testing.T) {
 	}}
 	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 0 {
-		t.Fatalf("expected 0 comments (path traversal rejected), got %d", len(result))
+		t.Fatalf("expected invalid-path comment dropped, got %d", len(result))
 	}
 }
 
@@ -831,243 +840,6 @@ func TestDetectStaleness_StaleWhenAmbiguous(t *testing.T) {
 	}
 }
 
-// TestReviewComment_OrphanFieldsRoundTrip verifies the orphan-annotation
-// fields serialize and deserialize correctly. These fields are populated by
-// Load at runtime and represent view-layer state — they are transient by
-// contract, but the type must still round-trip if a client echoes them.
-func TestReviewComment_OrphanFieldsRoundTrip(t *testing.T) {
-	c := ReviewComment{
-		ID:            "rc_orph",
-		File:          "src/foo.ts",
-		Line:          LineRange{From: DiffPosition{Side: DiffSideRight, Line: 5}, To: DiffPosition{Side: DiffSideRight, Line: 5}},
-		Snippet:       "doThing()",
-		Body:          "why this still matters",
-		Submitted:     true,
-		Orphaned:      true,
-		OrphanLine:    42,
-		OrphanSide:    DiffSideRight,
-		OrphanDeleted: true,
-	}
-	data, err := json.Marshal(c)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var got ReviewComment
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if !got.Orphaned || got.OrphanLine != 42 || got.OrphanSide != DiffSideRight || !got.OrphanDeleted {
-		t.Errorf("round-trip failed: %+v", got)
-	}
-
-	// Empty orphan fields must omit cleanly (no "orphaned":false noise in JSON).
-	plain := ReviewComment{ID: "rc_plain", File: "src/x.ts", Submitted: false}
-	plainData, err := json.Marshal(plain)
-	if err != nil {
-		t.Fatalf("Marshal plain: %v", err)
-	}
-	if strings.Contains(string(plainData), "orphan") {
-		t.Errorf("empty orphan fields must omit; got %s", plainData)
-	}
-}
-
-// TestAnnotateOrphans_DeletedFile verifies that a comment whose file does
-// not exist at the relevant ref is flagged OrphanDeleted.
-func TestAnnotateOrphans_DeletedFile(t *testing.T) {
-	dir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "base")
-	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "head")
-	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	comments := []ReviewComment{{
-		ID: "rc_gone", File: "src/never-existed.ts",
-		Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
-		Snippet: "something", Submitted: true,
-	}}
-	got := annotateOrphans(dir, headRef, baseRef, comments)
-	if !got[0].Orphaned {
-		t.Errorf("expected Orphaned=true")
-	}
-	if !got[0].OrphanDeleted {
-		t.Errorf("expected OrphanDeleted=true")
-	}
-	if got[0].OrphanLine != 0 {
-		t.Errorf("expected OrphanLine=0 for deleted file, got %d", got[0].OrphanLine)
-	}
-}
-
-// TestAnnotateOrphans_InDiffUntouched verifies that a comment whose file
-// IS in the compare diff receives no orphan annotation.
-func TestAnnotateOrphans_InDiffUntouched(t *testing.T) {
-	dir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "base")
-	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "head")
-	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	comments := []ReviewComment{{
-		ID: "rc_changed", File: "src/changed.ts",
-		Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
-		Snippet: "v2", Submitted: true,
-	}}
-	got := annotateOrphans(dir, headRef, baseRef, comments)
-	if got[0].Orphaned || got[0].OrphanLine != 0 || got[0].OrphanSide != "" {
-		t.Errorf("in-diff comment must not be annotated, got %+v", got[0])
-	}
-}
-
-// TestAnnotateOrphans_RSideUnchangedFile verifies an R-side comment whose
-// file has no diff between refs is marked orphaned and its line is
-// re-anchored against headRef content.
-func TestAnnotateOrphans_RSideUnchangedFile(t *testing.T) {
-	dir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-
-	// Base: two files.
-	os.WriteFile(filepath.Join(dir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "base")
-	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	// Head: only changed.ts differs.
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "head")
-	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	comments := []ReviewComment{{
-		ID: "rc_unchanged", File: "src/unchanged.ts",
-		Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
-		Snippet: "static line", Submitted: true,
-	}}
-	got := annotateOrphans(dir, headRef, baseRef, comments)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 comment, got %d", len(got))
-	}
-	if !got[0].Orphaned {
-		t.Errorf("expected Orphaned=true, got false")
-	}
-	if got[0].OrphanLine != 2 {
-		t.Errorf("expected OrphanLine=2, got %d", got[0].OrphanLine)
-	}
-	if got[0].OrphanSide != DiffSideRight {
-		t.Errorf("expected OrphanSide=R, got %q", got[0].OrphanSide)
-	}
-	if got[0].OrphanDeleted {
-		t.Errorf("expected OrphanDeleted=false")
-	}
-}
-
-// TestAnnotateOrphans_LSideUnchangedFile verifies an L-side comment whose
-// file has no diff between refs is re-anchored against baseRef content and
-// marked with OrphanSide=L.
-func TestAnnotateOrphans_LSideUnchangedFile(t *testing.T) {
-	dir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-
-	// Base: two files.
-	os.WriteFile(filepath.Join(dir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "base")
-	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	// Head: only changed.ts differs; unchanged.ts is literally unchanged.
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "head")
-	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	comments := []ReviewComment{{
-		ID: "rc_lside", File: "src/unchanged.ts",
-		Line:    LineRange{From: DiffPosition{Side: DiffSideLeft, Line: 2}, To: DiffPosition{Side: DiffSideLeft, Line: 2}},
-		Snippet: "static line", Submitted: true,
-	}}
-	got := annotateOrphans(dir, headRef, baseRef, comments)
-	if !got[0].Orphaned {
-		t.Errorf("expected Orphaned=true")
-	}
-	if got[0].OrphanLine != 2 {
-		t.Errorf("expected OrphanLine=2, got %d", got[0].OrphanLine)
-	}
-	if got[0].OrphanSide != DiffSideLeft {
-		t.Errorf("expected OrphanSide=L, got %q", got[0].OrphanSide)
-	}
-	if got[0].OrphanDeleted {
-		t.Errorf("expected OrphanDeleted=false")
-	}
-}
-
-// TestLoad_AnnotatesOrphansInResponseNotOnDisk verifies the persistence
-// invariant: Load populates orphan fields on the returned Review but the
-// on-disk file remains free of them. This is the core safety property for
-// the view-layer annotation approach.
-func TestLoad_AnnotatesOrphansInResponseNotOnDisk(t *testing.T) {
-	projectDir := t.TempDir()
-	repoDir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
-
-	// Base: two files.
-	os.WriteFile(filepath.Join(repoDir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
-	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, repoDir, "git", "add", ".")
-	runCmd(t, repoDir, "git", "commit", "-m", "base")
-	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
-
-	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, repoDir, "git", "add", ".")
-	runCmd(t, repoDir, "git", "commit", "-m", "head")
-	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
-
-	r := &Review{
-		Head: "feat/x", Base: "main",
-		Comments: []ReviewComment{{
-			ID: "rc_u", File: "src/unchanged.ts",
-			Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
-			Snippet: "static line", Submitted: true,
-		}},
-	}
-	if err := Save(projectDir, r); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(loaded.Comments) != 1 {
-		t.Fatalf("response: expected 1 comment, got %d", len(loaded.Comments))
-	}
-	if !loaded.Comments[0].Orphaned || loaded.Comments[0].OrphanLine != 2 {
-		t.Errorf("response: expected orphaned with line 2, got %+v", loaded.Comments[0])
-	}
-
-	onDisk, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
-	if err != nil {
-		t.Fatalf("readReviewFile: %v", err)
-	}
-	if len(onDisk.Comments) != 1 {
-		t.Fatalf("on-disk: expected 1 comment, got %d", len(onDisk.Comments))
-	}
-	if onDisk.Comments[0].Orphaned || onDisk.Comments[0].OrphanLine != 0 {
-		t.Errorf("on-disk: orphan fields must be zero, got %+v", onDisk.Comments[0])
-	}
-}
-
 // TestDetectStaleness_ContextDisambiguatesMatch verifies that when a snippet appears
 // at multiple locations, a snippetContext that uniquely identifies one of them causes
 // the comment to be re-anchored to that specific location (not the nearest one).
@@ -1122,94 +894,23 @@ func TestDetectStaleness_ContextDisambiguatesMatch(t *testing.T) {
 	}
 }
 
-// TestSave_StripsOrphanAnnotations verifies that if a client POSTs a Review
-// whose comments still carry orphan annotations (they shouldn't, but the
-// server is defensive), Save writes a clean slice with zero orphan fields.
-func TestSave_StripsOrphanAnnotations(t *testing.T) {
-	projectDir := t.TempDir()
-	r := &Review{
-		Head: "feat/x", Base: "main",
-		Comments: []ReviewComment{{
-			ID: "rc_echoed", File: "src/foo.ts",
-			Line:          LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
-			Snippet:       "x",
-			Submitted:     true,
-			Orphaned:      true,
-			OrphanLine:    99,
-			OrphanSide:    DiffSideRight,
-			OrphanDeleted: false,
-		}},
-	}
-	if err := Save(projectDir, r); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	onDisk, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
-	if err != nil {
-		t.Fatalf("readReviewFile: %v", err)
-	}
-	c := onDisk.Comments[0]
-	if c.Orphaned || c.OrphanLine != 0 || c.OrphanSide != "" || c.OrphanDeleted {
-		t.Errorf("orphan fields must be stripped on disk, got %+v", c)
-	}
-}
-
-
-// TestAnnotateOrphans_DraftOnUnchangedFile verifies that a draft comment on a
-// file not in the compare diff is still flagged Orphaned. This is the case
-// hit when a user edits a previously-submitted orphan comment: the edit
-// flips submitted to false, but the comment must remain visible (in the
-// orphan UI) rather than disappearing because its file is still not in the
-// compare diff.
-func TestAnnotateOrphans_DraftOnUnchangedFile(t *testing.T) {
-	dir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-
-	// Base: two files.
-	os.WriteFile(filepath.Join(dir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "base")
-	baseRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	os.WriteFile(filepath.Join(dir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, dir, "git", "add", ".")
-	runCmd(t, dir, "git", "commit", "-m", "head")
-	headRef := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
-
-	comments := []ReviewComment{{
-		ID: "rc_draft_orph", File: "src/unchanged.ts",
-		Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
-		Snippet: "static line", Submitted: false,
-	}}
-	got := annotateOrphans(dir, headRef, baseRef, comments)
-	if !got[0].Orphaned {
-		t.Errorf("expected Orphaned=true for draft on unchanged file")
-	}
-	if got[0].OrphanLine != 2 {
-		t.Errorf("expected OrphanLine=2, got %d", got[0].OrphanLine)
-	}
-	if got[0].OrphanSide != DiffSideRight {
-		t.Errorf("expected OrphanSide=R, got %q", got[0].OrphanSide)
-	}
-}
-
-// TestLoadSaveLoad_EditedOrphanSurvivesDraftFlip verifies the edit-orphan
-// flow: Load annotates an orphan comment, the client edits it (flipping
-// submitted to false) and saves, then Load re-annotates and the comment
-// remains flagged Orphaned. Without annotating drafts, the edited comment
-// would be absent from both the in-diff and orphan UI groups after refetch.
-func TestLoadSaveLoad_EditedOrphanSurvivesDraftFlip(t *testing.T) {
+// TestLoad_PreservesSubmittedCommentSnippetNotFound verifies that submitted
+// comments are preserved across Load even when the snippet is no longer
+// findable in the relevant ref. The frontend renders such comments via a
+// synthetic hunk fetched at the comment's stored line. detectStaleness must
+// never silently drop a submitted comment.
+func TestLoad_PreservesSubmittedCommentSnippetNotFound(t *testing.T) {
 	projectDir := t.TempDir()
 	repoDir := initTestRepo(t)
 	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
 
-	os.WriteFile(filepath.Join(repoDir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
-	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v1\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "stable.ts"), []byte("alpha\nbeta\ngamma\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "other.ts"), []byte("v1\n"), 0o644)
 	runCmd(t, repoDir, "git", "add", ".")
 	runCmd(t, repoDir, "git", "commit", "-m", "base")
 	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
 
-	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v2\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "other.ts"), []byte("v2\n"), 0o644)
 	runCmd(t, repoDir, "git", "add", ".")
 	runCmd(t, repoDir, "git", "commit", "-m", "head")
 	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
@@ -1217,9 +918,113 @@ func TestLoadSaveLoad_EditedOrphanSurvivesDraftFlip(t *testing.T) {
 	r := &Review{
 		Head: "feat/x", Base: "main",
 		Comments: []ReviewComment{{
-			ID: "rc_orph", File: "src/unchanged.ts",
-			Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
-			Snippet: "static line", Body: "original", Submitted: true,
+			ID:        "rc_missing_snippet",
+			File:      "src/stable.ts",
+			Line:      LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+			Snippet:   "deleted content that no longer exists",
+			Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded.Comments) != 1 {
+		t.Fatalf("expected 1 comment preserved, got %d", len(loaded.Comments))
+	}
+	if loaded.Comments[0].ID != "rc_missing_snippet" {
+		t.Errorf("wrong comment preserved: %s", loaded.Comments[0].ID)
+	}
+
+	// On-disk: also preserved (no accidental prune in detectStaleness).
+	onDisk, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
+	if err != nil {
+		t.Fatalf("readReviewFile: %v", err)
+	}
+	if len(onDisk.Comments) != 1 {
+		t.Errorf("on-disk: expected 1 comment preserved, got %d", len(onDisk.Comments))
+	}
+}
+
+// TestLoad_PreservesSubmittedCommentFileMissing verifies that a submitted
+// comment whose file does not exist at either ref is preserved by Load. The
+// frontend handles the file-deleted state by detecting a 404 from the
+// synthetic hunk fetch.
+func TestLoad_PreservesSubmittedCommentFileMissing(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "present.ts"), []byte("a\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "present.ts"), []byte("b\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:        "rc_missing_file",
+			File:      "src/gone.ts",
+			Line:      LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
+			Snippet:   "any snippet",
+			Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded.Comments) != 1 {
+		t.Fatalf("expected 1 comment preserved, got %d", len(loaded.Comments))
+	}
+	if loaded.Comments[0].ID != "rc_missing_file" {
+		t.Errorf("wrong comment preserved: %s", loaded.Comments[0].ID)
+	}
+}
+
+// TestLoad_PreservesEditedCommentRoundTrip verifies the edit-flow invariant:
+// loading, mutating, saving, then re-loading preserves the comment with the
+// edited body. detectStaleness preserves submitted comments unconditionally;
+// the test verifies that round-tripping through Save and Load does not drop
+// the comment regardless of whether the snippet is still findable.
+func TestLoad_PreservesEditedCommentRoundTrip(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "stable.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "touched.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "touched.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:        "rc_edit",
+			File:      "src/stable.ts",
+			Line:      LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+			Snippet:   "static line",
+			Body:      "original",
+			Submitted: true,
 		}},
 	}
 	if err := Save(projectDir, r); err != nil {
@@ -1230,11 +1035,6 @@ func TestLoadSaveLoad_EditedOrphanSurvivesDraftFlip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load 1: %v", err)
 	}
-	if !loaded.Comments[0].Orphaned {
-		t.Fatalf("preconditions: expected orphan annotation on first load")
-	}
-
-	// Simulate the client editing the orphan comment — flipping it to a draft.
 	loaded.Comments[0].Body = "edited"
 	loaded.Comments[0].Submitted = false
 	if err := Save(projectDir, loaded); err != nil {
@@ -1250,110 +1050,9 @@ func TestLoadSaveLoad_EditedOrphanSurvivesDraftFlip(t *testing.T) {
 	}
 	c := loaded2.Comments[0]
 	if c.Submitted {
-		t.Errorf("expected submitted=false after edit, got true")
-	}
-	if !c.Orphaned {
-		t.Errorf("expected Orphaned=true on edited draft — otherwise the comment disappears from the UI")
-	}
-	if c.OrphanLine != 2 {
-		t.Errorf("expected OrphanLine=2, got %d", c.OrphanLine)
+		t.Errorf("expected submitted=false, got true")
 	}
 	if c.Body != "edited" {
 		t.Errorf("expected body=edited, got %q", c.Body)
-	}
-}
-
-// TestLoadSaveLoad_OrphanRoundTripSafe verifies the full round-trip:
-// Load (annotates orphans), Save (strips them), Load (re-annotates fresh).
-// The orphan comment must survive intact after an arbitrary intermediate
-// mutation (here, editing a separate in-diff comment's body).
-func TestLoadSaveLoad_OrphanRoundTripSafe(t *testing.T) {
-	projectDir := t.TempDir()
-	repoDir := initTestRepo(t)
-	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
-
-	os.WriteFile(filepath.Join(repoDir, "src", "unchanged.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
-	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v1\n"), 0o644)
-	runCmd(t, repoDir, "git", "add", ".")
-	runCmd(t, repoDir, "git", "commit", "-m", "base")
-	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
-
-	os.WriteFile(filepath.Join(repoDir, "src", "changed.ts"), []byte("v2\n"), 0o644)
-	runCmd(t, repoDir, "git", "add", ".")
-	runCmd(t, repoDir, "git", "commit", "-m", "head")
-	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
-
-	r := &Review{
-		Head: "feat/x", Base: "main",
-		Comments: []ReviewComment{
-			{
-				ID: "rc_orph", File: "src/unchanged.ts",
-				Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
-				Snippet: "static line", Body: "keep me", Submitted: true,
-			},
-			{
-				ID: "rc_in_diff", File: "src/changed.ts",
-				Line:    LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
-				Snippet: "v2", Body: "original", Submitted: true,
-			},
-		},
-	}
-	if err := Save(projectDir, r); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(loaded.Comments) != 2 {
-		t.Fatalf("first Load: expected 2 comments, got %d", len(loaded.Comments))
-	}
-
-	// Simulate the client editing the in-diff comment and echoing the full
-	// Review back (including the populated orphan fields on rc_orph).
-	for i := range loaded.Comments {
-		if loaded.Comments[i].ID == "rc_in_diff" {
-			loaded.Comments[i].Body = "edited"
-		}
-	}
-	if err := Save(projectDir, loaded); err != nil {
-		t.Fatalf("Save 2: %v", err)
-	}
-
-	// On disk: orphan fields must be stripped.
-	onDisk, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
-	if err != nil {
-		t.Fatalf("readReviewFile: %v", err)
-	}
-	if len(onDisk.Comments) != 2 {
-		t.Fatalf("on-disk: expected 2 comments, got %d", len(onDisk.Comments))
-	}
-	for _, c := range onDisk.Comments {
-		if c.Orphaned || c.OrphanLine != 0 || c.OrphanSide != "" || c.OrphanDeleted {
-			t.Errorf("on-disk comment %q has orphan fields: %+v", c.ID, c)
-		}
-	}
-
-	// Second Load: orphan is re-annotated fresh from the (clean) disk state.
-	loaded2, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
-	if err != nil {
-		t.Fatalf("Load 2: %v", err)
-	}
-	var orph *ReviewComment
-	var inDiff *ReviewComment
-	for i := range loaded2.Comments {
-		switch loaded2.Comments[i].ID {
-		case "rc_orph":
-			orph = &loaded2.Comments[i]
-		case "rc_in_diff":
-			inDiff = &loaded2.Comments[i]
-		}
-	}
-	if orph == nil || !orph.Orphaned || orph.OrphanLine != 2 {
-		t.Errorf("orphan lost or mis-annotated after round-trip: %+v", orph)
-	}
-	if inDiff == nil || inDiff.Body != "edited" {
-		t.Errorf("in-diff edit lost after round-trip: %+v", inDiff)
 	}
 }

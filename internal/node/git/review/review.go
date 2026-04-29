@@ -97,15 +97,6 @@ type ReviewComment struct {
 	Submitted      bool         `json:"submitted"`
 	CreatedAt      string       `json:"createdAt"`
 	AnchorStatus   AnchorStatus `json:"anchorStatus,omitempty"`
-
-	// Orphan annotation — populated by Load, stripped by Save. Never persisted.
-	// A comment is "orphaned" when its file is not present in the compare diff
-	// for the current ref pair (e.g. the file is unchanged between refs, so the
-	// compare view has no rendered file container to host the inline card).
-	Orphaned      bool     `json:"orphaned,omitempty"`
-	OrphanLine    int      `json:"orphanLine,omitempty"`    // 1-indexed line in the reference content; 0 when unanchorable
-	OrphanSide    DiffSide `json:"orphanSide,omitempty"`    // which ref the line refers to (R = headRef, L = baseRef)
-	OrphanDeleted bool     `json:"orphanDeleted,omitempty"` // file no longer exists at either ref
 }
 
 // ReviewBody is the top-level review feedback (not anchored to a line).
@@ -192,117 +183,26 @@ func getFileContent(repoDir, ref, filePath string) (string, error) {
 	return string(out), nil
 }
 
-// changedFilesBetween returns the set of file paths that differ between baseRef
-// and headRef, including both old and new paths for renames. Returns nil if the
-// diff command fails (callers should treat nil as "don't prune").
-func changedFilesBetween(repoDir, baseRef, headRef string) map[string]struct{} {
-	cmd := exec.Command("git", "diff", "--find-renames", "--name-status", baseRef, headRef)
-	cmd.Dir = repoDir
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-	set := make(map[string]struct{})
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		// Format: "<status>\t<path>" for A/M/D, "R<pct>\t<old>\t<new>" for renames.
-		fields := strings.Split(line, "\t")
-		for _, p := range fields[1:] {
-			if p != "" {
-				set[p] = struct{}{}
-			}
-		}
-	}
-	return set
-}
-
-// annotateOrphans returns a copy of comments where each comment whose file
-// is not present in the compare diff between baseRef and headRef is marked
-// Orphaned and, when possible, re-anchored to a line in the relevant ref's
-// content. The helper is a read-only annotation pass: it never drops
-// comments, never reorders, and never mutates the input.
-//
-// Re-anchoring rules:
-//   - R-side comments are re-anchored against headRef using c.File.
-//   - L-side comments are re-anchored against baseRef using c.OldPath when
-//     non-empty, otherwise c.File.
-//   - When neither ref can produce the file, OrphanDeleted is set and
-//     OrphanLine remains 0. Callers should render a degraded view.
-//   - When the snippet cannot be located at all, OrphanLine is 0 but the
-//     comment is still flagged Orphaned so the UI can still surface it.
-//
-// Drafts are annotated identically to submitted comments: orphan-ness is a
-// property of the file's presence in the compare diff, independent of
-// submission state. This keeps an edited orphan (flipped to draft) visible
-// after refetch, since the UI partitions on Orphaned rather than Submitted.
-// Comments whose file IS in the diff are returned unchanged (orphan fields
-// zero).
-//
-// When baseRef == headRef the compare diff is empty and all comments are
-// orphaned; callers should avoid calling with equal refs unless that
-// annotation is desired.
-func annotateOrphans(repoDir, headRef, baseRef string, comments []ReviewComment) []ReviewComment {
-	if headRef == "" || baseRef == "" {
-		return comments
-	}
-	changedFiles := changedFilesBetween(repoDir, baseRef, headRef)
-	if changedFiles == nil {
-		return comments
-	}
-	result := make([]ReviewComment, len(comments))
-	for i, c := range comments {
-		result[i] = c
-		_, inDiff := changedFiles[c.File]
-		if !inDiff && c.OldPath != "" {
-			_, inDiff = changedFiles[c.OldPath]
-		}
-		if inDiff {
-			continue
-		}
-
-		result[i].Orphaned = true
-
-		side := c.Line.From.Side
-		ref := headRef
-		lookupPath := c.File
-		if side == DiffSideLeft {
-			ref = baseRef
-			if c.OldPath != "" {
-				lookupPath = c.OldPath
-			}
-		}
-
-		if err := ValidateFilePath(repoDir, lookupPath); err != nil {
-			result[i].OrphanDeleted = true
-			continue
-		}
-		fileText, err := getFileContent(repoDir, ref, lookupPath)
-		if err != nil {
-			result[i].OrphanDeleted = true
-			continue
-		}
-		line := findSnippetWithContext(fileText, c.Snippet, c.SnippetContext, c.Line.From.Line)
-		if line >= 1 {
-			result[i].OrphanLine = line
-			result[i].OrphanSide = side
-		}
-	}
-	return result
-}
-
 // detectStaleness re-anchors submitted comments to their current line positions
-// using immutable git refs rather than the working tree.
+// using immutable git refs rather than the working tree, and otherwise
+// preserves them. Drafts are always preserved as-is.
 //
 // R-side comments are resolved against headRef; L-side comments against baseRef.
 // L-side comments with a non-empty OldPath use OldPath for the file lookup.
-// Unsubmitted (draft) comments are always preserved as-is.
-// A comment that cannot be found at all is pruned (dropped).
-// A comment that matches ambiguously and whose snippetContext cannot disambiguate
-// is kept with AnchorStatus=AnchorStale.
+// When the ref/path is missing or the snippet cannot be located, the comment
+// is preserved with its existing line anchor — the frontend renders such
+// comments via a synthetic hunk fetched directly from the ref, or as a
+// degraded card when the file no longer exists.
+//
+// The one case that drops a submitted comment is an unsanitizable file path
+// (escapes the repo). Preserving such a comment would leave the in-memory
+// Review unsaveable — the POST handler runs sanitizeFilePath on every
+// persisted comment and rejects the whole payload on the first failure.
+//
+// A comment that matches ambiguously and whose snippetContext cannot
+// disambiguate is kept with AnchorStatus=AnchorStale.
 func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment) []ReviewComment {
-	result := make([]ReviewComment, 0)
+	result := make([]ReviewComment, 0, len(comments))
 	for _, c := range comments {
 		if !c.Submitted {
 			result = append(result, c)
@@ -321,13 +221,18 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 			}
 		}
 
-		// Validate path before passing to git.
 		if err := ValidateFilePath(repoDir, lookupPath); err != nil {
+			// Drop comments whose path escapes the repo. Preserving them would
+			// leave the in-memory Review unsaveable: the POST handler runs
+			// sanitizeFilePath on every persisted comment and rejects the
+			// whole payload on the first failure, so any later edit/submit
+			// would 400. The comment carries no information the user can act
+			// on (no rendered file, no diff context); dropping is safe.
 			continue
 		}
 
 		// If the ref is empty the caller hasn't provided enough context to check
-		// staleness; preserve the comment as-is rather than pruning it.
+		// staleness; preserve the comment as-is.
 		if ref == "" {
 			result = append(result, c)
 			continue
@@ -335,14 +240,18 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 
 		fileText, err := getFileContent(repoDir, ref, lookupPath)
 		if err != nil {
-			// File not present in this ref — prune.
+			// File not present in this ref — preserve; the frontend renders a
+			// degraded card when the synthetic-hunk fetch also 404s.
+			result = append(result, c)
 			continue
 		}
 
 		lineNum := findSnippetWithContext(fileText, c.Snippet, c.SnippetContext, c.Line.From.Line)
 		switch lineNum {
 		case -1:
-			// Not found — prune.
+			// Not found — preserve at the existing anchor; frontend will
+			// fetch a synthetic hunk around c.Line.From.Line.
+			result = append(result, c)
 			continue
 		case -2:
 			// Ambiguous — mark stale and keep.
@@ -512,6 +421,11 @@ func reviewPath(projectDir, head, base string) string {
 // for the base side (L-side). Either may be empty, in which case comments on that
 // side are skipped during staleness detection.
 // Returns nil, nil if no file exists.
+//
+// Comments on files outside the compare diff (and comments on lines outside
+// any rendered hunk) are returned unchanged; the frontend derives their
+// out-of-diff status from compareData and renders them via a synthetic hunk
+// fetched directly from the ref.
 func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, error) {
 	path := reviewPath(projectDir, head, base)
 	r, err := readReviewFile(path)
@@ -525,26 +439,13 @@ func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, er
 	if err := writeReviewFile(path, r); err != nil {
 		return nil, err
 	}
-	r.Comments = annotateOrphans(repoDir, headRef, baseRef, r.Comments)
 	return r, nil
 }
 
-// Save writes the Review to disk. Orphan annotations are stripped defensively
-// so that a client echoing them back cannot cause them to be persisted.
+// Save writes the Review to disk.
 func Save(projectDir string, r *Review) error {
-	stripped := *r
-	if len(r.Comments) > 0 {
-		stripped.Comments = make([]ReviewComment, len(r.Comments))
-		for i, c := range r.Comments {
-			c.Orphaned = false
-			c.OrphanLine = 0
-			c.OrphanSide = ""
-			c.OrphanDeleted = false
-			stripped.Comments[i] = c
-		}
-	}
-	path := reviewPath(projectDir, stripped.Head, stripped.Base)
-	return writeReviewFile(path, &stripped)
+	path := reviewPath(projectDir, r.Head, r.Base)
+	return writeReviewFile(path, r)
 }
 
 // Delete removes the review file for the given branch pair.

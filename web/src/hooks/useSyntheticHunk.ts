@@ -1,17 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchFileLines } from "@/data/git/file-lines";
 
-export interface OrphanHunkLine {
+export interface SyntheticHunkLine {
   content: string;
   lineNumber: number;
 }
 
-export interface OrphanHunk {
+// A synthetic hunk represents file content fetched directly from a git ref to
+// host comments whose anchor isn't covered by any rendered diff hunk — either
+// because the file is outside the compare diff, or because the comment lives
+// outside the rendered hunks of an in-diff file (e.g. a comment placed via
+// context expansion that has since rolled out of view).
+export interface SyntheticHunk {
   file: string;
   ref: string;
   start: number;
   end: number;
-  lines: OrphanHunkLine[];
+  lines: SyntheticHunkLine[];
   /** Total lines in the file at this ref — required by ExpandableUnifiedDiff
    * to know whether downward expansion can still yield more lines. */
   totalLines: number;
@@ -19,7 +24,7 @@ export interface OrphanHunk {
 
 const WINDOW = 10; // lines above and below the anchor band
 
-export function useOrphanHunk(params: {
+export function useSyntheticHunk(params: {
   path: string;
   file: string;
   ref: string;
@@ -35,9 +40,9 @@ export function useOrphanHunk(params: {
   const start = Math.max(1, startLine - WINDOW);
   const end = endLine + WINDOW;
   return useQuery({
-    queryKey: ["orphanHunk", path, file, ref, start, end],
-    queryFn: async (): Promise<OrphanHunk> => {
-      const result = await fetchFileLines({ path, file, ref, start, end });
+    queryKey: ["syntheticHunk", path, file, ref, start, end],
+    queryFn: async ({ signal }): Promise<SyntheticHunk> => {
+      const result = await fetchFileLines({ path, file, ref, start, end, signal });
       return {
         file,
         ref,
