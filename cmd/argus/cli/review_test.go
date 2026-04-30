@@ -1,11 +1,94 @@
 package cli
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/node/git/review"
 )
+
+func TestResolveReviewBase_FlagOverridesDefault(t *testing.T) {
+	// When --base is provided, the helper must return it verbatim and must
+	// NOT call /api/git/compare/branches at all (the network round-trip is
+	// pure waste and may fail on stale discovery state).
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.Error(w, "should not be called", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := &apiClient{baseURL: srv.URL + "/node"}
+	got, err := resolveReviewBase(c, "path=/tmp/repo", "develop")
+	if err != nil {
+		t.Fatalf("resolveReviewBase: %v", err)
+	}
+	if got != "develop" {
+		t.Errorf("base = %q, want %q", got, "develop")
+	}
+	if called {
+		t.Error("server should not have been called when --base is set")
+	}
+}
+
+func TestResolveReviewBase_FallsBackToDefault(t *testing.T) {
+	// With no flag, the helper must hit /api/git/compare/branches and use
+	// whatever defaultBase the server returns.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/api/git/compare/branches" {
+			t.Errorf("path = %q, want /node/api/git/compare/branches", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"defaultBase": "main"})
+	}))
+	defer srv.Close()
+
+	c := &apiClient{baseURL: srv.URL + "/node"}
+	got, err := resolveReviewBase(c, "path=/tmp/repo", "")
+	if err != nil {
+		t.Fatalf("resolveReviewBase: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("base = %q, want %q", got, "main")
+	}
+}
+
+func TestResolveReviewBase_EmptyFlagAndNoDefault(t *testing.T) {
+	// If we have neither a --base flag nor a detectable default, the helper
+	// must return a guidance-bearing error rather than silently passing an
+	// empty string down to review.Load (which would key the file as
+	// `head--.json` and look entirely broken).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"defaultBase": ""})
+	}))
+	defer srv.Close()
+
+	c := &apiClient{baseURL: srv.URL + "/node"}
+	_, err := resolveReviewBase(c, "path=/tmp/repo", "")
+	if err == nil {
+		t.Fatal("expected error when no default base is detectable and --base is unset")
+	}
+	if !strings.Contains(err.Error(), "--base") {
+		t.Errorf("error %q should mention --base to guide the user", err)
+	}
+}
+
+// TestReviewGetCmd_BaseFlagRegistered locks in the cobra wiring so the flag
+// can never be silently dropped during a refactor.
+func TestReviewGetCmd_BaseFlagRegistered(t *testing.T) {
+	cmd := newReviewGetCmd()
+	f := cmd.Flags().Lookup("base")
+	if f == nil {
+		t.Fatal("--base flag not registered on `review get`")
+	}
+	if f.DefValue != "" {
+		t.Errorf("--base default = %q, want empty (preserves auto-detect fallback)", f.DefValue)
+	}
+}
 
 func TestFormatReviewMarkdown(t *testing.T) {
 	r := &review.Review{
