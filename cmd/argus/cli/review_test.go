@@ -77,6 +77,43 @@ func TestResolveReviewBase_EmptyFlagAndNoDefault(t *testing.T) {
 	}
 }
 
+func TestResolveReviewBase_HTTPError(t *testing.T) {
+	// When the server returns an error, the helper must surface a wrapped
+	// "get branches" error rather than silently using an empty base.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := &apiClient{baseURL: srv.URL + "/node"}
+	_, err := resolveReviewBase(c, "path=/tmp/repo", "")
+	if err == nil {
+		t.Fatal("expected error when server returns 5xx")
+	}
+	if !strings.Contains(err.Error(), "get branches") {
+		t.Errorf("error %q should be wrapped with %q", err, "get branches")
+	}
+}
+
+func TestResolveReviewBase_MalformedJSON(t *testing.T) {
+	// When the server returns invalid JSON, the helper must surface a
+	// wrapped "parse branches" error so the failure mode is unambiguous.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{"))
+	}))
+	defer srv.Close()
+
+	c := &apiClient{baseURL: srv.URL + "/node"}
+	_, err := resolveReviewBase(c, "path=/tmp/repo", "")
+	if err == nil {
+		t.Fatal("expected error for malformed JSON response")
+	}
+	if !strings.Contains(err.Error(), "parse branches") {
+		t.Errorf("error %q should be wrapped with %q", err, "parse branches")
+	}
+}
+
 // TestReviewGetCmd_BaseFlagRegistered locks in the cobra wiring so the flag
 // can never be silently dropped during a refactor.
 func TestReviewGetCmd_BaseFlagRegistered(t *testing.T) {

@@ -33,6 +33,7 @@ func newReviewGetCmd() *cobra.Command {
 		Short: "Get submitted inline comments for the current branch",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
 			cwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("cannot determine working directory: %w", err)
