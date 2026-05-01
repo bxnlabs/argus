@@ -27,11 +27,13 @@ func newReviewCmd() *cobra.Command {
 }
 
 func newReviewGetCmd() *cobra.Command {
-	return &cobra.Command{
+	var baseFlag string
+	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Get submitted inline comments for the current branch",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
 			cwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("cannot determine working directory: %w", err)
@@ -72,17 +74,10 @@ func newReviewGetCmd() *cobra.Command {
 			}
 			branch := statusResp.Status.Branch
 
-			body, err = c.get("/api/git/compare/branches?" + pathParam)
+			baseBranch, err := resolveReviewBase(c, pathParam, baseFlag)
 			if err != nil {
-				return fmt.Errorf("get branches: %w", err)
+				return err
 			}
-			var branchResp struct {
-				DefaultBase string `json:"defaultBase"`
-			}
-			if err := json.Unmarshal(body, &branchResp); err != nil {
-				return fmt.Errorf("parse branches: %w", err)
-			}
-			baseBranch := branchResp.DefaultBase
 
 			rv, err := review.Load(projectDir, repoDir, branch, baseBranch, "", "")
 			if err != nil {
@@ -96,6 +91,34 @@ func newReviewGetCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&baseFlag, "base", "", "Base branch to compare against (default: detected default branch, typically main or master)")
+	return cmd
+}
+
+// resolveReviewBase returns the base branch to use when loading a review.
+// If flagBase is non-empty after trimming whitespace (the user passed --base),
+// the trimmed value is returned and no network round-trip is made. Otherwise,
+// the helper queries /api/git/compare/branches and returns the repo's detected
+// default base (typically main or master). If neither source yields a base,
+// an error is returned that explicitly guides the user toward --base.
+func resolveReviewBase(c *apiClient, pathParam, flagBase string) (string, error) {
+	if base := strings.TrimSpace(flagBase); base != "" {
+		return base, nil
+	}
+	body, err := c.get("/api/git/compare/branches?" + pathParam)
+	if err != nil {
+		return "", fmt.Errorf("get branches: %w", err)
+	}
+	var resp struct {
+		DefaultBase string `json:"defaultBase"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse branches: %w", err)
+	}
+	if resp.DefaultBase == "" {
+		return "", fmt.Errorf("no default base branch detected; use --base to specify one")
+	}
+	return resp.DefaultBase, nil
 }
 
 // commentGroupKey uniquely identifies a file section in the review output.
@@ -131,7 +154,7 @@ func formatReviewMarkdown(r *review.Review) string {
 	hasBody := r.Body != nil && r.Body.Submitted && r.Body.Body != ""
 
 	if len(submitted) == 0 && !hasBody {
-		b.WriteString("No submitted review comments.\n")
+		fmt.Fprintf(&b, "No submitted review comments for %s vs %s.\n", r.Head, r.Base)
 		return b.String()
 	}
 
