@@ -34,6 +34,31 @@ func TestResolveReviewBase_FlagOverridesDefault(t *testing.T) {
 	}
 }
 
+func TestResolveReviewBase_FlagTrimsWhitespace(t *testing.T) {
+	// A whitespace-padded --base value (e.g. accidental newline from a
+	// shell paste) must be trimmed before being used as the lookup key.
+	// Without this, `argus review get --base " main"` would key on the
+	// padded string and return an empty result.
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.Error(w, "should not be called", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := &apiClient{baseURL: srv.URL + "/node"}
+	got, err := resolveReviewBase(c, "path=/tmp/repo", "  main\n")
+	if err != nil {
+		t.Fatalf("resolveReviewBase: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("base = %q, want %q", got, "main")
+	}
+	if called {
+		t.Error("server should not have been called when --base is set")
+	}
+}
+
 func TestResolveReviewBase_FallsBackToDefault(t *testing.T) {
 	// With no flag, the helper must hit /api/git/compare/branches and use
 	// whatever defaultBase the server returns.
@@ -295,13 +320,17 @@ func TestFormatReviewMarkdown_RenamedFilePathCollision(t *testing.T) {
 }
 
 func TestFormatReviewMarkdown_Empty(t *testing.T) {
+	// The empty-output message must echo the queried head/base so a typo'd
+	// --base value is visible to the user instead of producing an
+	// indistinguishable "no comments" result against the wrong key.
 	r := &review.Review{
 		Head:     "feat/test",
 		Base:     "main",
 		Comments: []review.ReviewComment{},
 	}
 	output := formatReviewMarkdown(r)
-	if !strings.Contains(output, "No submitted review comments") {
-		t.Error("expected empty message")
+	want := "No submitted review comments for feat/test vs main."
+	if !strings.Contains(output, want) {
+		t.Errorf("output = %q, want it to contain %q", output, want)
 	}
 }

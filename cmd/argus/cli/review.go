@@ -96,14 +96,14 @@ func newReviewGetCmd() *cobra.Command {
 }
 
 // resolveReviewBase returns the base branch to use when loading a review.
-// If flagBase is non-empty (the user passed --base), it is returned verbatim
-// and no network round-trip is made. Otherwise, the helper queries
-// /api/git/compare/branches and returns the repo's detected default base
-// (typically main or master). If neither source yields a base, an error is
-// returned that explicitly guides the user toward --base.
+// If flagBase is non-empty after trimming whitespace (the user passed --base),
+// the trimmed value is returned and no network round-trip is made. Otherwise,
+// the helper queries /api/git/compare/branches and returns the repo's detected
+// default base (typically main or master). If neither source yields a base,
+// an error is returned that explicitly guides the user toward --base.
 func resolveReviewBase(c *apiClient, pathParam, flagBase string) (string, error) {
-	if flagBase != "" {
-		return flagBase, nil
+	if base := strings.TrimSpace(flagBase); base != "" {
+		return base, nil
 	}
 	body, err := c.get("/api/git/compare/branches?" + pathParam)
 	if err != nil {
@@ -154,7 +154,7 @@ func formatReviewMarkdown(r *review.Review) string {
 	hasBody := r.Body != nil && r.Body.Submitted && r.Body.Body != ""
 
 	if len(submitted) == 0 && !hasBody {
-		b.WriteString("No submitted review comments.\n")
+		fmt.Fprintf(&b, "No submitted review comments for %s vs %s.\n", r.Head, r.Base)
 		return b.String()
 	}
 
