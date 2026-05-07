@@ -711,6 +711,25 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setScrollRequestId((n) => n + 1);
   }, [isMobile]);
 
+  // Route out-of-diff clicks through the unified scroll pipeline so the
+  // groups benefit from the same force-mount-predecessors stabilization as
+  // file diffs. Without this, the bare scrollIntoView would drift as lazy
+  // LazyFileDiff entries between the current viewport and the out-of-diff
+  // section mount and expand mid-animation.
+  // Defined here (above the early returns) so the hook is unconditionally
+  // invoked every render — declaring it after the loadingBranches/branchError
+  // returns would change the hook count between renders and trip React's
+  // hook-order check.
+  const scrollToOutOfDiff = useCallback((key: string) => {
+    setSelectedOutOfDiffKey(key);
+    lastScrollTargetKindRef.current = "outOfDiff";
+    setIsScrollPending(true);
+    if (isMobile) {
+      setMobileShowDiffs(true);
+    }
+    setScrollRequestId((n) => n + 1);
+  }, [isMobile]);
+
   // --- Stable callbacks for UnifiedDiff ---
   const handleLineClick = useCallback((file: string, position: DiffPosition) => {
     setActiveComment({ file, position });
@@ -1097,21 +1116,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       </p>
     </div>
   );
-
-  // Route out-of-diff clicks through the unified scroll pipeline so the
-  // groups benefit from the same force-mount-predecessors stabilization as
-  // file diffs. Without this, the bare scrollIntoView would drift as lazy
-  // LazyFileDiff entries between the current viewport and the out-of-diff
-  // section mount and expand mid-animation.
-  const scrollToOutOfDiff = useCallback((key: string) => {
-    setSelectedOutOfDiffKey(key);
-    lastScrollTargetKindRef.current = "outOfDiff";
-    setIsScrollPending(true);
-    if (isMobile) {
-      setMobileShowDiffs(true);
-    }
-    setScrollRequestId((n) => n + 1);
-  }, [isMobile]);
 
   const hasChangedFiles = !!compareData?.files.length;
   const hasOutOfDiff = outOfDiffGroups.length > 0;
