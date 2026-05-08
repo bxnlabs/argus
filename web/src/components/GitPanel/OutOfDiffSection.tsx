@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, FileWarning } from "lucide-react";
+import { ChevronRight, FileWarning, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ReviewComment } from "@/types";
 
@@ -53,7 +53,8 @@ export function OutOfDiffSection({ groups, onFileClick, selectedKey }: Props) {
               )}
             >
               <span className="flex-1 truncate text-xs font-medium">{g.displayFile}</span>
-              <span className="text-muted-foreground flex-shrink-0 text-xs">
+              <span className="text-muted-foreground flex flex-shrink-0 items-center gap-1 text-xs tabular-nums">
+                <MessageSquare className="h-3 w-3" />
                 {g.comments.length}
               </span>
             </button>
