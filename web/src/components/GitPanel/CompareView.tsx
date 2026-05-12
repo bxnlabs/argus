@@ -622,7 +622,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
 
     // Bail if a newer scrollToComment has superseded this one, or if the
-    // target was deleted / marked context_unavailable during the async settle.
+    // target was deleted during the async settle.
     if (requestId !== scrollRequestRef.current) return;
     if (!sortedCommentsRef.current.some((c) => c.id === comment.id)) return;
 
