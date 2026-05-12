@@ -234,7 +234,7 @@ export const OutOfDiffFile = memo(function OutOfDiffFile(props: Props) {
         <div className="flex items-center justify-center py-6">
           <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
         </div>
-      ) : error || !data || !syntheticDiff ? (
+      ) : error || !data || !syntheticDiff || data.lines.length === 0 ? (
         <DegradedView
           comments={props.comments}
           onDelete={props.onDeleteComment}
