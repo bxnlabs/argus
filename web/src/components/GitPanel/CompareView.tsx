@@ -54,7 +54,12 @@ function stripTransientAnchorStatus(r: Review): Review {
   return mutated ? { ...r, comments } : r;
 }
 
-/** Fire-and-forget helper: fetch lines and insert a synthetic hunk for an off-screen comment. */
+/** Fire-and-forget helper: fetch lines and insert a synthetic hunk for an
+ * off-screen comment. On fetch failure, inserts a single-row placeholder
+ * hunk anchored at `pos.line` containing the comment's stored snippet so
+ * `InlineCommentCard`'s `isUnavailable` styling can host the card, and
+ * still calls `onError(commentId)` to set the `context_unavailable` flag
+ * that drives the red border + "Context unavailable" badge. */
 async function fetchFileLinesForSynthetic(
   repoPath: string,
   file: string,
@@ -64,9 +69,23 @@ async function fetchFileLinesForSynthetic(
   currentHunks: DiffHunk[],
   pos: DiffPosition,
   insertHandler: (hunk: DiffHunk, insertIndex: number) => void,
+  snippet: string,
   onError?: (commentId: string) => void,
   commentId?: string,
 ) {
+  // Side-aware insertion index — same scan used by the success path so the
+  // placeholder lands in file order. Anchored at pos.line, not `start`,
+  // because the placeholder's "core" is the anchor itself, not the would-be
+  // fetch window.
+  const computeInsertIdx = (anchor: number) => {
+    let idx = currentHunks.length;
+    for (let i = 0; i < currentHunks.length; i++) {
+      const hunkLine = pos.side === "L" ? currentHunks[i].oldStart : currentHunks[i].newStart;
+      if (hunkLine > anchor) { idx = i; break; }
+    }
+    return idx;
+  };
+
   try {
     const result = await fetchFileLines({ path: repoPath, file, start, end, ref });
 
@@ -92,15 +111,38 @@ async function fetchFileLinesForSynthetic(
       stableKey: `syn:${oldStart}:${newStart}`,
     };
 
-    // Find correct insertion position
-    let insertIdx = currentHunks.length;
-    for (let i = 0; i < currentHunks.length; i++) {
-      const hunkLine = pos.side === "L" ? currentHunks[i].oldStart : currentHunks[i].newStart;
-      if (hunkLine > start) { insertIdx = i; break; }
-    }
-
-    insertHandler(syntheticHunk, insertIdx);
+    insertHandler(syntheticHunk, computeInsertIdx(start));
   } catch {
+    // Placeholder anchored at the comment's exact line. `snippet` is the
+    // line content captured when the comment was authored. Multi-line legacy
+    // snippets are split and the first line is used so the placeholder
+    // remains a single row (the TODO contract).
+    const offset = pos.side === "L" ? computeOldToNewOffset(pos.line, currentHunks) : 0;
+    const oldLine = pos.side === "L" ? pos.line : pos.line + offset;
+    const newLine = pos.side === "L" ? pos.line - offset : pos.line;
+    const placeholderContent = (snippet ?? "").split("\n", 1)[0];
+
+    const placeholderLine: DiffLine = {
+      type: "context",
+      content: placeholderContent,
+      oldLineNumber: oldLine,
+      newLineNumber: newLine,
+    };
+
+    const placeholderHunk: DiffHunk = {
+      header: `@@ -${oldLine},1 +${newLine},1 @@`,
+      oldStart: oldLine,
+      oldCount: 1,
+      newStart: newLine,
+      newCount: 1,
+      lines: [placeholderLine],
+      // Distinct prefix so React doesn't reconcile this against a real
+      // synthetic hunk that might land at the same coordinates later.
+      stableKey: `syn-unavail:${oldLine}:${newLine}`,
+    };
+
+    insertHandler(placeholderHunk, computeInsertIdx(pos.line));
+
     if (onError && commentId) onError(commentId);
   }
 }
@@ -465,7 +507,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
 
     const visible = [...visibleComments]
-      .filter((c) => c.anchorStatus !== "context_unavailable")
       .sort((a, b) => {
         const aKey = canonicalKeyForComment(a);
         const bKey = canonicalKeyForComment(b);
@@ -573,7 +614,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const end = pos.line + 3;
         await fetchFileLinesForSynthetic(
           workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-          markContextUnavailable, comment.id,
+          comment.snippet, markContextUnavailable, comment.id,
         );
         // Wait for React to re-render after synthetic hunk insertion
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
@@ -817,7 +858,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
           fetchFileLinesForSynthetic(
             workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-            markContextUnavailable, comment.id,
+            comment.snippet, markContextUnavailable, comment.id,
           );
         }
       }
