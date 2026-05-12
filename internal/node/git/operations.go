@@ -685,13 +685,11 @@ func getFileLinesFromRef(dir, file string, start, end int, ref string) (*FileLin
 		return nil, err
 	}
 
-	if len(lines) == 0 && start > totalLines {
-		return nil, fmt.Errorf("%w: start line %d beyond file length %d", ErrInvalidInput, start, totalLines)
-	}
-
+	// Empty result: signal with End=start-1. Same contract as the working-tree
+	// path; see comment in getFileLinesFromDisk for rationale.
 	actualEnd := start + len(lines) - 1
-	if actualEnd < start {
-		actualEnd = start
+	if len(lines) == 0 {
+		actualEnd = start - 1
 	}
 
 	return &FileLinesResult{

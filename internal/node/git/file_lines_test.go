@@ -204,6 +204,25 @@ func TestGetFileLines_RefBased(t *testing.T) {
 		}
 	})
 
+	t.Run("start beyond file at ref", func(t *testing.T) {
+		result, err := GetFileLines(dir, "ref-test.txt", 100, 105, commitHash)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result.Lines) != 0 {
+			t.Errorf("expected 0 lines, got %d", len(result.Lines))
+		}
+		if result.Start != 100 {
+			t.Errorf("expected start=100, got %d", result.Start)
+		}
+		if result.End != 99 {
+			t.Errorf("expected end=99 (start-1) for empty result, got %d", result.End)
+		}
+		if result.TotalLines != 5 {
+			t.Errorf("expected totalLines=5, got %d", result.TotalLines)
+		}
+	})
+
 	t.Run("invalid ref format", func(t *testing.T) {
 		_, err := GetFileLines(dir, "ref-test.txt", 1, 5, "HEAD")
 		if !errors.Is(err, ErrInvalidInput) {
