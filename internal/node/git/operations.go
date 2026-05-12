@@ -592,13 +592,12 @@ func getFileLinesFromDisk(dir, file string, start, end int) (*FileLinesResult, e
 		return nil, err
 	}
 
-	if len(lines) == 0 && start > totalLines {
-		return nil, fmt.Errorf("%w: start line %d beyond file length %d", ErrInvalidInput, start, totalLines)
-	}
-
+	// Empty result (start > totalLines or empty file): signal with End=start-1.
+	// Mirrors the silent-clamp behavior used when end > totalLines so
+	// out-of-range anchors uniformly take the success path on the frontend.
 	actualEnd := start + len(lines) - 1
-	if actualEnd < start {
-		actualEnd = start
+	if len(lines) == 0 {
+		actualEnd = start - 1
 	}
 
 	return &FileLinesResult{

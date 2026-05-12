@@ -76,9 +76,21 @@ func TestGetFileLines_WorkingTree(t *testing.T) {
 	})
 
 	t.Run("start beyond file", func(t *testing.T) {
-		_, err := GetFileLines(dir, "test.txt", 20, 25, "")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got: %v", err)
+		result, err := GetFileLines(dir, "test.txt", 20, 25, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result.Lines) != 0 {
+			t.Errorf("expected 0 lines, got %d", len(result.Lines))
+		}
+		if result.Start != 20 {
+			t.Errorf("expected start=20, got %d", result.Start)
+		}
+		if result.End != 19 {
+			t.Errorf("expected end=19 (start-1) for empty result, got %d", result.End)
+		}
+		if result.TotalLines != 10 {
+			t.Errorf("expected totalLines=10, got %d", result.TotalLines)
 		}
 	})
 
