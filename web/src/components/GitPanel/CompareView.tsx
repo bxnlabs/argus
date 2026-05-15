@@ -151,9 +151,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   } = useCompareBranchesQuery(workingDirectory);
 
   // Reset repo-scoped state when working directory changes. The
-  // scrollRequestRef bump invalidates any tick of the out-of-diff poll that was
-  // already queued in the event loop before clearInterval landed, so the
-  // callback bails via its requestId check if it does fire one last time.
+  // scrollRequestRef bump invalidates any in-flight scrollToComment
+  // continuation (synthetic-hunk fetch) so it bails out via its requestId
+  // check instead of scrolling to a stale target in the new repo.
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
@@ -166,22 +166,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     expandedHunksRef.current.clear();
     insertSyntheticHandlers.current.clear();
     scrollRequestRef.current++;
-    if (outOfDiffPollRef.current !== null) {
-      window.clearInterval(outOfDiffPollRef.current);
-      outOfDiffPollRef.current = null;
-    }
   }, [workingDirectory]);
 
-  // Clear any in-flight out-of-diff poll on unmount so it can't outlive the view.
-  // Same pattern as above: bump scrollRequestRef to defeat any already-queued
-  // tick that clearInterval might not cancel.
+  // Invalidate any in-flight scrollToComment continuation on unmount so a
+  // pending synthetic-hunk fetch can't resolve after the view is gone and
+  // scroll a coincidentally same-id comment in a future mount.
   useEffect(() => {
     return () => {
       scrollRequestRef.current++;
-      if (outOfDiffPollRef.current !== null) {
-        window.clearInterval(outOfDiffPollRef.current);
-        outOfDiffPollRef.current = null;
-      }
     };
   }, []);
 
@@ -231,18 +223,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     error: compareErrorDetail,
   } = useCompareQuery(workingDirectory, baseBranch);
 
-  // Invalidate any in-flight out-of-diff-mount poll when the compare context
-  // changes. Without this, a poll started just before a branch switch could
-  // fire in the new review and scroll to a coincidentally same-id comment.
-  // The scrollRequestRef bump makes the poll's next tick bail; the interval
-  // clear is belt+suspenders so we don't leave dead ticks running.
+  // Invalidate any in-flight scrollToComment continuation when the compare
+  // context changes. Without this, a synthetic-hunk fetch started just before
+  // a branch switch could resolve in the new review and scroll to a
+  // coincidentally same-id comment the user didn't ask for.
   useEffect(() => {
     scrollRequestRef.current++;
     setFailedSyntheticIds(new Set());
-    if (outOfDiffPollRef.current !== null) {
-      window.clearInterval(outOfDiffPollRef.current);
-      outOfDiffPollRef.current = null;
-    }
   }, [baseBranch, compareData?.headRef, compareData?.baseRef]);
 
   const parsedDiffs = useMemo(() => {
@@ -514,12 +501,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // calls bail out instead of scrolling back to a stale target.
   const scrollRequestRef = useRef(0);
 
-  // Tracks the in-flight out-of-diff-mount poll so we can clear it on unmount or
-  // compare-context change. Without this, a poll started just before a branch
-  // switch could fire in the new review and scroll to a coincidentally same-id
-  // comment the user didn't ask for.
-  const outOfDiffPollRef = useRef<number | null>(null);
-
   const scrollToComment = useCallback(async (index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
@@ -577,39 +558,15 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
     if (!isInDiff(comment)) {
       const key = comment.oldPath ? `${comment.oldPath}→${comment.file}` : comment.file;
+      const targetEl = commentRefs.current.get(comment.id);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
       const groupEl = outOfDiffRefs.current.get(key);
       if (groupEl) {
         groupEl.scrollIntoView({ behavior: "smooth", block: "start" });
       }
-      // Out-of-diff groups lazy-mount their body and fetch hunk data async,
-      // so the comment's DOM ref isn't populated yet on first visit. Poll
-      // briefly for the ref to appear and re-scroll so Prev/Next lands on the
-      // specific comment rather than the group header. Bail if a newer scroll
-      // request supersedes this one mid-poll. We retain the id so the
-      // compare-reset effect and component unmount can cancel an in-flight poll.
-      if (outOfDiffPollRef.current !== null) {
-        window.clearInterval(outOfDiffPollRef.current);
-      }
-      const startedAt = Date.now();
-      const pollId = window.setInterval(() => {
-        if (requestId !== scrollRequestRef.current) {
-          window.clearInterval(pollId);
-          if (outOfDiffPollRef.current === pollId) outOfDiffPollRef.current = null;
-          return;
-        }
-        const targetEl = commentRefs.current.get(comment.id);
-        if (targetEl) {
-          window.clearInterval(pollId);
-          if (outOfDiffPollRef.current === pollId) outOfDiffPollRef.current = null;
-          targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-          return;
-        }
-        if (Date.now() - startedAt >= 1500) {
-          window.clearInterval(pollId);
-          if (outOfDiffPollRef.current === pollId) outOfDiffPollRef.current = null;
-        }
-      }, 100);
-      outOfDiffPollRef.current = pollId;
       return;
     }
     const fileEl = diffRefs.current.get(pathKey);
@@ -1172,18 +1129,12 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         );
       })}
       {outOfDiffGroups.map((g) => {
-        const first = g.comments[0];
         return (
           <div key={g.key} ref={setOutOfDiffRef(g.key)}>
             <OutOfDiffFile
-              workingDirectory={workingDirectory}
               groupKey={g.key}
               displayFile={g.displayFile}
-              file={first.file}
-              oldPath={first.oldPath}
               comments={g.comments}
-              headRef={compareData?.headRef ?? ""}
-              baseRef={compareData?.baseRef ?? ""}
               onDeleteComment={handleDeleteComment}
               onEditComment={handleEditComment}
               onEditCommentRequest={editCommentRequestHandler}
