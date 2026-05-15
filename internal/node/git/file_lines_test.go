@@ -76,21 +76,9 @@ func TestGetFileLines_WorkingTree(t *testing.T) {
 	})
 
 	t.Run("start beyond file", func(t *testing.T) {
-		result, err := GetFileLines(dir, "test.txt", 20, 25, "")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(result.Lines) != 0 {
-			t.Errorf("expected 0 lines, got %d", len(result.Lines))
-		}
-		if result.Start != 20 {
-			t.Errorf("expected start=20, got %d", result.Start)
-		}
-		if result.End != 19 {
-			t.Errorf("expected end=19 (start-1) for empty result, got %d", result.End)
-		}
-		if result.TotalLines != 10 {
-			t.Errorf("expected totalLines=10, got %d", result.TotalLines)
+		_, err := GetFileLines(dir, "test.txt", 20, 25, "")
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got: %v", err)
 		}
 	})
 
@@ -205,21 +193,9 @@ func TestGetFileLines_RefBased(t *testing.T) {
 	})
 
 	t.Run("start beyond file at ref", func(t *testing.T) {
-		result, err := GetFileLines(dir, "ref-test.txt", 100, 105, commitHash)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(result.Lines) != 0 {
-			t.Errorf("expected 0 lines, got %d", len(result.Lines))
-		}
-		if result.Start != 100 {
-			t.Errorf("expected start=100, got %d", result.Start)
-		}
-		if result.End != 99 {
-			t.Errorf("expected end=99 (start-1) for empty result, got %d", result.End)
-		}
-		if result.TotalLines != 5 {
-			t.Errorf("expected totalLines=5, got %d", result.TotalLines)
+		_, err := GetFileLines(dir, "ref-test.txt", 100, 105, commitHash)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got: %v", err)
 		}
 	})
 

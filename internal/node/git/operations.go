@@ -592,12 +592,13 @@ func getFileLinesFromDisk(dir, file string, start, end int) (*FileLinesResult, e
 		return nil, err
 	}
 
-	// Empty result (start > totalLines or empty file): signal with End=start-1.
-	// Mirrors the silent-clamp behavior used when end > totalLines so
-	// out-of-range anchors uniformly take the success path on the frontend.
+	if len(lines) == 0 && start > totalLines {
+		return nil, fmt.Errorf("%w: start line %d beyond file length %d", ErrInvalidInput, start, totalLines)
+	}
+
 	actualEnd := start + len(lines) - 1
-	if len(lines) == 0 {
-		actualEnd = start - 1
+	if actualEnd < start {
+		actualEnd = start
 	}
 
 	return &FileLinesResult{
@@ -685,11 +686,13 @@ func getFileLinesFromRef(dir, file string, start, end int, ref string) (*FileLin
 		return nil, err
 	}
 
-	// Empty result: signal with End=start-1. Same contract as the working-tree
-	// path; see comment in getFileLinesFromDisk for rationale.
+	if len(lines) == 0 && start > totalLines {
+		return nil, fmt.Errorf("%w: start line %d beyond file length %d", ErrInvalidInput, start, totalLines)
+	}
+
 	actualEnd := start + len(lines) - 1
-	if len(lines) == 0 {
-		actualEnd = start - 1
+	if actualEnd < start {
+		actualEnd = start
 	}
 
 	return &FileLinesResult{
