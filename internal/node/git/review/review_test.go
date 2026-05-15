@@ -896,9 +896,8 @@ func TestDetectStaleness_ContextDisambiguatesMatch(t *testing.T) {
 
 // TestLoad_PreservesSubmittedCommentSnippetNotFound verifies that submitted
 // comments are preserved across Load even when the snippet is no longer
-// findable in the relevant ref. The frontend renders such comments via a
-// synthetic hunk fetched at the comment's stored line. detectStaleness must
-// never silently drop a submitted comment.
+// findable in the relevant ref. detectStaleness must never silently drop a
+// submitted comment — the UI exposes it for read/prune.
 func TestLoad_PreservesSubmittedCommentSnippetNotFound(t *testing.T) {
 	projectDir := t.TempDir()
 	repoDir := initTestRepo(t)
@@ -951,9 +950,9 @@ func TestLoad_PreservesSubmittedCommentSnippetNotFound(t *testing.T) {
 }
 
 // TestLoad_PreservesSubmittedCommentFileMissing verifies that a submitted
-// comment whose file does not exist at either ref is preserved by Load. The
-// frontend handles the file-deleted state by detecting a 404 from the
-// synthetic hunk fetch.
+// comment whose file does not exist at either ref is preserved by Load.
+// detectStaleness must never silently drop a submitted comment — the UI
+// exposes it for read/prune.
 func TestLoad_PreservesSubmittedCommentFileMissing(t *testing.T) {
 	projectDir := t.TempDir()
 	repoDir := initTestRepo(t)
