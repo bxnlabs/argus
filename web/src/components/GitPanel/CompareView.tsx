@@ -119,7 +119,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   // In-memory set of comment IDs whose case-(b) synthetic-hunk fetch failed.
   // Routes the comment into the orphan section for this session. Cleared on
-  // compare-context change (see the workingDirectory reset effect).
+  // compare-context change (see the workingDirectory and branch/ref reset effects).
   const [failedSyntheticIds, setFailedSyntheticIds] = useState<Set<string>>(() => new Set());
   // Bumped on each scroll-to-file request so repeat clicks on the same path
   // re-trigger the scroll effect.
@@ -238,6 +238,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // clear is belt+suspenders so we don't leave dead ticks running.
   useEffect(() => {
     scrollRequestRef.current++;
+    setFailedSyntheticIds(new Set());
     if (outOfDiffPollRef.current !== null) {
       window.clearInterval(outOfDiffPollRef.current);
       outOfDiffPollRef.current = null;
