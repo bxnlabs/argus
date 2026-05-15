@@ -36,30 +36,10 @@ import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
 
-/** Returns a Review whose comments have transient anchor statuses stripped.
- * `context_unavailable` is set client-side from a failed synthetic-hunk fetch
- * and must never be persisted; without this stripping it would leak through
- * any saveReview that uses the cached Review as `prev`. */
-function stripTransientAnchorStatus(r: Review): Review {
-  let mutated = false;
-  const comments = r.comments.map((c) => {
-    if (c.anchorStatus === "context_unavailable") {
-      mutated = true;
-      const { anchorStatus: _drop, ...rest } = c;
-      void _drop;
-      return rest;
-    }
-    return c;
-  });
-  return mutated ? { ...r, comments } : r;
-}
-
 /** Fire-and-forget helper: fetch lines and insert a synthetic hunk for an
- * off-screen comment. On fetch failure, inserts a single-row placeholder
- * hunk anchored at `pos.line` containing the comment's stored snippet so
- * `InlineCommentCard`'s `isUnavailable` styling can host the card, and
- * still calls `onError(commentId)` to set the `context_unavailable` flag
- * that drives the red border + "Context unavailable" badge. */
+ * off-screen comment in a changed file (case b). On fetch failure, calls
+ * `onFailure(commentId)` so the caller can route the comment to the orphan
+ * section instead — no placeholder hunk is inserted. */
 async function fetchFileLinesForSynthetic(
   repoPath: string,
   file: string,
@@ -69,27 +49,12 @@ async function fetchFileLinesForSynthetic(
   currentHunks: DiffHunk[],
   pos: DiffPosition,
   insertHandler: (hunk: DiffHunk, insertIndex: number) => void,
-  snippet: string,
-  onError?: (commentId: string) => void,
-  commentId?: string,
+  onFailure: (commentId: string) => void,
+  commentId: string,
 ) {
-  // Side-aware insertion index — same scan used by the success path so the
-  // placeholder lands in file order. Anchored at pos.line, not `start`,
-  // because the placeholder's "core" is the anchor itself, not the would-be
-  // fetch window.
-  const computeInsertIdx = (anchor: number) => {
-    let idx = currentHunks.length;
-    for (let i = 0; i < currentHunks.length; i++) {
-      const hunkLine = pos.side === "L" ? currentHunks[i].oldStart : currentHunks[i].newStart;
-      if (hunkLine > anchor) { idx = i; break; }
-    }
-    return idx;
-  };
-
   try {
     const result = await fetchFileLines({ path: repoPath, file, start, end, ref });
 
-    // Derive side-aware coordinates using hunk boundary offsets
     const offset = pos.side === "L" ? computeOldToNewOffset(start, currentHunks) : 0;
     const oldStart = pos.side === "L" ? start : start + offset;
     const newStart = pos.side === "L" ? start - offset : start;
@@ -111,39 +76,17 @@ async function fetchFileLinesForSynthetic(
       stableKey: `syn:${oldStart}:${newStart}`,
     };
 
-    insertHandler(syntheticHunk, computeInsertIdx(start));
+    // Side-aware insertion index — scan `currentHunks` for the first hunk
+    // whose start exceeds the anchor on the relevant side so the new hunk
+    // lands in file order.
+    let idx = currentHunks.length;
+    for (let i = 0; i < currentHunks.length; i++) {
+      const hunkLine = pos.side === "L" ? currentHunks[i].oldStart : currentHunks[i].newStart;
+      if (hunkLine > start) { idx = i; break; }
+    }
+    insertHandler(syntheticHunk, idx);
   } catch {
-    // Placeholder anchored at the comment's exact line. `snippet` is the
-    // line content captured when the comment was authored. Multi-line legacy
-    // snippets are split and the first line is used so the placeholder
-    // remains a single row (the TODO contract).
-    const offset = pos.side === "L" ? computeOldToNewOffset(pos.line, currentHunks) : 0;
-    const oldLine = pos.side === "L" ? pos.line : pos.line + offset;
-    const newLine = pos.side === "L" ? pos.line - offset : pos.line;
-    const placeholderContent = (snippet ?? "").split("\n", 1)[0];
-
-    const placeholderLine: DiffLine = {
-      type: "context",
-      content: placeholderContent,
-      oldLineNumber: oldLine,
-      newLineNumber: newLine,
-    };
-
-    const placeholderHunk: DiffHunk = {
-      header: `@@ -${oldLine},1 +${newLine},1 @@`,
-      oldStart: oldLine,
-      oldCount: 1,
-      newStart: newLine,
-      newCount: 1,
-      lines: [placeholderLine],
-      // Distinct prefix so React doesn't reconcile this against a real
-      // synthetic hunk that might land at the same coordinates later.
-      stableKey: `syn-unavail:${oldLine}:${newLine}`,
-    };
-
-    insertHandler(placeholderHunk, computeInsertIdx(pos.line));
-
-    if (onError && commentId) onError(commentId);
+    onFailure(commentId);
   }
 }
 
@@ -174,6 +117,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
   const insertSyntheticHandlers = useRef<Map<string, (hunk: DiffHunk, idx: number) => void>>(new Map());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // In-memory set of comment IDs whose case-(b) synthetic-hunk fetch failed.
+  // Routes the comment into the orphan section for this session. Cleared on
+  // compare-context change (see the workingDirectory reset effect).
+  const [failedSyntheticIds, setFailedSyntheticIds] = useState<Set<string>>(() => new Set());
   // Bumped on each scroll-to-file request so repeat clicks on the same path
   // re-trigger the scroll effect.
   const [scrollRequestId, setScrollRequestId] = useState(0);
@@ -210,6 +157,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
+    setFailedSyntheticIds(new Set());
     setIsScrollPending(false);
     setEditingComment(null);
     setFocusedCommentId(null);
@@ -334,8 +282,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return s;
   }, [compareData]);
   const isInDiff = useCallback(
-    (c: ReviewComment) => diffPathSet.has(c.file) || (!!c.oldPath && diffPathSet.has(c.oldPath)),
-    [diffPathSet],
+    (c: ReviewComment) =>
+      (diffPathSet.has(c.file) || (!!c.oldPath && diffPathSet.has(c.oldPath))) &&
+      !failedSyntheticIds.has(c.id),
+    [diffPathSet, failedSyntheticIds],
   );
 
   // Map every alias path (oldPath included) to the file's canonical pathKey.
@@ -449,27 +399,20 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     if (!prev) return;
     const updated = updater(prev);
     queryClient.setQueryData(reviewQueryKey, updated);
-    // Drop transient anchorStatus values (e.g. context_unavailable from a
-    // failed synthetic-hunk fetch) before persisting. Without this, the
-    // client-only annotation written by markContextUnavailable would ride
-    // along on the next save and become permanent on disk.
-    saveReview.mutate(stripTransientAnchorStatus(updated));
+    saveReview.mutate(updated);
   }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
 
-  // Mark a comment's anchor as context_unavailable when synthetic hunk fetch fails.
-  // Client-only: updates the local query cache without persisting to the server,
-  // since this is a transient fetch failure, not a durable review state.
-  const markContextUnavailable = useCallback((commentId: string) => {
-    if (!currentBranch || !baseBranch) return;
-    const prev = queryClient.getQueryData<Review>(reviewQueryKey);
-    if (!prev) return;
-    queryClient.setQueryData(reviewQueryKey, {
-      ...prev,
-      comments: prev.comments.map((c) =>
-        c.id === commentId ? { ...c, anchorStatus: "context_unavailable" as const } : c,
-      ),
+  // Adds a comment ID to failedSyntheticIds so isInDiff routes it to the
+  // orphan section. The state itself is declared higher up so that isInDiff,
+  // defined earlier in the component, can close over the latest value.
+  const markSyntheticFailed = useCallback((commentId: string) => {
+    setFailedSyntheticIds((prev) => {
+      if (prev.has(commentId)) return prev;
+      const next = new Set(prev);
+      next.add(commentId);
+      return next;
     });
-  }, [queryClient, reviewQueryKey, currentBranch, baseBranch]);
+  }, []);
 
   // Resolve hunks for a file, preferring expanded hunks from the ref
   const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
@@ -480,7 +423,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [parsedDiffs]);
 
   // Comment navigation — track by stable comment ID so index stays correct
-  // across deletes, reorders, and context_unavailable filtering.
+  // across deletes, reorders, and orphan-routing filter changes.
   const [focusedCommentId, setFocusedCommentId] = useState<string | null>(null);
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
@@ -614,7 +557,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const end = pos.line + 3;
         await fetchFileLinesForSynthetic(
           workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-          comment.snippet, markContextUnavailable, comment.id,
+          markSyntheticFailed, comment.id,
         );
         // Wait for React to re-render after synthetic hunk insertion
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
@@ -672,7 +615,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markContextUnavailable, canonicalKeyForComment]);
+  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markSyntheticFailed, canonicalKeyForComment]);
 
   const handlePrevComment = useCallback(() => {
     // Stale focus (previous comment was deleted): target the slot that was
@@ -858,7 +801,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
           fetchFileLinesForSynthetic(
             workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-            comment.snippet, markContextUnavailable, comment.id,
+            markSyntheticFailed, comment.id,
           );
         }
       }
