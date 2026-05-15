@@ -34,12 +34,11 @@ const (
 )
 
 // AnchorStatus describes the staleness state of a submitted comment's anchor.
+// "" means healthy (the snippet re-anchored cleanly).
 type AnchorStatus string
 
 const (
-	AnchorResolved           AnchorStatus = "resolved"
-	AnchorStale              AnchorStatus = "stale"
-	AnchorContextUnavailable AnchorStatus = "context_unavailable"
+	AnchorStale AnchorStatus = "stale"
 )
 
 // DiffPosition identifies a specific line on a specific side of the diff.
