@@ -558,11 +558,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
     if (!isInDiff(comment)) {
       const key = comment.oldPath ? `${comment.oldPath}→${comment.file}` : comment.file;
-      const targetEl = commentRefs.current.get(comment.id);
-      if (targetEl) {
-        targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-        return;
-      }
       const groupEl = outOfDiffRefs.current.get(key);
       if (groupEl) {
         groupEl.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -573,7 +568,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markSyntheticFailed, canonicalKeyForComment]);
+  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markSyntheticFailed, canonicalKeyForComment, isInDiff]);
 
   const handlePrevComment = useCallback(() => {
     // Stale focus (previous comment was deleted): target the slot that was
