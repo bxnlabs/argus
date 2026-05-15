@@ -189,9 +189,7 @@ func getFileContent(repoDir, ref, filePath string) (string, error) {
 // R-side comments are resolved against headRef; L-side comments against baseRef.
 // L-side comments with a non-empty OldPath use OldPath for the file lookup.
 // When the ref/path is missing or the snippet cannot be located, the comment
-// is preserved with its existing line anchor — the frontend renders such
-// comments via a synthetic hunk fetched directly from the ref, or as a
-// degraded card when the file no longer exists.
+// is preserved with its existing line anchor — the UI exposes it for read/prune.
 //
 // The one case that drops a submitted comment is an unsanitizable file path
 // (escapes the repo). Preserving such a comment would leave the in-memory
@@ -239,8 +237,7 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 
 		fileText, err := getFileContent(repoDir, ref, lookupPath)
 		if err != nil {
-			// File not present in this ref — preserve; the frontend renders a
-			// degraded card when the synthetic-hunk fetch also 404s.
+			// File not present in this ref — preserve; the UI exposes it for read/prune.
 			result = append(result, c)
 			continue
 		}
@@ -248,8 +245,7 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 		lineNum := findSnippetWithContext(fileText, c.Snippet, c.SnippetContext, c.Line.From.Line)
 		switch lineNum {
 		case -1:
-			// Not found — preserve at the existing anchor; frontend will
-			// fetch a synthetic hunk around c.Line.From.Line.
+			// Not found — preserve at the existing anchor; the UI exposes it for read/prune.
 			result = append(result, c)
 			continue
 		case -2:
@@ -423,8 +419,8 @@ func reviewPath(projectDir, head, base string) string {
 //
 // Comments on files outside the compare diff (and comments on lines outside
 // any rendered hunk) are returned unchanged; the frontend derives their
-// out-of-diff status from compareData and renders them via a synthetic hunk
-// fetched directly from the ref.
+// out-of-diff status from compareData and renders them in the orphan section
+// using the stored snippet.
 func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, error) {
 	path := reviewPath(projectDir, head, base)
 	r, err := readReviewFile(path)
