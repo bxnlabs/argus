@@ -16,7 +16,6 @@ interface InlineCommentCardProps {
 export function InlineCommentCard({ comment, onDelete, onEdit, onEditRequest }: InlineCommentCardProps) {
   const isDraft = !comment.submitted;
   const isStale = comment.anchorStatus === "stale";
-  const isUnavailable = comment.anchorStatus === "context_unavailable";
   const [isEditing, setIsEditing] = useState(false);
 
   return (
@@ -26,7 +25,6 @@ export function InlineCommentCard({ comment, onDelete, onEdit, onEditRequest }: 
           "bg-card/80 border-border/60 rounded-md border shadow-sm",
           isDraft && "border-l-2 border-l-primary",
           isStale && "border-yellow-500/50 bg-yellow-500/5",
-          isUnavailable && "border-red-500/30 bg-red-500/5",
         )}
       >
         {/* Header */}
@@ -45,12 +43,6 @@ export function InlineCommentCard({ comment, onDelete, onEdit, onEditRequest }: 
             <span className="flex items-center gap-1 text-xs text-yellow-500">
               <AlertTriangle className="h-3 w-3" />
               Anchor may have moved
-            </span>
-          )}
-          {isUnavailable && (
-            <span className="flex items-center gap-1 text-xs text-red-400">
-              <AlertTriangle className="h-3 w-3" />
-              Context unavailable
             </span>
           )}
           <span className="flex-1" />
