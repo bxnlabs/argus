@@ -525,7 +525,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
     // Gate on isInDiff so a comment whose synthetic fetch already failed
     // (id is in failedSyntheticIds) isn't retried on every Prev/Next press.
-    // Such comments fall through to the orphan-scroll branch at line 559.
+    // Such comments fall through to the orphan-scroll branch at line 562.
     if (!visible && isInDiff(comment)) {
       const handler = insertSyntheticHandlers.current.get(pathKey);
       if (handler) {
