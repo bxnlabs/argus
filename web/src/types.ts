@@ -1,3 +1,5 @@
+import type { ReviewComment } from "./types/review";
+
 export interface Session {
   id: string;
   name: string;
@@ -95,7 +97,8 @@ export type FileStatus =
   | "renamed"
   | "copied"
   | "untracked"
-  | "unmerged";
+  | "unmerged"
+  | "context";
 
 export interface GitFile {
   path: string;
@@ -139,22 +142,54 @@ export interface CommitDetail extends CommitSummary {
   files: CommitFile[];
 }
 
+export type HunkKind = "diff" | "context" | "snippet";
+
+export interface CompareHunkLine {
+  type: "context" | "addition" | "deletion" | "header";
+  content: string;
+  oldLineNumber: number | null;
+  newLineNumber: number | null;
+}
+
+export interface CompareHunk {
+  kind: HunkKind;
+  header: string;
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+  lines: CompareHunkLine[];
+  anchorCommentIds?: string[];
+  anchorMissing?: boolean;
+}
+
+export interface CompareFileView {
+  path: string;
+  oldPath?: string;
+  status: FileStatus;
+  additions: number;
+  deletions: number;
+  isBinary?: boolean;
+  hunks: CompareHunk[];
+}
+
+export interface CompareReviewPayload {
+  head: string;
+  base: string;
+  body?: { body: string; submitted: boolean; createdAt: string };
+  comments: ReviewComment[];
+}
+
 export interface CompareResult {
-  diff: string;
-  files: CommitFile[];
-  totalAdditions: number;
-  totalDeletions: number;
   baseRef: string;
   headRef: string;
-  totalLines: Record<string, number>;
-  /** Short name of the upstream tracking branch (e.g. "origin/main") when the
-   * compare fell back to the upstream tip because the local base was strictly
-   * behind (behind but not also ahead). Empty string otherwise — including
-   * when the local base has diverged. */
   baseUpstream: string;
-  /** Commits the local base is behind its upstream when substitution fired.
-   * 0 when the local ref was used as-is (no upstream, not behind, or diverged). */
   baseBehindBy: number;
+  files: CompareFileView[];
+  totalLines: Record<string, number>;
+  totalAdditions: number;
+  totalDeletions: number;
+  review: CompareReviewPayload;
 }
 
 export interface WorkingDiffResult {
