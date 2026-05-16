@@ -10,6 +10,8 @@ import (
 
 var hunkHeaderRe = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$`)
 
+var diffGitHeaderRe = regexp.MustCompile(`^diff --git a/(.+) b/(.+)$`)
+
 // ParseUnifiedDiff parses a multi-file unified diff (as emitted by `git diff`)
 // into structured FileView entries. All emitted hunks have Kind=HunkKindDiff.
 // Additions/Deletions counts and TotalLines/TotalAdditions/TotalDeletions
@@ -64,7 +66,7 @@ func parseSingleFile(sec string) (FileView, error) {
 		switch {
 		case strings.HasPrefix(ln, "diff --git "):
 			// Fallback parse for renames / binary where --- +++ are absent.
-			if m := regexp.MustCompile(`^diff --git a/(.+) b/(.+)$`).FindStringSubmatch(ln); m != nil {
+			if m := diffGitHeaderRe.FindStringSubmatch(ln); m != nil {
 				if oldFile == "" {
 					oldFile = m[1]
 				}
@@ -99,21 +101,21 @@ func parseSingleFile(sec string) (FileView, error) {
 				if current != nil {
 					hunks = append(hunks, *current)
 				}
-				os, _ := strconv.Atoi(m[1])
-				oc := 1
+				oldStart, _ := strconv.Atoi(m[1])
+				oldCount := 1
 				if m[2] != "" {
-					oc, _ = strconv.Atoi(m[2])
+					oldCount, _ = strconv.Atoi(m[2])
 				}
-				ns, _ := strconv.Atoi(m[3])
-				nc := 1
+				newStart, _ := strconv.Atoi(m[3])
+				newCount := 1
 				if m[4] != "" {
-					nc, _ = strconv.Atoi(m[4])
+					newCount, _ = strconv.Atoi(m[4])
 				}
 				current = &Hunk{
 					Kind:     HunkKindDiff,
 					Header:   ln,
-					OldStart: os, OldCount: oc,
-					NewStart: ns, NewCount: nc,
+					OldStart: oldStart, OldCount: oldCount,
+					NewStart: newStart, NewCount: newCount,
 				}
 				if ctx := strings.TrimSpace(m[5]); ctx != "" {
 					current.Lines = append(current.Lines, HunkLine{
@@ -121,7 +123,7 @@ func parseSingleFile(sec string) (FileView, error) {
 						Content: ctx,
 					})
 				}
-				oldLineNum, newLineNum = os, ns
+				oldLineNum, newLineNum = oldStart, newStart
 				continue
 			}
 			if current == nil {
