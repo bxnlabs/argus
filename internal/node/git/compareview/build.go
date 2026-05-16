@@ -1,6 +1,8 @@
 package compareview
 
 import (
+	"strconv"
+
 	"github.com/bxnlabs/argus/internal/node/git"
 	"github.com/bxnlabs/argus/internal/node/git/review"
 )
@@ -38,6 +40,7 @@ func Build(projectDir, repoDir, head, base string) (*View, error) {
 		rp.Base = r.Base
 		rp.Body = r.Body
 		rp.Comments = r.Comments
+		files = applyOrphanHunks(files, r.Comments, repoDir, compare.HeadRef, compare.BaseRef)
 	}
 	return &View{
 		BaseRef:        compare.BaseRef,
@@ -77,6 +80,160 @@ func overlayCompareMetadata(files []FileView, compare *git.CompareResult) {
 		// Trust git's status (handles copy/rename detection thresholds).
 		files[i].Status = cf.Status
 	}
+}
+
+// orphanContextWindow is how many lines on each side of the anchor we fetch
+// for a comment-anchored context hunk. Matches the synthetic-fetch window
+// the frontend used previously (3 lines).
+const orphanContextWindow = 3
+
+// applyOrphanHunks adds a context hunk to each FileView for every comment
+// that isn't already hosted by a real diff hunk in that file. For case-(b)
+// (comment is on a file IN the diff but anchor line is outside any real
+// hunk), the context hunk is fetched from the appropriate ref and inserted
+// into the FileView in file order.
+//
+// Case-(a) (file not in compare diff at all) and case-(d) (snippet not
+// found) are handled in later tasks.
+func applyOrphanHunks(files []FileView, comments []review.ReviewComment, repoDir, headRef, baseRef string) []FileView {
+	for _, c := range comments {
+		if !c.Submitted {
+			continue
+		}
+		if isCommentHostedByAnyFile(c, files) {
+			continue
+		}
+		idx := findFileIndexForComment(c, files)
+		if idx == -1 {
+			continue // case-(a), handled later
+		}
+		h, ok := buildContextHunk(c, repoDir, headRef, baseRef)
+		if !ok {
+			continue // case-(d), handled later
+		}
+		files[idx].Hunks = insertHunkInOrder(files[idx].Hunks, h)
+	}
+	return files
+}
+
+// findFileIndexForComment returns the index of the FileView that hosts this
+// comment's authored side, or -1 if no such file exists (case-(a)).
+func findFileIndexForComment(c review.ReviewComment, files []FileView) int {
+	side := c.Line.From.Side
+	for i, f := range files {
+		if side == review.DiffSideLeft {
+			leftPath := c.OldPath
+			if leftPath == "" {
+				leftPath = c.File
+			}
+			if f.OldPath != "" && f.OldPath == leftPath {
+				return i
+			}
+			if f.OldPath == "" && f.Path == leftPath {
+				return i
+			}
+		} else {
+			if f.Path == c.File {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// buildContextHunk fetches ±orphanContextWindow lines around the comment's
+// anchor from the relevant ref and assembles a Kind=HunkKindContext hunk.
+// Returns ok=false when the fetch fails (file missing at ref, line past EOF,
+// binary, too-large, etc.) — caller falls back to snippet-fallback handling.
+func buildContextHunk(c review.ReviewComment, repoDir, headRef, baseRef string) (Hunk, bool) {
+	side := c.Line.From.Side
+	ref := headRef
+	lookupPath := c.File
+	if side == review.DiffSideLeft {
+		ref = baseRef
+		if c.OldPath != "" {
+			lookupPath = c.OldPath
+		}
+	}
+	if ref == "" {
+		return Hunk{}, false
+	}
+	anchor := c.Line.From.Line
+	start := anchor - orphanContextWindow
+	if start < 1 {
+		start = 1
+	}
+	end := anchor + orphanContextWindow
+	res, err := git.GetFileLines(repoDir, lookupPath, start, end, ref)
+	if err != nil {
+		return Hunk{}, false
+	}
+	lines := make([]HunkLine, 0, len(res.Lines))
+	for i, content := range res.Lines {
+		n := res.Start + i
+		var ol, nl *int
+		if side == review.DiffSideLeft {
+			v := n
+			ol = &v
+		} else {
+			v := n
+			nl = &v
+		}
+		lines = append(lines, HunkLine{
+			Type:          "context",
+			Content:       content,
+			OldLineNumber: ol,
+			NewLineNumber: nl,
+		})
+	}
+	h := Hunk{
+		Kind:             HunkKindContext,
+		Header:           "",
+		OldStart:         res.Start,
+		OldCount:         len(lines),
+		NewStart:         res.Start,
+		NewCount:         len(lines),
+		Lines:            lines,
+		AnchorCommentIDs: []string{c.ID},
+	}
+	if side == review.DiffSideLeft {
+		h.NewStart = 0
+		h.NewCount = 0
+	} else {
+		h.OldStart = 0
+		h.OldCount = 0
+	}
+	h.Header = formatHunkHeader(h)
+	return h, true
+}
+
+func formatHunkHeader(h Hunk) string {
+	return "@@ -" + itoaPos(h.OldStart, h.OldCount) + " +" + itoaPos(h.NewStart, h.NewCount) + " @@"
+}
+
+func itoaPos(start, count int) string {
+	if count == 1 {
+		return strconv.Itoa(start)
+	}
+	return strconv.Itoa(start) + "," + strconv.Itoa(count)
+}
+
+// insertHunkInOrder inserts h into hunks at the position that keeps NewStart
+// ascending (or OldStart ascending for L-side context hunks where NewStart=0).
+func insertHunkInOrder(hunks []Hunk, h Hunk) []Hunk {
+	keyOf := func(hh Hunk) int {
+		if hh.NewStart > 0 {
+			return hh.NewStart
+		}
+		return hh.OldStart
+	}
+	target := keyOf(h)
+	for i, existing := range hunks {
+		if target < keyOf(existing) {
+			return append(hunks[:i:i], append([]Hunk{h}, hunks[i:]...)...)
+		}
+	}
+	return append(hunks, h)
 }
 
 // isCommentHostedByHunk returns true if the comment's anchor line appears on

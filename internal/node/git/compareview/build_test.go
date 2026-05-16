@@ -134,3 +134,105 @@ func TestIsCommentHostedByHunk_NotHosted(t *testing.T) {
 		t.Error("expected not hosted")
 	}
 }
+
+func TestBuild_CaseB_ContextHunkForChangedFile(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+
+	// 30-line file at base; head changes line 30 only.
+	var baseLines []string
+	for i := 1; i <= 30; i++ {
+		baseLines = append(baseLines, "L"+itoa(i))
+	}
+	os.WriteFile(filepath.Join(repoDir, "f.txt"), []byte(strings.Join(baseLines, "\n")+"\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+	runCmd(t, repoDir, "git", "checkout", "-q", "-b", "feat")
+
+	headLines := append([]string{}, baseLines...)
+	headLines[29] = "L30-changed"
+	os.WriteFile(filepath.Join(repoDir, "f.txt"), []byte(strings.Join(headLines, "\n")+"\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	_ = baseRef
+
+	// Save a submitted comment anchored at line 5 (R-side) — well outside the
+	// hunk around line 30 that `git diff -U3` will produce.
+	r := &review.Review{
+		Head: "feat", Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:        "rc_far",
+			File:      "f.txt",
+			Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 5}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 5}},
+			Snippet:   "L5",
+			Submitted: true,
+			CreatedAt: "2026-01-01T00:00:00Z",
+		}},
+	}
+	if err := review.Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	v, err := Build(projectDir, repoDir, "feat", "main")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(v.Files) != 1 {
+		t.Fatalf("files: %+v", v.Files)
+	}
+	f := v.Files[0]
+	// Expect: the diff hunk around line 30, plus a context hunk around line 5.
+	var diffHunks, ctxHunks int
+	for _, h := range f.Hunks {
+		switch h.Kind {
+		case HunkKindDiff:
+			diffHunks++
+		case HunkKindContext:
+			ctxHunks++
+			// Must carry the comment id.
+			if len(h.AnchorCommentIDs) != 1 || h.AnchorCommentIDs[0] != "rc_far" {
+				t.Errorf("context hunk anchorCommentIds = %v, want [rc_far]", h.AnchorCommentIDs)
+			}
+			// Must cover line 5 (anchor) on R-side.
+			var covers bool
+			for _, ln := range h.Lines {
+				if ln.NewLineNumber != nil && *ln.NewLineNumber == 5 {
+					covers = true
+				}
+			}
+			if !covers {
+				t.Errorf("context hunk does not cover anchor line 5: %+v", h.Lines)
+			}
+		}
+	}
+	if diffHunks != 1 || ctxHunks != 1 {
+		t.Errorf("expected 1 diff + 1 context hunk; got %d / %d (all hunks: %+v)", diffHunks, ctxHunks, f.Hunks)
+	}
+	// Hunks must be in file order by NewStart.
+	for i := 1; i < len(f.Hunks); i++ {
+		if f.Hunks[i].NewStart < f.Hunks[i-1].NewStart {
+			t.Errorf("hunks out of order: %d < %d at index %d", f.Hunks[i].NewStart, f.Hunks[i-1].NewStart, i)
+		}
+	}
+}
+
+// itoa: tiny dependency-free int-to-string helper for tests.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	if neg {
+		b = append([]byte{'-'}, b...)
+	}
+	return string(b)
+}
