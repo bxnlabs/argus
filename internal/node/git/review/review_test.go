@@ -250,11 +250,9 @@ func TestDetectStaleness_SkipsUnsubmitted(t *testing.T) {
 }
 
 func TestDetectStaleness_PathTraversal_Drops(t *testing.T) {
-	// Path traversal attempts are dropped at Load. Preserving them would
-	// leave the Review unsaveable, since the POST handler validates every
-	// persisted comment's path and 400s on the first failure. The comment
-	// has no rendered host (the file is unreachable), so dropping it is the
-	// only outcome that keeps later edits/submits working.
+	// Path traversal attempts are dropped defensively: the file cannot be
+	// rendered (no anchor in the repo) and the POST handler would reject it
+	// on save anyway.
 	dir := initTestRepo(t)
 	os.WriteFile(filepath.Join(dir, "README"), []byte("placeholder\n"), 0o644)
 	runCmd(t, dir, "git", "add", ".")
