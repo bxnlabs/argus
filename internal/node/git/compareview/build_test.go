@@ -217,6 +217,58 @@ func TestBuild_CaseB_ContextHunkForChangedFile(t *testing.T) {
 	}
 }
 
+func TestBuild_CaseA_FileViewForUnchangedFile(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+
+	// Both files exist at base; only "changed.txt" is modified on the branch.
+	os.WriteFile(filepath.Join(repoDir, "changed.txt"), []byte("a\nb\nc\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "stable.txt"), []byte("x\ny\nz\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	runCmd(t, repoDir, "git", "checkout", "-q", "-b", "feat")
+
+	os.WriteFile(filepath.Join(repoDir, "changed.txt"), []byte("a\nB\nc\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+
+	r := &review.Review{
+		Head: "feat", Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:        "rc_stable",
+			File:      "stable.txt",
+			Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 2}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 2}},
+			Snippet:   "y",
+			Submitted: true,
+			CreatedAt: "2026-01-01T00:00:00Z",
+		}},
+	}
+	if err := review.Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	v, err := Build(projectDir, repoDir, "feat", "main")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(v.Files) != 2 {
+		t.Fatalf("expected 2 files (changed + synthetic stable), got %d: %+v", len(v.Files), v.Files)
+	}
+	// changed.txt first (real diff), then stable.txt (synthetic).
+	if v.Files[0].Path != "changed.txt" || v.Files[0].Status != git.StatusModified {
+		t.Errorf("file 0: %+v", v.Files[0])
+	}
+	if v.Files[1].Path != "stable.txt" || v.Files[1].Status != git.StatusContext {
+		t.Errorf("file 1: %+v", v.Files[1])
+	}
+	if len(v.Files[1].Hunks) != 1 || v.Files[1].Hunks[0].Kind != HunkKindContext {
+		t.Errorf("stable.txt hunks: %+v", v.Files[1].Hunks)
+	}
+	if len(v.Files[1].Hunks[0].AnchorCommentIDs) != 1 || v.Files[1].Hunks[0].AnchorCommentIDs[0] != "rc_stable" {
+		t.Errorf("stable.txt anchorCommentIds: %v", v.Files[1].Hunks[0].AnchorCommentIDs)
+	}
+}
+
 // itoa: tiny dependency-free int-to-string helper for tests.
 func itoa(n int) string {
 	if n == 0 {

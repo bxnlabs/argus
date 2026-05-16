@@ -104,12 +104,14 @@ func applyOrphanHunks(files []FileView, comments []review.ReviewComment, repoDir
 			continue
 		}
 		idx := findFileIndexForComment(c, files)
-		if idx == -1 {
-			continue // case-(a), handled later
-		}
 		h, ok := buildContextHunk(c, repoDir, headRef, baseRef)
 		if !ok {
-			continue // case-(d), handled later
+			continue // case-(d), handled in next task
+		}
+		if idx == -1 {
+			// case-(a): synthesize a FileView for the unchanged file.
+			files = appendOrUpdateContextFile(files, c, h)
+			continue
 		}
 		files[idx].Hunks = insertHunkInOrder(files[idx].Hunks, h)
 	}
@@ -234,6 +236,29 @@ func insertHunkInOrder(hunks []Hunk, h Hunk) []Hunk {
 		}
 	}
 	return append(hunks, h)
+}
+
+// appendOrUpdateContextFile finds or creates a synthetic FileView for a
+// comment whose file is not in the compare diff. Multiple comments on the
+// same unchanged file share one FileView. Synthetic files always sort after
+// real-diff files (preserved by the caller's order: real-diff files were
+// appended first by ParseUnifiedDiff).
+func appendOrUpdateContextFile(files []FileView, c review.ReviewComment, h Hunk) []FileView {
+	path := c.File
+	oldPath := c.OldPath
+	for i, f := range files {
+		if f.Status == git.StatusContext && f.Path == path && f.OldPath == oldPath {
+			files[i].Hunks = insertHunkInOrder(f.Hunks, h)
+			return files
+		}
+	}
+	files = append(files, FileView{
+		Path:    path,
+		OldPath: oldPath,
+		Status:  git.StatusContext,
+		Hunks:   []Hunk{h},
+	})
+	return files
 }
 
 // isCommentHostedByHunk returns true if the comment's anchor line appears on
