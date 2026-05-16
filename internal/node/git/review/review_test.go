@@ -939,14 +939,6 @@ func TestLoad_PreservesSubmittedCommentSnippetNotFound(t *testing.T) {
 		t.Errorf("wrong comment preserved: %s", loaded.Comments[0].ID)
 	}
 
-	// On-disk: also preserved (no accidental prune in detectStaleness).
-	onDisk, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
-	if err != nil {
-		t.Fatalf("readReviewFile: %v", err)
-	}
-	if len(onDisk.Comments) != 1 {
-		t.Errorf("on-disk: expected 1 comment preserved, got %d", len(onDisk.Comments))
-	}
 }
 
 // TestLoad_PreservesSubmittedCommentFileMissing verifies that a submitted
@@ -1053,5 +1045,61 @@ func TestLoad_PreservesEditedCommentRoundTrip(t *testing.T) {
 	}
 	if c.Body != "edited" {
 		t.Errorf("expected body=edited, got %q", c.Body)
+	}
+}
+
+// TestLoad_DoesNotModifyDisk locks the pure-Load contract: re-anchoring is
+// in-memory only. Persistence is a write-path concern (Save).
+func TestLoad_DoesNotModifyDisk(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "a.ts"), []byte("alpha\nbeta\ngamma\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "a.ts"), []byte("alpha\nINSERTED\nbeta\ngamma\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	// Anchored at line 2 in base; "beta" actually moves to line 3 in head.
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:        "rc_drift",
+			File:      "src/a.ts",
+			Line:      LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+			Snippet:   "beta",
+			Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	path := reviewPath(projectDir, "feat/x", "main")
+	statBefore, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// In-memory state IS re-anchored.
+	if loaded.Comments[0].Line.From.Line != 3 {
+		t.Errorf("expected in-memory re-anchor to line 3, got %d", loaded.Comments[0].Line.From.Line)
+	}
+	// On-disk state is NOT modified.
+	statAfter, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if !statBefore.ModTime().Equal(statAfter.ModTime()) {
+		t.Errorf("Load modified the review file: mtime changed from %v to %v",
+			statBefore.ModTime(), statAfter.ModTime())
 	}
 }

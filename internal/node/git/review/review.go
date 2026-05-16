@@ -191,10 +191,8 @@ func getFileContent(repoDir, ref, filePath string) (string, error) {
 // When the ref/path is missing or the snippet cannot be located, the comment
 // is preserved with its existing line anchor — the UI exposes it for read/prune.
 //
-// The one case that drops a submitted comment is an unsanitizable file path
-// (escapes the repo). Preserving such a comment would leave the in-memory
-// Review unsaveable — the POST handler runs sanitizeFilePath on every
-// persisted comment and rejects the whole payload on the first failure.
+// Comments with paths that escape the repo are dropped defensively (they
+// cannot be rendered and the POST handler would reject them anyway).
 //
 // A comment that matches ambiguously and whose snippetContext cannot
 // disambiguate is kept with AnchorStatus=AnchorStale.
@@ -219,12 +217,8 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 		}
 
 		if err := ValidateFilePath(repoDir, lookupPath); err != nil {
-			// Drop comments whose path escapes the repo. Preserving them would
-			// leave the in-memory Review unsaveable: the POST handler runs
-			// sanitizeFilePath on every persisted comment and rejects the
-			// whole payload on the first failure, so any later edit/submit
-			// would 400. The comment carries no information the user can act
-			// on (no rendered file, no diff context); dropping is safe.
+			// Defensive: drop comments whose path escapes the repo. Cannot be
+			// rendered (no anchor file) and would 400 on save anyway.
 			continue
 		}
 
@@ -410,17 +404,15 @@ func reviewPath(projectDir, head, base string) string {
 	return filepath.Join(reviewsDir(projectDir), reviewFilename(head, base))
 }
 
-// Load reads the review file for the given branch pair, runs staleness detection
-// against immutable git refs, persists any re-anchoring, and returns the result.
-// headRef is the commit OID for the head side (R-side); baseRef is the commit OID
-// for the base side (L-side). Either may be empty, in which case comments on that
+// Load reads the review file for the given branch pair and returns it with
+// submitted comments re-anchored against the current refs. The result is
+// in-memory only — Load does not persist changes. Persistence is the write
+// path's responsibility (Save, called via POST /api/git/review).
+//
+// headRef is the commit OID for the head side (R-side); baseRef is for the
+// base side (L-side). Either may be empty, in which case comments on that
 // side are skipped during staleness detection.
 // Returns nil, nil if no file exists.
-//
-// Comments on files outside the compare diff (and comments on lines outside
-// any rendered hunk) are returned unchanged; the frontend derives their
-// out-of-diff status from compareData and renders them in the orphan section
-// using the stored snippet.
 func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, error) {
 	path := reviewPath(projectDir, head, base)
 	r, err := readReviewFile(path)
@@ -431,9 +423,6 @@ func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, er
 		return nil, nil
 	}
 	r.Comments = detectStaleness(repoDir, headRef, baseRef, r.Comments)
-	if err := writeReviewFile(path, r); err != nil {
-		return nil, err
-	}
 	return r, nil
 }
 
