@@ -28,19 +28,12 @@ export function useReviewQuery(
 }
 
 export function useSaveReviewMutation(path: string) {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async (data: Review) => {
       const params = new URLSearchParams({ path });
       return apiFetch<{ status: string }>(`/node/api/git/review?${params}`, {
         method: "POST",
         body: JSON.stringify(data),
-      });
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: reviewKeys.forComparison(path, variables.head, variables.base),
       });
     },
   });
