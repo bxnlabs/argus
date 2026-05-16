@@ -523,7 +523,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       if (visible) break;
     }
 
-    if (!visible) {
+    // Gate on isInDiff so a comment whose synthetic fetch already failed
+    // (id is in failedSyntheticIds) isn't retried on every Prev/Next press.
+    // Such comments fall through to the orphan-scroll branch at line 559.
+    if (!visible && isInDiff(comment)) {
       const handler = insertSyntheticHandlers.current.get(pathKey);
       if (handler) {
         const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
