@@ -26,8 +26,6 @@ import { ReviewSubmitButton } from "./ReviewSubmitButton";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
-import { OutOfDiffSection } from "./OutOfDiffSection";
-import { OutOfDiffFile } from "./OutOfDiffFile";
 import { useViewport } from "@/hooks/useViewport";
 import { type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, CompareFileView, FileStatus, ReviewComment, Review, DiffPosition, CompareResult } from "@/types";
@@ -91,7 +89,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
-  const [selectedOutOfDiffKey, setSelectedOutOfDiffKey] = useState<string | null>(null);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
   const insertSyntheticHandlers = useRef<Map<string, (hunk: DiffHunk, idx: number) => void>>(new Map());
@@ -105,11 +102,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // browser clamps scrollTop short of the target when files after it are
   // still lazy placeholders. Cleared one frame after the scroll lands.
   const [isScrollPending, setIsScrollPending] = useState(false);
-  // Records which map (file diffs vs out-of-diff groups) the most recent scroll
-  // request targets. Read by the unified scroll effect to look up the target
-  // element in the correct ref map without branching on which piece of state
-  // changed most recently.
-  const lastScrollTargetKindRef = useRef<"file" | "outOfDiff">("file");
   const [activeComment, setActiveComment] = useState<{
     file: string;
     position: DiffPosition;
@@ -205,122 +197,16 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const reviewData = compareData?.review;
   const comments = reviewData?.comments ?? EMPTY_COMMENTS;
 
-  // Set of paths represented in the compare diff (both new paths and old
-  // paths for renames). A comment whose file is not in this set is "out of
-  // diff" — its anchor isn't hosted by any rendered file row in the diff
-  // pane, so we render it via a synthetic hunk fetched from the relevant ref.
-  const diffPathSet = useMemo(() => {
-    const s = new Set<string>();
-    if (compareData) {
-      for (const f of compareData.files) {
-        s.add(f.path);
-        if (f.oldPath) s.add(f.oldPath);
-      }
-    }
-    return s;
-  }, [compareData]);
-  const isInDiff = useCallback(
-    (c: ReviewComment) =>
-      diffPathSet.has(c.file) || (!!c.oldPath && diffPathSet.has(c.oldPath)),
-    [diffPathSet],
-  );
-
-  // Map every alias path (oldPath included) to the file's canonical pathKey.
-  // CommitFile.path already matches what getDiffPathKey returns for the
-  // corresponding ParsedDiff (newFile for modify/rename/add, oldFile for
-  // delete), so a single lookup resolves any pre-rename comment whose
-  // `c.file` points at the old name to the rendered diff's key.
-  const canonicalKeyByPath = useMemo(() => {
-    const m = new Map<string, string>();
-    if (compareData) {
-      for (const f of compareData.files) {
-        m.set(f.path, f.path);
-        if (f.oldPath) m.set(f.oldPath, f.path);
-      }
-    }
-    return m;
-  }, [compareData]);
-  // Resolve a comment to the canonical compare key. Falls back to c.file so
-  // out-of-diff comments still get a stable identifier — they won't match any
-  // rendered diff anyway, but the key drives outOfDiff group identity too.
-  const canonicalKeyForComment = useCallback(
-    (c: ReviewComment): string => {
-      const fromFile = canonicalKeyByPath.get(c.file);
-      if (fromFile) return fromFile;
-      if (c.oldPath) {
-        const fromOld = canonicalKeyByPath.get(c.oldPath);
-        if (fromOld) return fromOld;
-      }
-      return c.file;
-    },
-    [canonicalKeyByPath],
-  );
-
-  // Only partition once the compare diff has actually loaded. Otherwise an
-  // empty diffPathSet would tag every comment as out-of-diff and the desktop
-  // sidebar would render a bogus OutOfDiffSection while the right pane is
-  // still showing its loader. Treating the pre-data state as "all visible"
-  // keeps comment-by-file lookups empty and keeps the out-of-diff UI hidden
-  // until classification is meaningful.
-  const canClassify = !!compareData && !loadingCompare && !compareError;
-  const { visibleComments, outOfDiffComments } = useMemo(() => {
-    if (!canClassify) {
-      return { visibleComments: comments, outOfDiffComments: EMPTY_COMMENTS };
-    }
-    const visible: ReviewComment[] = [];
-    const outOfDiff: ReviewComment[] = [];
-    for (const c of comments) {
-      if (isInDiff(c)) visible.push(c);
-      else outOfDiff.push(c);
-    }
-    return { visibleComments: visible, outOfDiffComments: outOfDiff };
-  }, [comments, isInDiff, canClassify]);
-
-  const outOfDiffGroups = useMemo(() => {
-    const byKey = new Map<string, { displayFile: string; comments: ReviewComment[] }>();
-    for (const c of outOfDiffComments) {
-      const key = c.oldPath ? `${c.oldPath}→${c.file}` : c.file;
-      const displayFile = c.oldPath ? `${c.oldPath} → ${c.file}` : c.file;
-      let g = byKey.get(key);
-      if (!g) {
-        g = { displayFile, comments: [] };
-        byKey.set(key, g);
-      }
-      g.comments.push(c);
-    }
-    return Array.from(byKey, ([key, g]) => ({ key, ...g })).sort((a, b) =>
-      a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
-    );
-  }, [outOfDiffComments]);
-
-  // --- Pre-indexed comments by file (referentially stable per-file) ---
-  // Bucketed by canonical compare key so comments authored before a rename
-  // (c.file = old name, no c.oldPath) still land under the rendered diff's
-  // pathKey — without this remap the bucket is keyed by the old name and
-  // renderDiffs.commentsByFile.get(pathKey) returns undefined.
-  const prevCommentsByFile = useRef(new Map<string, ReviewComment[]>());
+  // --- Pre-indexed comments by file ---
   const commentsByFile = useMemo(() => {
     const next = new Map<string, ReviewComment[]>();
-    for (const c of visibleComments) {
-      const key = canonicalKeyForComment(c);
-      const arr = next.get(key);
+    for (const c of comments) {
+      const arr = next.get(c.file);
       if (arr) arr.push(c);
-      else next.set(key, [c]);
+      else next.set(c.file, [c]);
     }
-    // Preserve previous array refs for files whose comments didn't change
-    const prev = prevCommentsByFile.current;
-    const stable = new Map<string, ReviewComment[]>();
-    for (const [file, arr] of next) {
-      const old = prev.get(file);
-      if (old && old.length === arr.length && old.every((c, i) => c.id === arr[i].id && c.body === arr[i].body && c.submitted === arr[i].submitted && c.anchorStatus === arr[i].anchorStatus && c.line.from.line === arr[i].line.from.line && c.line.from.side === arr[i].line.from.side)) {
-        stable.set(file, old);
-      } else {
-        stable.set(file, arr);
-      }
-    }
-    prevCommentsByFile.current = stable;
-    return stable;
-  }, [visibleComments, canonicalKeyForComment]);
+    return next;
+  }, [comments]);
 
   // Optimistically update the compareview cache and persist to server.
   // Accepts a functional updater so callers don't close over reviewData/comments.
@@ -364,12 +250,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const sortedComments = useMemo(() => {
-    if (!parsedDiffs.length && !outOfDiffComments.length) return [];
-
-    // --- Visible (in-diff) comments, ordered by file then diff-row index ---
+    if (!parsedDiffs.length) return [];
     const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
-
-    // Build a line position index for each file
     const linePositions = new Map<string, Map<string, number>>();
     for (const diff of parsedDiffs) {
       const pathKey = getDiffPathKey(diff);
@@ -384,33 +266,19 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       }
       linePositions.set(pathKey, posMap);
     }
-
-    const visible = [...visibleComments]
-      .sort((a, b) => {
-        const aKey = canonicalKeyForComment(a);
-        const bKey = canonicalKeyForComment(b);
-        const ai = fileOrder.indexOf(aKey);
-        const bi = fileOrder.indexOf(bKey);
-        if (ai !== bi) return ai - bi;
-        const posA = linePositions.get(aKey);
-        const posB = linePositions.get(bKey);
-        const keyA = `${a.line.from.side}${a.line.from.line}`;
-        const keyB = `${b.line.from.side}${b.line.from.line}`;
-        const idxA = posA?.get(keyA) ?? a.line.from.line;
-        const idxB = posB?.get(keyB) ?? b.line.from.line;
-        return idxA - idxB;
-      });
-
-    // --- Out-of-diff comments, ordered by group key then stored line anchor ---
-    const outOfDiff = [...outOfDiffComments].sort((a, b) => {
-      const aKey = a.oldPath ? `${a.oldPath}→${a.file}` : a.file;
-      const bKey = b.oldPath ? `${b.oldPath}→${b.file}` : b.file;
-      if (aKey !== bKey) return aKey < bKey ? -1 : 1;
-      return a.line.from.line - b.line.from.line;
+    return [...comments].sort((a, b) => {
+      const ai = fileOrder.indexOf(a.file);
+      const bi = fileOrder.indexOf(b.file);
+      if (ai !== bi) return ai - bi;
+      const posA = linePositions.get(a.file);
+      const posB = linePositions.get(b.file);
+      const keyA = `${a.line.from.side}${a.line.from.line}`;
+      const keyB = `${b.line.from.side}${b.line.from.line}`;
+      const idxA = posA?.get(keyA) ?? a.line.from.line;
+      const idxB = posB?.get(keyB) ?? b.line.from.line;
+      return idxA - idxB;
     });
-
-    return [...visible, ...outOfDiff];
-  }, [visibleComments, outOfDiffComments, parsedDiffs, canonicalKeyForComment]);
+  }, [comments, parsedDiffs]);
 
   // Tracks the last visited position so navigation can resume near it when
   // the focused comment is deleted. Updated from scrollToComment and from
@@ -451,21 +319,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       return;
     }
     // Fallback: scroll to the file row if the comment ref hasn't registered yet.
-    // Out-of-diff group fallback is preserved here for Task 15 to remove cleanly.
-    if (!isInDiff(comment)) {
-      const key = comment.oldPath ? `${comment.oldPath}→${comment.file}` : comment.file;
-      const groupEl = outOfDiffRefs.current.get(key);
-      if (groupEl) {
-        groupEl.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-      return;
-    }
-    const pathKey = canonicalKeyForComment(comment);
-    const fileEl = diffRefs.current.get(pathKey);
+    const fileEl = diffRefs.current.get(comment.file);
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [sortedComments, isInDiff, canonicalKeyForComment]);
+  }, [sortedComments]);
 
   const handlePrevComment = useCallback(() => {
     // Stale focus (previous comment was deleted): target the slot that was
@@ -523,18 +381,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     [],
   );
 
-  const outOfDiffRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const setOutOfDiffRef = useCallback(
-    (key: string) => (el: HTMLElement | null) => {
-      if (el) outOfDiffRefs.current.set(key, el);
-      else outOfDiffRefs.current.delete(key);
-    },
-    [],
-  );
-
   const scrollToFile = useCallback((path: string) => {
     setSelectedPath(path);
-    lastScrollTargetKindRef.current = "file";
     setIsScrollPending(true);
     if (isMobile) {
       setMobileShowDiffs(true);
@@ -542,25 +390,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     // Bumping the request id triggers the unified scroll effect below, which
     // runs in useLayoutEffect AFTER the force-mount propagation commits.
     // Re-firing on repeat clicks to the same path is intentional.
-    setScrollRequestId((n) => n + 1);
-  }, [isMobile]);
-
-  // Route out-of-diff clicks through the unified scroll pipeline so the
-  // groups benefit from the same force-mount-predecessors stabilization as
-  // file diffs. Without this, the bare scrollIntoView would drift as lazy
-  // LazyFileDiff entries between the current viewport and the out-of-diff
-  // section mount and expand mid-animation.
-  // Defined here (above the early returns) so the hook is unconditionally
-  // invoked every render — declaring it after the loadingBranches/branchError
-  // returns would change the hook count between renders and trip React's
-  // hook-order check.
-  const scrollToOutOfDiff = useCallback((key: string) => {
-    setSelectedOutOfDiffKey(key);
-    lastScrollTargetKindRef.current = "outOfDiff";
-    setIsScrollPending(true);
-    if (isMobile) {
-      setMobileShowDiffs(true);
-    }
     setScrollRequestId((n) => n + 1);
   }, [isMobile]);
 
@@ -773,9 +602,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // active reflow is what caused the original drift-to-wrong-file bug —
   // placeholders kept inflating mid-animation and pushed the target down.
   useLayoutEffect(() => {
-    const kind = lastScrollTargetKindRef.current;
-    const key = kind === "outOfDiff" ? selectedOutOfDiffKey : selectedPath;
-    if (!key) return;
+    if (!selectedPath) return;
     // Drop the pending flag on any early-return path so predecessors don't
     // stay in the expensive all-mounted state if the effect can't execute
     // the scroll (mobile back-nav, target not in the current diff set, etc).
@@ -783,9 +610,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       setIsScrollPending(false);
       return;
     }
-    const el = kind === "outOfDiff"
-      ? outOfDiffRefs.current.get(key)
-      : diffRefs.current.get(key);
+    const el = diffRefs.current.get(selectedPath);
     if (!el) {
       setIsScrollPending(false);
       return;
@@ -812,7 +637,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       cancelAnimationFrame(handle);
       if (releaseHandle !== null) cancelAnimationFrame(releaseHandle);
     };
-  }, [scrollRequestId, selectedPath, selectedOutOfDiffKey, isMobile, mobileShowDiffs]);
+  }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
 
   if (loadingBranches) {
     return (
@@ -906,26 +731,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const hasChangedFiles = !!compareData?.files.length;
-  const hasOutOfDiff = outOfDiffGroups.length > 0;
-  const fileList = hasChangedFiles || hasOutOfDiff ? (
+  const fileList = hasChangedFiles ? (
     <div className="flex-1 overflow-y-auto">
-      {hasChangedFiles && (
-        <div>
-          {compareData!.files.map((file) => (
-            <CompareFileRow
-              key={file.path}
-              file={file}
-              isSelected={selectedPath === file.path}
-              onClick={() => scrollToFile(file.path)}
-            />
-          ))}
-        </div>
-      )}
-      <OutOfDiffSection
-        groups={outOfDiffGroups}
-        selectedKey={selectedOutOfDiffKey ?? undefined}
-        onFileClick={scrollToOutOfDiff}
-      />
+      <div>
+        {compareData!.files.map((file) => (
+          <CompareFileRow
+            key={file.path}
+            file={file}
+            isSelected={selectedPath === file.path}
+            onClick={() => scrollToFile(file.path)}
+          />
+        ))}
+      </div>
     </div>
   ) : null;
 
@@ -974,21 +791,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           </div>
         );
       })}
-      {outOfDiffGroups.map((g) => {
-        return (
-          <div key={g.key} ref={setOutOfDiffRef(g.key)}>
-            <OutOfDiffFile
-              groupKey={g.key}
-              displayFile={g.displayFile}
-              comments={g.comments}
-              onDeleteComment={handleDeleteComment}
-              onEditComment={handleEditComment}
-              onEditCommentRequest={editCommentRequestHandler}
-              onCommentRef={setCommentRef}
-            />
-          </div>
-        );
-      })}
     </div>
   );
 
@@ -1000,7 +802,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         </div>
       ) : compareError ? (
         compareErrorView
-      ) : parsedDiffs.length === 0 && outOfDiffGroups.length === 0 ? (
+      ) : parsedDiffs.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
           <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
           <p className="text-sm">No changes between branches</p>
@@ -1110,23 +912,15 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
             </div>
           ) : compareError ? (
             compareErrorView
-          ) : hasChangedFiles || hasOutOfDiff ? (
-            <>
-              {hasChangedFiles &&
-                compareData!.files.map((file) => (
-                  <CompareFileRow
-                    key={file.path}
-                    file={file}
-                    isSelected={selectedPath === file.path}
-                    onClick={() => scrollToFile(file.path)}
-                  />
-                ))}
-              <OutOfDiffSection
-                groups={outOfDiffGroups}
-                selectedKey={selectedOutOfDiffKey ?? undefined}
-                onFileClick={scrollToOutOfDiff}
+          ) : hasChangedFiles ? (
+            compareData!.files.map((file) => (
+              <CompareFileRow
+                key={file.path}
+                file={file}
+                isSelected={selectedPath === file.path}
+                onClick={() => scrollToFile(file.path)}
               />
-            </>
+            ))
           ) : compareData ? (
             <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
               <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
