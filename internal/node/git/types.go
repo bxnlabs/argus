@@ -13,6 +13,14 @@ const (
 	StatusUnmerged  FileStatus = "unmerged"
 )
 
+const (
+	// StatusContext is a synthetic status for files that exist in the compare
+	// response only to host comment-anchored context hunks. The file has no
+	// real changes between base and head; it appears so reviewers can see
+	// comments whose anchor is on an otherwise-unchanged file.
+	StatusContext FileStatus = "context"
+)
+
 // GitFile represents a single file in git status output.
 type GitFile struct {
 	Path    string     `json:"path"`
