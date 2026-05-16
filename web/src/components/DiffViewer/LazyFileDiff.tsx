@@ -22,7 +22,6 @@ interface LazyFileDiffProps {
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   totalLines: number;
   onExpandedHunksChange?: (hunks: DiffHunk[]) => void;
-  onRegisterInsertSynthetic?: (handler: (hunk: DiffHunk, insertIndex: number) => void) => void;
   expansionContext: ExpansionContext;
   /** When true, skip lazy mounting and render content immediately. */
   forceMount?: boolean;
@@ -52,7 +51,6 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
           onCommentRef={props.onCommentRef}
           totalLines={props.totalLines}
           onExpandedHunksChange={props.onExpandedHunksChange}
-          onRegisterInsertSynthetic={props.onRegisterInsertSynthetic}
           expansionContext={props.expansionContext}
         />
       ) : (

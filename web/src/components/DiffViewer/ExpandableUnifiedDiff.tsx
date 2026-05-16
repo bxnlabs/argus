@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import type { ParsedDiff, DiffHunk } from "@/lib/diff-parser";
 import type { ReviewComment, DiffPosition } from "@/types";
 import { useExpandableDiff, type ExpansionContext } from "@/hooks/useExpandableDiff";
@@ -22,7 +22,6 @@ interface ExpandableUnifiedDiffProps {
   onEditCommentRequest?: (comment: ReviewComment) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   onExpandedHunksChange?: (hunks: DiffHunk[]) => void;
-  onRegisterInsertSynthetic?: (handler: (hunk: DiffHunk, insertIndex: number) => void) => void;
 }
 
 export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
@@ -30,10 +29,9 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
   totalLines: totalLinesProp,
   expansionContext,
   onExpandedHunksChange,
-  onRegisterInsertSynthetic,
   ...unifiedDiffProps
 }: ExpandableUnifiedDiffProps) {
-  const { hunks, totalLines, expandLoading, expandErrors, handleExpand, dispatch } = useExpandableDiff(
+  const { hunks, totalLines, expandLoading, expandErrors, handleExpand } = useExpandableDiff(
     diff.hunks,
     totalLinesProp,
     expansionContext,
@@ -43,15 +41,6 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
   useEffect(() => {
     onExpandedHunksChange?.(hunks);
   }, [hunks, onExpandedHunksChange]);
-
-  // Register a stable synthetic-hunk insertion handler with the parent
-  const handleInsertSynthetic = useCallback((hunk: DiffHunk, insertIndex: number) => {
-    dispatch({ type: "INSERT_SYNTHETIC", hunk, insertIndex });
-  }, [dispatch]);
-
-  useEffect(() => {
-    onRegisterInsertSynthetic?.(handleInsertSynthetic);
-  }, [handleInsertSynthetic, onRegisterInsertSynthetic]);
 
   // Stable diff object — only changes when the underlying diff or expanded hunks change
   const expandedDiff = useMemo<ParsedDiff>(

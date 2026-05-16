@@ -91,7 +91,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
-  const insertSyntheticHandlers = useRef<Map<string, (hunk: DiffHunk, idx: number) => void>>(new Map());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   // Bumped on each scroll-to-file request so repeat clicks on the same path
   // re-trigger the scroll effect.
@@ -127,7 +126,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     lastFocusedIdxRef.current = -1;
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
-    insertSyntheticHandlers.current.clear();
   }, [workingDirectory]);
 
   // Branches excluding the current one
@@ -415,18 +413,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
     return map;
   }, [parsedDiffs, handleExpandedHunksChange]);
-
-  // Stable per-file registration callbacks for synthetic hunk insertion
-  const fileRegisterInsertSyntheticHandlers = useMemo(() => {
-    const map = new Map<string, (handler: (hunk: DiffHunk, insertIndex: number) => void) => void>();
-    for (const diff of parsedDiffs) {
-      const pathKey = getDiffPathKey(diff);
-      map.set(pathKey, (handler: (hunk: DiffHunk, insertIndex: number) => void) => {
-        insertSyntheticHandlers.current.set(pathKey, handler);
-      });
-    }
-    return map;
-  }, [parsedDiffs]);
 
   // Stable per-file expansion contexts — avoids creating new objects in the render loop
   const fileExpansionContexts = useMemo(() => {
@@ -785,7 +771,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onCommentRef={setCommentRef}
               totalLines={compareData?.totalLines[pathKey] ?? 0}
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
-              onRegisterInsertSynthetic={fileRegisterInsertSyntheticHandlers.get(pathKey)}
               expansionContext={fileExpansionContexts.get(pathKey)!}
             />
           </div>
