@@ -19,10 +19,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { LazyFileDiff } from "@/components/DiffViewer/LazyFileDiff";
-import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
+import { getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk, type ParsedDiff } from "@/lib/diff-parser";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
-import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
-import { reviewKeys } from "@/data/review/keys";
+import { useSaveReviewMutation } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
@@ -32,7 +31,41 @@ import { OutOfDiffFile } from "./OutOfDiffFile";
 import { useViewport } from "@/hooks/useViewport";
 import { fetchFileLines } from "@/data/git/file-lines";
 import { computeOldToNewOffset, type ExpansionContext } from "@/hooks/useExpandableDiff";
-import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
+import type { CommitFile, CompareFileView, FileStatus, ReviewComment, Review, DiffPosition, CompareResult } from "@/types";
+
+// Adapter: maps the backend's CompareFileView into the existing ParsedDiff
+// shape consumed by LazyFileDiff / ExpandableUnifiedDiff. The legacy renderer
+// expects oldFile/newFile/booleans; the new payload has path/status.
+// kind: "context"|"snippet" hunks pass through as ordinary hunks (they only
+// carry context lines), so no per-line transformation is needed.
+function compareFileToParsedDiff(f: CompareFileView): ParsedDiff {
+  const oldFile = f.oldPath ?? f.path;
+  const newFile = f.path;
+  return {
+    oldFile,
+    newFile,
+    additions: f.additions,
+    deletions: f.deletions,
+    isBinary: !!f.isBinary,
+    isNew: f.status === "added",
+    isDeleted: f.status === "deleted",
+    isRenamed: f.status === "renamed",
+    hunks: f.hunks.map((h) => ({
+      header: h.header,
+      oldStart: h.oldStart,
+      oldCount: h.oldCount,
+      newStart: h.newStart,
+      newCount: h.newCount,
+      lines: h.lines.map((ln) => ({
+        type: ln.type,
+        content: ln.content,
+        oldLineNumber: ln.oldLineNumber,
+        newLineNumber: ln.newLineNumber,
+      })),
+      stableKey: `${h.kind}:${h.oldStart}:${h.newStart}`,
+    })),
+  };
+}
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
 
@@ -221,7 +254,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     isLoading: loadingCompare,
     isError: compareError,
     error: compareErrorDetail,
-  } = useCompareQuery(workingDirectory, baseBranch);
+  } = useCompareQuery(workingDirectory, baseBranch, currentBranch);
 
   // Invalidate any in-flight scrollToComment continuation when the compare
   // context changes. Without this, a synthetic-hunk fetch started just before
@@ -233,11 +266,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [baseBranch, compareData?.headRef, compareData?.baseRef]);
 
   const parsedDiffs = useMemo(() => {
-    if (!compareData?.diff) return [];
+    if (!compareData?.files) return [];
     // Clear stale expanded hunks when diff data changes (e.g. base branch switch)
     expandedHunksRef.current.clear();
-    return parseMultiFileDiff(compareData.diff);
-  }, [compareData?.diff]);
+    return compareData.files.map(compareFileToParsedDiff);
+  }, [compareData?.files]);
 
   // Index of the selected file in the rendered diff order. -1 when nothing is
   // selected, or when the selected path is no longer present in parsedDiffs
@@ -247,12 +280,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return parsedDiffs.findIndex((d) => getDiffPathKey(d) === selectedPath);
   }, [selectedPath, parsedDiffs]);
 
-  const {
-    data: reviewData,
-  } = useReviewQuery(workingDirectory, currentBranch, baseBranch, compareData?.headRef, compareData?.baseRef);
-
   const saveReview = useSaveReviewMutation(workingDirectory);
 
+  const reviewData = compareData?.review;
   const comments = reviewData?.comments ?? EMPTY_COMMENTS;
 
   // Set of paths represented in the compare diff (both new paths and old
@@ -373,22 +403,33 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return stable;
   }, [visibleComments, canonicalKeyForComment]);
 
-  // Optimistically update the review cache and persist to server.
+  // Optimistically update the compareview cache and persist to server.
   // Accepts a functional updater so callers don't close over reviewData/comments.
-  const headRef = compareData?.headRef ?? "";
-  const baseRef = compareData?.baseRef ?? "";
-  const reviewQueryKey = useMemo(
-    () => [...reviewKeys.forComparison(workingDirectory, currentBranch ?? "", baseBranch ?? ""), headRef, baseRef],
-    [workingDirectory, currentBranch, baseBranch, headRef, baseRef],
+  const compareQueryKey = useMemo(
+    () => ["git", "compare", workingDirectory, baseBranch ?? "", currentBranch ?? ""],
+    [workingDirectory, baseBranch, currentBranch],
   );
   const saveAndUpdate = useCallback((updater: (prev: Review) => Review) => {
     if (!currentBranch || !baseBranch) return;
-    const prev = queryClient.getQueryData<Review>(reviewQueryKey);
+    const prev = queryClient.getQueryData<CompareResult>(compareQueryKey);
     if (!prev) return;
-    const updated = updater(prev);
-    queryClient.setQueryData(reviewQueryKey, updated);
-    saveReview.mutate(updated);
-  }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
+    const newReview = updater({
+      head: prev.review.head,
+      base: prev.review.base,
+      body: prev.review.body,
+      comments: prev.review.comments,
+    });
+    queryClient.setQueryData(compareQueryKey, {
+      ...prev,
+      review: {
+        head: newReview.head,
+        base: newReview.base,
+        body: newReview.body,
+        comments: newReview.comments,
+      },
+    });
+    saveReview.mutate(newReview);
+  }, [queryClient, compareQueryKey, currentBranch, baseBranch, saveReview]);
 
   // Adds a comment ID to failedSyntheticIds so isInDiff routes it to the
   // orphan section. The state itself is declared higher up so that isInDiff,
