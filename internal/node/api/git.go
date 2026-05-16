@@ -12,6 +12,7 @@ import (
 
 	gitutil "github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/node/git"
+	"github.com/bxnlabs/argus/internal/node/git/compareview"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
@@ -78,7 +79,12 @@ func sanitizeFilePath(dir, file string) (string, error) {
 }
 
 type gitHandler struct {
-	stateDir string
+	stateDir           string
+	projectDirOverride string // for testing — bypasses home dir derivation
+}
+
+func (h *gitHandler) resolveProjectDir(expandedPath string) (string, error) {
+	return resolveProjectDir(expandedPath, h.projectDirOverride)
 }
 
 // GET /api/git/branches?source=...
@@ -265,26 +271,31 @@ func (h *gitHandler) commitFullDiff(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// GET /api/git/compare?path=...&base=...
+// GET /api/git/compare?path=...&branch=...&base=...
 func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
+	repoPath := r.URL.Query().Get("path")
+	branch := r.URL.Query().Get("branch")
 	base := r.URL.Query().Get("base")
-	if path == "" || base == "" {
-		respondError(w, http.StatusBadRequest, "path and base parameters are required")
+	if repoPath == "" || branch == "" || base == "" {
+		respondError(w, http.StatusBadRequest, "path, branch, and base parameters are required")
 		return
 	}
-	expandedPath, err := shared.SafeExpandPath(path)
+	expandedPath, err := shared.SafeExpandPath(repoPath)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	result, err := git.GetCompare(expandedPath, base)
+	projectDir, err := h.resolveProjectDir(expandedPath)
+	if err != nil {
+		respondInternalError(w, err)
+		return
+	}
+	view, err := compareview.Build(projectDir, expandedPath, branch, base)
 	if err != nil {
 		respondGitError(w, err)
 		return
 	}
-	respondJSON(w, http.StatusOK, result)
+	respondJSON(w, http.StatusOK, view)
 }
 
 // POST /api/git/fetch?path=...&base=...

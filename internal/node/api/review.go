@@ -3,12 +3,9 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/bxnlabs/argus/internal/node/git/review"
 	"github.com/bxnlabs/argus/internal/shared"
-	"github.com/bxnlabs/argus/internal/source"
 )
 
 func validateCommentLine(lr review.LineRange) error {
@@ -35,15 +32,7 @@ type reviewHandler struct {
 }
 
 func (h *reviewHandler) resolveProjectDir(expandedPath string) (string, error) {
-	if h.projectDirOverride != "" {
-		return h.projectDirOverride, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	parentKey := source.ParentKeyFromPath(expandedPath)
-	return filepath.Join(home, ".argus", "projects", parentKey), nil
+	return resolveProjectDir(expandedPath, h.projectDirOverride)
 }
 
 // GET /api/git/review?path=...&branch=...&base=...&headRef=...&baseRef=...
