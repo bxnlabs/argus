@@ -78,3 +78,62 @@ func overlayCompareMetadata(files []FileView, compare *git.CompareResult) {
 		files[i].Status = cf.Status
 	}
 }
+
+// isCommentHostedByHunk returns true if the comment's anchor line appears on
+// the comment's authored side in this hunk's lines. Context lines are valid
+// hosts on either side. Side determines which line-number field to compare.
+func isCommentHostedByHunk(c review.ReviewComment, h Hunk) bool {
+	side := c.Line.From.Side
+	target := c.Line.From.Line
+	for _, ln := range h.Lines {
+		var lineNum *int
+		if side == review.DiffSideLeft {
+			lineNum = ln.OldLineNumber
+		} else {
+			lineNum = ln.NewLineNumber
+		}
+		if lineNum != nil && *lineNum == target {
+			return true
+		}
+	}
+	return false
+}
+
+// isCommentHostedByAnyFile returns true if any hunk in any file hosts the
+// comment's anchor on its authored side. The file match honors renames:
+// L-side resolves against OldPath (or File if OldPath is empty), R-side
+// resolves against the file's new Path.
+func isCommentHostedByAnyFile(c review.ReviewComment, files []FileView) bool {
+	side := c.Line.From.Side
+	for _, f := range files {
+		var match bool
+		if side == review.DiffSideLeft {
+			leftPath := c.OldPath
+			if leftPath == "" {
+				leftPath = c.File
+			}
+			// L-side matches when this file's old (pre-rename) path is leftPath,
+			// or when there's no rename and File equals the file's path.
+			if f.OldPath != "" && f.OldPath == leftPath {
+				match = true
+			} else if f.OldPath == "" && f.Path == leftPath {
+				match = true
+			}
+		} else {
+			// R-side: comment.File names the head-side path. With a rename,
+			// comment.File is the new name and f.Path is the new name.
+			if f.Path == c.File {
+				match = true
+			}
+		}
+		if !match {
+			continue
+		}
+		for _, h := range f.Hunks {
+			if isCommentHostedByHunk(c, h) {
+				return true
+			}
+		}
+	}
+	return false
+}

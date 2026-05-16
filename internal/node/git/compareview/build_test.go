@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/node/git"
+	"github.com/bxnlabs/argus/internal/node/git/review"
 )
 
 // Helpers copied from review_test.go to keep this package self-contained.
@@ -86,5 +87,50 @@ func TestBuild_NoReview(t *testing.T) {
 	// ReviewPayload defaults populate Head/Base from the branch arguments.
 	if v.Review.Head != "feat" || v.Review.Base != "main" {
 		t.Errorf("review head/base: %q/%q", v.Review.Head, v.Review.Base)
+	}
+}
+
+func TestIsCommentHostedByHunk_RSideMatch(t *testing.T) {
+	h := Hunk{
+		OldStart: 10, OldCount: 3, NewStart: 10, NewCount: 4,
+		Lines: []HunkLine{
+			{Type: "context", OldLineNumber: intp(10), NewLineNumber: intp(10)},
+			{Type: "addition", NewLineNumber: intp(11)},
+			{Type: "context", OldLineNumber: intp(11), NewLineNumber: intp(12)},
+		},
+	}
+	c := review.ReviewComment{
+		Line: review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 11}},
+	}
+	if !isCommentHostedByHunk(c, h) {
+		t.Error("expected hosted")
+	}
+}
+
+func TestIsCommentHostedByHunk_LSideMatch(t *testing.T) {
+	h := Hunk{
+		Lines: []HunkLine{
+			{Type: "deletion", OldLineNumber: intp(5)},
+		},
+	}
+	c := review.ReviewComment{
+		Line: review.LineRange{From: review.DiffPosition{Side: review.DiffSideLeft, Line: 5}},
+	}
+	if !isCommentHostedByHunk(c, h) {
+		t.Error("expected hosted")
+	}
+}
+
+func TestIsCommentHostedByHunk_NotHosted(t *testing.T) {
+	h := Hunk{
+		Lines: []HunkLine{
+			{Type: "context", OldLineNumber: intp(10), NewLineNumber: intp(10)},
+		},
+	}
+	c := review.ReviewComment{
+		Line: review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 99}},
+	}
+	if isCommentHostedByHunk(c, h) {
+		t.Error("expected not hosted")
 	}
 }
