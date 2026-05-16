@@ -11,8 +11,8 @@ export const gitKeys = {
     [...gitKeys.all, "content", path, file] as const,
   compareBranches: (path: string) =>
     [...gitKeys.all, "compare-branches", path] as const,
-  compare: (path: string, base: string) =>
-    [...gitKeys.all, "compare", path, base] as const,
+  compare: (path: string, base: string, branch: string) =>
+    [...gitKeys.all, "compare", path, base, branch] as const,
   // Prefix matching all compare queries for a path across any base — used to
   // sweep cached compares when the base's upstream tip may have moved.
   comparesByPath: (path: string) =>
