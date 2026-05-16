@@ -269,6 +269,73 @@ func TestBuild_CaseA_FileViewForUnchangedFile(t *testing.T) {
 	}
 }
 
+func TestBuild_CaseA_MultipleCommentsOnSameUnchangedFile(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+
+	// stable.txt is 10 lines; changed.txt provides the real diff so we're in case-(a).
+	os.WriteFile(filepath.Join(repoDir, "stable.txt"),
+		[]byte("L1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "changed.txt"), []byte("a\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	runCmd(t, repoDir, "git", "checkout", "-q", "-b", "feat")
+	os.WriteFile(filepath.Join(repoDir, "changed.txt"), []byte("aa\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+
+	// Two comments on the unchanged file at lines 2 and 3 — within each other's
+	// ±3 context window. Both IDs must be preserved.
+	r := &review.Review{
+		Head: "feat", Base: "main",
+		Comments: []review.ReviewComment{
+			{
+				ID: "rc_near_a", File: "stable.txt",
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 2}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 2}},
+				Snippet:   "L2",
+				Submitted: true, CreatedAt: "2026-01-01T00:00:00Z",
+			},
+			{
+				ID: "rc_near_b", File: "stable.txt",
+				Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 3}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 3}},
+				Snippet:   "L3",
+				Submitted: true, CreatedAt: "2026-01-01T00:00:00Z",
+			},
+		},
+	}
+	if err := review.Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	v, err := Build(projectDir, repoDir, "feat", "main")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// Find the synthetic FileView.
+	var synth *FileView
+	for i := range v.Files {
+		if v.Files[i].Path == "stable.txt" && v.Files[i].Status == git.StatusContext {
+			synth = &v.Files[i]
+			break
+		}
+	}
+	if synth == nil {
+		t.Fatalf("no synthetic FileView for stable.txt in: %+v", v.Files)
+	}
+	// Both comments must be represented across the FileView's hunks.
+	got := map[string]bool{}
+	for _, h := range synth.Hunks {
+		for _, id := range h.AnchorCommentIDs {
+			got[id] = true
+		}
+	}
+	for _, want := range []string{"rc_near_a", "rc_near_b"} {
+		if !got[want] {
+			t.Errorf("missing %q in AnchorCommentIDs across hunks (got %v)", want, got)
+		}
+	}
+}
+
 // itoa: tiny dependency-free int-to-string helper for tests.
 func itoa(n int) string {
 	if n == 0 {

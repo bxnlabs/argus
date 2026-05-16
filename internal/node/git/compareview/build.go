@@ -288,6 +288,11 @@ func isCommentHostedByHunk(c review.ReviewComment, h Hunk) bool {
 func isCommentHostedByAnyFile(c review.ReviewComment, files []FileView) bool {
 	side := c.Line.From.Side
 	for _, f := range files {
+		if f.Status == git.StatusContext {
+			// Skip synthetic FileViews appended by applyOrphanHunks during this
+			// same pass; only real-diff files count as "hosting" a comment.
+			continue
+		}
 		var match bool
 		if side == review.DiffSideLeft {
 			leftPath := c.OldPath
