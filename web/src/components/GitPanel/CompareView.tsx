@@ -29,8 +29,7 @@ import { MobileCommentSheet } from "./MobileCommentSheet";
 import { OutOfDiffSection } from "./OutOfDiffSection";
 import { OutOfDiffFile } from "./OutOfDiffFile";
 import { useViewport } from "@/hooks/useViewport";
-import { fetchFileLines } from "@/data/git/file-lines";
-import { computeOldToNewOffset, type ExpansionContext } from "@/hooks/useExpandableDiff";
+import { type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, CompareFileView, FileStatus, ReviewComment, Review, DiffPosition, CompareResult } from "@/types";
 
 // Adapter: maps the backend's CompareFileView into the existing ParsedDiff
@@ -69,59 +68,6 @@ function compareFileToParsedDiff(f: CompareFileView): ParsedDiff {
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
 
-/** Fire-and-forget helper: fetch lines and insert a synthetic hunk for an
- * off-screen comment in a changed file (case b). On fetch failure, calls
- * `onFailure(commentId)` so the caller can route the comment to the orphan
- * section instead — no placeholder hunk is inserted. */
-async function fetchFileLinesForSynthetic(
-  repoPath: string,
-  file: string,
-  start: number,
-  end: number,
-  ref: string | undefined,
-  currentHunks: DiffHunk[],
-  pos: DiffPosition,
-  insertHandler: (hunk: DiffHunk, insertIndex: number) => void,
-  onFailure: (commentId: string) => void,
-  commentId: string,
-) {
-  try {
-    const result = await fetchFileLines({ path: repoPath, file, start, end, ref });
-
-    const offset = pos.side === "L" ? computeOldToNewOffset(start, currentHunks) : 0;
-    const oldStart = pos.side === "L" ? start : start + offset;
-    const newStart = pos.side === "L" ? start - offset : start;
-
-    const lines: DiffLine[] = result.lines.map((content, i) => ({
-      type: "context" as const,
-      content,
-      newLineNumber: newStart + i,
-      oldLineNumber: oldStart + i,
-    }));
-
-    const syntheticHunk: DiffHunk = {
-      header: `@@ -${oldStart},${lines.length} +${newStart},${lines.length} @@`,
-      oldStart,
-      oldCount: lines.length,
-      newStart,
-      newCount: lines.length,
-      lines,
-      stableKey: `syn:${oldStart}:${newStart}`,
-    };
-
-    // Side-aware insertion index — scan `currentHunks` for the first hunk
-    // whose start exceeds the anchor on the relevant side so the new hunk
-    // lands in file order.
-    let idx = currentHunks.length;
-    for (let i = 0; i < currentHunks.length; i++) {
-      const hunkLine = pos.side === "L" ? currentHunks[i].oldStart : currentHunks[i].newStart;
-      if (hunkLine > start) { idx = i; break; }
-    }
-    insertHandler(syntheticHunk, idx);
-  } catch {
-    onFailure(commentId);
-  }
-}
 
 interface CompareViewProps {
   workingDirectory: string;
@@ -150,10 +96,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
   const insertSyntheticHandlers = useRef<Map<string, (hunk: DiffHunk, idx: number) => void>>(new Map());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  // In-memory set of comment IDs whose case-(b) synthetic-hunk fetch failed.
-  // Routes the comment into the orphan section for this session. Cleared on
-  // compare-context change (see the workingDirectory and branch/ref reset effects).
-  const [failedSyntheticIds, setFailedSyntheticIds] = useState<Set<string>>(() => new Set());
   // Bumped on each scroll-to-file request so repeat clicks on the same path
   // re-trigger the scroll effect.
   const [scrollRequestId, setScrollRequestId] = useState(0);
@@ -183,14 +125,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     error: branchErrorDetail,
   } = useCompareBranchesQuery(workingDirectory);
 
-  // Reset repo-scoped state when working directory changes. The
-  // scrollRequestRef bump invalidates any in-flight scrollToComment
-  // continuation (synthetic-hunk fetch) so it bails out via its requestId
-  // check instead of scrolling to a stale target in the new repo.
+  // Reset repo-scoped state when working directory changes.
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
-    setFailedSyntheticIds(new Set());
     setIsScrollPending(false);
     setEditingComment(null);
     setFocusedCommentId(null);
@@ -198,17 +136,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
     insertSyntheticHandlers.current.clear();
-    scrollRequestRef.current++;
   }, [workingDirectory]);
-
-  // Invalidate any in-flight scrollToComment continuation on unmount so a
-  // pending synthetic-hunk fetch can't resolve after the view is gone and
-  // scroll a coincidentally same-id comment in a future mount.
-  useEffect(() => {
-    return () => {
-      scrollRequestRef.current++;
-    };
-  }, []);
 
   // Branches excluding the current one
   const availableBranches = useMemo(() => {
@@ -256,14 +184,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     error: compareErrorDetail,
   } = useCompareQuery(workingDirectory, baseBranch, currentBranch);
 
-  // Invalidate any in-flight scrollToComment continuation when the compare
-  // context changes. Without this, a synthetic-hunk fetch started just before
-  // a branch switch could resolve in the new review and scroll to a
-  // coincidentally same-id comment the user didn't ask for.
-  useEffect(() => {
-    scrollRequestRef.current++;
-    setFailedSyntheticIds(new Set());
-  }, [baseBranch, compareData?.headRef, compareData?.baseRef]);
 
   const parsedDiffs = useMemo(() => {
     if (!compareData?.files) return [];
@@ -301,9 +221,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [compareData]);
   const isInDiff = useCallback(
     (c: ReviewComment) =>
-      (diffPathSet.has(c.file) || (!!c.oldPath && diffPathSet.has(c.oldPath))) &&
-      !failedSyntheticIds.has(c.id),
-    [diffPathSet, failedSyntheticIds],
+      diffPathSet.has(c.file) || (!!c.oldPath && diffPathSet.has(c.oldPath)),
+    [diffPathSet],
   );
 
   // Map every alias path (oldPath included) to the file's canonical pathKey.
@@ -431,18 +350,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     saveReview.mutate(newReview);
   }, [queryClient, compareQueryKey, currentBranch, baseBranch, saveReview]);
 
-  // Adds a comment ID to failedSyntheticIds so isInDiff routes it to the
-  // orphan section. The state itself is declared higher up so that isInDiff,
-  // defined earlier in the component, can close over the latest value.
-  const markSyntheticFailed = useCallback((commentId: string) => {
-    setFailedSyntheticIds((prev) => {
-      if (prev.has(commentId)) return prev;
-      const next = new Set(prev);
-      next.add(commentId);
-      return next;
-    });
-  }, []);
-
   // Resolve hunks for a file, preferring expanded hunks from the ref
   const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
     const expanded = expandedHunksRef.current.get(pathKey);
@@ -533,73 +440,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // even though both leave focusedCommentIdx at -1.
   const isFocusStale = focusedCommentId !== null && focusedCommentIdx === -1;
 
-  // Ref for reading the latest sortedComments inside async continuations
-  // (avoids stale-closure scrolls after synthetic-hunk fetches settle).
-  const sortedCommentsRef = useRef(sortedComments);
-  sortedCommentsRef.current = sortedComments;
-
-  // Monotonic token so async continuations from superseded scrollToComment
-  // calls bail out instead of scrolling back to a stale target.
-  const scrollRequestRef = useRef(0);
-
-  const scrollToComment = useCallback(async (index: number) => {
+  const scrollToComment = useCallback((index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
-    const requestId = ++scrollRequestRef.current;
     setFocusedCommentId(comment.id);
     lastFocusedIdxRef.current = index;
-
-    // Ensure the comment's line is visible in the current hunks before scrolling.
-    // Uses the canonical key so a comment whose c.file points at a pre-rename
-    // alias still resolves to the rendered diff's hunks and refs.
-    const pathKey = canonicalKeyForComment(comment);
-    const pos = comment.line.to;
-    const currentHunks = getHunksForFile(pathKey);
-    let visible = false;
-    for (const hunk of currentHunks) {
-      for (const line of hunk.lines) {
-        if (pos.side === "L" && line.oldLineNumber === pos.line) { visible = true; break; }
-        if (pos.side === "R" && line.newLineNumber === pos.line) { visible = true; break; }
-      }
-      if (visible) break;
-    }
-
-    // Gate on isInDiff so a comment whose synthetic fetch already failed
-    // (id is in failedSyntheticIds) isn't retried on every Prev/Next press.
-    // Such comments fall through to the orphan-scroll branch at line 562.
-    if (!visible && isInDiff(comment)) {
-      const handler = insertSyntheticHandlers.current.get(pathKey);
-      if (handler) {
-        const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
-        // L-side fetch wants the path that exists at baseRef (oldPath when
-        // present, otherwise c.file is already the L-side path). R-side fetch
-        // wants the path that exists at headRef — the canonical key, so a
-        // pre-rename comment whose c.file is the old name still resolves to
-        // the new name at headRef.
-        const file = pos.side === "L"
-          ? (comment.oldPath ?? comment.file)
-          : pathKey;
-        const start = Math.max(1, pos.line - 3);
-        const end = pos.line + 3;
-        await fetchFileLinesForSynthetic(
-          workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-          markSyntheticFailed, comment.id,
-        );
-        // Wait for React to re-render after synthetic hunk insertion
-        await new Promise<void>((resolve) => setTimeout(resolve, 50));
-      }
-    }
-
-    // Bail if a newer scrollToComment has superseded this one, or if the
-    // target was deleted during the async settle.
-    if (requestId !== scrollRequestRef.current) return;
-    if (!sortedCommentsRef.current.some((c) => c.id === comment.id)) return;
-
     const el = commentRefs.current.get(comment.id);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
+    // Fallback: scroll to the file row if the comment ref hasn't registered yet.
+    // Out-of-diff group fallback is preserved here for Task 15 to remove cleanly.
     if (!isInDiff(comment)) {
       const key = comment.oldPath ? `${comment.oldPath}→${comment.file}` : comment.file;
       const groupEl = outOfDiffRefs.current.get(key);
@@ -608,11 +460,12 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       }
       return;
     }
+    const pathKey = canonicalKeyForComment(comment);
     const fileEl = diffRefs.current.get(pathKey);
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markSyntheticFailed, canonicalKeyForComment, isInDiff]);
+  }, [sortedComments, isInDiff, canonicalKeyForComment]);
 
   const handlePrevComment = useCallback(() => {
     // Stale focus (previous comment was deleted): target the slot that was
@@ -759,52 +612,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
     return map;
   }, [parsedDiffs, workingDirectory, compareData?.headRef]);
-
-  // After review data loads, ensure all comments are visible by inserting synthetic hunks
-  useEffect(() => {
-    if (!visibleComments.length || !parsedDiffs.length) return;
-
-    // Group comments by file and ensure visibility for each
-    for (const [pathKey, fileComments] of commentsByFile) {
-      const handler = insertSyntheticHandlers.current.get(pathKey);
-      if (!handler) continue;
-
-      // Always use the best available hunks: prefer expanded hunks, fall back to parsed diff hunks
-      const expanded = expandedHunksRef.current.get(pathKey);
-      const diff = parsedDiffs.find((d) => getDiffPathKey(d) === pathKey);
-      const currentHunks = (expanded && expanded.length > 0) ? expanded : (diff?.hunks ?? []);
-      if (currentHunks.length === 0) continue;
-
-      for (const comment of fileComments) {
-        const pos = comment.line.to;
-        let visible = false;
-        for (const hunk of currentHunks) {
-          for (const line of hunk.lines) {
-            if (pos.side === "L" && line.oldLineNumber === pos.line) { visible = true; break; }
-            if (pos.side === "R" && line.newLineNumber === pos.line) { visible = true; break; }
-          }
-          if (visible) break;
-        }
-        if (!visible) {
-          const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
-          // L-side fetch wants the path that exists at baseRef (oldPath when
-          // present, else c.file). R-side fetch wants the canonical key so
-          // pre-rename comments still resolve to the new name at headRef.
-          const file = pos.side === "L"
-            ? (comment.oldPath ?? comment.file)
-            : pathKey;
-          const start = Math.max(1, pos.line - 3);
-          const end = pos.line + 3;
-
-          fetchFileLinesForSynthetic(
-            workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-            markSyntheticFailed, comment.id,
-          );
-        }
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleComments, parsedDiffs, compareData?.headRef, compareData?.baseRef]);
 
   // Stable per-file onLineClick handlers — avoids creating new closures in the render loop
   const fileLineClickHandlers = useMemo(() => {
