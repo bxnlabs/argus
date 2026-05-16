@@ -59,9 +59,9 @@ func Build(projectDir, repoDir, head, base string) (*View, error) {
 func overlayCompareMetadata(files []FileView, compare *git.CompareResult) {
 	byPath := make(map[string]int, len(compare.Files))
 	for i, cf := range compare.Files {
+		// CompareResult.Files always keys on the post-rename path (normalised
+		// inside GetCompare), matching FileView.Path emitted by the parser.
 		byPath[cf.Path] = i
-		// Renames: the parsed FileView keys on the new path, but compare
-		// might have separately listed via old path under some flows.
 	}
 	for i := range files {
 		idx, ok := byPath[files[i].Path]

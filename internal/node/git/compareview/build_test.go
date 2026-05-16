@@ -83,4 +83,8 @@ func TestBuild_NoReview(t *testing.T) {
 	if v.Files[0].Status != git.StatusModified {
 		t.Errorf("status: %q", v.Files[0].Status)
 	}
+	// ReviewPayload defaults populate Head/Base from the branch arguments.
+	if v.Review.Head != "feat" || v.Review.Base != "main" {
+		t.Errorf("review head/base: %q/%q", v.Review.Head, v.Review.Base)
+	}
 }
