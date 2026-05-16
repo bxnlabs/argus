@@ -2,6 +2,7 @@ package compareview
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/bxnlabs/argus/internal/node/git"
 	"github.com/bxnlabs/argus/internal/node/git/review"
@@ -91,10 +92,9 @@ const orphanContextWindow = 3
 // that isn't already hosted by a real diff hunk in that file. For case-(b)
 // (comment is on a file IN the diff but anchor line is outside any real
 // hunk), the context hunk is fetched from the appropriate ref and inserted
-// into the FileView in file order.
-//
-// Case-(a) (file not in compare diff at all) and case-(d) (snippet not
-// found) are handled in later tasks.
+// into the FileView in file order. For case-(a) (file not in compare diff at
+// all) and case-(d) (file missing at ref, line past EOF, binary, too large,
+// etc.), a synthetic FileView with StatusContext is created or updated.
 func applyOrphanHunks(files []FileView, comments []review.ReviewComment, repoDir, headRef, baseRef string) []FileView {
 	for _, c := range comments {
 		if !c.Submitted {
@@ -106,10 +106,13 @@ func applyOrphanHunks(files []FileView, comments []review.ReviewComment, repoDir
 		idx := findFileIndexForComment(c, files)
 		h, ok := buildContextHunk(c, repoDir, headRef, baseRef)
 		if !ok {
-			continue // case-(d), handled in next task
+			h = buildSnippetHunk(c)
 		}
-		if idx == -1 {
+		if idx == -1 || !ok {
 			// case-(a): synthesize a FileView for the unchanged file.
+			// case-(d): anchor unavailable at ref — snippet hunk always goes
+			//           into a synthetic StatusContext FileView so it doesn't
+			//           corrupt the existing diff-produced FileView's hunk list.
 			files = appendOrUpdateContextFile(files, c, h)
 			continue
 		}
@@ -236,6 +239,57 @@ func insertHunkInOrder(hunks []Hunk, h Hunk) []Hunk {
 		}
 	}
 	return append(hunks, h)
+}
+
+// buildSnippetHunk constructs a HunkKindSnippet hunk from the comment's
+// stored snippet text. The anchor line numbers come from the comment itself —
+// they refer to "where the comment was authored," not "where the line is now,"
+// hence AnchorMissing=true so the renderer can surface the discrepancy.
+func buildSnippetHunk(c review.ReviewComment) Hunk {
+	side := c.Line.From.Side
+	anchorLine := c.Line.From.Line
+	snippet := c.Snippet
+	if snippet == "" {
+		snippet = "(no snippet captured)"
+	}
+	contentLines := strings.Split(snippet, "\n")
+	lines := make([]HunkLine, 0, len(contentLines))
+	for i, content := range contentLines {
+		n := anchorLine + i
+		var ol, nl *int
+		if side == review.DiffSideLeft {
+			v := n
+			ol = &v
+		} else {
+			v := n
+			nl = &v
+		}
+		lines = append(lines, HunkLine{
+			Type:          "context",
+			Content:       content,
+			OldLineNumber: ol,
+			NewLineNumber: nl,
+		})
+	}
+	h := Hunk{
+		Kind:             HunkKindSnippet,
+		OldStart:         anchorLine,
+		OldCount:         len(lines),
+		NewStart:         anchorLine,
+		NewCount:         len(lines),
+		Lines:            lines,
+		AnchorCommentIDs: []string{c.ID},
+		AnchorMissing:    true,
+	}
+	if side == review.DiffSideLeft {
+		h.NewStart = 0
+		h.NewCount = 0
+	} else {
+		h.OldStart = 0
+		h.OldCount = 0
+	}
+	h.Header = formatHunkHeader(h)
+	return h
 }
 
 // appendOrUpdateContextFile finds or creates a synthetic FileView for a

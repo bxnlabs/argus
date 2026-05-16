@@ -336,6 +336,71 @@ func TestBuild_CaseA_MultipleCommentsOnSameUnchangedFile(t *testing.T) {
 	}
 }
 
+func TestBuild_CaseD_SnippetFallbackWhenFileMissingAtRef(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+
+	// File exists only on base; deleted on head.
+	os.WriteFile(filepath.Join(repoDir, "gone.txt"), []byte("hello\nworld\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "other.txt"), []byte("a\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	runCmd(t, repoDir, "git", "checkout", "-q", "-b", "feat")
+
+	os.Remove(filepath.Join(repoDir, "gone.txt"))
+	os.WriteFile(filepath.Join(repoDir, "other.txt"), []byte("aa\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", "-A")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+
+	// Comment on the deleted file, R-side (so backend looks for the file at headRef, which is gone).
+	r := &review.Review{
+		Head: "feat", Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:        "rc_gone",
+			File:      "gone.txt",
+			Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 1}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 1}},
+			Snippet:   "captured snippet text",
+			Submitted: true,
+			CreatedAt: "2026-01-01T00:00:00Z",
+		}},
+	}
+	if err := review.Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	v, err := Build(projectDir, repoDir, "feat", "main")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// Find the synthetic file for gone.txt.
+	var target *FileView
+	for i := range v.Files {
+		if v.Files[i].Path == "gone.txt" && v.Files[i].Status == git.StatusContext {
+			target = &v.Files[i]
+			break
+		}
+	}
+	if target == nil {
+		t.Fatalf("no synthetic FileView for gone.txt in: %+v", v.Files)
+	}
+	if len(target.Hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(target.Hunks))
+	}
+	h := target.Hunks[0]
+	if h.Kind != HunkKindSnippet {
+		t.Errorf("kind = %q, want %q", h.Kind, HunkKindSnippet)
+	}
+	if !h.AnchorMissing {
+		t.Error("expected AnchorMissing=true")
+	}
+	if len(h.AnchorCommentIDs) != 1 || h.AnchorCommentIDs[0] != "rc_gone" {
+		t.Errorf("anchorCommentIds: %v", h.AnchorCommentIDs)
+	}
+	if len(h.Lines) != 1 || h.Lines[0].Content != "captured snippet text" {
+		t.Errorf("hunk lines: %+v", h.Lines)
+	}
+}
+
 // itoa: tiny dependency-free int-to-string helper for tests.
 func itoa(n int) string {
 	if n == 0 {
