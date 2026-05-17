@@ -159,7 +159,6 @@ export interface CompareHunk {
   newStart: number;
   newCount: number;
   lines: CompareHunkLine[];
-  anchorCommentIds?: string[];
   anchorMissing?: boolean;
 }
 
