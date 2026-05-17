@@ -208,7 +208,6 @@ func buildContextHunk(c review.ReviewComment, repoDir, headRef, baseRef string) 
 		NewStart:         res.Start,
 		NewCount:         len(lines),
 		Lines:            lines,
-		AnchorCommentIDs: []string{c.ID},
 	}
 	if side == review.DiffSideLeft {
 		h.NewStart = 0
@@ -287,7 +286,6 @@ func buildSnippetHunk(c review.ReviewComment) Hunk {
 		NewStart:         anchorLine,
 		NewCount:         len(lines),
 		Lines:            lines,
-		AnchorCommentIDs: []string{c.ID},
 		AnchorMissing:    true,
 	}
 	if side == review.DiffSideLeft {

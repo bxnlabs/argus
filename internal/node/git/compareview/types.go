@@ -47,11 +47,6 @@ type Hunk struct {
 	NewCount int        `json:"newCount"`
 	Lines    []HunkLine `json:"lines"`
 
-	// AnchorCommentIDs lists comment ids whose anchor falls inside this hunk.
-	// Populated for HunkKindContext and HunkKindSnippet. Empty for HunkKindDiff
-	// (the frontend does that mapping for diff hunks today via line lookup).
-	AnchorCommentIDs []string `json:"anchorCommentIds,omitempty"`
-
 	// AnchorMissing is true for HunkKindSnippet hunks built from stored snippet
 	// text because the file or line could not be located at the relevant ref.
 	AnchorMissing bool `json:"anchorMissing,omitempty"`
