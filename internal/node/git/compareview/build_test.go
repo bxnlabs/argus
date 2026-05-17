@@ -401,6 +401,89 @@ func TestBuild_CaseD_SnippetFallbackWhenFileMissingAtRef(t *testing.T) {
 	}
 }
 
+// TestBuild_CaseD_SnippetFallbackWhenAnchorPastEOFInsidePartialWindow exercises
+// the case where the ±orphanContextWindow window around the comment's anchor
+// partially overlaps the file (start is in range, but the anchor itself is past
+// EOF). Prior to the fix, buildContextHunk returned a context hunk whose lines
+// did not include the anchor line — the inline renderer keys comments by line
+// number, so the comment vanished silently. Behavior now matches the
+// file-missing case: snippet fallback with AnchorMissing=true so the comment
+// renders against its stored snippet text.
+func TestBuild_CaseD_SnippetFallbackWhenAnchorPastEOFInsidePartialWindow(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+
+	// short.txt is 5 lines (unchanged across the diff); changed.txt provides the
+	// real diff so the comment falls into case-(a).
+	os.WriteFile(filepath.Join(repoDir, "short.txt"),
+		[]byte("L1\nL2\nL3\nL4\nL5\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "changed.txt"), []byte("a\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	runCmd(t, repoDir, "git", "checkout", "-q", "-b", "feat")
+	os.WriteFile(filepath.Join(repoDir, "changed.txt"), []byte("aa\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+
+	// Comment anchored R:8 on a 5-line file. The ±3 window is [5, 11], so
+	// GetFileLines returns line 5 only — the fetch succeeds but the anchor
+	// (8) is past the returned end (5).
+	r := &review.Review{
+		Head: "feat", Base: "main",
+		Comments: []review.ReviewComment{{
+			ID:        "rc_past_eof_partial",
+			File:      "short.txt",
+			Line:      review.LineRange{From: review.DiffPosition{Side: review.DiffSideRight, Line: 8}, To: review.DiffPosition{Side: review.DiffSideRight, Line: 8}},
+			Snippet:   "captured snippet at L8",
+			Submitted: true,
+			CreatedAt: "2026-01-01T00:00:00Z",
+		}},
+	}
+	if err := review.Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	v, err := Build(projectDir, repoDir, "feat", "main")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// Find the synthetic FileView for short.txt.
+	var target *FileView
+	for i := range v.Files {
+		if v.Files[i].Path == "short.txt" && v.Files[i].Status == git.StatusContext {
+			target = &v.Files[i]
+			break
+		}
+	}
+	if target == nil {
+		t.Fatalf("no synthetic FileView for short.txt in: %+v", v.Files)
+	}
+	if len(target.Hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d: %+v", len(target.Hunks), target.Hunks)
+	}
+	h := target.Hunks[0]
+	if h.Kind != HunkKindSnippet {
+		t.Errorf("kind = %q, want %q", h.Kind, HunkKindSnippet)
+	}
+	if !h.AnchorMissing {
+		t.Error("expected AnchorMissing=true")
+	}
+	if len(h.AnchorCommentIDs) != 1 || h.AnchorCommentIDs[0] != "rc_past_eof_partial" {
+		t.Errorf("anchorCommentIds: %v", h.AnchorCommentIDs)
+	}
+	// The snippet hunk's line numbers must equal the anchor so the frontend's
+	// commentsByLine.get("R8") lookup matches the rendered row.
+	var coversAnchor bool
+	for _, ln := range h.Lines {
+		if ln.NewLineNumber != nil && *ln.NewLineNumber == 8 {
+			coversAnchor = true
+		}
+	}
+	if !coversAnchor {
+		t.Errorf("snippet hunk does not place a row at anchor line 8: %+v", h.Lines)
+	}
+}
+
 // itoa: tiny dependency-free int-to-string helper for tests.
 func itoa(n int) string {
 	if n == 0 {

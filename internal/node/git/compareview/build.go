@@ -173,6 +173,15 @@ func buildContextHunk(c review.ReviewComment, repoDir, headRef, baseRef string) 
 	if err != nil {
 		return Hunk{}, false
 	}
+	// Anchor must fall inside the returned window. GetFileLines clamps to the
+	// file's actual length, so an anchor past EOF can produce a non-empty
+	// result whose lines don't include the anchor row — the inline renderer
+	// keys comments by line number and would silently drop the comment.
+	// Bail to the snippet-fallback path in that case.
+	anchorEnd := res.Start + len(res.Lines) - 1
+	if anchor < res.Start || anchor > anchorEnd {
+		return Hunk{}, false
+	}
 	lines := make([]HunkLine, 0, len(res.Lines))
 	for i, content := range res.Lines {
 		n := res.Start + i
