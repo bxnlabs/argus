@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/tooltip";
 import { LazyFileDiff } from "@/components/DiffViewer/LazyFileDiff";
 import { getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk, type ParsedDiff } from "@/lib/diff-parser";
+import { sortCommentsByRenderOrder } from "@/lib/compare-comments";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
 import { useSaveReviewMutation } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
@@ -247,36 +248,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [focusedCommentId, setFocusedCommentId] = useState<string | null>(null);
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
-  const sortedComments = useMemo(() => {
-    if (!parsedDiffs.length) return [];
-    const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
-    const linePositions = new Map<string, Map<string, number>>();
-    for (const diff of parsedDiffs) {
-      const pathKey = getDiffPathKey(diff);
-      const posMap = new Map<string, number>();
-      let rowIdx = 0;
-      for (const hunk of diff.hunks) {
-        for (const line of hunk.lines) {
-          if (line.oldLineNumber != null) posMap.set(`L${line.oldLineNumber}`, rowIdx);
-          if (line.newLineNumber != null) posMap.set(`R${line.newLineNumber}`, rowIdx);
-          rowIdx++;
-        }
-      }
-      linePositions.set(pathKey, posMap);
-    }
-    return [...comments].sort((a, b) => {
-      const ai = fileOrder.indexOf(a.file);
-      const bi = fileOrder.indexOf(b.file);
-      if (ai !== bi) return ai - bi;
-      const posA = linePositions.get(a.file);
-      const posB = linePositions.get(b.file);
-      const keyA = `${a.line.from.side}${a.line.from.line}`;
-      const keyB = `${b.line.from.side}${b.line.from.line}`;
-      const idxA = posA?.get(keyA) ?? a.line.from.line;
-      const idxB = posB?.get(keyB) ?? b.line.from.line;
-      return idxA - idxB;
-    });
-  }, [comments, parsedDiffs]);
+  const sortedComments = useMemo(
+    () => sortCommentsByRenderOrder(compareData?.files ?? [], comments),
+    [comments, compareData?.files],
+  );
 
   // Tracks the last visited position so navigation can resume near it when
   // the focused comment is deleted. Updated from scrollToComment and from
