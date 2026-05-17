@@ -12,7 +12,6 @@ import (
 
 	gitutil "github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/node/git"
-	"github.com/bxnlabs/argus/internal/node/git/compareview"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
@@ -271,13 +270,12 @@ func (h *gitHandler) commitFullDiff(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// GET /api/git/compare?path=...&branch=...&base=...
+// GET /api/git/compare?path=...&base=...
 func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
-	branch := r.URL.Query().Get("branch")
 	base := r.URL.Query().Get("base")
-	if repoPath == "" || branch == "" || base == "" {
-		respondError(w, http.StatusBadRequest, "path, branch, and base parameters are required")
+	if repoPath == "" || base == "" {
+		respondError(w, http.StatusBadRequest, "path and base parameters are required")
 		return
 	}
 	expandedPath, err := shared.SafeExpandPath(repoPath)
@@ -285,17 +283,12 @@ func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	projectDir, err := h.resolveProjectDir(expandedPath)
-	if err != nil {
-		respondInternalError(w, err)
-		return
-	}
-	view, err := compareview.Build(projectDir, expandedPath, branch, base)
+	result, err := git.GetCompare(expandedPath, base)
 	if err != nil {
 		respondGitError(w, err)
 		return
 	}
-	respondJSON(w, http.StatusOK, view)
+	respondJSON(w, http.StatusOK, result)
 }
 
 // POST /api/git/fetch?path=...&base=...

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect, memo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect } from "react";
 import {
   Loader2,
   GitCompareArrows,
@@ -10,7 +10,6 @@ import {
   AlertCircle,
   AlertTriangle,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -19,51 +18,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { LazyFileDiff } from "@/components/DiffViewer/LazyFileDiff";
-import { getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk, type ParsedDiff } from "@/lib/diff-parser";
-import { sortCommentsByRenderOrder } from "@/lib/compare-comments";
+import { getDiffFileName, getDiffPathKey, parseMultiFileDiff, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
+import { partitionComments, sortCommentsByRenderOrder, sortUnanchoredCommentsByFile } from "@/lib/compare-comments";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
-import { useSaveReviewMutation } from "@/data/review";
+import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
+import { UnanchoredCommentSection } from "./UnanchoredCommentSection";
 import { useViewport } from "@/hooks/useViewport";
 import { type ExpansionContext } from "@/hooks/useExpandableDiff";
-import type { CommitFile, CompareFileView, FileStatus, ReviewComment, Review, DiffPosition, CompareResult } from "@/types";
-
-// Adapter: maps the backend's CompareFileView into the existing ParsedDiff
-// shape consumed by LazyFileDiff / ExpandableUnifiedDiff. The legacy renderer
-// expects oldFile/newFile/booleans; the new payload has path/status.
-// kind: "context"|"snippet" hunks pass through as ordinary hunks (they only
-// carry context lines), so no per-line transformation is needed.
-function compareFileToParsedDiff(f: CompareFileView): ParsedDiff {
-  const oldFile = f.oldPath ?? f.path;
-  const newFile = f.path;
-  return {
-    oldFile,
-    newFile,
-    additions: f.additions,
-    deletions: f.deletions,
-    isBinary: !!f.isBinary,
-    isNew: f.status === "added",
-    isDeleted: f.status === "deleted",
-    isRenamed: f.status === "renamed",
-    hunks: f.hunks.map((h) => ({
-      header: h.header,
-      oldStart: h.oldStart,
-      oldCount: h.oldCount,
-      newStart: h.newStart,
-      newCount: h.newCount,
-      lines: h.lines.map((ln) => ({
-        type: ln.type,
-        content: ln.content,
-        oldLineNumber: ln.oldLineNumber,
-        newLineNumber: ln.newLineNumber,
-      })),
-      stableKey: `${h.kind}:${h.oldStart}:${h.newStart}`,
-    })),
-  };
-}
+import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
 
@@ -83,7 +49,6 @@ interface CompareViewProps {
 
 export function CompareView({ workingDirectory, header, listWidth, onResizeMouseDown, onBaseChange }: CompareViewProps) {
   const { isMobile } = useViewport();
-  const queryClient = useQueryClient();
 
   // Own branch subscription — excludes isRefetching
   const { data: currentBranch } = useGitCurrentBranchQuery(workingDirectory);
@@ -173,15 +138,21 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     isLoading: loadingCompare,
     isError: compareError,
     error: compareErrorDetail,
-  } = useCompareQuery(workingDirectory, baseBranch, currentBranch);
-
+  } = useCompareQuery(workingDirectory, baseBranch);
 
   const parsedDiffs = useMemo(() => {
-    if (!compareData?.files) return [];
     // Clear stale expanded hunks when diff data changes (e.g. base branch switch)
     expandedHunksRef.current.clear();
-    return compareData.files.map(compareFileToParsedDiff);
-  }, [compareData?.files]);
+    return compareData?.diff ? parseMultiFileDiff(compareData.diff) : [];
+  }, [compareData?.diff]);
+
+  const { data: reviewData } = useReviewQuery(
+    workingDirectory,
+    currentBranch,
+    baseBranch,
+    compareData?.headRef,
+    compareData?.baseRef,
+  );
 
   // Index of the selected file in the rendered diff order. -1 when nothing is
   // selected, or when the selected path is no longer present in parsedDiffs
@@ -193,47 +164,83 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const saveReview = useSaveReviewMutation(workingDirectory);
 
-  const reviewData = compareData?.review;
   const comments = reviewData?.comments ?? EMPTY_COMMENTS;
 
-  // --- Pre-indexed comments by file ---
+  // Partition comments against the current compare data so the view can
+  // render inline (anchored + caseB) vs. unanchored buckets distinctly.
+  // caseB comments live in a file's diff but on a line not yet in any hunk;
+  // the auto-expand wiring below surfaces them inline by expanding context.
+  const partition = useMemo(
+    () => partitionComments(parsedDiffs, compareData?.totalLines ?? {}, comments),
+    [parsedDiffs, compareData?.totalLines, comments],
+  );
+
+  // Pre-indexed inline comments (anchored + caseB) by file path-key.
+  // Buckets by the pathKey from `getDiffPathKey`, which matches what
+  // `LazyFileDiff` uses for `comments` and `autoExpandLines` props.
   const commentsByFile = useMemo(() => {
     const next = new Map<string, ReviewComment[]>();
-    for (const c of comments) {
-      const arr = next.get(c.file);
+    const push = (key: string, c: ReviewComment) => {
+      const arr = next.get(key);
       if (arr) arr.push(c);
-      else next.set(c.file, [c]);
-    }
+      else next.set(key, [c]);
+    };
+    for (const c of partition.anchored) push(c.file, c);
+    for (const c of partition.caseB) push(c.file, c);
     return next;
-  }, [comments]);
+  }, [partition.anchored, partition.caseB]);
 
-  // Optimistically update the compareview cache and persist to server.
-  // Accepts a functional updater so callers don't close over reviewData/comments.
-  const compareQueryKey = useMemo(
-    () => ["git", "compare", workingDirectory, baseBranch ?? "", currentBranch ?? ""],
-    [workingDirectory, baseBranch, currentBranch],
-  );
+  // New-side lines to auto-expand context around on first mount per file.
+  // R-side comments anchor directly on the new-side; L-side comments need
+  // their old-side line translated to new-side via the file's hunk offsets
+  // so the existing expansion path (which extends hunks by new-side range)
+  // can cover the anchor.
+  const autoExpandLinesByFile = useMemo(() => {
+    const map = new Map<string, number[]>();
+    if (partition.caseB.length === 0) return map;
+    for (const c of partition.caseB) {
+      const side = c.line.from.side;
+      const lookupKey = side === "L" ? c.oldPath ?? c.file : c.file;
+      const diff = parsedDiffs.find((d) =>
+        side === "L" ? (d.oldFile || d.newFile) === lookupKey : d.newFile === lookupKey,
+      );
+      if (!diff) continue;
+      const pathKey = getDiffPathKey(diff);
+
+      let newLine = c.line.from.line;
+      if (side === "L") {
+        // Translate old-side line number to the corresponding new-side line
+        // by summing offsets of hunks preceding the anchor.
+        // offset = (oldStart + oldCount) - (newStart + newCount)
+        let offset = 0;
+        for (const h of diff.hunks) {
+          if (h.oldStart + h.oldCount <= newLine) {
+            offset = (h.oldStart + h.oldCount) - (h.newStart + h.newCount);
+          }
+        }
+        newLine = newLine - offset;
+      }
+
+      const arr = map.get(pathKey);
+      if (arr) arr.push(newLine);
+      else map.set(pathKey, [newLine]);
+    }
+    return map;
+  }, [partition.caseB, parsedDiffs]);
+
+  // Compute a new Review payload and persist. The save mutation's onSuccess
+  // invalidates the review query, which refetches the canonical state — so we
+  // don't need to optimistically patch any client cache here.
   const saveAndUpdate = useCallback((updater: (prev: Review) => Review) => {
     if (!currentBranch || !baseBranch) return;
-    const prev = queryClient.getQueryData<CompareResult>(compareQueryKey);
-    if (!prev) return;
-    const newReview = updater({
-      head: prev.review.head,
-      base: prev.review.base,
-      body: prev.review.body,
-      comments: prev.review.comments,
-    });
-    queryClient.setQueryData(compareQueryKey, {
-      ...prev,
-      review: {
-        head: newReview.head,
-        base: newReview.base,
-        body: newReview.body,
-        comments: newReview.comments,
-      },
-    });
+    const prev: Review = reviewData ?? {
+      head: currentBranch,
+      base: baseBranch,
+      comments: [],
+    };
+    const newReview = updater(prev);
     saveReview.mutate(newReview);
-  }, [queryClient, compareQueryKey, currentBranch, baseBranch, saveReview]);
+  }, [currentBranch, baseBranch, reviewData, saveReview]);
 
   // Resolve hunks for a file, preferring expanded hunks from the ref
   const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
@@ -249,8 +256,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const sortedComments = useMemo(
-    () => sortCommentsByRenderOrder(compareData?.files ?? [], comments),
-    [comments, compareData?.files],
+    () => sortCommentsByRenderOrder(parsedDiffs, compareData?.files ?? [], partition),
+    [parsedDiffs, compareData?.files, partition],
+  );
+
+  const unanchoredSorted = useMemo(
+    () => sortUnanchoredCommentsByFile(partition.unanchored, compareData?.files ?? []),
+    [partition.unanchored, compareData?.files],
   );
 
   // Tracks the last visited position so navigation can resume near it when
@@ -718,6 +730,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const fileName = getDiffFileName(diff);
         const fileComments = commentsByFile.get(pathKey) ?? EMPTY_COMMENTS;
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
+        const fileAutoExpandLines = autoExpandLinesByFile.get(pathKey);
         // Persistent force-mount for predecessors up to and including the
         // selected file so their heights are real BEFORE scrollIntoView.
         const inScrollTargetRange = selectedIdx >= 0 && idx <= selectedIdx;
@@ -747,10 +760,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               totalLines={compareData?.totalLines[pathKey] ?? 0}
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
               expansionContext={fileExpansionContexts.get(pathKey)!}
+              autoExpandLines={fileAutoExpandLines}
             />
           </div>
         );
       })}
+      <UnanchoredCommentSection
+        comments={unanchoredSorted}
+        onDeleteComment={handleDeleteComment}
+        onEditComment={handleEditComment}
+        onEditCommentRequest={editCommentRequestHandler}
+        onCommentRef={setCommentRef}
+      />
     </div>
   );
 

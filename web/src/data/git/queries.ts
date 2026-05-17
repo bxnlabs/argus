@@ -161,19 +161,18 @@ export function useCompareBranchesQuery(path: string) {
 
 // --- Compare ---
 
-export function useCompareQuery(path: string, base: string | null, branch: string | undefined) {
+export function useCompareQuery(path: string, base: string | null) {
   return useQuery({
-    queryKey: gitKeys.compare(path, base ?? "", branch ?? ""),
+    queryKey: gitKeys.compare(path, base ?? ""),
     queryFn: async () => {
       const params = new URLSearchParams({
         path,
         base: base!,
-        branch: branch!,
       });
       return apiFetch<CompareResult>(`/node/api/git/compare?${params}`);
     },
     staleTime: 30_000,
-    enabled: path.trim().length > 0 && !!base && !!branch,
+    enabled: path.trim().length > 0 && !!base,
   });
 }
 

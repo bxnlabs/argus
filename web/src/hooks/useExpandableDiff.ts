@@ -16,6 +16,7 @@ export type ExpandDirection = "up" | "down";
 type ExpandAction =
   | { type: "EXPAND_UP"; hunkIndex: number; lines: DiffLine[] }
   | { type: "EXPAND_DOWN"; hunkIndex: number; lines: DiffLine[] }
+  | { type: "INSERT_HUNK"; position: number; hunk: DiffHunk }
   | { type: "RESET"; hunks: DiffHunk[]; totalLines: number };
 
 interface ExpandableDiffState {
@@ -130,6 +131,17 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
       return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
     }
 
+    case "INSERT_HUNK": {
+      const { position, hunk } = action;
+      if (position < 0 || position > state.hunks.length) return state;
+      const hunks = [
+        ...state.hunks.slice(0, position),
+        hunk,
+        ...state.hunks.slice(position),
+      ];
+      return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
+    }
+
     default:
       return state;
   }
@@ -193,6 +205,126 @@ export function useExpandableDiff(
     abortAll();
     dispatch({ type: "RESET", hunks, totalLines: newTotalLines });
   }, [abortAll]);
+
+  /**
+   * Inserts a synthetic context hunk covering `newLine` ± `radius` so a
+   * caseB comment (file is in compare, line is within file range, but the
+   * anchor isn't in any hunk yet) renders inline.
+   *
+   * The hunk is placed at the correct sorted position relative to existing
+   * hunks, and its line numbers are derived from the actual fetched range
+   * (not from a neighboring hunk boundary as EXPAND_UP/DOWN does). The old-
+   * side line numbers are computed via the cumulative offset of preceding
+   * hunks so context lines carry both numbers and L-side comments can match
+   * against them.
+   *
+   * No-ops when:
+   *   - the anchor is already inside some existing hunk (race guard).
+   *   - the fetch returns no lines (e.g. EOF).
+   */
+  const expandToLine = useCallback(
+    async (newLine: number, radius: number) => {
+      const hunks = state.hunks;
+
+      // Resolve insertion position and clamp the requested range against
+      // neighboring hunks so the synthetic hunk doesn't overlap them.
+      let insertAt = hunks.length;
+      let lowerBound = 1;
+      let upperBound = Math.max(state.totalLines, newLine + radius);
+
+      for (let i = 0; i < hunks.length; i++) {
+        const h = hunks[i];
+        const hStart = h.newStart;
+        const hEnd = h.newStart + h.newCount - 1;
+        if (newLine >= hStart && newLine <= hEnd) {
+          // Anchor is already inside an existing hunk — nothing to do.
+          return;
+        }
+        if (newLine < hStart) {
+          insertAt = i;
+          upperBound = Math.min(upperBound, hStart - 1);
+          break;
+        }
+        lowerBound = Math.max(lowerBound, hEnd + 1);
+      }
+
+      const start = Math.max(lowerBound, newLine - radius);
+      const end = Math.min(upperBound, newLine + radius);
+      if (start > end) return;
+
+      const loadingKey = `auto-${newLine}`;
+      if (errorRef.current[loadingKey] === "permanent") return;
+      delete errorRef.current[loadingKey];
+
+      const capturedGeneration = generationRef.current;
+      const controller = new AbortController();
+      abortControllersRef.current.add(controller);
+      loadingRef.current[loadingKey] = true;
+      forceUpdate();
+
+      try {
+        const result = await fetchFileLines({
+          path: ctx.repoPath,
+          file: ctx.filePath,
+          start,
+          end,
+          ref: ctx.ref,
+          signal: controller.signal,
+        });
+
+        if (generationRef.current !== capturedGeneration) return;
+        if (result.lines.length === 0) return;
+
+        // Compute old-side line number for `result.start` by accumulating
+        // the cumulative offset of hunks whose end precedes it. This mirrors
+        // computeOldToNewOffset's logic but applied at result.start.
+        let cumulativeOffset = 0;
+        for (const h of hunks) {
+          if (h.newStart + h.newCount <= result.start) {
+            cumulativeOffset = computeOldOffset(h);
+          }
+        }
+
+        const diffLines: DiffLine[] = result.lines.map((content, i) =>
+          makeContextLine(content, result.start + i, cumulativeOffset),
+        );
+
+        const newStart = result.start;
+        const newCount = result.lines.length;
+        const oldStart = newStart + cumulativeOffset;
+        const oldCount = newCount;
+
+        const syntheticHunk: DiffHunk = {
+          header: reconstructHeader(oldStart, oldCount, newStart, newCount),
+          oldStart,
+          oldCount,
+          newStart,
+          newCount,
+          lines: diffLines,
+          stableKey: `auto-${newStart}-${newCount}`,
+        };
+
+        dispatch({ type: "INSERT_HUNK", position: insertAt, hunk: syntheticHunk });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          // no-op
+        } else if (err instanceof ApiError) {
+          if (err.status === 404 || err.status === 413 || err.status === 422) {
+            errorRef.current[loadingKey] = "permanent";
+          } else {
+            errorRef.current[loadingKey] = "transient";
+          }
+        } else {
+          errorRef.current[loadingKey] = "transient";
+        }
+      } finally {
+        abortControllersRef.current.delete(controller);
+        delete loadingRef.current[loadingKey];
+        forceUpdate();
+      }
+    },
+    [state.hunks, state.totalLines, ctx.repoPath, ctx.filePath, ctx.ref],
+  );
 
   const handleExpand = useCallback(
     async (direction: ExpandDirection, hunkIndex: number) => {
@@ -295,6 +427,7 @@ export function useExpandableDiff(
     expandLoading: loadingRef.current,
     expandErrors: errorRef.current,
     handleExpand,
+    expandToLine,
     resetHunks,
     abortAll,
     dispatch,

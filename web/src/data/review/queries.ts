@@ -28,12 +28,21 @@ export function useReviewQuery(
 }
 
 export function useSaveReviewMutation(path: string) {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: async (data: Review) => {
       const params = new URLSearchParams({ path });
       return apiFetch<{ status: string }>(`/node/api/git/review?${params}`, {
         method: "POST",
         body: JSON.stringify(data),
+      });
+    },
+    onSuccess: (_result, data) => {
+      // Invalidate the (path, head, base) prefix so any cached review query —
+      // regardless of the headRef/baseRef suffix — is refetched after save.
+      queryClient.invalidateQueries({
+        queryKey: reviewKeys.forComparison(path, data.head, data.base),
       });
     },
   });

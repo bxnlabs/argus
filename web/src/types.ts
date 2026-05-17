@@ -1,5 +1,3 @@
-import type { ReviewComment } from "./types/review";
-
 export interface Session {
   id: string;
   name: string;
@@ -97,8 +95,7 @@ export type FileStatus =
   | "renamed"
   | "copied"
   | "untracked"
-  | "unmerged"
-  | "context";
+  | "unmerged";
 
 export interface GitFile {
   path: string;
@@ -142,53 +139,16 @@ export interface CommitDetail extends CommitSummary {
   files: CommitFile[];
 }
 
-export type HunkKind = "diff" | "context" | "snippet";
-
-export interface CompareHunkLine {
-  type: "context" | "addition" | "deletion" | "header";
-  content: string;
-  oldLineNumber: number | null;
-  newLineNumber: number | null;
-}
-
-export interface CompareHunk {
-  kind: HunkKind;
-  header: string;
-  oldStart: number;
-  oldCount: number;
-  newStart: number;
-  newCount: number;
-  lines: CompareHunkLine[];
-  anchorMissing?: boolean;
-}
-
-export interface CompareFileView {
-  path: string;
-  oldPath?: string;
-  status: FileStatus;
-  additions: number;
-  deletions: number;
-  isBinary?: boolean;
-  hunks: CompareHunk[];
-}
-
-export interface CompareReviewPayload {
-  head: string;
-  base: string;
-  body?: { body: string; submitted: boolean; createdAt: string };
-  comments: ReviewComment[];
-}
-
 export interface CompareResult {
+  diff: string;
+  files: CommitFile[];
+  totalLines: Record<string, number>;
+  totalAdditions: number;
+  totalDeletions: number;
   baseRef: string;
   headRef: string;
   baseUpstream: string;
   baseBehindBy: number;
-  files: CompareFileView[];
-  totalLines: Record<string, number>;
-  totalAdditions: number;
-  totalDeletions: number;
-  review: CompareReviewPayload;
 }
 
 export interface WorkingDiffResult {

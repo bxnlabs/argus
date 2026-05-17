@@ -25,6 +25,11 @@ interface LazyFileDiffProps {
   expansionContext: ExpansionContext;
   /** When true, skip lazy mounting and render content immediately. */
   forceMount?: boolean;
+  /**
+   * New-side line numbers to auto-expand context around on first mount.
+   * Used to surface caseB comments inline (see ExpandableUnifiedDiff).
+   */
+  autoExpandLines?: number[];
 }
 
 export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps) {
@@ -52,6 +57,7 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
           totalLines={props.totalLines}
           onExpandedHunksChange={props.onExpandedHunksChange}
           expansionContext={props.expansionContext}
+          autoExpandLines={props.autoExpandLines}
         />
       ) : (
         <FilePlaceholder diff={props.diff} fileName={props.fileName} />
