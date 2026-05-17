@@ -201,13 +201,13 @@ func buildContextHunk(c review.ReviewComment, repoDir, headRef, baseRef string) 
 		})
 	}
 	h := Hunk{
-		Kind:             HunkKindContext,
-		Header:           "",
-		OldStart:         res.Start,
-		OldCount:         len(lines),
-		NewStart:         res.Start,
-		NewCount:         len(lines),
-		Lines:            lines,
+		Kind:     HunkKindContext,
+		Header:   "",
+		OldStart: res.Start,
+		OldCount: len(lines),
+		NewStart: res.Start,
+		NewCount: len(lines),
+		Lines:    lines,
 	}
 	if side == review.DiffSideLeft {
 		h.NewStart = 0
@@ -280,13 +280,13 @@ func buildSnippetHunk(c review.ReviewComment) Hunk {
 		})
 	}
 	h := Hunk{
-		Kind:             HunkKindSnippet,
-		OldStart:         anchorLine,
-		OldCount:         len(lines),
-		NewStart:         anchorLine,
-		NewCount:         len(lines),
-		Lines:            lines,
-		AnchorMissing:    true,
+		Kind:          HunkKindSnippet,
+		OldStart:      anchorLine,
+		OldCount:      len(lines),
+		NewStart:      anchorLine,
+		NewCount:      len(lines),
+		Lines:         lines,
+		AnchorMissing: true,
 	}
 	if side == review.DiffSideLeft {
 		h.NewStart = 0
