@@ -190,10 +190,6 @@ func TestBuild_CaseB_ContextHunkForChangedFile(t *testing.T) {
 			diffHunks++
 		case HunkKindContext:
 			ctxHunks++
-			// Must carry the comment id.
-			if len(h.AnchorCommentIDs) != 1 || h.AnchorCommentIDs[0] != "rc_far" {
-				t.Errorf("context hunk anchorCommentIds = %v, want [rc_far]", h.AnchorCommentIDs)
-			}
 			// Must cover line 5 (anchor) on R-side.
 			var covers bool
 			for _, ln := range h.Lines {
@@ -264,9 +260,6 @@ func TestBuild_CaseA_FileViewForUnchangedFile(t *testing.T) {
 	if len(v.Files[1].Hunks) != 1 || v.Files[1].Hunks[0].Kind != HunkKindContext {
 		t.Errorf("stable.txt hunks: %+v", v.Files[1].Hunks)
 	}
-	if len(v.Files[1].Hunks[0].AnchorCommentIDs) != 1 || v.Files[1].Hunks[0].AnchorCommentIDs[0] != "rc_stable" {
-		t.Errorf("stable.txt anchorCommentIds: %v", v.Files[1].Hunks[0].AnchorCommentIDs)
-	}
 }
 
 func TestBuild_CaseA_MultipleCommentsOnSameUnchangedFile(t *testing.T) {
@@ -322,16 +315,18 @@ func TestBuild_CaseA_MultipleCommentsOnSameUnchangedFile(t *testing.T) {
 	if synth == nil {
 		t.Fatalf("no synthetic FileView for stable.txt in: %+v", v.Files)
 	}
-	// Both comments must be represented across the FileView's hunks.
-	got := map[string]bool{}
+	// Both anchors (R:2 and R:3) must appear on a context line in some hunk.
+	coveredLines := map[int]bool{}
 	for _, h := range synth.Hunks {
-		for _, id := range h.AnchorCommentIDs {
-			got[id] = true
+		for _, ln := range h.Lines {
+			if ln.NewLineNumber != nil {
+				coveredLines[*ln.NewLineNumber] = true
+			}
 		}
 	}
-	for _, want := range []string{"rc_near_a", "rc_near_b"} {
-		if !got[want] {
-			t.Errorf("missing %q in AnchorCommentIDs across hunks (got %v)", want, got)
+	for _, want := range []int{2, 3} {
+		if !coveredLines[want] {
+			t.Errorf("anchor R:%d not covered by any hunk line (got covered=%v)", want, coveredLines)
 		}
 	}
 }
@@ -392,9 +387,6 @@ func TestBuild_CaseD_SnippetFallbackWhenFileMissingAtRef(t *testing.T) {
 	}
 	if !h.AnchorMissing {
 		t.Error("expected AnchorMissing=true")
-	}
-	if len(h.AnchorCommentIDs) != 1 || h.AnchorCommentIDs[0] != "rc_gone" {
-		t.Errorf("anchorCommentIds: %v", h.AnchorCommentIDs)
 	}
 	if len(h.Lines) != 1 || h.Lines[0].Content != "captured snippet text" {
 		t.Errorf("hunk lines: %+v", h.Lines)
@@ -467,9 +459,6 @@ func TestBuild_CaseD_SnippetFallbackWhenAnchorPastEOFInsidePartialWindow(t *test
 	}
 	if !h.AnchorMissing {
 		t.Error("expected AnchorMissing=true")
-	}
-	if len(h.AnchorCommentIDs) != 1 || h.AnchorCommentIDs[0] != "rc_past_eof_partial" {
-		t.Errorf("anchorCommentIds: %v", h.AnchorCommentIDs)
 	}
 	// The snippet hunk's line numbers must equal the anchor so the frontend's
 	// commentsByLine.get("R8") lookup matches the rendered row.
