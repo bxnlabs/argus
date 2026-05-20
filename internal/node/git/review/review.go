@@ -426,10 +426,19 @@ func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, er
 	return r, nil
 }
 
-// Save writes the Review to disk.
+// Save writes the Review to disk. AnchorStatus is a transient field derived at
+// Load time by detectStaleness and must never be persisted; it is cleared on a
+// copy here so this view-state cannot round-trip onto disk via the full-review
+// POST (which echoes back the loaded Review verbatim).
 func Save(projectDir string, r *Review) error {
 	path := reviewPath(projectDir, r.Head, r.Base)
-	return writeReviewFile(path, r)
+	out := *r
+	out.Comments = make([]ReviewComment, len(r.Comments))
+	for i, c := range r.Comments {
+		c.AnchorStatus = ""
+		out.Comments[i] = c
+	}
+	return writeReviewFile(path, &out)
 }
 
 // Delete removes the review file for the given branch pair.

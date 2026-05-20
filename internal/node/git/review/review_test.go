@@ -337,6 +337,49 @@ func TestLoadSaveDelete(t *testing.T) {
 	}
 }
 
+// TestSave_StripsAnchorStatus verifies that AnchorStatus — a Load-time derived
+// field set by detectStaleness — is never written to disk. Persisting it would
+// let stale view-state round-trip through the full-review POST, which echoes
+// the loaded Review back verbatim.
+func TestSave_StripsAnchorStatus(t *testing.T) {
+	projectDir := t.TempDir()
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:           "rc_stale",
+			File:         "src/a.ts",
+			Line:         LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
+			Snippet:      "x",
+			Body:         "comment",
+			Submitted:    true,
+			AnchorStatus: AnchorStale,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Save must not mutate the caller's struct.
+	if r.Comments[0].AnchorStatus != AnchorStale {
+		t.Errorf("Save mutated caller's AnchorStatus to %q, want %q", r.Comments[0].AnchorStatus, AnchorStale)
+	}
+	// The on-disk JSON must not contain the anchorStatus field at all.
+	raw, err := os.ReadFile(reviewPath(projectDir, "feat/x", "main"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(raw), "anchorStatus") {
+		t.Errorf("on-disk review contains anchorStatus field:\n%s", raw)
+	}
+	// Re-reading yields an empty AnchorStatus.
+	loaded, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
+	if err != nil {
+		t.Fatalf("readReviewFile: %v", err)
+	}
+	if loaded.Comments[0].AnchorStatus != "" {
+		t.Errorf("AnchorStatus = %q, want empty after Save", loaded.Comments[0].AnchorStatus)
+	}
+}
+
 func TestLineRange_UnmarshalJSON_NewFormat(t *testing.T) {
 	input := `{"from":{"side":"L","line":10},"to":{"side":"L","line":10}}`
 	var lr LineRange
