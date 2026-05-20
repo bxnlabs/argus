@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import { AlertTriangle } from "lucide-react";
 import { InlineCommentCard } from "@/components/DiffViewer/InlineCommentCard";
+import { cn } from "@/lib/utils";
 import type { ReviewComment } from "@/types";
 
 interface UnanchoredCommentSectionProps {
@@ -11,26 +12,22 @@ interface UnanchoredCommentSectionProps {
    */
   comments: ReviewComment[];
   onDeleteComment?: (id: string) => void;
-  onEditComment?: (id: string, body: string) => void;
-  onEditCommentRequest?: (comment: ReviewComment) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
 }
 
 /**
  * Renders comments that can't be anchored inline so the reviewer can still
- * read them and prune (delete) them. Groups by file path, preserving the
- * input order of comments (caller is responsible for ordering).
+ * read them and prune (delete) them. Each file group mirrors the compare's
+ * diff chrome — a file header, the stored snippet as context-style lines, then
+ * the comment card — so it reads consistently with anchored comments.
  *
- * Each card reuses the inline comment card to keep the edit/delete UX
- * consistent. The snippet (`snippetContext` if present, else `snippet`)
- * is shown above the card as a read-only code block so the reviewer
- * sees what the comment was originally pointing at.
+ * It is deliberately monochrome with no +/- markers: an unanchored comment has
+ * no add/delete state in the current diff, and its line number is the stored
+ * anchor, not a live position. Editing is not offered (read + prune only).
  */
 export const UnanchoredCommentSection = memo(function UnanchoredCommentSection({
   comments,
   onDeleteComment,
-  onEditComment,
-  onEditCommentRequest,
   onCommentRef,
 }: UnanchoredCommentSectionProps) {
   // Group by file path in the order comments appear, so the caller controls
@@ -64,27 +61,23 @@ export const UnanchoredCommentSection = memo(function UnanchoredCommentSection({
       </p>
       <div className="mt-3 space-y-4">
         {groups.map(([filePath, fileComments]) => (
-          <div key={filePath} className="space-y-1">
-            <div className="text-muted-foreground px-1 font-mono text-xs">
+          <div
+            key={filePath}
+            className="border-border overflow-hidden rounded-lg border"
+          >
+            <div className="border-border bg-muted text-muted-foreground border-b px-3 py-2 font-mono text-xs font-medium">
               {filePath}
             </div>
-            <ul className="space-y-2">
-              {fileComments.map((c) => (
-                <li
-                  key={c.id}
-                  ref={(el) => onCommentRef?.(c.id, el)}
-                  className="border-border/60 bg-card/40 rounded-md border"
-                >
-                  <UnanchoredCommentHeader comment={c} />
-                  <InlineCommentCard
-                    comment={c}
-                    onDelete={onDeleteComment}
-                    onEdit={onEditComment}
-                    onEditRequest={onEditCommentRequest}
-                  />
-                </li>
-              ))}
-            </ul>
+            {fileComments.map((c, i) => (
+              <div
+                key={c.id}
+                ref={(el) => onCommentRef?.(c.id, el)}
+                className={cn(i > 0 && "border-border/50 border-t")}
+              >
+                <UnanchoredSnippet comment={c} />
+                <InlineCommentCard comment={c} onDelete={onDeleteComment} />
+              </div>
+            ))}
           </div>
         ))}
       </div>
@@ -92,22 +85,46 @@ export const UnanchoredCommentSection = memo(function UnanchoredCommentSection({
   );
 });
 
-function UnanchoredCommentHeader({ comment }: { comment: ReviewComment }) {
+/**
+ * Renders the comment's stored snippet in the style of diff context lines: the
+ * two-column old│new gutter plus monospace content. The anchor's side decides
+ * which gutter column holds the line number (L on the left, R on the right),
+ * mirroring how the diff places deletions and additions. Monochrome with no
+ * +/- markers — an unanchored comment has no add/delete state — and the anchor
+ * line gets a subtle highlight.
+ */
+function UnanchoredSnippet({ comment }: { comment: ReviewComment }) {
   const side = comment.line.from.side;
-  const line = comment.line.from.line;
-  const snippetText = comment.snippetContext || comment.snippet;
+  const anchorLine = comment.line.from.line;
+  const text = comment.snippetContext || comment.snippet;
+  if (!text) return null;
+
+  const lines = text.split("\n");
+  // `snippetContext` is captured as a consecutive run around the anchor and
+  // `snippet` is the anchor line itself, so locating it lets us number the run.
+  const anchorIdx = comment.snippet ? lines.indexOf(comment.snippet) : -1;
+
   return (
-    <div className="px-3 pt-2">
-      <div className="text-muted-foreground flex items-center gap-2 text-xs">
-        <span className="bg-muted rounded px-1.5 py-0.5 font-mono">
-          {side}:{line}
-        </span>
-      </div>
-      {snippetText && (
-        <pre className="bg-muted/60 border-border/40 mt-1.5 overflow-x-auto rounded border px-2 py-1 font-mono text-[11px] leading-snug whitespace-pre">
-          {snippetText}
-        </pre>
-      )}
+    <div className="overflow-x-auto font-mono text-xs">
+      {lines.map((content, i) => {
+        const isAnchor = anchorIdx >= 0 ? i === anchorIdx : i === 0;
+        const lineNo =
+          anchorIdx >= 0 ? anchorLine + (i - anchorIdx) : isAnchor ? anchorLine : null;
+        const num = lineNo ?? "";
+        return (
+          <div key={i} className={cn("flex", isAnchor && "bg-yellow-500/10")}>
+            <div className="text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none">
+              {side === "L" ? num : ""}
+            </div>
+            <div className="text-muted-foreground border-border/50 w-10 shrink-0 border-r px-2 py-0.5 text-right tabular-nums select-none">
+              {side === "R" ? num : ""}
+            </div>
+            <div className="text-foreground min-w-0 flex-1 px-2 py-0.5 whitespace-pre">
+              {content || " "}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

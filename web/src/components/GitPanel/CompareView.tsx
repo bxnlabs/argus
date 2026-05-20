@@ -57,10 +57,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
+  const unanchoredSectionRef = useRef<HTMLDivElement>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   // Bumped on each scroll-to-file request so repeat clicks on the same path
   // re-trigger the scroll effect.
   const [scrollRequestId, setScrollRequestId] = useState(0);
+  // Bumped to request a scroll to the unanchored section (from the sidebar).
+  const [unanchoredScrollReq, setUnanchoredScrollReq] = useState(0);
   const scrollToFileRequestRef = useRef(0);
   // True while a scroll-to-file is in flight. Force-mounts every diff so
   // scrollHeight exceeds target.offsetTop + clientHeight; otherwise the
@@ -378,6 +381,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setScrollRequestId((n) => n + 1);
   }, [isMobile]);
 
+  // Jump to the unanchored-comments section from the sidebar. On mobile this
+  // also flips to the diff view (where the section is rendered); the scroll
+  // itself runs in the effect below once the section is mounted.
+  const scrollToUnanchored = useCallback(() => {
+    if (isMobile) setMobileShowDiffs(true);
+    setUnanchoredScrollReq((n) => n + 1);
+  }, [isMobile]);
+
   // --- Stable callbacks for UnifiedDiff ---
   const handleLineClick = useCallback((file: string, position: DiffPosition) => {
     setActiveComment({ file, position });
@@ -612,6 +623,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     };
   }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
 
+  // Scroll to the unanchored section when requested from the sidebar. The
+  // section is always rendered (not lazy), so a single rAF to let the layout
+  // settle — including a just-mounted mobile diff view — is enough.
+  useLayoutEffect(() => {
+    if (unanchoredScrollReq === 0) return;
+    if (!unanchoredSectionRef.current) return;
+    const handle = requestAnimationFrame(() => {
+      unanchoredSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [unanchoredScrollReq]);
+
   if (loadingBranches) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -704,10 +727,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const hasChangedFiles = !!compareData?.files.length;
-  const fileList = hasChangedFiles ? (
+  const fileList = hasChangedFiles || unanchoredSorted.length > 0 ? (
     <div className="flex-1 overflow-y-auto">
       <div>
-        {compareData!.files.map((file) => (
+        {compareData?.files.map((file) => (
           <CompareFileRow
             key={file.path}
             file={file}
@@ -716,8 +739,30 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           />
         ))}
       </div>
+      {unanchoredSorted.length > 0 && (
+        <UnanchoredNavRow
+          count={unanchoredSorted.length}
+          onClick={scrollToUnanchored}
+        />
+      )}
     </div>
   ) : null;
+
+  // Comments with no inline anchor in the current compare. Rendered below the
+  // diff list, and also surfaced standalone when there are no changed files at
+  // all (otherwise the only path to them — drilling into a diff — wouldn't
+  // exist). Delete-only: a comment whose code is gone has no live location to
+  // re-edit against, so editing is intentionally not offered here.
+  const unanchoredSection =
+    unanchoredSorted.length > 0 ? (
+      <div ref={unanchoredSectionRef}>
+        <UnanchoredCommentSection
+          comments={unanchoredSorted}
+          onDeleteComment={handleDeleteComment}
+          onCommentRef={setCommentRef}
+        />
+      </div>
+    ) : null;
 
   // --- Shared diff rendering helper ---
   const renderDiffs = (wrapLines = true, showAddComment = true, editCommentRequestHandler?: (comment: ReviewComment) => void) => (
@@ -765,13 +810,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           </div>
         );
       })}
-      <UnanchoredCommentSection
-        comments={unanchoredSorted}
-        onDeleteComment={handleDeleteComment}
-        onEditComment={handleEditComment}
-        onEditCommentRequest={editCommentRequestHandler}
-        onCommentRef={setCommentRef}
-      />
+      {unanchoredSection}
     </div>
   );
 
@@ -783,7 +822,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         </div>
       ) : compareError ? (
         compareErrorView
-      ) : parsedDiffs.length === 0 ? (
+      ) : parsedDiffs.length === 0 && !unanchoredSection ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
           <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
           <p className="text-sm">No changes between branches</p>
@@ -894,14 +933,24 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
           ) : compareError ? (
             compareErrorView
           ) : hasChangedFiles ? (
-            compareData!.files.map((file) => (
-              <CompareFileRow
-                key={file.path}
-                file={file}
-                isSelected={selectedPath === file.path}
-                onClick={() => scrollToFile(file.path)}
-              />
-            ))
+            <>
+              {compareData!.files.map((file) => (
+                <CompareFileRow
+                  key={file.path}
+                  file={file}
+                  isSelected={selectedPath === file.path}
+                  onClick={() => scrollToFile(file.path)}
+                />
+              ))}
+              {unanchoredSorted.length > 0 && (
+                <UnanchoredNavRow
+                  count={unanchoredSorted.length}
+                  onClick={scrollToUnanchored}
+                />
+              )}
+            </>
+          ) : unanchoredSection ? (
+            <div className="p-3">{unanchoredSection}</div>
           ) : compareData ? (
             <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
               <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
@@ -957,6 +1006,19 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         {diffPane}
       </div>
     </div>
+  );
+}
+
+function UnanchoredNavRow({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="hover:bg-muted/70 mt-1 flex w-full items-center gap-2 border-t-2 border-yellow-500/40 px-3 py-2 text-left transition-colors"
+    >
+      <AlertTriangle className="h-4 w-4 flex-shrink-0 text-yellow-500" />
+      <span className="flex-1 truncate text-sm">Unanchored comments</span>
+      <span className="text-muted-foreground text-xs">{count}</span>
+    </button>
   );
 }
 
