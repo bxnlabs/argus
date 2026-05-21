@@ -109,6 +109,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setFocusedCommentId(null);
     setFailedCommentIds(new Set());
     lastFocusedIdxRef.current = -1;
+    pendingScrollIdRef.current = null;
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
   }, [workingDirectory]);
@@ -313,6 +314,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // across deletes, reorders, and orphan-routing filter changes.
   const [focusedCommentId, setFocusedCommentId] = useState<string | null>(null);
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
+  // A navigation target whose inline element hasn't mounted yet (e.g. a caseB
+  // comment whose auto-expanded hunk is still being inserted). setCommentRef
+  // finishes the scroll once the element registers.
+  const pendingScrollIdRef = useRef<string | null>(null);
 
   const sortedComments = useMemo(
     () => sortCommentsByRenderOrder(parsedDiffs, compareData?.files ?? [], effectivePartition),
@@ -359,10 +364,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     lastFocusedIdxRef.current = index;
     const el = commentRefs.current.get(comment.id);
     if (el) {
+      pendingScrollIdRef.current = null;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-    // Fallback: scroll to the file row if the comment ref hasn't registered yet.
+    // The inline element isn't mounted yet (e.g. a caseB comment whose
+    // auto-expanded hunk is still being inserted). Remember it so setCommentRef
+    // can finish the scroll once it registers, and nudge to the file meanwhile.
+    pendingScrollIdRef.current = comment.id;
     const fileEl = diffRefs.current.get(comment.file);
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -409,6 +418,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const setCommentRef = useCallback((id: string, el: HTMLElement | null) => {
     if (el) {
       commentRefs.current.set(id, el);
+      // Finish a navigation that targeted this comment before it had mounted.
+      if (pendingScrollIdRef.current === id) {
+        pendingScrollIdRef.current = null;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
     } else {
       commentRefs.current.delete(id);
     }
