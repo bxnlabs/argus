@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { type ParsedDiff, type DiffHunk } from "@/lib/diff-parser";
 import type { ReviewComment, DiffPosition } from "@/types";
+import type { AutoExpandTarget } from "@/lib/compare-comments";
 import type { ExpansionContext } from "@/hooks/useExpandableDiff";
 import { ExpandableUnifiedDiff } from "./ExpandableUnifiedDiff";
 import { useLazyMount } from "@/hooks/useLazyMount";
@@ -26,10 +27,12 @@ interface LazyFileDiffProps {
   /** When true, skip lazy mounting and render content immediately. */
   forceMount?: boolean;
   /**
-   * New-side line numbers to auto-expand context around on first mount.
-   * Used to surface caseB comments inline (see ExpandableUnifiedDiff).
+   * Coalesced context windows to auto-expand on first mount, surfacing caseB
+   * comments inline (see ExpandableUnifiedDiff).
    */
-  autoExpandLines?: number[];
+  autoExpandTargets?: AutoExpandTarget[];
+  /** Called when a target's auto-expansion fails to cover its anchor. */
+  onAutoExpandFailed?: (line: number) => void;
 }
 
 export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps) {
@@ -57,7 +60,8 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
           totalLines={props.totalLines}
           onExpandedHunksChange={props.onExpandedHunksChange}
           expansionContext={props.expansionContext}
-          autoExpandLines={props.autoExpandLines}
+          autoExpandTargets={props.autoExpandTargets}
+          onAutoExpandFailed={props.onAutoExpandFailed}
         />
       ) : (
         <FilePlaceholder diff={props.diff} fileName={props.fileName} />

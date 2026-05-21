@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   GitCompareArrows,
@@ -19,9 +20,16 @@ import {
 } from "@/components/ui/tooltip";
 import { LazyFileDiff } from "@/components/DiffViewer/LazyFileDiff";
 import { getDiffFileName, getDiffPathKey, parseMultiFileDiff, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
-import { partitionComments, sortCommentsByRenderOrder, sortUnanchoredCommentsByFile } from "@/lib/compare-comments";
+import {
+  partitionComments,
+  sortCommentsByRenderOrder,
+  sortUnanchoredCommentsByFile,
+  coalesceAutoExpand,
+  type AutoExpandTarget,
+  type InlineCommentEntry,
+} from "@/lib/compare-comments";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
-import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
+import { useReviewQuery, useSaveReviewMutation, reviewKeys } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
@@ -32,6 +40,9 @@ import { type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
+
+/** Context window expanded around a caseB anchor on mount. */
+const AUTO_EXPAND_RADIUS = 3;
 
 
 interface CompareViewProps {
@@ -49,6 +60,7 @@ interface CompareViewProps {
 
 export function CompareView({ workingDirectory, header, listWidth, onResizeMouseDown, onBaseChange }: CompareViewProps) {
   const { isMobile } = useViewport();
+  const queryClient = useQueryClient();
 
   // Own branch subscription — excludes isRefetching
   const { data: currentBranch } = useGitCurrentBranchQuery(workingDirectory);
@@ -77,6 +89,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const activeCommentRef = useRef(activeComment);
   activeCommentRef.current = activeComment;
   const [editingComment, setEditingComment] = useState<ReviewComment | null>(null);
+  // caseB comments whose auto-expansion failed (EOF/empty/fetch error). They
+  // have no inline home, so they fall back to the unanchored section.
+  const [failedCommentIds, setFailedCommentIds] = useState<Set<string>>(() => new Set());
 
   const {
     data: branchData,
@@ -92,6 +107,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setIsScrollPending(false);
     setEditingComment(null);
     setFocusedCommentId(null);
+    setFailedCommentIds(new Set());
     lastFocusedIdxRef.current = -1;
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
@@ -178,9 +194,33 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     [parsedDiffs, compareData?.totalLines, comments],
   );
 
-  // Pre-indexed inline comments (anchored + caseB) by file path-key.
-  // Buckets by the pathKey from `getDiffPathKey`, which matches what
-  // `LazyFileDiff` uses for `comments` and `autoExpandLines` props.
+  // Drop auto-expand failures whenever the diff data changes so each compare
+  // re-evaluates fresh (keeping the empty set's reference avoids a re-render).
+  useEffect(() => {
+    setFailedCommentIds((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [parsedDiffs]);
+
+  // Apply auto-expand failures: caseB comments that couldn't be surfaced inline
+  // move to the unanchored section so none silently disappear.
+  const effectivePartition = useMemo(() => {
+    if (failedCommentIds.size === 0) return partition;
+    const caseB: InlineCommentEntry[] = [];
+    const moved: ReviewComment[] = [];
+    for (const e of partition.caseB) {
+      if (failedCommentIds.has(e.comment.id)) moved.push(e.comment);
+      else caseB.push(e);
+    }
+    if (moved.length === 0) return partition;
+    return {
+      anchored: partition.anchored,
+      caseB,
+      unanchored: [...partition.unanchored, ...moved],
+    };
+  }, [partition, failedCommentIds]);
+
+  // Pre-indexed inline comments (anchored + caseB) by file path-key — the key
+  // `LazyFileDiff` uses for its `comments` prop. Entries already carry the
+  // resolved path-key from partitioning, so there's no side+path re-derivation.
   const commentsByFile = useMemo(() => {
     const next = new Map<string, ReviewComment[]>();
     const push = (key: string, c: ReviewComment) => {
@@ -188,62 +228,83 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       if (arr) arr.push(c);
       else next.set(key, [c]);
     };
-    for (const c of partition.anchored) push(c.file, c);
-    for (const c of partition.caseB) push(c.file, c);
+    for (const e of effectivePartition.anchored) push(e.pathKey, e.comment);
+    for (const e of effectivePartition.caseB) push(e.pathKey, e.comment);
     return next;
-  }, [partition.anchored, partition.caseB]);
+  }, [effectivePartition.anchored, effectivePartition.caseB]);
 
-  // New-side lines to auto-expand context around on first mount per file.
-  // R-side comments anchor directly on the new-side; L-side comments need
-  // their old-side line translated to new-side via the file's hunk offsets
-  // so the existing expansion path (which extends hunks by new-side range)
-  // can cover the anchor.
-  const autoExpandLinesByFile = useMemo(() => {
-    const map = new Map<string, number[]>();
-    if (partition.caseB.length === 0) return map;
-    for (const c of partition.caseB) {
-      const side = c.line.from.side;
-      const lookupKey = side === "L" ? c.oldPath ?? c.file : c.file;
-      const diff = parsedDiffs.find((d) =>
-        side === "L" ? (d.oldFile || d.newFile) === lookupKey : d.newFile === lookupKey,
-      );
-      if (!diff) continue;
-      const pathKey = getDiffPathKey(diff);
-
-      let newLine = c.line.from.line;
-      if (side === "L") {
-        // Translate old-side line number to the corresponding new-side line
-        // by summing offsets of hunks preceding the anchor.
-        // offset = (oldStart + oldCount) - (newStart + newCount)
-        let offset = 0;
-        for (const h of diff.hunks) {
-          if (h.oldStart + h.oldCount <= newLine) {
-            offset = (h.oldStart + h.oldCount) - (h.newStart + h.newCount);
-          }
-        }
-        newLine = newLine - offset;
-      }
-
-      const arr = map.get(pathKey);
-      if (arr) arr.push(newLine);
-      else map.set(pathKey, [newLine]);
+  // Coalesced auto-expand windows per file. caseB entries already carry the
+  // resolved new-side line; nearby anchors are merged so their context windows
+  // never overlap (which would duplicate context or hide a comment).
+  const autoExpandTargetsByFile = useMemo(() => {
+    const anchorsByKey = new Map<string, { line: number; commentId: string }[]>();
+    for (const e of effectivePartition.caseB) {
+      if (e.autoExpandLine == null) continue;
+      const item = { line: e.autoExpandLine, commentId: e.comment.id };
+      const arr = anchorsByKey.get(e.pathKey);
+      if (arr) arr.push(item);
+      else anchorsByKey.set(e.pathKey, [item]);
+    }
+    // Coalesce against each file's real hunks so two anchors bracketing a hunk
+    // aren't merged into a window centered inside it (which would silently drop
+    // both comments — see coalesceAutoExpand).
+    const hunksByKey = new Map<string, DiffHunk[]>();
+    for (const d of parsedDiffs) hunksByKey.set(getDiffPathKey(d), d.hunks);
+    const map = new Map<string, AutoExpandTarget[]>();
+    for (const [key, anchors] of anchorsByKey) {
+      map.set(key, coalesceAutoExpand(anchors, AUTO_EXPAND_RADIUS, hunksByKey.get(key) ?? []));
     }
     return map;
-  }, [partition.caseB, parsedDiffs]);
+  }, [effectivePartition.caseB, parsedDiffs]);
 
-  // Compute a new Review payload and persist. The save mutation's onSuccess
-  // invalidates the review query, which refetches the canonical state — so we
-  // don't need to optimistically patch any client cache here.
+  // Stable per-file failure handlers: when a target's expansion fails to cover
+  // its anchor, route its comments to the unanchored section.
+  const fileAutoExpandFailedHandlers = useMemo(() => {
+    const map = new Map<string, (line: number) => void>();
+    for (const [pathKey, targets] of autoExpandTargetsByFile) {
+      map.set(pathKey, (line: number) => {
+        const target = targets.find((t) => t.line === line);
+        if (!target) return;
+        setFailedCommentIds((prev) => {
+          const next = new Set(prev);
+          for (const id of target.commentIds) next.add(id);
+          return next;
+        });
+      });
+    }
+    return map;
+  }, [autoExpandTargetsByFile]);
+
+  // Exact key of the review query this view reads (must match useReviewQuery's
+  // key, including the headRef/baseRef suffix), so optimistic writes land on the
+  // entry the component renders from.
+  const reviewQueryKey = useMemo(
+    () => [
+      ...reviewKeys.forComparison(workingDirectory, currentBranch ?? "", baseBranch ?? ""),
+      compareData?.headRef ?? "",
+      compareData?.baseRef ?? "",
+    ],
+    [workingDirectory, currentBranch, baseBranch, compareData?.headRef, compareData?.baseRef],
+  );
+
+  // Compute a new Review payload, optimistically write it to the query cache,
+  // then persist. Reading and writing the live cache (rather than the render-time
+  // `reviewData` snapshot) is what makes rapid sequential edits compose: each
+  // mutation sees the previous one's result even before the save's invalidation
+  // round-trips. Without it, two quick edits both derive from the same stale
+  // snapshot and the second POST clobbers the first.
   const saveAndUpdate = useCallback((updater: (prev: Review) => Review) => {
     if (!currentBranch || !baseBranch) return;
-    const prev: Review = reviewData ?? {
+    const cached = queryClient.getQueryData<Review>(reviewQueryKey);
+    const prev: Review = cached ?? {
       head: currentBranch,
       base: baseBranch,
       comments: [],
     };
     const newReview = updater(prev);
+    queryClient.setQueryData(reviewQueryKey, newReview);
     saveReview.mutate(newReview);
-  }, [currentBranch, baseBranch, reviewData, saveReview]);
+  }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
 
   // Resolve hunks for a file, preferring expanded hunks from the ref
   const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
@@ -259,13 +320,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const sortedComments = useMemo(
-    () => sortCommentsByRenderOrder(parsedDiffs, compareData?.files ?? [], partition),
-    [parsedDiffs, compareData?.files, partition],
+    () => sortCommentsByRenderOrder(parsedDiffs, compareData?.files ?? [], effectivePartition),
+    [parsedDiffs, compareData?.files, effectivePartition],
   );
 
   const unanchoredSorted = useMemo(
-    () => sortUnanchoredCommentsByFile(partition.unanchored, compareData?.files ?? []),
-    [partition.unanchored, compareData?.files],
+    () => sortUnanchoredCommentsByFile(effectivePartition.unanchored, compareData?.files ?? []),
+    [effectivePartition.unanchored, compareData?.files],
   );
 
   // Tracks the last visited position so navigation can resume near it when
@@ -775,7 +836,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const fileName = getDiffFileName(diff);
         const fileComments = commentsByFile.get(pathKey) ?? EMPTY_COMMENTS;
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
-        const fileAutoExpandLines = autoExpandLinesByFile.get(pathKey);
+        const fileAutoExpandTargets = autoExpandTargetsByFile.get(pathKey);
         // Persistent force-mount for predecessors up to and including the
         // selected file so their heights are real BEFORE scrollIntoView.
         const inScrollTargetRange = selectedIdx >= 0 && idx <= selectedIdx;
@@ -805,7 +866,8 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               totalLines={compareData?.totalLines[pathKey] ?? 0}
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
               expansionContext={fileExpansionContexts.get(pathKey)!}
-              autoExpandLines={fileAutoExpandLines}
+              autoExpandTargets={fileAutoExpandTargets}
+              onAutoExpandFailed={fileAutoExpandFailedHandlers.get(pathKey)}
             />
           </div>
         );

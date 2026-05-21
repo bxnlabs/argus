@@ -174,6 +174,10 @@ func TestDetectStaleness_NoMatch_Preserves(t *testing.T) {
 	if result[0].Line.From.Line != 5 {
 		t.Errorf("expected anchor preserved at line 5, got %d", result[0].Line.From.Line)
 	}
+	// Marked unanchored so the UI routes it to read/prune, not inline.
+	if result[0].AnchorStatus != AnchorUnanchored {
+		t.Errorf("anchorStatus = %q, want %q when snippet not found", result[0].AnchorStatus, AnchorUnanchored)
+	}
 }
 
 func TestDetectStaleness_FileDeleted_Preserves(t *testing.T) {
@@ -194,6 +198,10 @@ func TestDetectStaleness_FileDeleted_Preserves(t *testing.T) {
 	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 comment preserved when file missing at ref, got %d", len(result))
+	}
+	// Marked unanchored so the UI routes it to read/prune, not inline.
+	if result[0].AnchorStatus != AnchorUnanchored {
+		t.Errorf("anchorStatus = %q, want %q when file missing at ref", result[0].AnchorStatus, AnchorUnanchored)
 	}
 }
 
@@ -744,26 +752,26 @@ func TestDetectStaleness_MultipleContextMatches_NearestWins(t *testing.T) {
 	// Build a Go-like file where "}" appears at lines 8, 13, and 18,
 	// each within similar surrounding context so the ±10 window overlaps.
 	lines := []string{
-		"func a() {",       // 1
-		"  if x != nil {",  // 2
-		"    return err",   // 3
-		"  }",              // 4
-		"",                 // 5
-		"  if y != nil {",  // 6
-		"    return err",   // 7
-		"  }",              // 8  — target
-		"",                 // 9
-		"  data := foo()",  // 10
-		"  if z != nil {",  // 11
-		"    return err",   // 12
-		"  }",              // 13
-		"",                 // 14
-		"  bar := baz()",   // 15
-		"  if w != nil {",  // 16
-		"    return err",   // 17
-		"  }",              // 18
-		"  return nil",     // 19
-		"}",                // 20
+		"func a() {",      // 1
+		"  if x != nil {", // 2
+		"    return err",  // 3
+		"  }",             // 4
+		"",                // 5
+		"  if y != nil {", // 6
+		"    return err",  // 7
+		"  }",             // 8  — target
+		"",                // 9
+		"  data := foo()", // 10
+		"  if z != nil {", // 11
+		"    return err",  // 12
+		"  }",             // 13
+		"",                // 14
+		"  bar := baz()",  // 15
+		"  if w != nil {", // 16
+		"    return err",  // 17
+		"  }",             // 18
+		"  return nil",    // 19
+		"}",               // 20
 	}
 	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 	runCmd(t, dir, "git", "add", ".")

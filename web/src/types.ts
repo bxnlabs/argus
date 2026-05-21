@@ -173,6 +173,7 @@ export interface BranchList {
 export type {
   DiffPosition,
   LineRange,
+  AnchorStatus,
   ReviewComment,
   ReviewBody,
   Review,

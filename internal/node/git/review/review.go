@@ -38,7 +38,15 @@ const (
 type AnchorStatus string
 
 const (
+	// AnchorStale: the snippet was found but the match is ambiguous, or an
+	// L-side deletion was restored on the head side. Rendered inline at the
+	// best-guess line with a "may have moved" badge.
 	AnchorStale AnchorStatus = "stale"
+	// AnchorUnanchored: the comment could not be re-anchored at all — its file
+	// or snippet is no longer present in the relevant ref. It has no honest
+	// inline location, so the UI surfaces it in the unanchored section for
+	// read/prune rather than rendering it inline on unrelated code.
+	AnchorUnanchored AnchorStatus = "unanchored"
 )
 
 // DiffPosition identifies a specific line on a specific side of the diff.
@@ -188,8 +196,9 @@ func getFileContent(repoDir, ref, filePath string) (string, error) {
 //
 // R-side comments are resolved against headRef; L-side comments against baseRef.
 // L-side comments with a non-empty OldPath use OldPath for the file lookup.
-// When the ref/path is missing or the snippet cannot be located, the comment
-// is preserved with its existing line anchor — the UI exposes it for read/prune.
+// When the file is missing in the ref or the snippet cannot be located, the
+// comment is preserved with AnchorStatus=AnchorUnanchored so the UI routes it
+// to the read/prune section rather than rendering it inline on unrelated code.
 //
 // Comments with paths that escape the repo are dropped defensively (they
 // cannot be rendered and the POST handler would reject them anyway).
@@ -231,7 +240,10 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 
 		fileText, err := getFileContent(repoDir, ref, lookupPath)
 		if err != nil {
-			// File not present in this ref — preserve; the UI exposes it for read/prune.
+			// File not present in this ref — preserve but mark unanchored so the
+			// UI routes it to the read/prune section instead of rendering it
+			// inline at a stale line.
+			c.AnchorStatus = AnchorUnanchored
 			result = append(result, c)
 			continue
 		}
@@ -239,7 +251,9 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 		lineNum := findSnippetWithContext(fileText, c.Snippet, c.SnippetContext, c.Line.From.Line)
 		switch lineNum {
 		case -1:
-			// Not found — preserve at the existing anchor; the UI exposes it for read/prune.
+			// Not found — preserve but mark unanchored so the UI routes it to the
+			// read/prune section instead of rendering it inline on unrelated code.
+			c.AnchorStatus = AnchorUnanchored
 			result = append(result, c)
 			continue
 		case -2:

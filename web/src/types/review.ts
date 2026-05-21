@@ -10,7 +10,7 @@ export interface LineRange {
   to: DiffPosition;
 }
 
-export type AnchorStatus = "stale";
+export type AnchorStatus = "stale" | "unanchored";
 
 export interface ReviewComment {
   id: string;

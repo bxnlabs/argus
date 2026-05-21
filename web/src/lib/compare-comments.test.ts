@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { partitionComments, sortCommentsByRenderOrder } from "./compare-comments";
+import { partitionComments, sortCommentsByRenderOrder, coalesceAutoExpand } from "./compare-comments";
 import type { DiffHunk, ParsedDiff } from "./diff-parser";
-import type { CommitFile, ReviewComment } from "@/types";
+import type { AnchorStatus, CommitFile, ReviewComment } from "@/types";
 
 function makeFile(
   opts: Partial<ParsedDiff> & { path: string; hunks: DiffHunk[]; oldPath?: string },
@@ -21,13 +21,16 @@ function makeFile(
   };
 }
 
-function makeHunk(lines: Array<{ old?: number | null; new?: number | null }>): DiffHunk {
+function makeHunk(
+  lines: Array<{ old?: number | null; new?: number | null }>,
+  bounds?: { oldStart: number; oldCount: number; newStart: number; newCount: number },
+): DiffHunk {
   return {
     header: "",
-    oldStart: 0,
-    oldCount: lines.length,
-    newStart: 0,
-    newCount: lines.length,
+    oldStart: bounds?.oldStart ?? 0,
+    oldCount: bounds?.oldCount ?? lines.length,
+    newStart: bounds?.newStart ?? 0,
+    newCount: bounds?.newCount ?? lines.length,
     stableKey: "test",
     lines: lines.map((l) => ({
       type: "context",
@@ -44,6 +47,7 @@ function makeComment(opts: {
   oldPath?: string;
   side: "L" | "R";
   line: number;
+  anchorStatus?: AnchorStatus;
 }): ReviewComment {
   return {
     id: opts.id,
@@ -54,6 +58,7 @@ function makeComment(opts: {
       to: { side: opts.side, line: opts.line },
     },
     snippet: "",
+    anchorStatus: opts.anchorStatus,
     body: "",
     submitted: true,
     createdAt: "2026-05-17T00:00:00Z",
@@ -77,7 +82,7 @@ describe("partitionComments", () => {
     const totalLines = { "a.txt": 100 };
     const comments = [makeComment({ id: "c1", file: "a.txt", side: "R", line: 1 })];
     const got = partitionComments(diffs, totalLines, comments);
-    expect(got.anchored.map((c) => c.id)).toEqual(["c1"]);
+    expect(got.anchored.map((e) => e.comment.id)).toEqual(["c1"]);
     expect(got.caseB).toEqual([]);
     expect(got.unanchored).toEqual([]);
   });
@@ -89,7 +94,9 @@ describe("partitionComments", () => {
     const comments = [makeComment({ id: "cB", file: "a.txt", side: "R", line: 50 })];
     const got = partitionComments(diffs, totalLines, comments);
     expect(got.anchored).toEqual([]);
-    expect(got.caseB.map((c) => c.id)).toEqual(["cB"]);
+    expect(got.caseB.map((e) => e.comment.id)).toEqual(["cB"]);
+    // R-side anchor expands around its own line (no translation).
+    expect(got.caseB[0].autoExpandLine).toBe(50);
     expect(got.unanchored).toEqual([]);
   });
 
@@ -135,7 +142,65 @@ describe("partitionComments", () => {
     const comments = [
       makeComment({ id: "l5", file: "new.txt", oldPath: "old.txt", side: "L", line: 5 }),
     ];
-    expect(partitionComments(diffs, totalLines, comments).anchored.map((c) => c.id)).toEqual(["l5"]);
+    expect(
+      partitionComments(diffs, totalLines, comments).anchored.map((e) => e.comment.id),
+    ).toEqual(["l5"]);
+  });
+
+  it("routes a backend-marked unanchored comment to the unanchored bucket", () => {
+    // File and line would otherwise classify as anchored, but the backend
+    // determined the snippet/file is gone — it must go to read/prune, not inline.
+    const diffs = [makeFile({ path: "a.txt", hunks: [makeHunk([{ new: 1 }])] })];
+    const totalLines = { "a.txt": 100 };
+    const comments = [
+      makeComment({ id: "gone", file: "a.txt", side: "R", line: 1, anchorStatus: "unanchored" }),
+    ];
+    const got = partitionComments(diffs, totalLines, comments);
+    expect(got.unanchored.map((c) => c.id)).toEqual(["gone"]);
+    expect(got.anchored).toEqual([]);
+    expect(got.caseB).toEqual([]);
+  });
+
+  it("translates an L-side caseB anchor to the new side before the range check", () => {
+    // Hunk adds 3 lines near the top: old 1-2 → new 1-5. An L-side comment on
+    // old line 50 (outside the hunk) translates to new line 53.
+    const hunk = makeHunk(
+      [
+        { old: 1, new: 1 },
+        { old: 2, new: 2 },
+        { old: null, new: 3 },
+        { old: null, new: 4 },
+        { old: null, new: 5 },
+      ],
+      { oldStart: 1, oldCount: 2, newStart: 1, newCount: 5 },
+    );
+    const diffs = [makeFile({ path: "a.txt", hunks: [hunk] })];
+    const totalLines = { "a.txt": 100 };
+    const comments = [makeComment({ id: "lB", file: "a.txt", side: "L", line: 50 })];
+    const got = partitionComments(diffs, totalLines, comments);
+    expect(got.caseB.map((e) => e.comment.id)).toEqual(["lB"]);
+    expect(got.caseB[0].autoExpandLine).toBe(53);
+  });
+
+  it("marks an L-side comment unanchored when its translated line exceeds the new file", () => {
+    // Same hunk (old 1-2 → new 1-5). Old line 200 translates to new 203, which
+    // is beyond the 100-line new file → unanchored, not caseB.
+    const hunk = makeHunk(
+      [
+        { old: 1, new: 1 },
+        { old: 2, new: 2 },
+        { old: null, new: 3 },
+        { old: null, new: 4 },
+        { old: null, new: 5 },
+      ],
+      { oldStart: 1, oldCount: 2, newStart: 1, newCount: 5 },
+    );
+    const diffs = [makeFile({ path: "a.txt", hunks: [hunk] })];
+    const totalLines = { "a.txt": 100 };
+    const comments = [makeComment({ id: "lOff", file: "a.txt", side: "L", line: 200 })];
+    const got = partitionComments(diffs, totalLines, comments);
+    expect(got.unanchored.map((c) => c.id)).toEqual(["lOff"]);
+    expect(got.caseB).toEqual([]);
   });
 
   it("doesn't match an L-side comment against a different file's new path", () => {
@@ -189,8 +254,8 @@ describe("sortCommentsByRenderOrder", () => {
       makeComment({ id: "c1", file: "a.txt", side: "R", line: 1 }),
     ];
     const partition = partitionComments(diffs, totalLines, comments);
-    expect(partition.anchored.map((c) => c.id)).toEqual(["c1"]);
-    expect(partition.caseB.map((c) => c.id)).toEqual(["cB"]);
+    expect(partition.anchored.map((e) => e.comment.id)).toEqual(["c1"]);
+    expect(partition.caseB.map((e) => e.comment.id)).toEqual(["cB"]);
     const got = sortCommentsByRenderOrder(diffs, files, partition).map((c) => c.id);
     expect(got).toEqual(["c1", "cB"]);
   });
@@ -230,5 +295,81 @@ describe("sortCommentsByRenderOrder", () => {
     const got = sortCommentsByRenderOrder(diffs, files, partition).map((c) => c.id);
     // First-encounter order in the comments array: z then a.
     expect(got).toEqual(["z", "a"]);
+  });
+});
+
+describe("coalesceAutoExpand", () => {
+  it("returns [] for no anchors", () => {
+    expect(coalesceAutoExpand([], 3)).toEqual([]);
+  });
+
+  it("keeps a single anchor as its own window", () => {
+    const got = coalesceAutoExpand([{ line: 50, commentId: "a" }], 3);
+    expect(got).toEqual([{ line: 50, radius: 3, commentIds: ["a"] }]);
+  });
+
+  it("merges anchors whose windows overlap into one target", () => {
+    // 50±3 = [47,53] and 56±3 = [53,59] overlap at 53 → merge to [47,59].
+    const got = coalesceAutoExpand(
+      [
+        { line: 50, commentId: "a" },
+        { line: 56, commentId: "b" },
+      ],
+      3,
+    );
+    expect(got).toHaveLength(1);
+    expect(got[0].commentIds).toEqual(["a", "b"]);
+    // Merged window [47,59] → center 53, radius 6 covers both anchors.
+    expect(got[0].line - got[0].radius).toBeLessThanOrEqual(47);
+    expect(got[0].line + got[0].radius).toBeGreaterThanOrEqual(59);
+  });
+
+  it("keeps far-apart anchors as separate targets", () => {
+    const got = coalesceAutoExpand(
+      [
+        { line: 50, commentId: "a" },
+        { line: 500, commentId: "b" },
+      ],
+      3,
+    );
+    expect(got).toHaveLength(2);
+    expect(got.map((t) => t.commentIds)).toEqual([["a"], ["b"]]);
+  });
+
+  it("sorts unsorted anchors before merging", () => {
+    const got = coalesceAutoExpand(
+      [
+        { line: 56, commentId: "b" },
+        { line: 50, commentId: "a" },
+      ],
+      3,
+    );
+    expect(got).toHaveLength(1);
+    expect(got[0].commentIds).toEqual(["a", "b"]);
+  });
+
+  it("never centers a coalesced window inside an existing hunk", () => {
+    // A pure deletion leaves a new-side hunk covering [11,16] between two caseB
+    // anchors at 10 and 17 (gap 7 — within the merge threshold of 2*radius+1).
+    // If they coalesce, the window centers at 13 (inside the hunk), so
+    // expandToLine's center-in-hunk early return fires and BOTH comments
+    // silently vanish (neither inline nor in the unanchored section). The
+    // window(s) must keep their centers out of the hunk so each anchor stays
+    // reachable.
+    const hunks = [{ newStart: 11, newCount: 6 }]; // covers new lines 11..16
+    const got = coalesceAutoExpand(
+      [
+        { line: 10, commentId: "a" },
+        { line: 17, commentId: "b" },
+      ],
+      3,
+      hunks,
+    );
+    // No comment is dropped.
+    expect(got.flatMap((t) => t.commentIds).sort()).toEqual(["a", "b"]);
+    // No window centers inside the real hunk.
+    for (const t of got) {
+      expect(t.line < 11 || t.line > 16).toBe(true);
+    }
   });
 });

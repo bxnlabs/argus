@@ -16,13 +16,19 @@ export type ExpandDirection = "up" | "down";
 type ExpandAction =
   | { type: "EXPAND_UP"; hunkIndex: number; lines: DiffLine[] }
   | { type: "EXPAND_DOWN"; hunkIndex: number; lines: DiffLine[] }
-  | { type: "INSERT_HUNK"; position: number; hunk: DiffHunk }
+  | { type: "INSERT_HUNK"; hunk: DiffHunk }
   | { type: "RESET"; hunks: DiffHunk[]; totalLines: number };
 
 interface ExpandableDiffState {
   hunks: DiffHunk[];
   totalLines: number;
+  // Bumped on every mutation. Manual expand fetches capture it and bail if any
+  // intervening action ran, since their captured hunkIndex would be stale.
   generation: number;
+  // Bumped only on RESET (new diff data). Auto-expand fetches capture this
+  // instead of `generation` so that concurrent sibling inserts don't invalidate
+  // one another — only a genuine diff reset should discard an in-flight expand.
+  resetGeneration: number;
 }
 
 const EXPAND_INCREMENT = 10;
@@ -79,6 +85,7 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
         hunks: action.hunks,
         totalLines: action.totalLines,
         generation: state.generation + 1,
+        resetGeneration: state.resetGeneration + 1,
       };
 
     case "EXPAND_UP": {
@@ -105,7 +112,7 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
       hunk.header = reconstructHeader(hunk.oldStart, hunk.oldCount, hunk.newStart, hunk.newCount);
       hunks[hunkIndex] = hunk;
 
-      return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
+      return { ...state, hunks, generation: state.generation + 1 };
     }
 
     case "EXPAND_DOWN": {
@@ -128,18 +135,28 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
       hunk.header = reconstructHeader(hunk.oldStart, hunk.oldCount, hunk.newStart, hunk.newCount);
       hunks[hunkIndex] = hunk;
 
-      return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
+      return { ...state, hunks, generation: state.generation + 1 };
     }
 
     case "INSERT_HUNK": {
-      const { position, hunk } = action;
-      if (position < 0 || position > state.hunks.length) return state;
-      const hunks = [
-        ...state.hunks.slice(0, position),
-        hunk,
-        ...state.hunks.slice(position),
-      ];
-      return { hunks, totalLines: state.totalLines, generation: state.generation + 1 };
+      const { hunk } = action;
+      const newEnd = hunk.newStart + hunk.newCount - 1;
+      // Skip when the new-side range overlaps an existing hunk: either the
+      // anchor is already covered, or a concurrent insert beat us here.
+      // Upstream coalescing keeps sibling synthetic hunks from overlapping, so
+      // this only fires for the already-covered / race case.
+      const overlaps = state.hunks.some((h) => {
+        const hEnd = h.newStart + h.newCount - 1;
+        return hunk.newStart <= hEnd && h.newStart <= newEnd;
+      });
+      if (overlaps) return state;
+      // Insert at the sorted position computed from the CURRENT state, so a
+      // concurrent insert (which captured an earlier hunk snapshot) still lands
+      // in the right place rather than at a now-stale index.
+      let pos = state.hunks.findIndex((h) => h.newStart > hunk.newStart);
+      if (pos === -1) pos = state.hunks.length;
+      const hunks = [...state.hunks.slice(0, pos), hunk, ...state.hunks.slice(pos)];
+      return { ...state, hunks, generation: state.generation + 1 };
     }
 
     default:
@@ -158,10 +175,14 @@ export function useExpandableDiff(
     hunks: initialHunks,
     totalLines,
     generation: 0,
+    resetGeneration: 0,
   });
 
   const generationRef = useRef(state.generation);
   generationRef.current = state.generation;
+
+  const resetGenerationRef = useRef(state.resetGeneration);
+  resetGenerationRef.current = state.resetGeneration;
 
   // Track AbortControllers for in-flight requests
   const abortControllersRef = useRef<Set<AbortController>>(new Set());
@@ -201,6 +222,20 @@ export function useExpandableDiff(
     forceUpdate();
   }, []);
 
+  // Abort in-flight requests on unmount (e.g. a diff lazy-unmounted when
+  // scrolled out of view) so a late response can't dispatch into a torn-down
+  // reducer or drive a stale fallback. No forceUpdate here — the component is
+  // gone, and a state update during teardown would warn.
+  useEffect(() => {
+    const controllers = abortControllersRef.current;
+    return () => {
+      for (const controller of controllers) {
+        controller.abort();
+      }
+      controllers.clear();
+    };
+  }, []);
+
   const resetHunks = useCallback((hunks: DiffHunk[], newTotalLines: number) => {
     abortAll();
     dispatch({ type: "RESET", hunks, totalLines: newTotalLines });
@@ -211,24 +246,26 @@ export function useExpandableDiff(
    * caseB comment (file is in compare, line is within file range, but the
    * anchor isn't in any hunk yet) renders inline.
    *
-   * The hunk is placed at the correct sorted position relative to existing
-   * hunks, and its line numbers are derived from the actual fetched range
-   * (not from a neighboring hunk boundary as EXPAND_UP/DOWN does). The old-
-   * side line numbers are computed via the cumulative offset of preceding
-   * hunks so context lines carry both numbers and L-side comments can match
-   * against them.
+   * The synthetic hunk's line numbers are derived from the actual fetched range
+   * (not from a neighboring hunk boundary as EXPAND_UP/DOWN does). The old-side
+   * line numbers are computed via the cumulative offset of preceding hunks so
+   * context lines carry both numbers and L-side comments can match against them.
+   * The reducer places it at the correct sorted position and drops it if it
+   * would overlap an existing hunk.
    *
-   * No-ops when:
-   *   - the anchor is already inside some existing hunk (race guard).
-   *   - the fetch returns no lines (e.g. EOF).
+   * Returns whether the anchor ended up covered, so the caller can fall back to
+   * rendering the comment in the unanchored section when it didn't:
+   *   - `true`  — the anchor is now (or already was) inside a hunk, or the
+   *     request was superseded by a diff reset that will re-fire the expand.
+   *   - `false` — the context could not be fetched (EOF, empty range, or a
+   *     fetch error), so nothing was inserted and the comment has no inline home.
    */
   const expandToLine = useCallback(
-    async (newLine: number, radius: number) => {
+    async (newLine: number, radius: number): Promise<boolean> => {
       const hunks = state.hunks;
 
-      // Resolve insertion position and clamp the requested range against
-      // neighboring hunks so the synthetic hunk doesn't overlap them.
-      let insertAt = hunks.length;
+      // Clamp the requested range against neighboring hunks so the synthetic
+      // hunk doesn't overlap them.
       let lowerBound = 1;
       let upperBound = Math.max(state.totalLines, newLine + radius);
 
@@ -237,11 +274,10 @@ export function useExpandableDiff(
         const hStart = h.newStart;
         const hEnd = h.newStart + h.newCount - 1;
         if (newLine >= hStart && newLine <= hEnd) {
-          // Anchor is already inside an existing hunk — nothing to do.
-          return;
+          // Anchor is already inside an existing hunk — already covered.
+          return true;
         }
         if (newLine < hStart) {
-          insertAt = i;
           upperBound = Math.min(upperBound, hStart - 1);
           break;
         }
@@ -250,13 +286,13 @@ export function useExpandableDiff(
 
       const start = Math.max(lowerBound, newLine - radius);
       const end = Math.min(upperBound, newLine + radius);
-      if (start > end) return;
+      if (start > end) return false;
 
       const loadingKey = `auto-${newLine}`;
-      if (errorRef.current[loadingKey] === "permanent") return;
+      if (errorRef.current[loadingKey] === "permanent") return false;
       delete errorRef.current[loadingKey];
 
-      const capturedGeneration = generationRef.current;
+      const capturedReset = resetGenerationRef.current;
       const controller = new AbortController();
       abortControllersRef.current.add(controller);
       loadingRef.current[loadingKey] = true;
@@ -272,8 +308,11 @@ export function useExpandableDiff(
           signal: controller.signal,
         });
 
-        if (generationRef.current !== capturedGeneration) return;
-        if (result.lines.length === 0) return;
+        // Only a diff reset (new compare data) invalidates an in-flight auto
+        // expand; sibling inserts must not. The reset path re-fires the expand,
+        // so report it as handled rather than failed.
+        if (resetGenerationRef.current !== capturedReset) return true;
+        if (result.lines.length === 0) return false;
 
         // Compute old-side line number for `result.start` by accumulating
         // the cumulative offset of hunks whose end precedes it. This mirrors
@@ -304,10 +343,12 @@ export function useExpandableDiff(
           stableKey: `auto-${newStart}-${newCount}`,
         };
 
-        dispatch({ type: "INSERT_HUNK", position: insertAt, hunk: syntheticHunk });
+        dispatch({ type: "INSERT_HUNK", hunk: syntheticHunk });
+        return true;
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          // no-op
+          // Aborted by a reset/unmount — the reset path re-fires; treat as handled.
+          return true;
         } else if (err instanceof ApiError) {
           if (err.status === 404 || err.status === 413 || err.status === 422) {
             errorRef.current[loadingKey] = "permanent";
@@ -317,6 +358,7 @@ export function useExpandableDiff(
         } else {
           errorRef.current[loadingKey] = "transient";
         }
+        return false;
       } finally {
         abortControllersRef.current.delete(controller);
         delete loadingRef.current[loadingKey];

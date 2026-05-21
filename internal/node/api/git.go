@@ -78,12 +78,7 @@ func sanitizeFilePath(dir, file string) (string, error) {
 }
 
 type gitHandler struct {
-	stateDir           string
-	projectDirOverride string // for testing — bypasses home dir derivation
-}
-
-func (h *gitHandler) resolveProjectDir(expandedPath string) (string, error) {
-	return resolveProjectDir(expandedPath, h.projectDirOverride)
+	stateDir string
 }
 
 // GET /api/git/branches?source=...

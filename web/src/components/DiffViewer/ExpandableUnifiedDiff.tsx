@@ -1,11 +1,9 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { ParsedDiff, DiffHunk } from "@/lib/diff-parser";
 import type { ReviewComment, DiffPosition } from "@/types";
+import type { AutoExpandTarget } from "@/lib/compare-comments";
 import { useExpandableDiff, type ExpansionContext } from "@/hooks/useExpandableDiff";
 import { UnifiedDiff } from "./UnifiedDiff";
-
-/** Context window expanded around a caseB anchor on mount. */
-const AUTO_EXPAND_RADIUS = 3;
 
 interface ExpandableUnifiedDiffProps {
   diff: ParsedDiff;
@@ -26,14 +24,20 @@ interface ExpandableUnifiedDiffProps {
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   onExpandedHunksChange?: (hunks: DiffHunk[]) => void;
   /**
-   * New-side line numbers to auto-expand context around on first mount.
-   * Used to surface caseB comments — comments whose anchor is within the
-   * file's line range but not yet covered by any hunk. Each anchor fires
-   * exactly once per file lifecycle (tracked by a ref keyed on the line
-   * number), so a user who manually collapses an expanded region won't see
-   * it re-expand on re-render.
+   * Coalesced context windows to auto-expand on first mount, surfacing caseB
+   * comments — comments whose anchor is within the file's line range but not
+   * yet covered by any hunk. Nearby anchors are merged upstream so their
+   * windows never overlap. Each target fires exactly once per file lifecycle
+   * (tracked by a ref keyed on the center line), so a user who manually
+   * collapses an expanded region won't see it re-expand on re-render.
    */
-  autoExpandLines?: number[];
+  autoExpandTargets?: AutoExpandTarget[];
+  /**
+   * Called with a target's center line when its auto-expansion fails to cover
+   * the anchor (EOF/empty range/fetch error), so the parent can fall back to
+   * rendering the affected comments in the unanchored section.
+   */
+  onAutoExpandFailed?: (line: number) => void;
 }
 
 export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
@@ -41,7 +45,8 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
   totalLines: totalLinesProp,
   expansionContext,
   onExpandedHunksChange,
-  autoExpandLines,
+  autoExpandTargets,
+  onAutoExpandFailed,
   ...unifiedDiffProps
 }: ExpandableUnifiedDiffProps) {
   const { hunks, totalLines, expandLoading, expandErrors, handleExpand, expandToLine } =
@@ -60,13 +65,15 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
     firedAnchorsRef.current = new Set();
   }, [diff]);
   useEffect(() => {
-    if (!autoExpandLines || autoExpandLines.length === 0) return;
-    for (const line of autoExpandLines) {
-      if (firedAnchorsRef.current.has(line)) continue;
-      firedAnchorsRef.current.add(line);
-      void expandToLine(line, AUTO_EXPAND_RADIUS);
+    if (!autoExpandTargets || autoExpandTargets.length === 0) return;
+    for (const t of autoExpandTargets) {
+      if (firedAnchorsRef.current.has(t.line)) continue;
+      firedAnchorsRef.current.add(t.line);
+      void expandToLine(t.line, t.radius).then((covered) => {
+        if (!covered) onAutoExpandFailed?.(t.line);
+      });
     }
-  }, [autoExpandLines, expandToLine]);
+  }, [autoExpandTargets, expandToLine, onAutoExpandFailed]);
 
   // Stable diff object — only changes when the underlying diff or expanded hunks change
   const expandedDiff = useMemo<ParsedDiff>(
