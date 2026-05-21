@@ -294,8 +294,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // mutation sees the previous one's result even before the save's invalidation
   // round-trips. Without it, two quick edits both derive from the same stale
   // snapshot and the second POST clobbers the first.
-  const saveAndUpdate = useCallback((updater: (prev: Review) => Review) => {
-    if (!currentBranch || !baseBranch) return;
+  // Returns whether the write was applied. Callers that capture fresh user
+  // input (e.g. a new comment) should keep their editor open on a `false`
+  // result so the input isn't silently lost while the review is still loading.
+  const saveAndUpdate = useCallback((updater: (prev: Review) => Review): boolean => {
+    if (!currentBranch || !baseBranch) return false;
     // Bail until the review GET has settled. The backend returns an empty
     // review (200) when none exists, so a settled query always yields a
     // defined cache; `cached` is undefined only mid-load. Writing from an
@@ -303,10 +306,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     // new edit and clobber the existing on-disk comments (which aren't even
     // rendered yet because reviewData is still undefined).
     const cached = queryClient.getQueryData<Review>(reviewQueryKey);
-    if (!cached) return;
+    if (!cached) return false;
     const newReview = updater(cached);
     queryClient.setQueryData(reviewQueryKey, newReview);
     saveReview.mutate(newReview);
+    return true;
   }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
 
   // Resolve hunks for a file, preferring expanded hunks from the ref
@@ -599,11 +603,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       createdAt: new Date().toISOString(),
     };
 
-    saveAndUpdate((prev) => ({
+    const saved = saveAndUpdate((prev) => ({
       ...prev,
       comments: [...prev.comments, newComment],
     }));
-    setActiveComment(null);
+    // Keep the editor open if the write was skipped (review still loading), so
+    // the user's just-typed comment isn't discarded without feedback.
+    if (saved) setActiveComment(null);
   }, [getHunksForFile, saveAndUpdate, parsedDiffs]);
 
   const handleDeleteComment = useCallback((id: string) => {
