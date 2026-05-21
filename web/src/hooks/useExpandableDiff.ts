@@ -76,6 +76,23 @@ function reconstructHeader(oldStart: number, oldCount: number, newStart: number,
   return `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`;
 }
 
+/** True iff `newLine` falls within a hunk's new-side range. */
+function lineInHunk(newLine: number, hunk: DiffHunk): boolean {
+  return newLine >= hunk.newStart && newLine <= hunk.newStart + hunk.newCount - 1;
+}
+
+/**
+ * True iff the new-side range `[newStart, newEnd]` intersects any hunk's
+ * new-side range. Shared by the reducer's INSERT_HUNK skip and the async
+ * expand's post-fetch re-check so the two can't drift.
+ */
+function rangeOverlapsHunks(newStart: number, newEnd: number, hunks: readonly DiffHunk[]): boolean {
+  return hunks.some((h) => {
+    const hEnd = h.newStart + h.newCount - 1;
+    return newStart <= hEnd && h.newStart <= newEnd;
+  });
+}
+
 // --- Reducer ---
 
 export function expandableDiffReducer(state: ExpandableDiffState, action: ExpandAction): ExpandableDiffState {
@@ -141,15 +158,13 @@ export function expandableDiffReducer(state: ExpandableDiffState, action: Expand
     case "INSERT_HUNK": {
       const { hunk } = action;
       const newEnd = hunk.newStart + hunk.newCount - 1;
-      // Skip when the new-side range overlaps an existing hunk: either the
-      // anchor is already covered, or a concurrent insert beat us here.
-      // Upstream coalescing keeps sibling synthetic hunks from overlapping, so
-      // this only fires for the already-covered / race case.
-      const overlaps = state.hunks.some((h) => {
-        const hEnd = h.newStart + h.newCount - 1;
-        return hunk.newStart <= hEnd && h.newStart <= newEnd;
-      });
-      if (overlaps) return state;
+      // Skip when the new-side range overlaps an existing hunk: the anchor is
+      // already covered, a concurrent insert beat us here, or a manual expand
+      // grew an adjacent hunk into this range. Upstream coalescing keeps sibling
+      // synthetic hunks from overlapping. The async expand re-checks this same
+      // condition before reporting success, so a skipped insert can't silently
+      // hide a comment.
+      if (rangeOverlapsHunks(hunk.newStart, newEnd, state.hunks)) return state;
       // Insert at the sorted position computed from the CURRENT state, so a
       // concurrent insert (which captured an earlier hunk snapshot) still lands
       // in the right place rather than at a now-stale index.
@@ -183,6 +198,12 @@ export function useExpandableDiff(
 
   const resetGenerationRef = useRef(state.resetGeneration);
   resetGenerationRef.current = state.resetGeneration;
+
+  // Mirror the latest hunks so an in-flight auto-expand can re-check coverage
+  // and overlap after awaiting its fetch — not against the stale snapshot it
+  // captured at call time, which a concurrent manual expand may have outdated.
+  const stateHunksRef = useRef(state.hunks);
+  stateHunksRef.current = state.hunks;
 
   // Track AbortControllers for in-flight requests
   const abortControllersRef = useRef<Set<AbortController>>(new Set());
@@ -273,7 +294,7 @@ export function useExpandableDiff(
         const h = hunks[i];
         const hStart = h.newStart;
         const hEnd = h.newStart + h.newCount - 1;
-        if (newLine >= hStart && newLine <= hEnd) {
+        if (lineInHunk(newLine, h)) {
           // Anchor is already inside an existing hunk — already covered.
           return true;
         }
@@ -342,6 +363,18 @@ export function useExpandableDiff(
           lines: diffLines,
           stableKey: `auto-${newStart}-${newCount}`,
         };
+
+        // Re-check against the LATEST hunks: while we awaited the fetch, a manual
+        // expand may have grown an adjacent hunk into our range. The reducer
+        // skips an INSERT_HUNK that overlaps an existing hunk, so returning true
+        // unconditionally would hide a comment whose anchor that overlap didn't
+        // actually cover. If the anchor is now covered, report success; if our
+        // insert would be skipped without covering it, report failure so the
+        // caller routes the comment to the unanchored section.
+        const newEnd = newStart + newCount - 1;
+        const current = stateHunksRef.current;
+        if (current.some((h) => lineInHunk(newLine, h))) return true;
+        if (rangeOverlapsHunks(newStart, newEnd, current)) return false;
 
         dispatch({ type: "INSERT_HUNK", hunk: syntheticHunk });
         return true;
