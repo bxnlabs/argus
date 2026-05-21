@@ -225,21 +225,40 @@ export function sortCommentsByRenderOrder(
 ): ReviewComment[] {
   const out: ReviewComment[] = [];
 
-  // Inline comments already carry their owning diff's path-key from
-  // partitioning, so bucket directly without re-resolving side+path.
-  const inlineByDiff = new Map<string, ReviewComment[]>();
+  // Resolve each file's diff once so L-side anchors can be translated to the
+  // new side for ordering.
+  const diffByKey = new Map<string, ParsedDiff>();
+  for (const d of parsedDiffs) diffByKey.set(getDiffPathKey(d), d);
+
+  // New-side render coordinate for an inline entry. The diff lays out lines in
+  // new-side order, so mixing L-side comments (stored as old-side numbers) with
+  // R-side/caseB comments requires translating L-side anchors first; otherwise
+  // navigation jumps out of visual order. caseB entries already carry the
+  // translated new-side line in `autoExpandLine`.
+  const sortLineFor = (e: InlineCommentEntry): number => {
+    if (e.autoExpandLine != null) return e.autoExpandLine;
+    const { side, line } = e.comment.line.from;
+    if (side !== "L") return line;
+    const diff = diffByKey.get(e.pathKey);
+    return diff ? translateOldToNew(line, diff.hunks) : line;
+  };
+
+  // Bucket inline entries by owning diff, tagging each with its new-side
+  // coordinate (entries already carry the path-key from partitioning).
+  const inlineByDiff = new Map<string, { comment: ReviewComment; sortLine: number }[]>();
   for (const e of [...partition.anchored, ...partition.caseB]) {
+    const item = { comment: e.comment, sortLine: sortLineFor(e) };
     const arr = inlineByDiff.get(e.pathKey);
-    if (arr) arr.push(e.comment);
-    else inlineByDiff.set(e.pathKey, [e.comment]);
+    if (arr) arr.push(item);
+    else inlineByDiff.set(e.pathKey, [item]);
   }
 
   for (const d of parsedDiffs) {
     const pathKey = getDiffPathKey(d);
     const arr = inlineByDiff.get(pathKey);
     if (!arr) continue;
-    arr.sort((a, b) => a.line.from.line - b.line.from.line);
-    out.push(...arr);
+    arr.sort((a, b) => a.sortLine - b.sortLine);
+    out.push(...arr.map((x) => x.comment));
   }
 
   out.push(...sortUnanchoredCommentsByFile(partition.unanchored, files));

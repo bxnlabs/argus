@@ -283,6 +283,33 @@ describe("sortCommentsByRenderOrder", () => {
     expect(got).toEqual(["a1", "a999", "b2", "b1"]);
   });
 
+  it("orders mixed L-side and R-side comments by new-side render position", () => {
+    // Hunk adds lines near the top (old 1-2 → new 1-22), so an old-side anchor
+    // past the hunk maps to a much larger new-side line. An L-side comment on
+    // old line 5 renders at new line 25 — BELOW an R-side comment at new line
+    // 10. Sorting by raw line.from.line (5 vs 10) would wrongly put L first.
+    const hunk = makeHunk(
+      [
+        { old: 1, new: 1 },
+        { old: 2, new: 2 },
+        { old: null, new: 3 },
+      ],
+      { oldStart: 1, oldCount: 2, newStart: 1, newCount: 22 },
+    );
+    const diffs = [makeFile({ path: "a.txt", hunks: [hunk] })];
+    const files = [makeCommitFile("a.txt")];
+    const totalLines = { "a.txt": 100 };
+    const comments = [
+      makeComment({ id: "lOld5", file: "a.txt", side: "L", line: 5 }),
+      makeComment({ id: "rNew10", file: "a.txt", side: "R", line: 10 }),
+    ];
+    const partition = partitionComments(diffs, totalLines, comments);
+    // Both land in caseB (neither anchor is among the listed hunk lines).
+    expect(partition.caseB.map((e) => e.comment.id).sort()).toEqual(["lOld5", "rNew10"]);
+    const got = sortCommentsByRenderOrder(diffs, files, partition).map((c) => c.id);
+    expect(got).toEqual(["rNew10", "lOld5"]);
+  });
+
   it("appends unanchored comments for files not in compareData.files last", () => {
     const diffs: ParsedDiff[] = [];
     const files: CommitFile[] = [];
