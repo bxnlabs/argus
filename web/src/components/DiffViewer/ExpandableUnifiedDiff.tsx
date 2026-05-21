@@ -33,11 +33,11 @@ interface ExpandableUnifiedDiffProps {
    */
   autoExpandTargets?: AutoExpandTarget[];
   /**
-   * Called with a target's center line when its auto-expansion fails to cover
-   * the anchor (EOF/empty range/fetch error), so the parent can fall back to
-   * rendering the affected comments in the unanchored section.
+   * Called with the affected comment IDs when a target's auto-expansion fails
+   * to cover its anchor (EOF/empty range/fetch error), so the parent can fall
+   * back to rendering those comments in the unanchored section.
    */
-  onAutoExpandFailed?: (line: number) => void;
+  onAutoExpandFailed?: (commentIds: string[]) => void;
 }
 
 export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
@@ -70,7 +70,7 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
       if (firedAnchorsRef.current.has(t.line)) continue;
       firedAnchorsRef.current.add(t.line);
       void expandToLine(t.line, t.radius).then((covered) => {
-        if (!covered) onAutoExpandFailed?.(t.line);
+        if (!covered) onAutoExpandFailed?.(t.commentIds);
       });
     }
   }, [autoExpandTargets, expandToLine, onAutoExpandFailed]);

@@ -31,8 +31,8 @@ interface LazyFileDiffProps {
    * comments inline (see ExpandableUnifiedDiff).
    */
   autoExpandTargets?: AutoExpandTarget[];
-  /** Called when a target's auto-expansion fails to cover its anchor. */
-  onAutoExpandFailed?: (line: number) => void;
+  /** Called with comment IDs when a target's auto-expansion can't cover them. */
+  onAutoExpandFailed?: (commentIds: string[]) => void;
 }
 
 export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps) {

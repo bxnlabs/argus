@@ -257,23 +257,16 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return map;
   }, [effectivePartition.caseB, parsedDiffs]);
 
-  // Stable per-file failure handlers: when a target's expansion fails to cover
-  // its anchor, route its comments to the unanchored section.
-  const fileAutoExpandFailedHandlers = useMemo(() => {
-    const map = new Map<string, (line: number) => void>();
-    for (const [pathKey, targets] of autoExpandTargetsByFile) {
-      map.set(pathKey, (line: number) => {
-        const target = targets.find((t) => t.line === line);
-        if (!target) return;
-        setFailedCommentIds((prev) => {
-          const next = new Set(prev);
-          for (const id of target.commentIds) next.add(id);
-          return next;
-        });
-      });
-    }
-    return map;
-  }, [autoExpandTargetsByFile]);
+  // caseB comments whose auto-expansion can't cover their anchor route to the
+  // unanchored section. The child reports the affected comment IDs directly
+  // (carried on the target), so there's no center-line reverse lookup.
+  const handleAutoExpandFailed = useCallback((commentIds: string[]) => {
+    setFailedCommentIds((prev) => {
+      const next = new Set(prev);
+      for (const id of commentIds) next.add(id);
+      return next;
+    });
+  }, []);
 
   // Exact key of the review query this view reads (must match useReviewQuery's
   // key, including the headRef/baseRef suffix), so optimistic writes land on the
@@ -872,7 +865,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
               expansionContext={fileExpansionContexts.get(pathKey)!}
               autoExpandTargets={fileAutoExpandTargets}
-              onAutoExpandFailed={fileAutoExpandFailedHandlers.get(pathKey)}
+              onAutoExpandFailed={handleAutoExpandFailed}
             />
           </div>
         );
