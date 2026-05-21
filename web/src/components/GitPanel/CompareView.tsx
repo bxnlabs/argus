@@ -843,7 +843,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         // selected file so their heights are real BEFORE scrollIntoView.
         const inScrollTargetRange = selectedIdx >= 0 && idx <= selectedIdx;
         return (
-          <div key={pathKey} ref={setDiffRef(pathKey)}>
+          <div
+            key={`${pathKey}@${compareData?.headRef ?? ""}~${compareData?.baseRef ?? ""}`}
+            ref={setDiffRef(pathKey)}
+          >
             <LazyFileDiff
               diff={diff}
               fileName={fileName}
