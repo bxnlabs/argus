@@ -295,13 +295,15 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // snapshot and the second POST clobbers the first.
   const saveAndUpdate = useCallback((updater: (prev: Review) => Review) => {
     if (!currentBranch || !baseBranch) return;
+    // Bail until the review GET has settled. The backend returns an empty
+    // review (200) when none exists, so a settled query always yields a
+    // defined cache; `cached` is undefined only mid-load. Writing from an
+    // empty fallback in that window would POST a review containing only the
+    // new edit and clobber the existing on-disk comments (which aren't even
+    // rendered yet because reviewData is still undefined).
     const cached = queryClient.getQueryData<Review>(reviewQueryKey);
-    const prev: Review = cached ?? {
-      head: currentBranch,
-      base: baseBranch,
-      comments: [],
-    };
-    const newReview = updater(prev);
+    if (!cached) return;
+    const newReview = updater(cached);
     queryClient.setQueryData(reviewQueryKey, newReview);
     saveReview.mutate(newReview);
   }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
