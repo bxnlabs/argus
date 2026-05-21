@@ -114,6 +114,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     expandedHunksRef.current.clear();
   }, [workingDirectory]);
 
+  // A base-branch switch changes the comparison and remounts file diffs, so a
+  // navigation target recorded against the previous compare is stale. Clear it
+  // so a same-id comment in the new compare can't trigger an unexpected scroll.
+  useEffect(() => {
+    pendingScrollIdRef.current = null;
+  }, [baseBranch]);
+
   // Branches excluding the current one
   const availableBranches = useMemo(() => {
     if (!branchData?.branches) return [];
