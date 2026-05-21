@@ -310,6 +310,35 @@ describe("sortCommentsByRenderOrder", () => {
     expect(got).toEqual(["rNew10", "lOld5"]);
   });
 
+  it("breaks new-side ties L-before-R (deletion renders above its paired addition)", () => {
+    // A replace hunk: old line 5 deleted, new line 5 added. The L-side comment
+    // on old 5 and the R-side comment on new 5 both resolve to new-side line 5,
+    // so the sort key ties. The deletion row renders above the addition row in a
+    // unified diff, so nav order must be L then R regardless of input order.
+    const hunk = makeHunk(
+      [
+        { old: 4, new: 4 },
+        { old: 5, new: null },
+        { old: null, new: 5 },
+        { old: 6, new: 6 },
+      ],
+      { oldStart: 4, oldCount: 3, newStart: 4, newCount: 3 },
+    );
+    const diffs = [makeFile({ path: "a.txt", hunks: [hunk] })];
+    const files = [makeCommitFile("a.txt")];
+    const totalLines = { "a.txt": 100 };
+    // Authored R-before-L so a stable sort without a tie-breaker would keep R first.
+    const comments = [
+      makeComment({ id: "rAdd5", file: "a.txt", side: "R", line: 5 }),
+      makeComment({ id: "lDel5", file: "a.txt", side: "L", line: 5 }),
+    ];
+    const partition = partitionComments(diffs, totalLines, comments);
+    // Both are anchored (their lines exist in the hunk on their respective sides).
+    expect(partition.anchored.map((e) => e.comment.id)).toEqual(["rAdd5", "lDel5"]);
+    const got = sortCommentsByRenderOrder(diffs, files, partition).map((c) => c.id);
+    expect(got).toEqual(["lDel5", "rAdd5"]);
+  });
+
   it("appends unanchored comments for files not in compareData.files last", () => {
     const diffs: ParsedDiff[] = [];
     const files: CommitFile[] = [];

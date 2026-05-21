@@ -244,10 +244,17 @@ export function sortCommentsByRenderOrder(
   };
 
   // Bucket inline entries by owning diff, tagging each with its new-side
-  // coordinate (entries already carry the path-key from partitioning).
-  const inlineByDiff = new Map<string, { comment: ReviewComment; sortLine: number }[]>();
+  // coordinate (entries already carry the path-key from partitioning). When an
+  // L-side anchor (deleted line) and an R-side anchor (added line) translate to
+  // the same new-side coordinate, the deletion renders above the addition in a
+  // unified diff, so break the tie L-before-R to keep nav order matching the DOM.
+  const inlineByDiff = new Map<string, { comment: ReviewComment; sortLine: number; sideRank: number }[]>();
   for (const e of [...partition.anchored, ...partition.caseB]) {
-    const item = { comment: e.comment, sortLine: sortLineFor(e) };
+    const item = {
+      comment: e.comment,
+      sortLine: sortLineFor(e),
+      sideRank: e.comment.line.from.side === "L" ? 0 : 1,
+    };
     const arr = inlineByDiff.get(e.pathKey);
     if (arr) arr.push(item);
     else inlineByDiff.set(e.pathKey, [item]);
@@ -257,7 +264,7 @@ export function sortCommentsByRenderOrder(
     const pathKey = getDiffPathKey(d);
     const arr = inlineByDiff.get(pathKey);
     if (!arr) continue;
-    arr.sort((a, b) => a.sortLine - b.sortLine);
+    arr.sort((a, b) => a.sortLine - b.sortLine || a.sideRank - b.sideRank);
     out.push(...arr.map((x) => x.comment));
   }
 
