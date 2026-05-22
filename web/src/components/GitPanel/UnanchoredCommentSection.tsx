@@ -86,12 +86,36 @@ export const UnanchoredCommentSection = memo(function UnanchoredCommentSection({
 });
 
 /**
+ * Locates the single-line anchor `snippet` within `lines` (the split
+ * snippetContext) and returns its 0-based index, or -1 when it can't be placed
+ * unambiguously.
+ *
+ * Comments are single-line (the API enforces from === to), so `snippet` is one
+ * line. It's accepted only when it occurs EXACTLY once in the context: a
+ * repeated line (e.g. "}") or an absent/empty snippet returns -1, so the caller
+ * renders plain context rather than numbering the run from a guessed offset
+ * that could land on the wrong line.
+ */
+export function locateSnippetAnchor(lines: string[], snippet: string): number {
+  if (!snippet) return -1;
+  const first = lines.indexOf(snippet);
+  if (first === -1) return -1;
+  // A second occurrence makes the anchor ambiguous — don't guess.
+  if (lines.indexOf(snippet, first + 1) !== -1) return -1;
+  return first;
+}
+
+/**
  * Renders the comment's stored snippet in the style of diff context lines: the
  * two-column old│new gutter plus monospace content. The anchor's side decides
  * which gutter column holds the line number (L on the left, R on the right),
  * mirroring how the diff places deletions and additions. Monochrome with no
  * +/- markers — an unanchored comment has no add/delete state — and the anchor
  * line gets a subtle highlight.
+ *
+ * Line numbers are shown only when the anchor snippet is uniquely located in
+ * the context (see {@link locateSnippetAnchor}); otherwise the block renders as
+ * plain context without numbers, since the stored anchor offset is unknown.
  */
 function UnanchoredSnippet({ comment }: { comment: ReviewComment }) {
   const side = comment.line.from.side;
@@ -100,16 +124,13 @@ function UnanchoredSnippet({ comment }: { comment: ReviewComment }) {
   if (!text) return null;
 
   const lines = text.split("\n");
-  // `snippetContext` is captured as a consecutive run around the anchor and
-  // `snippet` is the anchor line itself, so locating it lets us number the run.
-  const anchorIdx = comment.snippet ? lines.indexOf(comment.snippet) : -1;
+  const anchorIdx = locateSnippetAnchor(lines, comment.snippet);
 
   return (
     <div className="overflow-x-auto font-mono text-xs">
       {lines.map((content, i) => {
-        const isAnchor = anchorIdx >= 0 ? i === anchorIdx : i === 0;
-        const lineNo =
-          anchorIdx >= 0 ? anchorLine + (i - anchorIdx) : isAnchor ? anchorLine : null;
+        const isAnchor = anchorIdx >= 0 && i === anchorIdx;
+        const lineNo = anchorIdx >= 0 ? anchorLine + (i - anchorIdx) : null;
         const num = lineNo ?? "";
         return (
           <div key={i} className={cn("flex", isAnchor && "bg-yellow-500/10")}>
