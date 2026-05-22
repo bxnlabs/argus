@@ -943,10 +943,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               </p>
             )}
           </div>
-          {baseBranch && (
+          {/* Gate on a settled review: until reviewData loads, saveAndUpdate
+              no-ops, so a typed review message would be silently dropped (and
+              ReviewSubmitButton's generalComment effect would overwrite the
+              draft once the GET resolves). */}
+          {baseBranch && reviewData && (
             <ReviewSubmitButton
               pendingCount={pendingCount}
-              generalComment={reviewData?.body?.body ?? ""}
+              generalComment={reviewData.body?.body ?? ""}
               onGeneralCommentChange={handleGeneralCommentChange}
               onSubmit={handleSubmitComments}
             />
@@ -1082,12 +1086,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
                 ? `${pendingCount} pending`
                 : ""}
             </span>
-            <ReviewSubmitButton
-              pendingCount={pendingCount}
-              generalComment={reviewData?.body?.body ?? ""}
-              onGeneralCommentChange={handleGeneralCommentChange}
-              onSubmit={handleSubmitComments}
-            />
+            {/* Gate on a settled review: until reviewData loads, saveAndUpdate
+                no-ops, so a typed review message would be silently dropped (and
+                ReviewSubmitButton's generalComment effect would overwrite the
+                draft once the GET resolves). CommentNav stays visible. */}
+            {reviewData && (
+              <ReviewSubmitButton
+                pendingCount={pendingCount}
+                generalComment={reviewData.body?.body ?? ""}
+                onGeneralCommentChange={handleGeneralCommentChange}
+                onSubmit={handleSubmitComments}
+              />
+            )}
           </div>
         )}
         {diffPane}
