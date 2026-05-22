@@ -208,13 +208,45 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     [parsedDiffs, compareData?.totalLines, comments],
   );
 
-  // Drop per-file auto-expand failures whenever the diff data changes so each
-  // compare re-evaluates fresh and stale per-file entries (for files no longer
-  // in the set) don't linger. Children re-report on remount. (Keeping the empty
-  // map's reference avoids a re-render.)
+  // Drop per-file auto-expand failures when the compared refs or diff data
+  // change, so a new compare starts from a clean slate and stale entries (for
+  // files no longer present) don't linger. headRef/baseRef are dependencies
+  // because the diff `key` remounts children on a refs change while parsedDiffs
+  // can stay reference-stable for a byte-identical diff; clearing here aligns
+  // parent state with that remount boundary. Children also re-report on remount.
+  // (Keeping the empty map's reference avoids a re-render.)
   useEffect(() => {
     setFailedByFile((prev) => (prev.size === 0 ? prev : new Map()));
-  }, [parsedDiffs]);
+  }, [parsedDiffs, compareData?.headRef, compareData?.baseRef]);
+
+  // Prune stale per-file failures: a failedByFile id is only meaningful while
+  // its comment is still a caseB candidate. Once a comment is deleted, re-anchors
+  // into a hunk, or the backend marks it unanchored, it leaves partition.caseB —
+  // and because a failed file is force-mounted (see forceMount below), a stale id
+  // would otherwise pin that file mounted off-screen indefinitely. The child
+  // reducer can't prune it (it keys failures by id, independent of the comment
+  // list), so the parent reconciles against the raw caseB set here. Use raw
+  // `partition` (not effectivePartition, which has already moved failures out of
+  // caseB) so active failures aren't pruned away.
+  useEffect(() => {
+    const caseBIds = new Set(partition.caseB.map((e) => e.comment.id));
+    setFailedByFile((prev) => {
+      if (prev.size === 0) return prev;
+      let next: Map<string, ReadonlySet<string>> | null = null;
+      for (const [pathKey, ids] of prev) {
+        let kept: Set<string> | null = null;
+        for (const id of ids) {
+          if (caseBIds.has(id)) continue;
+          (kept ??= new Set(ids)).delete(id);
+        }
+        if (!kept) continue;
+        next ??= new Map(prev);
+        if (kept.size === 0) next.delete(pathKey);
+        else next.set(pathKey, kept);
+      }
+      return next ?? prev;
+    });
+  }, [partition]);
 
   // Union of every file's failed set — the comment ids that route to unanchored.
   const failedCommentIds = useMemo(() => {
@@ -907,8 +939,19 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               // isScrollPending extends force-mount to files AFTER the target
               // during the scroll so scrollHeight is large enough for the
               // scroll to land. Released immediately after the scroll.
+              //
+              // failedByFile keeps a failed-auto-expand file mounted. Its
+              // comment has moved to the unanchored section, so it's no longer
+              // in commentsByFile; without this the file could unmount while
+              // off-screen (sticky shouldMount never latched) and, on remount,
+              // report an empty failure set that the parent misreads as
+              // "healed" — bouncing the comment through a flicker where it
+              // renders nowhere. Staying mounted also preserves the reducer's
+              // failedAnchors so reconcileFailures can heal on a manual expand.
+              // See docs/implementation/compare-auto-expand-failure-routing.md.
               forceMount={
                 commentsByFile.has(pathKey) ||
+                failedByFile.has(pathKey) ||
                 inScrollTargetRange ||
                 isScrollPending
               }
