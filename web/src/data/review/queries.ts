@@ -38,9 +38,11 @@ export function useSaveReviewMutation(path: string) {
         body: JSON.stringify(data),
       });
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (_result, data) => {
+      // Invalidate the (path, head, base) prefix so any cached review query —
+      // regardless of the headRef/baseRef suffix — is refetched after save.
       queryClient.invalidateQueries({
-        queryKey: reviewKeys.forComparison(path, variables.head, variables.base),
+        queryKey: reviewKeys.forComparison(path, data.head, data.base),
       });
     },
   });

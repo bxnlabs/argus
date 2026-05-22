@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { type ParsedDiff, type DiffHunk } from "@/lib/diff-parser";
 import type { ReviewComment, DiffPosition } from "@/types";
+import type { AutoExpandTarget } from "@/lib/compare-comments";
 import type { ExpansionContext } from "@/hooks/useExpandableDiff";
 import { ExpandableUnifiedDiff } from "./ExpandableUnifiedDiff";
 import { useLazyMount } from "@/hooks/useLazyMount";
@@ -22,10 +23,16 @@ interface LazyFileDiffProps {
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   totalLines: number;
   onExpandedHunksChange?: (hunks: DiffHunk[]) => void;
-  onRegisterInsertSynthetic?: (handler: (hunk: DiffHunk, insertIndex: number) => void) => void;
   expansionContext: ExpansionContext;
   /** When true, skip lazy mounting and render content immediately. */
   forceMount?: boolean;
+  /**
+   * Coalesced context windows to auto-expand on first mount, surfacing caseB
+   * comments inline (see ExpandableUnifiedDiff).
+   */
+  autoExpandTargets?: AutoExpandTarget[];
+  /** Called with the full current set of comment IDs this file's auto-expansion can't surface inline. */
+  onAutoExpandFailuresChange?: (commentIds: string[]) => void;
 }
 
 export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps) {
@@ -52,8 +59,9 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
           onCommentRef={props.onCommentRef}
           totalLines={props.totalLines}
           onExpandedHunksChange={props.onExpandedHunksChange}
-          onRegisterInsertSynthetic={props.onRegisterInsertSynthetic}
           expansionContext={props.expansionContext}
+          autoExpandTargets={props.autoExpandTargets}
+          onAutoExpandFailuresChange={props.onAutoExpandFailuresChange}
         />
       ) : (
         <FilePlaceholder diff={props.diff} fileName={props.fileName} />

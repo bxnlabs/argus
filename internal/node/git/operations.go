@@ -597,9 +597,6 @@ func getFileLinesFromDisk(dir, file string, start, end int) (*FileLinesResult, e
 	}
 
 	actualEnd := start + len(lines) - 1
-	if actualEnd < start {
-		actualEnd = start
-	}
 
 	return &FileLinesResult{
 		Lines:      lines,
@@ -691,9 +688,6 @@ func getFileLinesFromRef(dir, file string, start, end int, ref string) (*FileLin
 	}
 
 	actualEnd := start + len(lines) - 1
-	if actualEnd < start {
-		actualEnd = start
-	}
 
 	return &FileLinesResult{
 		Lines:      lines,

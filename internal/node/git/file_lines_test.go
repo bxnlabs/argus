@@ -192,6 +192,13 @@ func TestGetFileLines_RefBased(t *testing.T) {
 		}
 	})
 
+	t.Run("start beyond file at ref", func(t *testing.T) {
+		_, err := GetFileLines(dir, "ref-test.txt", 100, 105, commitHash)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got: %v", err)
+		}
+	})
+
 	t.Run("invalid ref format", func(t *testing.T) {
 		_, err := GetFileLines(dir, "ref-test.txt", 1, 5, "HEAD")
 		if !errors.Is(err, ErrInvalidInput) {

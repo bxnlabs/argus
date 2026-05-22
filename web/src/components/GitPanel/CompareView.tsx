@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect, memo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   GitCompareArrows,
@@ -10,7 +11,6 @@ import {
   AlertCircle,
   AlertTriangle,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -19,71 +19,31 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { LazyFileDiff } from "@/components/DiffViewer/LazyFileDiff";
-import { parseMultiFileDiff, getDiffFileName, getDiffPathKey, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
+import { getDiffFileName, getDiffPathKey, parseMultiFileDiff, type DiffLine, type DiffHunk } from "@/lib/diff-parser";
+import {
+  partitionComments,
+  sortCommentsByRenderOrder,
+  sortUnanchoredCommentsByFile,
+  coalesceAutoExpand,
+  type AutoExpandTarget,
+  type InlineCommentEntry,
+} from "@/lib/compare-comments";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
-import { useReviewQuery, useSaveReviewMutation } from "@/data/review";
-import { reviewKeys } from "@/data/review/keys";
+import { useReviewQuery, useSaveReviewMutation, reviewKeys } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
+import { UnanchoredCommentSection } from "./UnanchoredCommentSection";
 import { useViewport } from "@/hooks/useViewport";
-import { fetchFileLines } from "@/data/git/file-lines";
-import { computeOldToNewOffset, type ExpansionContext } from "@/hooks/useExpandableDiff";
+import { type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
 
-/** Fire-and-forget helper: fetch lines and insert a synthetic hunk for an off-screen comment. */
-async function fetchFileLinesForSynthetic(
-  repoPath: string,
-  file: string,
-  start: number,
-  end: number,
-  ref: string | undefined,
-  currentHunks: DiffHunk[],
-  pos: DiffPosition,
-  insertHandler: (hunk: DiffHunk, insertIndex: number) => void,
-  onError?: (commentId: string) => void,
-  commentId?: string,
-) {
-  try {
-    const result = await fetchFileLines({ path: repoPath, file, start, end, ref });
+/** Context window expanded around a caseB anchor on mount. */
+const AUTO_EXPAND_RADIUS = 3;
 
-    // Derive side-aware coordinates using hunk boundary offsets
-    const offset = pos.side === "L" ? computeOldToNewOffset(start, currentHunks) : 0;
-    const oldStart = pos.side === "L" ? start : start + offset;
-    const newStart = pos.side === "L" ? start - offset : start;
-
-    const lines: DiffLine[] = result.lines.map((content, i) => ({
-      type: "context" as const,
-      content,
-      newLineNumber: newStart + i,
-      oldLineNumber: oldStart + i,
-    }));
-
-    const syntheticHunk: DiffHunk = {
-      header: `@@ -${oldStart},${lines.length} +${newStart},${lines.length} @@`,
-      oldStart,
-      oldCount: lines.length,
-      newStart,
-      newCount: lines.length,
-      lines,
-      stableKey: `syn:${oldStart}:${newStart}`,
-    };
-
-    // Find correct insertion position
-    let insertIdx = currentHunks.length;
-    for (let i = 0; i < currentHunks.length; i++) {
-      const hunkLine = pos.side === "L" ? currentHunks[i].oldStart : currentHunks[i].newStart;
-      if (hunkLine > start) { insertIdx = i; break; }
-    }
-
-    insertHandler(syntheticHunk, insertIdx);
-  } catch {
-    if (onError && commentId) onError(commentId);
-  }
-}
 
 interface CompareViewProps {
   workingDirectory: string;
@@ -109,11 +69,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [mobileShowDiffs, setMobileShowDiffs] = useState(false);
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const expandedHunksRef = useRef<Map<string, DiffHunk[]>>(new Map());
-  const insertSyntheticHandlers = useRef<Map<string, (hunk: DiffHunk, idx: number) => void>>(new Map());
+  const unanchoredSectionRef = useRef<HTMLDivElement>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   // Bumped on each scroll-to-file request so repeat clicks on the same path
   // re-trigger the scroll effect.
   const [scrollRequestId, setScrollRequestId] = useState(0);
+  // Bumped to request a scroll to the unanchored section (from the sidebar).
+  const [unanchoredScrollReq, setUnanchoredScrollReq] = useState(0);
   const scrollToFileRequestRef = useRef(0);
   // True while a scroll-to-file is in flight. Force-mounts every diff so
   // scrollHeight exceeds target.offsetTop + clientHeight; otherwise the
@@ -127,6 +89,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const activeCommentRef = useRef(activeComment);
   activeCommentRef.current = activeComment;
   const [editingComment, setEditingComment] = useState<ReviewComment | null>(null);
+  // caseB comments whose auto-expansion can't surface them inline (overlap
+  // without coverage, EOF/empty, or fetch error), keyed per file (pathKey →
+  // comment ids). Each diff reports its full current set (set-replacement, not
+  // add-only): its reducer reconciles failures when a later manual expand covers
+  // an anchor, so the set shrinks and the comment returns inline. The derived
+  // union (`failedCommentIds` below) routes the rest to the unanchored section.
+  const [failedByFile, setFailedByFile] = useState<Map<string, ReadonlySet<string>>>(() => new Map());
 
   const {
     data: branchData,
@@ -135,17 +104,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     error: branchErrorDetail,
   } = useCompareBranchesQuery(workingDirectory);
 
-  // Reset repo-scoped state when working directory changes
+  // Reset repo-scoped state when working directory changes.
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
     setIsScrollPending(false);
     setEditingComment(null);
     setFocusedCommentId(null);
+    setFailedByFile(new Map());
     lastFocusedIdxRef.current = -1;
+    pendingScrollIdRef.current = null;
     diffRefs.current.clear();
     expandedHunksRef.current.clear();
-    insertSyntheticHandlers.current.clear();
   }, [workingDirectory]);
 
   // Branches excluding the current one
@@ -194,12 +164,28 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     error: compareErrorDetail,
   } = useCompareQuery(workingDirectory, baseBranch);
 
+  // A change to the compared refs remounts file diffs (the diff `key` below is
+  // built from headRef/baseRef), so a navigation target recorded against the
+  // previous compare is stale. Clear it — keyed on the same refs as the remount,
+  // which also covers a base-branch switch — so a same-id comment in the new
+  // compare can't trigger an unexpected scroll.
+  useEffect(() => {
+    pendingScrollIdRef.current = null;
+  }, [compareData?.headRef, compareData?.baseRef]);
+
   const parsedDiffs = useMemo(() => {
-    if (!compareData?.diff) return [];
     // Clear stale expanded hunks when diff data changes (e.g. base branch switch)
     expandedHunksRef.current.clear();
-    return parseMultiFileDiff(compareData.diff);
+    return compareData?.diff ? parseMultiFileDiff(compareData.diff) : [];
   }, [compareData?.diff]);
+
+  const { data: reviewData } = useReviewQuery(
+    workingDirectory,
+    currentBranch,
+    baseBranch,
+    compareData?.headRef,
+    compareData?.baseRef,
+  );
 
   // Index of the selected file in the rendered diff order. -1 when nothing is
   // selected, or when the selected path is no longer present in parsedDiffs
@@ -209,69 +195,188 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return parsedDiffs.findIndex((d) => getDiffPathKey(d) === selectedPath);
   }, [selectedPath, parsedDiffs]);
 
-  const {
-    data: reviewData,
-  } = useReviewQuery(workingDirectory, currentBranch, baseBranch, compareData?.headRef, compareData?.baseRef);
-
   const saveReview = useSaveReviewMutation(workingDirectory);
 
   const comments = reviewData?.comments ?? EMPTY_COMMENTS;
 
-  // --- Pre-indexed comments by file (referentially stable per-file) ---
-  const prevCommentsByFile = useRef(new Map<string, ReviewComment[]>());
+  // Partition comments against the current compare data so the view can
+  // render inline (anchored + caseB) vs. unanchored buckets distinctly.
+  // caseB comments live in a file's diff but on a line not yet in any hunk;
+  // the auto-expand wiring below surfaces them inline by expanding context.
+  const partition = useMemo(
+    () => partitionComments(parsedDiffs, compareData?.totalLines ?? {}, comments),
+    [parsedDiffs, compareData?.totalLines, comments],
+  );
+
+  // Drop per-file auto-expand failures when the compared refs or diff data
+  // change, so a new compare starts from a clean slate and stale entries (for
+  // files no longer present) don't linger. headRef/baseRef are dependencies
+  // because the diff `key` remounts children on a refs change while parsedDiffs
+  // can stay reference-stable for a byte-identical diff; clearing here aligns
+  // parent state with that remount boundary. Children also re-report on remount.
+  // (Keeping the empty map's reference avoids a re-render.)
+  useEffect(() => {
+    setFailedByFile((prev) => (prev.size === 0 ? prev : new Map()));
+  }, [parsedDiffs, compareData?.headRef, compareData?.baseRef]);
+
+  // Prune stale per-file failures: a failedByFile id is only meaningful while
+  // its comment is still a caseB candidate. Once a comment is deleted, re-anchors
+  // into a hunk, or the backend marks it unanchored, it leaves partition.caseB —
+  // and because a failed file is force-mounted (see forceMount below), a stale id
+  // would otherwise pin that file mounted off-screen indefinitely. The child
+  // reducer can't prune it (it keys failures by id, independent of the comment
+  // list), so the parent reconciles against the raw caseB set here. Use raw
+  // `partition` (not effectivePartition, which has already moved failures out of
+  // caseB) so active failures aren't pruned away.
+  useEffect(() => {
+    const caseBIds = new Set(partition.caseB.map((e) => e.comment.id));
+    setFailedByFile((prev) => {
+      if (prev.size === 0) return prev;
+      let next: Map<string, ReadonlySet<string>> | null = null;
+      for (const [pathKey, ids] of prev) {
+        let kept: Set<string> | null = null;
+        for (const id of ids) {
+          if (caseBIds.has(id)) continue;
+          (kept ??= new Set(ids)).delete(id);
+        }
+        if (!kept) continue;
+        next ??= new Map(prev);
+        if (kept.size === 0) next.delete(pathKey);
+        else next.set(pathKey, kept);
+      }
+      return next ?? prev;
+    });
+  }, [partition]);
+
+  // Union of every file's failed set — the comment ids that route to unanchored.
+  const failedCommentIds = useMemo(() => {
+    const all = new Set<string>();
+    for (const ids of failedByFile.values()) for (const id of ids) all.add(id);
+    return all;
+  }, [failedByFile]);
+
+  // Apply auto-expand failures: caseB comments that couldn't be surfaced inline
+  // move to the unanchored section so none silently disappear.
+  const effectivePartition = useMemo(() => {
+    if (failedCommentIds.size === 0) return partition;
+    const caseB: InlineCommentEntry[] = [];
+    const moved: ReviewComment[] = [];
+    for (const e of partition.caseB) {
+      if (failedCommentIds.has(e.comment.id)) moved.push(e.comment);
+      else caseB.push(e);
+    }
+    if (moved.length === 0) return partition;
+    return {
+      anchored: partition.anchored,
+      caseB,
+      unanchored: [...partition.unanchored, ...moved],
+    };
+  }, [partition, failedCommentIds]);
+
+  // Pre-indexed inline comments (anchored + caseB) by file path-key — the key
+  // `LazyFileDiff` uses for its `comments` prop. Entries already carry the
+  // resolved path-key from partitioning, so there's no side+path re-derivation.
   const commentsByFile = useMemo(() => {
     const next = new Map<string, ReviewComment[]>();
-    for (const c of comments) {
-      const arr = next.get(c.file);
+    const push = (key: string, c: ReviewComment) => {
+      const arr = next.get(key);
       if (arr) arr.push(c);
-      else next.set(c.file, [c]);
-    }
-    // Preserve previous array refs for files whose comments didn't change
-    const prev = prevCommentsByFile.current;
-    const stable = new Map<string, ReviewComment[]>();
-    for (const [file, arr] of next) {
-      const old = prev.get(file);
-      if (old && old.length === arr.length && old.every((c, i) => c.id === arr[i].id && c.body === arr[i].body && c.submitted === arr[i].submitted && c.anchorStatus === arr[i].anchorStatus && c.line.from.line === arr[i].line.from.line && c.line.from.side === arr[i].line.from.side)) {
-        stable.set(file, old);
-      } else {
-        stable.set(file, arr);
-      }
-    }
-    prevCommentsByFile.current = stable;
-    return stable;
-  }, [comments]);
+      else next.set(key, [c]);
+    };
+    for (const e of effectivePartition.anchored) push(e.pathKey, e.comment);
+    for (const e of effectivePartition.caseB) push(e.pathKey, e.comment);
+    return next;
+  }, [effectivePartition.anchored, effectivePartition.caseB]);
 
-  // Optimistically update the review cache and persist to server.
-  // Accepts a functional updater so callers don't close over reviewData/comments.
-  const headRef = compareData?.headRef ?? "";
-  const baseRef = compareData?.baseRef ?? "";
-  const reviewQueryKey = useMemo(
-    () => [...reviewKeys.forComparison(workingDirectory, currentBranch ?? "", baseBranch ?? ""), headRef, baseRef],
-    [workingDirectory, currentBranch, baseBranch, headRef, baseRef],
-  );
-  const saveAndUpdate = useCallback((updater: (prev: Review) => Review) => {
-    if (!currentBranch || !baseBranch) return;
-    const prev = queryClient.getQueryData<Review>(reviewQueryKey);
-    if (!prev) return;
-    const updated = updater(prev);
-    queryClient.setQueryData(reviewQueryKey, updated);
-    saveReview.mutate(updated);
-  }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
+  // Coalesced auto-expand windows per file. caseB entries already carry the
+  // resolved new-side line; nearby anchors are merged so their context windows
+  // never overlap (which would duplicate context or hide a comment).
+  const autoExpandTargetsByFile = useMemo(() => {
+    const anchorsByKey = new Map<string, { line: number; commentId: string }[]>();
+    for (const e of effectivePartition.caseB) {
+      if (e.autoExpandLine == null) continue;
+      const item = { line: e.autoExpandLine, commentId: e.comment.id };
+      const arr = anchorsByKey.get(e.pathKey);
+      if (arr) arr.push(item);
+      else anchorsByKey.set(e.pathKey, [item]);
+    }
+    // Coalesce against each file's real hunks so two anchors bracketing a hunk
+    // aren't merged into a window centered inside it (which would silently drop
+    // both comments — see coalesceAutoExpand).
+    const hunksByKey = new Map<string, DiffHunk[]>();
+    for (const d of parsedDiffs) hunksByKey.set(getDiffPathKey(d), d.hunks);
+    const map = new Map<string, AutoExpandTarget[]>();
+    for (const [key, anchors] of anchorsByKey) {
+      map.set(key, coalesceAutoExpand(anchors, AUTO_EXPAND_RADIUS, hunksByKey.get(key) ?? []));
+    }
+    return map;
+  }, [effectivePartition.caseB, parsedDiffs]);
 
-  // Mark a comment's anchor as context_unavailable when synthetic hunk fetch fails.
-  // Client-only: updates the local query cache without persisting to the server,
-  // since this is a transient fetch failure, not a durable review state.
-  const markContextUnavailable = useCallback((commentId: string) => {
-    if (!currentBranch || !baseBranch) return;
-    const prev = queryClient.getQueryData<Review>(reviewQueryKey);
-    if (!prev) return;
-    queryClient.setQueryData(reviewQueryKey, {
-      ...prev,
-      comments: prev.comments.map((c) =>
-        c.id === commentId ? { ...c, anchorStatus: "context_unavailable" as const } : c,
-      ),
+  // Each file reports the FULL current set of comment ids its auto-expansion
+  // can't surface inline (set-replacement, so reconciliation can shrink it).
+  // Store it per file; the derived union routes those to the unanchored section.
+  // Idempotent: an unchanged set (including the empty set every file reports on
+  // mount) is a no-op, so this can fire freely without render churn.
+  const handleAutoExpandFailuresChange = useCallback((pathKey: string, commentIds: string[]) => {
+    setFailedByFile((prev) => {
+      const cur = prev.get(pathKey);
+      const unchanged =
+        (cur?.size ?? 0) === commentIds.length && commentIds.every((id) => cur!.has(id));
+      if (unchanged) return prev;
+      const next = new Map(prev);
+      if (commentIds.length === 0) next.delete(pathKey);
+      else next.set(pathKey, new Set(commentIds));
+      return next;
     });
-  }, [queryClient, reviewQueryKey, currentBranch, baseBranch]);
+  }, []);
+
+  // Stable per-file failure handlers so memoized LazyFileDiff children don't
+  // re-render on every parent render (mirrors fileExpandedHunksHandlers).
+  const fileAutoExpandFailureHandlers = useMemo(() => {
+    const map = new Map<string, (commentIds: string[]) => void>();
+    for (const diff of parsedDiffs) {
+      const pathKey = getDiffPathKey(diff);
+      map.set(pathKey, (commentIds: string[]) => handleAutoExpandFailuresChange(pathKey, commentIds));
+    }
+    return map;
+  }, [parsedDiffs, handleAutoExpandFailuresChange]);
+
+  // Exact key of the review query this view reads (must match useReviewQuery's
+  // key, including the headRef/baseRef suffix), so optimistic writes land on the
+  // entry the component renders from.
+  const reviewQueryKey = useMemo(
+    () => [
+      ...reviewKeys.forComparison(workingDirectory, currentBranch ?? "", baseBranch ?? ""),
+      compareData?.headRef ?? "",
+      compareData?.baseRef ?? "",
+    ],
+    [workingDirectory, currentBranch, baseBranch, compareData?.headRef, compareData?.baseRef],
+  );
+
+  // Compute a new Review payload, optimistically write it to the query cache,
+  // then persist. Reading and writing the live cache (rather than the render-time
+  // `reviewData` snapshot) is what makes rapid sequential edits compose: each
+  // mutation sees the previous one's result even before the save's invalidation
+  // round-trips. Without it, two quick edits both derive from the same stale
+  // snapshot and the second POST clobbers the first.
+  // Returns whether the write was applied. Callers that capture fresh user
+  // input (e.g. a new comment) should keep their editor open on a `false`
+  // result so the input isn't silently lost while the review is still loading.
+  const saveAndUpdate = useCallback((updater: (prev: Review) => Review): boolean => {
+    if (!currentBranch || !baseBranch) return false;
+    // Bail until the review GET has settled. The backend returns an empty
+    // review (200) when none exists, so a settled query always yields a
+    // defined cache; `cached` is undefined only mid-load. Writing from an
+    // empty fallback in that window would POST a review containing only the
+    // new edit and clobber the existing on-disk comments (which aren't even
+    // rendered yet because reviewData is still undefined).
+    const cached = queryClient.getQueryData<Review>(reviewQueryKey);
+    if (!cached) return false;
+    const newReview = updater(cached);
+    queryClient.setQueryData(reviewQueryKey, newReview);
+    saveReview.mutate(newReview);
+    return true;
+  }, [queryClient, reviewQueryKey, currentBranch, baseBranch, saveReview]);
 
   // Resolve hunks for a file, preferring expanded hunks from the ref
   const getHunksForFile = useCallback((pathKey: string): DiffHunk[] => {
@@ -282,43 +387,23 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   }, [parsedDiffs]);
 
   // Comment navigation — track by stable comment ID so index stays correct
-  // across deletes, reorders, and context_unavailable filtering.
+  // across deletes, reorders, and orphan-routing filter changes.
   const [focusedCommentId, setFocusedCommentId] = useState<string | null>(null);
   const commentRefs = useRef<Map<string, HTMLElement>>(new Map());
+  // A navigation target whose inline element hasn't mounted yet (e.g. a caseB
+  // comment whose auto-expanded hunk is still being inserted). setCommentRef
+  // finishes the scroll once the element registers.
+  const pendingScrollIdRef = useRef<string | null>(null);
 
-  const sortedComments = useMemo(() => {
-    if (!comments.length || !parsedDiffs.length) return [];
-    const fileOrder = parsedDiffs.map((d) => getDiffPathKey(d));
+  const sortedComments = useMemo(
+    () => sortCommentsByRenderOrder(parsedDiffs, compareData?.files ?? [], effectivePartition),
+    [parsedDiffs, compareData?.files, effectivePartition],
+  );
 
-    // Build a line position index for each file
-    const linePositions = new Map<string, Map<string, number>>();
-    for (const diff of parsedDiffs) {
-      const pathKey = getDiffPathKey(diff);
-      const posMap = new Map<string, number>();
-      let rowIdx = 0;
-      for (const hunk of diff.hunks) {
-        for (const line of hunk.lines) {
-          if (line.oldLineNumber != null) posMap.set(`L${line.oldLineNumber}`, rowIdx);
-          if (line.newLineNumber != null) posMap.set(`R${line.newLineNumber}`, rowIdx);
-          rowIdx++;
-        }
-      }
-      linePositions.set(pathKey, posMap);
-    }
-
-    return [...comments].filter((c) => c.anchorStatus !== "context_unavailable").sort((a, b) => {
-      const ai = fileOrder.indexOf(a.file);
-      const bi = fileOrder.indexOf(b.file);
-      if (ai !== bi) return ai - bi;
-      const posA = linePositions.get(a.file);
-      const posB = linePositions.get(b.file);
-      const keyA = `${a.line.from.side}${a.line.from.line}`;
-      const keyB = `${b.line.from.side}${b.line.from.line}`;
-      const idxA = posA?.get(keyA) ?? a.line.from.line;
-      const idxB = posB?.get(keyB) ?? b.line.from.line;
-      return idxA - idxB;
-    });
-  }, [comments, parsedDiffs]);
+  const unanchoredSorted = useMemo(
+    () => sortUnanchoredCommentsByFile(effectivePartition.unanchored, compareData?.files ?? []),
+    [effectivePartition.unanchored, compareData?.files],
+  );
 
   // Tracks the last visited position so navigation can resume near it when
   // the focused comment is deleted. Updated from scrollToComment and from
@@ -348,66 +433,26 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // even though both leave focusedCommentIdx at -1.
   const isFocusStale = focusedCommentId !== null && focusedCommentIdx === -1;
 
-  // Ref for reading the latest sortedComments inside async continuations
-  // (avoids stale-closure scrolls after synthetic-hunk fetches settle).
-  const sortedCommentsRef = useRef(sortedComments);
-  sortedCommentsRef.current = sortedComments;
-
-  // Monotonic token so async continuations from superseded scrollToComment
-  // calls bail out instead of scrolling back to a stale target.
-  const scrollRequestRef = useRef(0);
-
-  const scrollToComment = useCallback(async (index: number) => {
+  const scrollToComment = useCallback((index: number) => {
     const comment = sortedComments[index];
     if (!comment) return;
-    const requestId = ++scrollRequestRef.current;
     setFocusedCommentId(comment.id);
     lastFocusedIdxRef.current = index;
-
-    // Ensure the comment's line is visible in the current hunks before scrolling
-    const pathKey = comment.file;
-    const pos = comment.line.to;
-    const currentHunks = getHunksForFile(pathKey);
-    let visible = false;
-    for (const hunk of currentHunks) {
-      for (const line of hunk.lines) {
-        if (pos.side === "L" && line.oldLineNumber === pos.line) { visible = true; break; }
-        if (pos.side === "R" && line.newLineNumber === pos.line) { visible = true; break; }
-      }
-      if (visible) break;
-    }
-
-    if (!visible) {
-      const handler = insertSyntheticHandlers.current.get(pathKey);
-      if (handler) {
-        const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
-        const file = pos.side === "L" && comment.oldPath ? comment.oldPath : comment.file;
-        const start = Math.max(1, pos.line - 3);
-        const end = pos.line + 3;
-        await fetchFileLinesForSynthetic(
-          workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-          markContextUnavailable, comment.id,
-        );
-        // Wait for React to re-render after synthetic hunk insertion
-        await new Promise<void>((resolve) => setTimeout(resolve, 50));
-      }
-    }
-
-    // Bail if a newer scrollToComment has superseded this one, or if the
-    // target was deleted / marked context_unavailable during the async settle.
-    if (requestId !== scrollRequestRef.current) return;
-    if (!sortedCommentsRef.current.some((c) => c.id === comment.id)) return;
-
     const el = commentRefs.current.get(comment.id);
     if (el) {
+      pendingScrollIdRef.current = null;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
+    // The inline element isn't mounted yet (e.g. a caseB comment whose
+    // auto-expanded hunk is still being inserted). Remember it so setCommentRef
+    // can finish the scroll once it registers, and nudge to the file meanwhile.
+    pendingScrollIdRef.current = comment.id;
     const fileEl = diffRefs.current.get(comment.file);
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [sortedComments, getHunksForFile, compareData?.baseRef, compareData?.headRef, workingDirectory, markContextUnavailable]);
+  }, [sortedComments]);
 
   const handlePrevComment = useCallback(() => {
     // Stale focus (previous comment was deleted): target the slot that was
@@ -449,6 +494,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const setCommentRef = useCallback((id: string, el: HTMLElement | null) => {
     if (el) {
       commentRefs.current.set(id, el);
+      // Finish a navigation that targeted this comment before it had mounted.
+      if (pendingScrollIdRef.current === id) {
+        pendingScrollIdRef.current = null;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
     } else {
       commentRefs.current.delete(id);
     }
@@ -477,6 +527,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setScrollRequestId((n) => n + 1);
   }, [isMobile]);
 
+  // Jump to the unanchored-comments section from the sidebar. On mobile this
+  // also flips to the diff view (where the section is rendered); the scroll
+  // itself runs in the effect below once the section is mounted.
+  const scrollToUnanchored = useCallback(() => {
+    if (isMobile) setMobileShowDiffs(true);
+    setUnanchoredScrollReq((n) => n + 1);
+  }, [isMobile]);
+
   // --- Stable callbacks for UnifiedDiff ---
   const handleLineClick = useCallback((file: string, position: DiffPosition) => {
     setActiveComment({ file, position });
@@ -500,18 +558,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return map;
   }, [parsedDiffs, handleExpandedHunksChange]);
 
-  // Stable per-file registration callbacks for synthetic hunk insertion
-  const fileRegisterInsertSyntheticHandlers = useMemo(() => {
-    const map = new Map<string, (handler: (hunk: DiffHunk, insertIndex: number) => void) => void>();
-    for (const diff of parsedDiffs) {
-      const pathKey = getDiffPathKey(diff);
-      map.set(pathKey, (handler: (hunk: DiffHunk, insertIndex: number) => void) => {
-        insertSyntheticHandlers.current.set(pathKey, handler);
-      });
-    }
-    return map;
-  }, [parsedDiffs]);
-
   // Stable per-file expansion contexts — avoids creating new objects in the render loop
   const fileExpansionContexts = useMemo(() => {
     const map = new Map<string, ExpansionContext>();
@@ -525,47 +571,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     }
     return map;
   }, [parsedDiffs, workingDirectory, compareData?.headRef]);
-
-  // After review data loads, ensure all comments are visible by inserting synthetic hunks
-  useEffect(() => {
-    if (!comments.length || !parsedDiffs.length) return;
-
-    // Group comments by file and ensure visibility for each
-    for (const [pathKey, fileComments] of commentsByFile) {
-      const handler = insertSyntheticHandlers.current.get(pathKey);
-      if (!handler) continue;
-
-      // Always use the best available hunks: prefer expanded hunks, fall back to parsed diff hunks
-      const expanded = expandedHunksRef.current.get(pathKey);
-      const diff = parsedDiffs.find((d) => getDiffPathKey(d) === pathKey);
-      const currentHunks = (expanded && expanded.length > 0) ? expanded : (diff?.hunks ?? []);
-      if (currentHunks.length === 0) continue;
-
-      for (const comment of fileComments) {
-        const pos = comment.line.to;
-        let visible = false;
-        for (const hunk of currentHunks) {
-          for (const line of hunk.lines) {
-            if (pos.side === "L" && line.oldLineNumber === pos.line) { visible = true; break; }
-            if (pos.side === "R" && line.newLineNumber === pos.line) { visible = true; break; }
-          }
-          if (visible) break;
-        }
-        if (!visible) {
-          const ref = pos.side === "L" ? compareData?.baseRef : compareData?.headRef;
-          const file = pos.side === "L" && comment.oldPath ? comment.oldPath : comment.file;
-          const start = Math.max(1, pos.line - 3);
-          const end = pos.line + 3;
-
-          fetchFileLinesForSynthetic(
-            workingDirectory, file, start, end, ref, currentHunks, pos, handler,
-            markContextUnavailable, comment.id,
-          );
-        }
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comments, parsedDiffs, compareData?.headRef, compareData?.baseRef]);
 
   // Stable per-file onLineClick handlers — avoids creating new closures in the render loop
   const fileLineClickHandlers = useMemo(() => {
@@ -663,11 +668,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       createdAt: new Date().toISOString(),
     };
 
-    saveAndUpdate((prev) => ({
+    const saved = saveAndUpdate((prev) => ({
       ...prev,
       comments: [...prev.comments, newComment],
     }));
-    setActiveComment(null);
+    // Keep the editor open if the write was skipped (review still loading), so
+    // the user's just-typed comment isn't discarded without feedback.
+    if (saved) setActiveComment(null);
   }, [getHunksForFile, saveAndUpdate, parsedDiffs]);
 
   const handleDeleteComment = useCallback((id: string) => {
@@ -764,6 +771,18 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     };
   }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
 
+  // Scroll to the unanchored section when requested from the sidebar. The
+  // section is always rendered (not lazy), so a single rAF to let the layout
+  // settle — including a just-mounted mobile diff view — is enough.
+  useLayoutEffect(() => {
+    if (unanchoredScrollReq === 0) return;
+    if (!unanchoredSectionRef.current) return;
+    const handle = requestAnimationFrame(() => {
+      unanchoredSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [unanchoredScrollReq]);
+
   if (loadingBranches) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -855,18 +874,43 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     </div>
   );
 
-  const fileList = compareData?.files.length ? (
+  const hasChangedFiles = !!compareData?.files.length;
+  const fileList = hasChangedFiles || unanchoredSorted.length > 0 ? (
     <div className="flex-1 overflow-y-auto">
-      {compareData.files.map((file) => (
-        <CompareFileRow
-          key={file.path}
-          file={file}
-          isSelected={selectedPath === file.path}
-          onClick={() => scrollToFile(file.path)}
+      <div>
+        {compareData?.files.map((file) => (
+          <CompareFileRow
+            key={file.path}
+            file={file}
+            isSelected={selectedPath === file.path}
+            onClick={() => scrollToFile(file.path)}
+          />
+        ))}
+      </div>
+      {unanchoredSorted.length > 0 && (
+        <UnanchoredNavRow
+          count={unanchoredSorted.length}
+          onClick={scrollToUnanchored}
         />
-      ))}
+      )}
     </div>
   ) : null;
+
+  // Comments with no inline anchor in the current compare. Rendered below the
+  // diff list, and also surfaced standalone when there are no changed files at
+  // all (otherwise the only path to them — drilling into a diff — wouldn't
+  // exist). Delete-only: a comment whose code is gone has no live location to
+  // re-edit against, so editing is intentionally not offered here.
+  const unanchoredSection =
+    unanchoredSorted.length > 0 ? (
+      <div ref={unanchoredSectionRef}>
+        <UnanchoredCommentSection
+          comments={unanchoredSorted}
+          onDeleteComment={handleDeleteComment}
+          onCommentRef={setCommentRef}
+        />
+      </div>
+    ) : null;
 
   // --- Shared diff rendering helper ---
   const renderDiffs = (wrapLines = true, showAddComment = true, editCommentRequestHandler?: (comment: ReviewComment) => void) => (
@@ -879,11 +923,15 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         const fileName = getDiffFileName(diff);
         const fileComments = commentsByFile.get(pathKey) ?? EMPTY_COMMENTS;
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
+        const fileAutoExpandTargets = autoExpandTargetsByFile.get(pathKey);
         // Persistent force-mount for predecessors up to and including the
         // selected file so their heights are real BEFORE scrollIntoView.
         const inScrollTargetRange = selectedIdx >= 0 && idx <= selectedIdx;
         return (
-          <div key={pathKey} ref={setDiffRef(pathKey)}>
+          <div
+            key={`${pathKey}@${compareData?.headRef ?? ""}~${compareData?.baseRef ?? ""}`}
+            ref={setDiffRef(pathKey)}
+          >
             <LazyFileDiff
               diff={diff}
               fileName={fileName}
@@ -891,8 +939,19 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               // isScrollPending extends force-mount to files AFTER the target
               // during the scroll so scrollHeight is large enough for the
               // scroll to land. Released immediately after the scroll.
+              //
+              // failedByFile keeps a failed-auto-expand file mounted. Its
+              // comment has moved to the unanchored section, so it's no longer
+              // in commentsByFile; without this the file could unmount while
+              // off-screen (sticky shouldMount never latched) and, on remount,
+              // report an empty failure set that the parent misreads as
+              // "healed" — bouncing the comment through a flicker where it
+              // renders nowhere. Staying mounted also preserves the reducer's
+              // failedAnchors so reconcileFailures can heal on a manual expand.
+              // See docs/implementation/compare-auto-expand-failure-routing.md.
               forceMount={
                 commentsByFile.has(pathKey) ||
+                failedByFile.has(pathKey) ||
                 inScrollTargetRange ||
                 isScrollPending
               }
@@ -907,12 +966,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onCommentRef={setCommentRef}
               totalLines={compareData?.totalLines[pathKey] ?? 0}
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
-              onRegisterInsertSynthetic={fileRegisterInsertSyntheticHandlers.get(pathKey)}
               expansionContext={fileExpansionContexts.get(pathKey)!}
+              autoExpandTargets={fileAutoExpandTargets}
+              onAutoExpandFailuresChange={fileAutoExpandFailureHandlers.get(pathKey)}
             />
           </div>
         );
       })}
+      {unanchoredSection}
     </div>
   );
 
@@ -924,7 +985,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
         </div>
       ) : compareError ? (
         compareErrorView
-      ) : parsedDiffs.length === 0 ? (
+      ) : parsedDiffs.length === 0 && !unanchoredSection ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
           <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
           <p className="text-sm">No changes between branches</p>
@@ -958,10 +1019,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               </p>
             )}
           </div>
-          {baseBranch && (
+          {/* Gate on a settled review: until reviewData loads, saveAndUpdate
+              no-ops, so a typed review message would be silently dropped (and
+              ReviewSubmitButton's generalComment effect would overwrite the
+              draft once the GET resolves). */}
+          {baseBranch && reviewData && (
             <ReviewSubmitButton
               pendingCount={pendingCount}
-              generalComment={reviewData?.body?.body ?? ""}
+              generalComment={reviewData.body?.body ?? ""}
               onGeneralCommentChange={handleGeneralCommentChange}
               onSubmit={handleSubmitComments}
             />
@@ -1034,15 +1099,25 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
             </div>
           ) : compareError ? (
             compareErrorView
-          ) : compareData?.files.length ? (
-            compareData.files.map((file) => (
-              <CompareFileRow
-                key={file.path}
-                file={file}
-                isSelected={selectedPath === file.path}
-                onClick={() => scrollToFile(file.path)}
-              />
-            ))
+          ) : hasChangedFiles ? (
+            <>
+              {compareData!.files.map((file) => (
+                <CompareFileRow
+                  key={file.path}
+                  file={file}
+                  isSelected={selectedPath === file.path}
+                  onClick={() => scrollToFile(file.path)}
+                />
+              ))}
+              {unanchoredSorted.length > 0 && (
+                <UnanchoredNavRow
+                  count={unanchoredSorted.length}
+                  onClick={scrollToUnanchored}
+                />
+              )}
+            </>
+          ) : unanchoredSection ? (
+            <div className="p-3">{unanchoredSection}</div>
           ) : compareData ? (
             <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
               <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
@@ -1087,17 +1162,36 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
                 ? `${pendingCount} pending`
                 : ""}
             </span>
-            <ReviewSubmitButton
-              pendingCount={pendingCount}
-              generalComment={reviewData?.body?.body ?? ""}
-              onGeneralCommentChange={handleGeneralCommentChange}
-              onSubmit={handleSubmitComments}
-            />
+            {/* Gate on a settled review: until reviewData loads, saveAndUpdate
+                no-ops, so a typed review message would be silently dropped (and
+                ReviewSubmitButton's generalComment effect would overwrite the
+                draft once the GET resolves). CommentNav stays visible. */}
+            {reviewData && (
+              <ReviewSubmitButton
+                pendingCount={pendingCount}
+                generalComment={reviewData.body?.body ?? ""}
+                onGeneralCommentChange={handleGeneralCommentChange}
+                onSubmit={handleSubmitComments}
+              />
+            )}
           </div>
         )}
         {diffPane}
       </div>
     </div>
+  );
+}
+
+function UnanchoredNavRow({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="hover:bg-muted/70 mt-1 flex w-full items-center gap-2 border-t-2 border-yellow-500/40 px-3 py-2 text-left transition-colors"
+    >
+      <AlertTriangle className="h-4 w-4 flex-shrink-0 text-yellow-500" />
+      <span className="flex-1 truncate text-sm">Unanchored comments</span>
+      <span className="text-muted-foreground text-xs">{count}</span>
+    </button>
   );
 }
 

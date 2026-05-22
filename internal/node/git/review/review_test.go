@@ -151,7 +151,7 @@ func TestDetectStaleness_SingleMatch(t *testing.T) {
 	}
 }
 
-func TestDetectStaleness_NoMatch(t *testing.T) {
+func TestDetectStaleness_NoMatch_Preserves(t *testing.T) {
 	dir := initTestRepo(t)
 	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
 	os.WriteFile(filepath.Join(dir, "src", "auth.ts"), []byte("completely different content\n"), 0o644)
@@ -167,12 +167,20 @@ func TestDetectStaleness_NoMatch(t *testing.T) {
 		Body: "Change to 3600", Submitted: true,
 	}}
 	result := detectStaleness(dir, headRef, "", comments)
-	if len(result) != 0 {
-		t.Fatalf("expected 0 comments (pruned), got %d", len(result))
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment preserved when snippet not found, got %d", len(result))
+	}
+	// Anchor should be unchanged (no re-anchor on -1).
+	if result[0].Line.From.Line != 5 {
+		t.Errorf("expected anchor preserved at line 5, got %d", result[0].Line.From.Line)
+	}
+	// Marked unanchored so the UI routes it to read/prune, not inline.
+	if result[0].AnchorStatus != AnchorUnanchored {
+		t.Errorf("anchorStatus = %q, want %q when snippet not found", result[0].AnchorStatus, AnchorUnanchored)
 	}
 }
 
-func TestDetectStaleness_FileDeleted(t *testing.T) {
+func TestDetectStaleness_FileDeleted_Preserves(t *testing.T) {
 	dir := initTestRepo(t)
 	// Commit a placeholder file so the repo is valid, but src/deleted.ts is not committed.
 	os.WriteFile(filepath.Join(dir, "README"), []byte("placeholder\n"), 0o644)
@@ -188,8 +196,12 @@ func TestDetectStaleness_FileDeleted(t *testing.T) {
 		Body: "Comment on deleted file", Submitted: true,
 	}}
 	result := detectStaleness(dir, headRef, "", comments)
-	if len(result) != 0 {
-		t.Fatalf("expected 0 comments (file deleted), got %d", len(result))
+	if len(result) != 1 {
+		t.Fatalf("expected 1 comment preserved when file missing at ref, got %d", len(result))
+	}
+	// Marked unanchored so the UI routes it to read/prune, not inline.
+	if result[0].AnchorStatus != AnchorUnanchored {
+		t.Errorf("anchorStatus = %q, want %q when file missing at ref", result[0].AnchorStatus, AnchorUnanchored)
 	}
 }
 
@@ -245,7 +257,10 @@ func TestDetectStaleness_SkipsUnsubmitted(t *testing.T) {
 	}
 }
 
-func TestDetectStaleness_PathTraversal(t *testing.T) {
+func TestDetectStaleness_PathTraversal_Drops(t *testing.T) {
+	// Path traversal attempts are dropped defensively: the file cannot be
+	// rendered (no anchor in the repo) and the POST handler would reject it
+	// on save anyway.
 	dir := initTestRepo(t)
 	os.WriteFile(filepath.Join(dir, "README"), []byte("placeholder\n"), 0o644)
 	runCmd(t, dir, "git", "add", ".")
@@ -261,7 +276,7 @@ func TestDetectStaleness_PathTraversal(t *testing.T) {
 	}}
 	result := detectStaleness(dir, headRef, "", comments)
 	if len(result) != 0 {
-		t.Fatalf("expected 0 comments (path traversal rejected), got %d", len(result))
+		t.Fatalf("expected invalid-path comment dropped, got %d", len(result))
 	}
 }
 
@@ -327,6 +342,49 @@ func TestLoadSaveDelete(t *testing.T) {
 	}
 	if loaded != nil {
 		t.Errorf("expected nil after delete, got %+v", loaded)
+	}
+}
+
+// TestSave_StripsAnchorStatus verifies that AnchorStatus — a Load-time derived
+// field set by detectStaleness — is never written to disk. Persisting it would
+// let stale view-state round-trip through the full-review POST, which echoes
+// the loaded Review back verbatim.
+func TestSave_StripsAnchorStatus(t *testing.T) {
+	projectDir := t.TempDir()
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:           "rc_stale",
+			File:         "src/a.ts",
+			Line:         LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
+			Snippet:      "x",
+			Body:         "comment",
+			Submitted:    true,
+			AnchorStatus: AnchorStale,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Save must not mutate the caller's struct.
+	if r.Comments[0].AnchorStatus != AnchorStale {
+		t.Errorf("Save mutated caller's AnchorStatus to %q, want %q", r.Comments[0].AnchorStatus, AnchorStale)
+	}
+	// The on-disk JSON must not contain the anchorStatus field at all.
+	raw, err := os.ReadFile(reviewPath(projectDir, "feat/x", "main"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(raw), "anchorStatus") {
+		t.Errorf("on-disk review contains anchorStatus field:\n%s", raw)
+	}
+	// Re-reading yields an empty AnchorStatus.
+	loaded, err := readReviewFile(reviewPath(projectDir, "feat/x", "main"))
+	if err != nil {
+		t.Fatalf("readReviewFile: %v", err)
+	}
+	if loaded.Comments[0].AnchorStatus != "" {
+		t.Errorf("AnchorStatus = %q, want empty after Save", loaded.Comments[0].AnchorStatus)
 	}
 }
 
@@ -694,26 +752,26 @@ func TestDetectStaleness_MultipleContextMatches_NearestWins(t *testing.T) {
 	// Build a Go-like file where "}" appears at lines 8, 13, and 18,
 	// each within similar surrounding context so the ±10 window overlaps.
 	lines := []string{
-		"func a() {",       // 1
-		"  if x != nil {",  // 2
-		"    return err",   // 3
-		"  }",              // 4
-		"",                 // 5
-		"  if y != nil {",  // 6
-		"    return err",   // 7
-		"  }",              // 8  — target
-		"",                 // 9
-		"  data := foo()",  // 10
-		"  if z != nil {",  // 11
-		"    return err",   // 12
-		"  }",              // 13
-		"",                 // 14
-		"  bar := baz()",   // 15
-		"  if w != nil {",  // 16
-		"    return err",   // 17
-		"  }",              // 18
-		"  return nil",     // 19
-		"}",                // 20
+		"func a() {",      // 1
+		"  if x != nil {", // 2
+		"    return err",  // 3
+		"  }",             // 4
+		"",                // 5
+		"  if y != nil {", // 6
+		"    return err",  // 7
+		"  }",             // 8  — target
+		"",                // 9
+		"  data := foo()", // 10
+		"  if z != nil {", // 11
+		"    return err",  // 12
+		"  }",             // 13
+		"",                // 14
+		"  bar := baz()",  // 15
+		"  if w != nil {", // 16
+		"    return err",  // 17
+		"  }",             // 18
+		"  return nil",    // 19
+		"}",               // 20
 	}
 	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 	runCmd(t, dir, "git", "add", ".")
@@ -882,5 +940,215 @@ func TestDetectStaleness_ContextDisambiguatesMatch(t *testing.T) {
 	}
 	if result[0].Line.From.Side != DiffSideRight {
 		t.Errorf("side = %q, want R", result[0].Line.From.Side)
+	}
+}
+
+// TestLoad_PreservesSubmittedCommentSnippetNotFound verifies that submitted
+// comments are preserved across Load even when the snippet is no longer
+// findable in the relevant ref. detectStaleness must never silently drop a
+// submitted comment — the UI exposes it for read/prune.
+func TestLoad_PreservesSubmittedCommentSnippetNotFound(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "stable.ts"), []byte("alpha\nbeta\ngamma\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "other.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "other.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:        "rc_missing_snippet",
+			File:      "src/stable.ts",
+			Line:      LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+			Snippet:   "deleted content that no longer exists",
+			Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded.Comments) != 1 {
+		t.Fatalf("expected 1 comment preserved, got %d", len(loaded.Comments))
+	}
+	if loaded.Comments[0].ID != "rc_missing_snippet" {
+		t.Errorf("wrong comment preserved: %s", loaded.Comments[0].ID)
+	}
+
+}
+
+// TestLoad_PreservesSubmittedCommentFileMissing verifies that a submitted
+// comment whose file does not exist at either ref is preserved by Load.
+// detectStaleness must never silently drop a submitted comment — the UI
+// exposes it for read/prune.
+func TestLoad_PreservesSubmittedCommentFileMissing(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "present.ts"), []byte("a\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "present.ts"), []byte("b\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:        "rc_missing_file",
+			File:      "src/gone.ts",
+			Line:      LineRange{From: DiffPosition{Side: DiffSideRight, Line: 1}, To: DiffPosition{Side: DiffSideRight, Line: 1}},
+			Snippet:   "any snippet",
+			Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded.Comments) != 1 {
+		t.Fatalf("expected 1 comment preserved, got %d", len(loaded.Comments))
+	}
+	if loaded.Comments[0].ID != "rc_missing_file" {
+		t.Errorf("wrong comment preserved: %s", loaded.Comments[0].ID)
+	}
+}
+
+// TestLoad_PreservesEditedCommentRoundTrip verifies the edit-flow invariant:
+// loading, mutating, saving, then re-loading preserves the comment with the
+// edited body. detectStaleness preserves submitted comments unconditionally;
+// the test verifies that round-tripping through Save and Load does not drop
+// the comment regardless of whether the snippet is still findable.
+func TestLoad_PreservesEditedCommentRoundTrip(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "stable.ts"), []byte("line1\nstatic line\nline3\n"), 0o644)
+	os.WriteFile(filepath.Join(repoDir, "src", "touched.ts"), []byte("v1\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "touched.ts"), []byte("v2\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:        "rc_edit",
+			File:      "src/stable.ts",
+			Line:      LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+			Snippet:   "static line",
+			Body:      "original",
+			Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load 1: %v", err)
+	}
+	loaded.Comments[0].Body = "edited"
+	loaded.Comments[0].Submitted = false
+	if err := Save(projectDir, loaded); err != nil {
+		t.Fatalf("Save 2: %v", err)
+	}
+
+	loaded2, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load 2: %v", err)
+	}
+	if len(loaded2.Comments) != 1 {
+		t.Fatalf("expected 1 comment after edit round-trip, got %d", len(loaded2.Comments))
+	}
+	c := loaded2.Comments[0]
+	if c.Submitted {
+		t.Errorf("expected submitted=false, got true")
+	}
+	if c.Body != "edited" {
+		t.Errorf("expected body=edited, got %q", c.Body)
+	}
+}
+
+// TestLoad_DoesNotModifyDisk locks the pure-Load contract: re-anchoring is
+// in-memory only. Persistence is a write-path concern (Save).
+func TestLoad_DoesNotModifyDisk(t *testing.T) {
+	projectDir := t.TempDir()
+	repoDir := initTestRepo(t)
+	os.MkdirAll(filepath.Join(repoDir, "src"), 0o755)
+
+	os.WriteFile(filepath.Join(repoDir, "src", "a.ts"), []byte("alpha\nbeta\ngamma\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "base")
+	baseRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	os.WriteFile(filepath.Join(repoDir, "src", "a.ts"), []byte("alpha\nINSERTED\nbeta\ngamma\n"), 0o644)
+	runCmd(t, repoDir, "git", "add", ".")
+	runCmd(t, repoDir, "git", "commit", "-m", "head")
+	headRef := runCmdOutput(t, repoDir, "git", "rev-parse", "HEAD")
+
+	// Anchored at line 2 in base; "beta" actually moves to line 3 in head.
+	r := &Review{
+		Head: "feat/x", Base: "main",
+		Comments: []ReviewComment{{
+			ID:        "rc_drift",
+			File:      "src/a.ts",
+			Line:      LineRange{From: DiffPosition{Side: DiffSideRight, Line: 2}, To: DiffPosition{Side: DiffSideRight, Line: 2}},
+			Snippet:   "beta",
+			Submitted: true,
+		}},
+	}
+	if err := Save(projectDir, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	path := reviewPath(projectDir, "feat/x", "main")
+	statBefore, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+
+	loaded, err := Load(projectDir, repoDir, "feat/x", "main", headRef, baseRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// In-memory state IS re-anchored.
+	if loaded.Comments[0].Line.From.Line != 3 {
+		t.Errorf("expected in-memory re-anchor to line 3, got %d", loaded.Comments[0].Line.From.Line)
+	}
+	// On-disk state is NOT modified.
+	statAfter, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if !statBefore.ModTime().Equal(statAfter.ModTime()) {
+		t.Errorf("Load modified the review file: mtime changed from %v to %v",
+			statBefore.ModTime(), statAfter.ModTime())
 	}
 }

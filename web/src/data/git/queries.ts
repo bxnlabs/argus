@@ -165,10 +165,11 @@ export function useCompareQuery(path: string, base: string | null) {
   return useQuery({
     queryKey: gitKeys.compare(path, base ?? ""),
     queryFn: async () => {
-      const data = await apiFetch<CompareResult>(
-        `/node/api/git/compare?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base!)}`,
-      );
-      return data;
+      const params = new URLSearchParams({
+        path,
+        base: base!,
+      });
+      return apiFetch<CompareResult>(`/node/api/git/compare?${params}`);
     },
     staleTime: 30_000,
     enabled: path.trim().length > 0 && !!base,

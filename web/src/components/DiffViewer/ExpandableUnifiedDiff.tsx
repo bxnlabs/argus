@@ -1,6 +1,7 @@
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import type { ParsedDiff, DiffHunk } from "@/lib/diff-parser";
 import type { ReviewComment, DiffPosition } from "@/types";
+import type { AutoExpandTarget } from "@/lib/compare-comments";
 import { useExpandableDiff, type ExpansionContext } from "@/hooks/useExpandableDiff";
 import { UnifiedDiff } from "./UnifiedDiff";
 
@@ -22,7 +23,26 @@ interface ExpandableUnifiedDiffProps {
   onEditCommentRequest?: (comment: ReviewComment) => void;
   onCommentRef?: (id: string, el: HTMLElement | null) => void;
   onExpandedHunksChange?: (hunks: DiffHunk[]) => void;
-  onRegisterInsertSynthetic?: (handler: (hunk: DiffHunk, insertIndex: number) => void) => void;
+  /**
+   * Coalesced context windows to auto-expand on first mount, surfacing caseB
+   * comments — comments whose anchor is within the file's line range but not
+   * yet covered by any hunk. Nearby anchors are merged upstream so their
+   * windows never overlap. Each anchor fires exactly once per file lifecycle
+   * (tracked by a ref of fired comment ids), so a user who manually collapses
+   * an expanded region won't see it re-expand on re-render — while a later
+   * target carrying a new comment id at an already-fired center line still
+   * fires, instead of being silently dropped.
+   */
+  autoExpandTargets?: AutoExpandTarget[];
+  /**
+   * Called with the FULL current set of comment IDs whose auto-expansion can't
+   * cover their anchor (overlap-without-coverage, EOF/empty range, or fetch
+   * error), so the parent can route those to the unanchored section. This is a
+   * set-replacement (not add-only): the reducer reconciles failures when a later
+   * manual expand covers an anchor, so the set can shrink — a healed comment
+   * drops out here and returns inline.
+   */
+  onAutoExpandFailuresChange?: (commentIds: string[]) => void;
 }
 
 export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
@@ -30,28 +50,49 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
   totalLines: totalLinesProp,
   expansionContext,
   onExpandedHunksChange,
-  onRegisterInsertSynthetic,
+  autoExpandTargets,
+  onAutoExpandFailuresChange,
   ...unifiedDiffProps
 }: ExpandableUnifiedDiffProps) {
-  const { hunks, totalLines, expandLoading, expandErrors, handleExpand, dispatch } = useExpandableDiff(
-    diff.hunks,
-    totalLinesProp,
-    expansionContext,
-  );
+  const { hunks, totalLines, expandLoading, expandErrors, handleExpand, expandToLine, failedAnchors } =
+    useExpandableDiff(diff.hunks, totalLinesProp, expansionContext);
 
   // Report expanded hunks to parent for comment/snippet resolution
   useEffect(() => {
     onExpandedHunksChange?.(hunks);
   }, [hunks, onExpandedHunksChange]);
 
-  // Register a stable synthetic-hunk insertion handler with the parent
-  const handleInsertSynthetic = useCallback((hunk: DiffHunk, insertIndex: number) => {
-    dispatch({ type: "INSERT_SYNTHETIC", hunk, insertIndex });
-  }, [dispatch]);
-
+  // Track comment ids that have already been auto-expanded so this fires once
+  // per (file, comment), not on every render. Keying by comment id — not the
+  // target's center line — means a later target carrying a new comment at an
+  // already-fired center line still fires (otherwise that comment would be
+  // neither expanded nor routed to unanchored, and silently disappear). Reset
+  // when the underlying diff changes (new compare data).
+  const firedCommentIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    onRegisterInsertSynthetic?.(handleInsertSynthetic);
-  }, [handleInsertSynthetic, onRegisterInsertSynthetic]);
+    firedCommentIdsRef.current = new Set();
+  }, [diff]);
+  useEffect(() => {
+    if (!autoExpandTargets || autoExpandTargets.length === 0) return;
+    for (const t of autoExpandTargets) {
+      // Fire when the target carries at least one not-yet-fired comment; a
+      // re-fire of an already-covered anchor is a reducer no-op, so passing the
+      // whole window's anchors is safe and lets the reducer classify each.
+      if (t.anchors.every((a) => firedCommentIdsRef.current.has(a.commentId))) continue;
+      for (const a of t.anchors) firedCommentIdsRef.current.add(a.commentId);
+      // Routing is decided by the reducer (observed via `failedAnchors` below),
+      // not by this promise's result — so a not-yet-committed concurrent expand
+      // can't make the insert a silent no-op.
+      void expandToLine(t.line, t.radius, t.anchors);
+    }
+  }, [autoExpandTargets, expandToLine]);
+
+  // Surface the reducer's current failed-anchor set to the parent. Reconciliation
+  // can shrink it (a later manual expand covers an anchor), so report the whole
+  // set, not deltas. `failedAnchors` keeps a stable reference until it changes.
+  useEffect(() => {
+    onAutoExpandFailuresChange?.([...failedAnchors.keys()]);
+  }, [failedAnchors, onAutoExpandFailuresChange]);
 
   // Stable diff object — only changes when the underlying diff or expanded hunks change
   const expandedDiff = useMemo<ParsedDiff>(

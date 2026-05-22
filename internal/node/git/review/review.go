@@ -34,12 +34,19 @@ const (
 )
 
 // AnchorStatus describes the staleness state of a submitted comment's anchor.
+// "" means healthy (the snippet re-anchored cleanly).
 type AnchorStatus string
 
 const (
-	AnchorResolved           AnchorStatus = "resolved"
-	AnchorStale              AnchorStatus = "stale"
-	AnchorContextUnavailable AnchorStatus = "context_unavailable"
+	// AnchorStale: the snippet was found but the match is ambiguous, or an
+	// L-side deletion was restored on the head side. Rendered inline at the
+	// best-guess line with a "may have moved" badge.
+	AnchorStale AnchorStatus = "stale"
+	// AnchorUnanchored: the comment could not be re-anchored at all — its file
+	// or snippet is no longer present in the relevant ref. It has no honest
+	// inline location, so the UI surfaces it in the unanchored section for
+	// read/prune rather than rendering it inline on unrelated code.
+	AnchorUnanchored AnchorStatus = "unanchored"
 )
 
 // DiffPosition identifies a specific line on a specific side of the diff.
@@ -184,16 +191,22 @@ func getFileContent(repoDir, ref, filePath string) (string, error) {
 }
 
 // detectStaleness re-anchors submitted comments to their current line positions
-// using immutable git refs rather than the working tree.
+// using immutable git refs rather than the working tree, and otherwise
+// preserves them. Drafts are always preserved as-is.
 //
 // R-side comments are resolved against headRef; L-side comments against baseRef.
 // L-side comments with a non-empty OldPath use OldPath for the file lookup.
-// Unsubmitted (draft) comments are always preserved as-is.
-// A comment that cannot be found at all is pruned (dropped).
-// A comment that matches ambiguously and whose snippetContext cannot disambiguate
-// is kept with AnchorStatus=AnchorStale.
+// When the file is missing in the ref or the snippet cannot be located, the
+// comment is preserved with AnchorStatus=AnchorUnanchored so the UI routes it
+// to the read/prune section rather than rendering it inline on unrelated code.
+//
+// Comments with paths that escape the repo are dropped defensively (they
+// cannot be rendered and the POST handler would reject them anyway).
+//
+// A comment that matches ambiguously and whose snippetContext cannot
+// disambiguate is kept with AnchorStatus=AnchorStale.
 func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment) []ReviewComment {
-	result := make([]ReviewComment, 0)
+	result := make([]ReviewComment, 0, len(comments))
 	for _, c := range comments {
 		if !c.Submitted {
 			result = append(result, c)
@@ -212,13 +225,14 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 			}
 		}
 
-		// Validate path before passing to git.
 		if err := ValidateFilePath(repoDir, lookupPath); err != nil {
+			// Defensive: drop comments whose path escapes the repo. Cannot be
+			// rendered (no anchor file) and would 400 on save anyway.
 			continue
 		}
 
 		// If the ref is empty the caller hasn't provided enough context to check
-		// staleness; preserve the comment as-is rather than pruning it.
+		// staleness; preserve the comment as-is.
 		if ref == "" {
 			result = append(result, c)
 			continue
@@ -226,14 +240,21 @@ func detectStaleness(repoDir, headRef, baseRef string, comments []ReviewComment)
 
 		fileText, err := getFileContent(repoDir, ref, lookupPath)
 		if err != nil {
-			// File not present in this ref — prune.
+			// File not present in this ref — preserve but mark unanchored so the
+			// UI routes it to the read/prune section instead of rendering it
+			// inline at a stale line.
+			c.AnchorStatus = AnchorUnanchored
+			result = append(result, c)
 			continue
 		}
 
 		lineNum := findSnippetWithContext(fileText, c.Snippet, c.SnippetContext, c.Line.From.Line)
 		switch lineNum {
 		case -1:
-			// Not found — prune.
+			// Not found — preserve but mark unanchored so the UI routes it to the
+			// read/prune section instead of rendering it inline on unrelated code.
+			c.AnchorStatus = AnchorUnanchored
+			result = append(result, c)
 			continue
 		case -2:
 			// Ambiguous — mark stale and keep.
@@ -397,10 +418,13 @@ func reviewPath(projectDir, head, base string) string {
 	return filepath.Join(reviewsDir(projectDir), reviewFilename(head, base))
 }
 
-// Load reads the review file for the given branch pair, runs staleness detection
-// against immutable git refs, persists any re-anchoring, and returns the result.
-// headRef is the commit OID for the head side (R-side); baseRef is the commit OID
-// for the base side (L-side). Either may be empty, in which case comments on that
+// Load reads the review file for the given branch pair and returns it with
+// submitted comments re-anchored against the current refs. The result is
+// in-memory only — Load does not persist changes. Persistence is the write
+// path's responsibility (Save, called via POST /api/git/review).
+//
+// headRef is the commit OID for the head side (R-side); baseRef is for the
+// base side (L-side). Either may be empty, in which case comments on that
 // side are skipped during staleness detection.
 // Returns nil, nil if no file exists.
 func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, error) {
@@ -413,16 +437,22 @@ func Load(projectDir, repoDir, head, base, headRef, baseRef string) (*Review, er
 		return nil, nil
 	}
 	r.Comments = detectStaleness(repoDir, headRef, baseRef, r.Comments)
-	if err := writeReviewFile(path, r); err != nil {
-		return nil, err
-	}
 	return r, nil
 }
 
-// Save writes the Review to disk.
+// Save writes the Review to disk. AnchorStatus is a transient field derived at
+// Load time by detectStaleness and must never be persisted; it is cleared on a
+// copy here so this view-state cannot round-trip onto disk via the full-review
+// POST (which echoes back the loaded Review verbatim).
 func Save(projectDir string, r *Review) error {
 	path := reviewPath(projectDir, r.Head, r.Base)
-	return writeReviewFile(path, r)
+	out := *r
+	out.Comments = make([]ReviewComment, len(r.Comments))
+	for i, c := range r.Comments {
+		c.AnchorStatus = ""
+		out.Comments[i] = c
+	}
+	return writeReviewFile(path, &out)
 }
 
 // Delete removes the review file for the given branch pair.

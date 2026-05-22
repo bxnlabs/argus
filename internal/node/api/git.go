@@ -267,18 +267,17 @@ func (h *gitHandler) commitFullDiff(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/git/compare?path=...&base=...
 func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
+	repoPath := r.URL.Query().Get("path")
 	base := r.URL.Query().Get("base")
-	if path == "" || base == "" {
+	if repoPath == "" || base == "" {
 		respondError(w, http.StatusBadRequest, "path and base parameters are required")
 		return
 	}
-	expandedPath, err := shared.SafeExpandPath(path)
+	expandedPath, err := shared.SafeExpandPath(repoPath)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
 	result, err := git.GetCompare(expandedPath, base)
 	if err != nil {
 		respondGitError(w, err)
