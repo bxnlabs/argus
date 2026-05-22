@@ -147,14 +147,25 @@ export function partitionComments(
   return { anchored, caseB, unanchored };
 }
 
+/** A caseB comment's anchor: its id and the new-side line it must surface at. */
+export interface AutoExpandAnchor {
+  commentId: string;
+  /** New-side anchor line auto-expansion must cover for it to render inline. */
+  line: number;
+}
+
 /** A merged auto-expand window covering one or more nearby caseB anchors. */
 export interface AutoExpandTarget {
   /** Center line to expand around (passed to `expandToLine`). */
   line: number;
   /** Radius such that `[line-radius, line+radius]` covers the merged window. */
   radius: number;
-  /** IDs of the caseB comments this window surfaces. */
-  commentIds: string[];
+  /**
+   * Per-comment anchors this window surfaces. Carried (with their individual
+   * new-side lines) so the reducer can classify each comment's coverage
+   * independently when a concurrent manual expand partially overlaps the window.
+   */
+  anchors: AutoExpandAnchor[];
 }
 
 /**
@@ -185,24 +196,29 @@ export function coalesceAutoExpand(
   const hunkBetween = (lo: number, hi: number): boolean =>
     hunks.some((h) => h.newStart > lo && h.newStart + h.newCount - 1 < hi);
 
-  const groups: { start: number; end: number; ids: string[]; lastLine: number }[] = [];
+  const groups: { start: number; end: number; anchors: AutoExpandAnchor[]; lastLine: number }[] = [];
   for (const a of sorted) {
     const last = groups[groups.length - 1];
     // Merge when this anchor's window starts within (or adjacent to) the
     // current group's covered range AND no real hunk sits between them.
     if (last && a.line - radius <= last.end + 1 && !hunkBetween(last.lastLine, a.line)) {
       last.end = Math.max(last.end, a.line + radius);
-      last.ids.push(a.commentId);
+      last.anchors.push({ commentId: a.commentId, line: a.line });
       last.lastLine = a.line;
     } else {
-      groups.push({ start: a.line - radius, end: a.line + radius, ids: [a.commentId], lastLine: a.line });
+      groups.push({
+        start: a.line - radius,
+        end: a.line + radius,
+        anchors: [{ commentId: a.commentId, line: a.line }],
+        lastLine: a.line,
+      });
     }
   }
 
   return groups.map((g) => ({
     line: Math.floor((g.start + g.end) / 2),
     radius: Math.ceil((g.end - g.start) / 2),
-    commentIds: g.ids,
+    anchors: g.anchors,
   }));
 }
 

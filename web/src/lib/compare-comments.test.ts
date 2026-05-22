@@ -361,7 +361,7 @@ describe("coalesceAutoExpand", () => {
 
   it("keeps a single anchor as its own window", () => {
     const got = coalesceAutoExpand([{ line: 50, commentId: "a" }], 3);
-    expect(got).toEqual([{ line: 50, radius: 3, commentIds: ["a"] }]);
+    expect(got).toEqual([{ line: 50, radius: 3, anchors: [{ commentId: "a", line: 50 }] }]);
   });
 
   it("merges anchors whose windows overlap into one target", () => {
@@ -374,7 +374,7 @@ describe("coalesceAutoExpand", () => {
       3,
     );
     expect(got).toHaveLength(1);
-    expect(got[0].commentIds).toEqual(["a", "b"]);
+    expect(got[0].anchors.map((x) => x.commentId)).toEqual(["a", "b"]);
     // Merged window [47,59] → center 53, radius 6 covers both anchors.
     expect(got[0].line - got[0].radius).toBeLessThanOrEqual(47);
     expect(got[0].line + got[0].radius).toBeGreaterThanOrEqual(59);
@@ -389,7 +389,7 @@ describe("coalesceAutoExpand", () => {
       3,
     );
     expect(got).toHaveLength(2);
-    expect(got.map((t) => t.commentIds)).toEqual([["a"], ["b"]]);
+    expect(got.map((t) => t.anchors.map((x) => x.commentId))).toEqual([["a"], ["b"]]);
   });
 
   it("sorts unsorted anchors before merging", () => {
@@ -401,7 +401,7 @@ describe("coalesceAutoExpand", () => {
       3,
     );
     expect(got).toHaveLength(1);
-    expect(got[0].commentIds).toEqual(["a", "b"]);
+    expect(got[0].anchors.map((x) => x.commentId)).toEqual(["a", "b"]);
   });
 
   it("never centers a coalesced window inside an existing hunk", () => {
@@ -422,7 +422,7 @@ describe("coalesceAutoExpand", () => {
       hunks,
     );
     // No comment is dropped.
-    expect(got.flatMap((t) => t.commentIds).sort()).toEqual(["a", "b"]);
+    expect(got.flatMap((t) => t.anchors.map((x) => x.commentId)).sort()).toEqual(["a", "b"]);
     // No window centers inside the real hunk.
     for (const t of got) {
       expect(t.line < 11 || t.line > 16).toBe(true);

@@ -33,11 +33,14 @@ interface ExpandableUnifiedDiffProps {
    */
   autoExpandTargets?: AutoExpandTarget[];
   /**
-   * Called with the affected comment IDs when a target's auto-expansion fails
-   * to cover its anchor (EOF/empty range/fetch error), so the parent can fall
-   * back to rendering those comments in the unanchored section.
+   * Called with the FULL current set of comment IDs whose auto-expansion can't
+   * cover their anchor (overlap-without-coverage, EOF/empty range, or fetch
+   * error), so the parent can route those to the unanchored section. This is a
+   * set-replacement (not add-only): the reducer reconciles failures when a later
+   * manual expand covers an anchor, so the set can shrink — a healed comment
+   * drops out here and returns inline.
    */
-  onAutoExpandFailed?: (commentIds: string[]) => void;
+  onAutoExpandFailuresChange?: (commentIds: string[]) => void;
 }
 
 export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
@@ -46,10 +49,10 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
   expansionContext,
   onExpandedHunksChange,
   autoExpandTargets,
-  onAutoExpandFailed,
+  onAutoExpandFailuresChange,
   ...unifiedDiffProps
 }: ExpandableUnifiedDiffProps) {
-  const { hunks, totalLines, expandLoading, expandErrors, handleExpand, expandToLine } =
+  const { hunks, totalLines, expandLoading, expandErrors, handleExpand, expandToLine, failedAnchors } =
     useExpandableDiff(diff.hunks, totalLinesProp, expansionContext);
 
   // Report expanded hunks to parent for comment/snippet resolution
@@ -69,11 +72,19 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
     for (const t of autoExpandTargets) {
       if (firedAnchorsRef.current.has(t.line)) continue;
       firedAnchorsRef.current.add(t.line);
-      void expandToLine(t.line, t.radius).then((covered) => {
-        if (!covered) onAutoExpandFailed?.(t.commentIds);
-      });
+      // Routing is decided by the reducer (observed via `failedAnchors` below),
+      // not by this promise's result — so a not-yet-committed concurrent expand
+      // can't make the insert a silent no-op.
+      void expandToLine(t.line, t.radius, t.anchors);
     }
-  }, [autoExpandTargets, expandToLine, onAutoExpandFailed]);
+  }, [autoExpandTargets, expandToLine]);
+
+  // Surface the reducer's current failed-anchor set to the parent. Reconciliation
+  // can shrink it (a later manual expand covers an anchor), so report the whole
+  // set, not deltas. `failedAnchors` keeps a stable reference until it changes.
+  useEffect(() => {
+    onAutoExpandFailuresChange?.([...failedAnchors.keys()]);
+  }, [failedAnchors, onAutoExpandFailuresChange]);
 
   // Stable diff object — only changes when the underlying diff or expanded hunks change
   const expandedDiff = useMemo<ParsedDiff>(

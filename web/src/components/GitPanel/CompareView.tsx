@@ -89,9 +89,13 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const activeCommentRef = useRef(activeComment);
   activeCommentRef.current = activeComment;
   const [editingComment, setEditingComment] = useState<ReviewComment | null>(null);
-  // caseB comments whose auto-expansion failed (EOF/empty/fetch error). They
-  // have no inline home, so they fall back to the unanchored section.
-  const [failedCommentIds, setFailedCommentIds] = useState<Set<string>>(() => new Set());
+  // caseB comments whose auto-expansion can't surface them inline (overlap
+  // without coverage, EOF/empty, or fetch error), keyed per file (pathKey →
+  // comment ids). Each diff reports its full current set (set-replacement, not
+  // add-only): its reducer reconciles failures when a later manual expand covers
+  // an anchor, so the set shrinks and the comment returns inline. The derived
+  // union (`failedCommentIds` below) routes the rest to the unanchored section.
+  const [failedByFile, setFailedByFile] = useState<Map<string, ReadonlySet<string>>>(() => new Map());
 
   const {
     data: branchData,
@@ -107,7 +111,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     setIsScrollPending(false);
     setEditingComment(null);
     setFocusedCommentId(null);
-    setFailedCommentIds(new Set());
+    setFailedByFile(new Map());
     lastFocusedIdxRef.current = -1;
     pendingScrollIdRef.current = null;
     diffRefs.current.clear();
@@ -204,11 +208,20 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     [parsedDiffs, compareData?.totalLines, comments],
   );
 
-  // Drop auto-expand failures whenever the diff data changes so each compare
-  // re-evaluates fresh (keeping the empty set's reference avoids a re-render).
+  // Drop per-file auto-expand failures whenever the diff data changes so each
+  // compare re-evaluates fresh and stale per-file entries (for files no longer
+  // in the set) don't linger. Children re-report on remount. (Keeping the empty
+  // map's reference avoids a re-render.)
   useEffect(() => {
-    setFailedCommentIds((prev) => (prev.size === 0 ? prev : new Set()));
+    setFailedByFile((prev) => (prev.size === 0 ? prev : new Map()));
   }, [parsedDiffs]);
+
+  // Union of every file's failed set — the comment ids that route to unanchored.
+  const failedCommentIds = useMemo(() => {
+    const all = new Set<string>();
+    for (const ids of failedByFile.values()) for (const id of ids) all.add(id);
+    return all;
+  }, [failedByFile]);
 
   // Apply auto-expand failures: caseB comments that couldn't be surfaced inline
   // move to the unanchored section so none silently disappear.
@@ -267,16 +280,34 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     return map;
   }, [effectivePartition.caseB, parsedDiffs]);
 
-  // caseB comments whose auto-expansion can't cover their anchor route to the
-  // unanchored section. The child reports the affected comment IDs directly
-  // (carried on the target), so there's no center-line reverse lookup.
-  const handleAutoExpandFailed = useCallback((commentIds: string[]) => {
-    setFailedCommentIds((prev) => {
-      const next = new Set(prev);
-      for (const id of commentIds) next.add(id);
+  // Each file reports the FULL current set of comment ids its auto-expansion
+  // can't surface inline (set-replacement, so reconciliation can shrink it).
+  // Store it per file; the derived union routes those to the unanchored section.
+  // Idempotent: an unchanged set (including the empty set every file reports on
+  // mount) is a no-op, so this can fire freely without render churn.
+  const handleAutoExpandFailuresChange = useCallback((pathKey: string, commentIds: string[]) => {
+    setFailedByFile((prev) => {
+      const cur = prev.get(pathKey);
+      const unchanged =
+        (cur?.size ?? 0) === commentIds.length && commentIds.every((id) => cur!.has(id));
+      if (unchanged) return prev;
+      const next = new Map(prev);
+      if (commentIds.length === 0) next.delete(pathKey);
+      else next.set(pathKey, new Set(commentIds));
       return next;
     });
   }, []);
+
+  // Stable per-file failure handlers so memoized LazyFileDiff children don't
+  // re-render on every parent render (mirrors fileExpandedHunksHandlers).
+  const fileAutoExpandFailureHandlers = useMemo(() => {
+    const map = new Map<string, (commentIds: string[]) => void>();
+    for (const diff of parsedDiffs) {
+      const pathKey = getDiffPathKey(diff);
+      map.set(pathKey, (commentIds: string[]) => handleAutoExpandFailuresChange(pathKey, commentIds));
+    }
+    return map;
+  }, [parsedDiffs, handleAutoExpandFailuresChange]);
 
   // Exact key of the review query this view reads (must match useReviewQuery's
   // key, including the headRef/baseRef suffix), so optimistic writes land on the
@@ -894,7 +925,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onExpandedHunksChange={fileExpandedHunksHandlers.get(pathKey)}
               expansionContext={fileExpansionContexts.get(pathKey)!}
               autoExpandTargets={fileAutoExpandTargets}
-              onAutoExpandFailed={handleAutoExpandFailed}
+              onAutoExpandFailuresChange={fileAutoExpandFailureHandlers.get(pathKey)}
             />
           </div>
         );
