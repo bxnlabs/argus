@@ -27,9 +27,11 @@ interface ExpandableUnifiedDiffProps {
    * Coalesced context windows to auto-expand on first mount, surfacing caseB
    * comments — comments whose anchor is within the file's line range but not
    * yet covered by any hunk. Nearby anchors are merged upstream so their
-   * windows never overlap. Each target fires exactly once per file lifecycle
-   * (tracked by a ref keyed on the center line), so a user who manually
-   * collapses an expanded region won't see it re-expand on re-render.
+   * windows never overlap. Each anchor fires exactly once per file lifecycle
+   * (tracked by a ref of fired comment ids), so a user who manually collapses
+   * an expanded region won't see it re-expand on re-render — while a later
+   * target carrying a new comment id at an already-fired center line still
+   * fires, instead of being silently dropped.
    */
   autoExpandTargets?: AutoExpandTarget[];
   /**
@@ -60,18 +62,24 @@ export const ExpandableUnifiedDiff = memo(function ExpandableUnifiedDiff({
     onExpandedHunksChange?.(hunks);
   }, [hunks, onExpandedHunksChange]);
 
-  // Track anchors that have already been auto-expanded so this only fires
-  // once per (file, anchor) pair, not on every render. Reset when the
-  // underlying diff changes (new compare data).
-  const firedAnchorsRef = useRef<Set<number>>(new Set());
+  // Track comment ids that have already been auto-expanded so this fires once
+  // per (file, comment), not on every render. Keying by comment id — not the
+  // target's center line — means a later target carrying a new comment at an
+  // already-fired center line still fires (otherwise that comment would be
+  // neither expanded nor routed to unanchored, and silently disappear). Reset
+  // when the underlying diff changes (new compare data).
+  const firedCommentIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    firedAnchorsRef.current = new Set();
+    firedCommentIdsRef.current = new Set();
   }, [diff]);
   useEffect(() => {
     if (!autoExpandTargets || autoExpandTargets.length === 0) return;
     for (const t of autoExpandTargets) {
-      if (firedAnchorsRef.current.has(t.line)) continue;
-      firedAnchorsRef.current.add(t.line);
+      // Fire when the target carries at least one not-yet-fired comment; a
+      // re-fire of an already-covered anchor is a reducer no-op, so passing the
+      // whole window's anchors is safe and lets the reducer classify each.
+      if (t.anchors.every((a) => firedCommentIdsRef.current.has(a.commentId))) continue;
+      for (const a of t.anchors) firedCommentIdsRef.current.add(a.commentId);
       // Routing is decided by the reducer (observed via `failedAnchors` below),
       // not by this promise's result — so a not-yet-committed concurrent expand
       // can't make the insert a silent no-op.
