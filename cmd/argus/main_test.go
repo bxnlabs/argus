@@ -60,7 +60,7 @@ func TestBuildListeners_InvalidAddr(t *testing.T) {
 
 func TestMakeListeners_Disabled(t *testing.T) {
 	tsCfg := config.TailscaleConfig{Enabled: false}
-	lns, disc, closer, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0, "combined")
+	lns, disc, _, closer, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0, "combined")
 	if err != nil {
 		t.Fatalf("makeListeners (disabled): %v", err)
 	}
@@ -82,7 +82,7 @@ func TestMakeListeners_Disabled(t *testing.T) {
 
 func TestMakeListeners_DisabledWildcard(t *testing.T) {
 	tsCfg := config.TailscaleConfig{Enabled: false}
-	lns, disc, _, err := makeListeners(context.Background(), tsCfg, "0.0.0.0", 0, "combined")
+	lns, disc, _, _, err := makeListeners(context.Background(), tsCfg, "0.0.0.0", 0, "combined")
 	if err != nil {
 		t.Fatalf("makeListeners (wildcard): %v", err)
 	}
@@ -108,7 +108,7 @@ func TestMakeListeners_DisabledWildcardIPv6(t *testing.T) {
 	ln.Close()
 
 	tsCfg := config.TailscaleConfig{Enabled: false}
-	lns, disc, _, err := makeListeners(context.Background(), tsCfg, "::", 0, "combined")
+	lns, disc, _, _, err := makeListeners(context.Background(), tsCfg, "::", 0, "combined")
 	if err != nil {
 		t.Fatalf("makeListeners (:: wildcard): %v", err)
 	}
@@ -130,7 +130,7 @@ func TestMakeListeners_HostnameSuffix(t *testing.T) {
 	tsCfg := config.TailscaleConfig{Enabled: false}
 	for _, mode := range []string{"combined", "server", "node"} {
 		t.Run(mode, func(t *testing.T) {
-			lns, disc, _, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0, mode)
+			lns, disc, _, _, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0, mode)
 			if err != nil {
 				t.Fatalf("makeListeners (disabled, mode=%s): %v", mode, err)
 			}
