@@ -22,6 +22,22 @@ func ExpandPath(p string) (string, error) {
 	return p, nil
 }
 
+// StateDir returns the root directory for Argus's per-user state: config
+// file, database, discovery file, project worktrees, and the search ignore
+// file. It honors the ARGUS_HOME environment variable when set; otherwise it
+// defaults to ~/.argus. ARGUS_HOME lets a local dev stack run fully isolated
+// from a production instance on the same machine.
+func StateDir() (string, error) {
+	if dir := os.Getenv("ARGUS_HOME"); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determine state dir: %w", err)
+	}
+	return filepath.Join(home, ".argus"), nil
+}
+
 // CleanPath expands ~ and resolves the path to an absolute, cleaned form.
 // Unlike SafeExpandPath, it does not restrict paths to the home directory.
 // OS-level permissions are the sole access guard. This is acceptable under

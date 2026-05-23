@@ -144,6 +144,33 @@ func TestSafeExpandPath_Symlinks(t *testing.T) {
 	})
 }
 
+func TestStateDir(t *testing.T) {
+	t.Run("honors ARGUS_HOME", func(t *testing.T) {
+		t.Setenv("ARGUS_HOME", "/custom/argus/home")
+		got, err := StateDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "/custom/argus/home" {
+			t.Errorf("StateDir() = %q, want /custom/argus/home", got)
+		}
+	})
+
+	t.Run("defaults to ~/.argus when ARGUS_HOME unset", func(t *testing.T) {
+		t.Setenv("ARGUS_HOME", "")
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		got, err := StateDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(home, ".argus")
+		if got != want {
+			t.Errorf("StateDir() = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestCleanPath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
