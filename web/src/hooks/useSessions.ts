@@ -4,6 +4,7 @@ import {
   useSessionsQuery,
   useDeleteSession,
   useRenameSession,
+  useChangeSessionProfile,
 } from "@/data/sessions";
 
 export function useSessions() {
@@ -13,6 +14,7 @@ export function useSessions() {
 
   const deleteMutation = useDeleteSession();
   const renameMutation = useRenameSession();
+  const changeProfileMutation = useChangeSessionProfile();
 
   // Keep stable refs to mutateAsync so callbacks don't change on every render.
   // TanStack Query's useMutation returns a new object each render, which would
@@ -21,6 +23,8 @@ export function useSessions() {
   deleteMutateRef.current = deleteMutation.mutateAsync;
   const renameMutateRef = useRef(renameMutation.mutateAsync);
   renameMutateRef.current = renameMutation.mutateAsync;
+  const changeProfileMutateRef = useRef(changeProfileMutation.mutateAsync);
+  changeProfileMutateRef.current = changeProfileMutation.mutateAsync;
 
   const deleteSession = useCallback(
     async (sessionId: string, deleteBranch?: boolean) => {
@@ -40,5 +44,19 @@ export function useSessions() {
     [],
   );
 
-  return { sessions, homeDir, isLoaded: isSuccess, deleteSession, renameSession };
+  const changeProfile = useCallback(
+    async (sessionId: string, profile: string | null) => {
+      await changeProfileMutateRef.current({ sessionId, profile });
+    },
+    [],
+  );
+
+  return {
+    sessions,
+    homeDir,
+    isLoaded: isSuccess,
+    deleteSession,
+    renameSession,
+    changeProfile,
+  };
 }
