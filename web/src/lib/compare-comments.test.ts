@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { partitionComments, sortCommentsByRenderOrder, coalesceAutoExpand } from "./compare-comments";
+import { partitionComments, sortCommentsByRenderOrder, coalesceAutoExpand, commentsAfterClear, clearCounts } from "./compare-comments";
 import type { DiffHunk, ParsedDiff } from "./diff-parser";
 import type { AnchorStatus, CommitFile, ReviewComment } from "@/types";
 
@@ -48,6 +48,7 @@ function makeComment(opts: {
   side: "L" | "R";
   line: number;
   anchorStatus?: AnchorStatus;
+  submitted?: boolean;
 }): ReviewComment {
   return {
     id: opts.id,
@@ -60,7 +61,7 @@ function makeComment(opts: {
     snippet: "",
     anchorStatus: opts.anchorStatus,
     body: "",
-    submitted: true,
+    submitted: opts.submitted ?? true,
     createdAt: "2026-05-17T00:00:00Z",
   };
 }
@@ -427,5 +428,59 @@ describe("coalesceAutoExpand", () => {
     for (const t of got) {
       expect(t.line < 11 || t.line > 16).toBe(true);
     }
+  });
+});
+
+describe("commentsAfterClear", () => {
+  const cs = [
+    makeComment({ id: "a", file: "f", side: "R", line: 1, submitted: false }),
+    makeComment({ id: "b", file: "f", side: "R", line: 2, submitted: true }),
+    makeComment({ id: "c", file: "f", side: "R", line: 3, submitted: true }),
+  ];
+  const unanchored = new Set(["c"]);
+
+  it("'all' removes everything", () => {
+    expect(commentsAfterClear(cs, "all", unanchored)).toEqual([]);
+  });
+
+  it("'pending' removes unsubmitted, keeps submitted", () => {
+    expect(commentsAfterClear(cs, "pending", unanchored).map((c) => c.id)).toEqual(["b", "c"]);
+  });
+
+  it("'submitted' removes submitted, keeps pending", () => {
+    expect(commentsAfterClear(cs, "submitted", unanchored).map((c) => c.id)).toEqual(["a"]);
+  });
+
+  it("'unanchored' removes ids in the set regardless of submitted state", () => {
+    expect(commentsAfterClear(cs, "unanchored", unanchored).map((c) => c.id)).toEqual(["a", "b"]);
+  });
+
+  it("returns empty for empty input", () => {
+    expect(commentsAfterClear([], "all", new Set())).toEqual([]);
+  });
+});
+
+describe("clearCounts", () => {
+  it("counts each category independently (overlaps allowed)", () => {
+    const cs = [
+      makeComment({ id: "a", file: "f", side: "R", line: 1, submitted: false }),
+      makeComment({ id: "b", file: "f", side: "R", line: 2, submitted: true }),
+      makeComment({ id: "c", file: "f", side: "R", line: 3, submitted: true }),
+    ];
+    expect(clearCounts(cs, new Set(["c"]))).toEqual({
+      all: 3,
+      pending: 1,
+      submitted: 2,
+      unanchored: 1,
+    });
+  });
+
+  it("is all-zero for empty input", () => {
+    expect(clearCounts([], new Set())).toEqual({
+      all: 0,
+      pending: 0,
+      submitted: 0,
+      unanchored: 0,
+    });
   });
 });
