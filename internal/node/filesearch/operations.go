@@ -14,6 +14,8 @@ import (
 	"github.com/charlievieth/fastwalk"
 	ignore "github.com/sabhiram/go-gitignore"
 	"github.com/sahilm/fuzzy"
+
+	"github.com/bxnlabs/argus/internal/shared"
 )
 
 // fastRel computes a relative path when base is known to be a prefix of target.
@@ -148,18 +150,17 @@ coverage/
 .rustup/
 `) + "\n"
 
-// ensureIgnoreFile returns the path to ~/.argus/ignore, creating it
+// ensureIgnoreFile returns the path to <stateDir>/ignore, creating it
 // with sensible defaults if it doesn't already exist.
-func ensureIgnoreFile(home string) (string, error) {
-	dir := filepath.Join(home, ".argus")
-	path := filepath.Join(dir, ignoreFileName)
+func ensureIgnoreFile(stateDir string) (string, error) {
+	path := filepath.Join(stateDir, ignoreFileName)
 
 	if _, err := os.Stat(path); err == nil {
 		return path, nil // already exists
 	}
 
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("mkdir %s: %w", dir, err)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", stateDir, err)
 	}
 	if err := os.WriteFile(path, []byte(defaultIgnoreContents), 0o600); err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
@@ -251,13 +252,18 @@ func Search(ctx context.Context, searchDir, query, searchType string, limit int)
 		limit = maxLimit
 	}
 
+	stateDir, err := shared.StateDir()
+	if err != nil {
+		return nil, fmt.Errorf("state dir: %w", err)
+	}
+	ignoreFile, err := ensureIgnoreFile(stateDir)
+	if err != nil {
+		return nil, fmt.Errorf("ignore file: %w", err)
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("home dir: %w", err)
-	}
-	ignoreFile, err := ensureIgnoreFile(home)
-	if err != nil {
-		return nil, fmt.Errorf("ignore file: %w", err)
 	}
 
 	matcher := loadIgnoreMatcher(ignoreFile)

@@ -242,12 +242,12 @@ func TestSearch_AbsolutePaths(t *testing.T) {
 
 func TestEnsureIgnoreFile(t *testing.T) {
 	t.Run("creates default file when missing", func(t *testing.T) {
-		home := t.TempDir()
-		path, err := ensureIgnoreFile(home)
+		stateDir := t.TempDir()
+		path, err := ensureIgnoreFile(stateDir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := filepath.Join(home, ".argus", "ignore")
+		want := filepath.Join(stateDir, "ignore")
 		if path != want {
 			t.Errorf("path = %q, want %q", path, want)
 		}
@@ -264,16 +264,15 @@ func TestEnsureIgnoreFile(t *testing.T) {
 	})
 
 	t.Run("preserves existing file", func(t *testing.T) {
-		home := t.TempDir()
-		dir := filepath.Join(home, ".argus")
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		stateDir := t.TempDir()
+		if err := os.MkdirAll(stateDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		custom := "custom-pattern/\n"
-		if err := os.WriteFile(filepath.Join(dir, "ignore"), []byte(custom), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(stateDir, "ignore"), []byte(custom), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		path, err := ensureIgnoreFile(home)
+		path, err := ensureIgnoreFile(stateDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -282,7 +281,7 @@ func TestEnsureIgnoreFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		if string(data) != custom {
-			t.Errorf("existing file was overwritten: got %q, want %q", string(data), custom)
+			t.Errorf("existing file should be preserved, got %q", string(data))
 		}
 	})
 }
