@@ -28,6 +28,10 @@ export interface ViewProps {
   onCreateSession: (params: CreateSessionParams) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
+  onToggleStar: (sessionId: string, starred: boolean) => void;
+  onToggleFlag: (sessionId: string, flagged: boolean) => void;
+  onMarkRead: (sessionId: string) => void;
+  onMarkUnread: (sessionId: string) => void;
 
   // Content
   renderWorkspace: () => React.ReactNode;

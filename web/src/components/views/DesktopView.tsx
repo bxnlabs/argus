@@ -27,6 +27,10 @@ export function DesktopView({
   onCreateSession,
   onDeleteSession,
   onRenameSession,
+  onToggleStar,
+  onToggleFlag,
+  onMarkRead,
+  onMarkUnread,
   renderWorkspace,
 }: ViewProps) {
   const handleAttachSession = useCallback(
@@ -130,6 +134,10 @@ export function DesktopView({
                 onAttachSession={handleAttachSession}
                 onDeleteSession={onDeleteSession}
                 onRenameSession={onRenameSession}
+                onToggleStar={onToggleStar}
+                onToggleFlag={onToggleFlag}
+                onMarkRead={onMarkRead}
+                onMarkUnread={onMarkUnread}
                 onNewSession={() => setShowNewSessionDialog(true)}
               />
             </div>

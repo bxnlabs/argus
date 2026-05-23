@@ -27,7 +27,17 @@ function HomeContent() {
   const { isMobile, isHydrated } = useViewport();
 
   // Data hooks
-  const { sessions, homeDir, isLoaded: sessionsLoaded, deleteSession, renameSession } = useSessions();
+  const {
+    sessions,
+    homeDir,
+    isLoaded: sessionsLoaded,
+    deleteSession,
+    renameSession,
+    toggleStar,
+    toggleFlag,
+    markRead,
+    markUnread,
+  } = useSessions();
   const createSessionMutation = useCreateSession();
   const createMutateRef = useRef(createSessionMutation.mutateAsync);
   createMutateRef.current = createSessionMutation.mutateAsync;
@@ -201,6 +211,54 @@ function HomeContent() {
     [renameSession]
   );
 
+  const handleToggleStar = useCallback(
+    async (sessionId: string, starred: boolean) => {
+      try {
+        await toggleStar(sessionId, starred);
+      } catch (err) {
+        console.error("Failed to update session:", err);
+        toast.error("Failed to update session");
+      }
+    },
+    [toggleStar],
+  );
+
+  const handleToggleFlag = useCallback(
+    async (sessionId: string, flagged: boolean) => {
+      try {
+        await toggleFlag(sessionId, flagged);
+      } catch (err) {
+        console.error("Failed to update session:", err);
+        toast.error("Failed to update session");
+      }
+    },
+    [toggleFlag],
+  );
+
+  const handleMarkRead = useCallback(
+    async (sessionId: string) => {
+      try {
+        await markRead(sessionId);
+      } catch (err) {
+        console.error("Failed to mark session read:", err);
+        toast.error("Failed to mark session read");
+      }
+    },
+    [markRead],
+  );
+
+  const handleMarkUnread = useCallback(
+    async (sessionId: string) => {
+      try {
+        await markUnread(sessionId);
+      } catch (err) {
+        console.error("Failed to mark session unread:", err);
+        toast.error("Failed to mark session unread");
+      }
+    },
+    [markUnread],
+  );
+
   // Render the main workspace
   const renderWorkspace = useCallback(
     () => (
@@ -233,6 +291,10 @@ function HomeContent() {
     onCreateSession: handleCreateSession,
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
+    onToggleStar: handleToggleStar,
+    onToggleFlag: handleToggleFlag,
+    onMarkRead: handleMarkRead,
+    onMarkUnread: handleMarkUnread,
     renderWorkspace,
   };
 

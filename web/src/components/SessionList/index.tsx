@@ -5,10 +5,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Star, Flag } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Star, Flag, MailOpen, Mail } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
@@ -56,6 +57,21 @@ export function sortSessions(sessions: Session[]): Session[] {
   });
 }
 
+// Decide which read/unread menu items to show. "Mark as read" appears only
+// when the session is unread. "Mark as unread" appears only when the session
+// is read AND is not the active session (the active session auto-acknowledges,
+// so a manual unread there would immediately revert).
+export function readMenuState(
+  unreadSince: string | null | undefined,
+  isActive: boolean,
+): { showMarkRead: boolean; showMarkUnread: boolean } {
+  const isUnread = !!unreadSince;
+  return {
+    showMarkRead: isUnread,
+    showMarkUnread: !isUnread && !isActive,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // SessionItem — memoized so it only re-renders when its own data changes.
 // Receives `statusValue` (the enum string) instead of the full
@@ -79,6 +95,10 @@ interface SessionItemProps {
   onStartRename: (session: Session) => void;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
+  onToggleStar: (sessionId: string, starred: boolean) => void;
+  onToggleFlag: (sessionId: string, flagged: boolean) => void;
+  onMarkRead: (sessionId: string) => void;
+  onMarkUnread: (sessionId: string) => void;
   renamePendingRef: React.RefObject<boolean>;
 }
 
@@ -98,11 +118,16 @@ const SessionItem = memo(function SessionItem({
   onStartRename,
   onAttachSession,
   onDeleteSession,
+  onToggleStar,
+  onToggleFlag,
+  onMarkRead,
+  onMarkUnread,
   renamePendingRef,
 }: SessionItemProps) {
   const repoPath = session.git_remote_url
     ? parseRepoFromRemoteURL(session.git_remote_url)
     : null;
+  const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, isActive);
 
   return (
     <div
@@ -217,6 +242,54 @@ const SessionItem = memo(function SessionItem({
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
+              onToggleStar(session.id, !session.starred);
+            }}
+          >
+            <Star
+              className={cn(
+                "mr-2 h-3 w-3",
+                session.starred && "fill-amber-400 text-amber-400"
+              )}
+            />
+            {session.starred ? "Unstar" : "Star"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFlag(session.id, !session.flagged);
+            }}
+          >
+            <Flag
+              className={cn("mr-2 h-3 w-3", session.flagged && "text-orange-500")}
+            />
+            {session.flagged ? "Unflag" : "Flag"}
+          </DropdownMenuItem>
+          {showMarkRead && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarkRead(session.id);
+              }}
+            >
+              <MailOpen className="mr-2 h-3 w-3" />
+              Mark as read
+            </DropdownMenuItem>
+          )}
+          {showMarkUnread && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarkUnread(session.id);
+              }}
+            >
+              <Mail className="mr-2 h-3 w-3" />
+              Mark as unread
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
               onStartRename(session);
             }}
           >
@@ -265,6 +338,10 @@ interface SessionListProps {
   errorMessage?: string;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
+  onToggleStar: (sessionId: string, starred: boolean) => void;
+  onToggleFlag: (sessionId: string, flagged: boolean) => void;
+  onMarkRead: (sessionId: string) => void;
+  onMarkUnread: (sessionId: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
   onNewSession: () => void;
   onRetry?: () => void;
@@ -280,6 +357,10 @@ export const SessionList = memo(function SessionList({
   errorMessage,
   onAttachSession,
   onDeleteSession,
+  onToggleStar,
+  onToggleFlag,
+  onMarkRead,
+  onMarkUnread,
   onRenameSession,
   onNewSession,
   onRetry,
@@ -404,6 +485,10 @@ export const SessionList = memo(function SessionList({
                   onStartRename={handleStartRename}
                   onAttachSession={onAttachSession}
                   onDeleteSession={onDeleteSession}
+                  onToggleStar={onToggleStar}
+                  onToggleFlag={onToggleFlag}
+                  onMarkRead={onMarkRead}
+                  onMarkUnread={onMarkUnread}
                   renamePendingRef={renamePendingRef}
                 />
               );

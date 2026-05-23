@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sortSessions } from "./index";
+import { sortSessions, readMenuState } from "./index";
 import type { Session } from "@/types";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -53,5 +53,19 @@ describe("sortSessions", () => {
     const copy = [...input];
     sortSessions(input);
     expect(input).toEqual(copy);
+  });
+});
+
+describe("readMenuState", () => {
+  it("shows 'Mark as read' only when the session is unread", () => {
+    expect(readMenuState("2026-01-01 00:00:00", false).showMarkRead).toBe(true);
+    expect(readMenuState(null, false).showMarkRead).toBe(false);
+    expect(readMenuState(undefined, false).showMarkRead).toBe(false);
+  });
+
+  it("shows 'Mark as unread' only when read and not the active session", () => {
+    expect(readMenuState(null, false).showMarkUnread).toBe(true);
+    expect(readMenuState(null, true).showMarkUnread).toBe(false);
+    expect(readMenuState("2026-01-01 00:00:00", false).showMarkUnread).toBe(false);
   });
 });
