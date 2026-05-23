@@ -598,8 +598,8 @@ func TestSearch_RespectsContextCancellation(t *testing.T) {
 func TestCachedIgnoreMatcher(t *testing.T) {
 	t.Cleanup(resetMatcherCache)
 
-	home := t.TempDir()
-	path, err := ensureIgnoreFile(home)
+	stateDir := t.TempDir()
+	path, err := ensureIgnoreFile(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
