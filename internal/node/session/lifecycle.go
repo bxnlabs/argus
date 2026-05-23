@@ -210,7 +210,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if err != nil {
 		log.Printf("resolve home dir: %v", err)
 	}
-	ConfigureSession(tmuxName, sessionID, configDir, configBranch, home)
+	ConfigureSession(tmuxName, sessionID, configDir, configBranch, resolvedProfile, home)
 
 	// Insert into database
 	var providerSessionID *string
@@ -614,7 +614,7 @@ func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	if err != nil {
 		log.Printf("resolve home dir: %v", err)
 	}
-	ConfigureSession(tmuxName, session.ID, configDir, configBranch, home)
+	ConfigureSession(tmuxName, session.ID, configDir, configBranch, profileName, home)
 
 	return tmuxName, nil
 }

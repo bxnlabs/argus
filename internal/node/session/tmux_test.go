@@ -112,6 +112,7 @@ func TestBuildStatusRight(t *testing.T) {
 		sessionID  string
 		dir        string
 		branch     string
+		profile    string
 		home       string
 		wantExact  string   // if set, assert exact equality
 		wantParts  []string // substrings that must all appear
@@ -168,10 +169,28 @@ func TestBuildStatusRight(t *testing.T) {
 			wantParts:  []string{"100%%done"},
 			wantAbsent: []string{"100%d"},
 		},
+		{
+			name:      "profile segment present when set",
+			sessionID: "sess_abc",
+			dir:       "/Users/jeevb/project",
+			branch:    "main",
+			profile:   "work",
+			home:      "/Users/jeevb",
+			wantParts: []string{"sess_abc", "#[fg=#a6e3a1]work ", "main", "~/project"},
+		},
+		{
+			name:       "no profile segment when empty",
+			sessionID:  "sess_abc",
+			dir:        "/Users/jeevb/project",
+			branch:     "main",
+			profile:    "",
+			home:       "/Users/jeevb",
+			wantAbsent: []string{"#[fg=#a6e3a1]"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildStatusRight(tt.sessionID, tt.dir, tt.branch, tt.home)
+			got := buildStatusRight(tt.sessionID, tt.dir, tt.branch, tt.profile, tt.home)
 			if tt.wantExact != "" {
 				if got != tt.wantExact {
 					t.Errorf("buildStatusRight() =\n  %q\nwant:\n  %q", got, tt.wantExact)
