@@ -313,3 +313,13 @@ func (d *DB) AcknowledgeSession(ctx context.Context, id string) error {
 	)
 	return err
 }
+
+// MarkSessionUnread sets unread_since to now. Mirrors AcknowledgeSession
+// (which clears it). Idempotent.
+func (d *DB) MarkSessionUnread(ctx context.Context, id string) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE sessions SET unread_since = datetime('now') WHERE id = ?`,
+		id,
+	)
+	return err
+}

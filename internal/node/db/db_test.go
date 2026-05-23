@@ -723,6 +723,35 @@ func TestUpdateSessionFlaggedStarred(t *testing.T) {
 	}
 }
 
+func TestMarkSessionUnread(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := db.GetSession("s1")
+	if s.UnreadSince == nil {
+		t.Error("expected unread_since to be set after MarkSessionUnread")
+	}
+
+	// Acknowledge should clear it again.
+	if err := db.AcknowledgeSession(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = db.GetSession("s1")
+	if s.UnreadSince != nil {
+		t.Errorf("expected nil unread_since after acknowledge, got %v", s.UnreadSince)
+	}
+}
+
 func TestUpgradeDBRequiresNotificationsMigration(t *testing.T) {
 	// Simulate an existing database that has all current session columns
 	// (fully migrated) but predates the notifications feature.
