@@ -12,13 +12,22 @@ type fakeHeartbeatDB struct {
 	mu           sync.Mutex
 	lastViewedAt map[string]bool
 	acknowledged map[string]bool
+	markedUnread map[string]bool
 }
 
 func newFakeHeartbeatDB() *fakeHeartbeatDB {
 	return &fakeHeartbeatDB{
 		lastViewedAt: make(map[string]bool),
 		acknowledged: make(map[string]bool),
+		markedUnread: make(map[string]bool),
 	}
+}
+
+func (f *fakeHeartbeatDB) MarkSessionUnread(ctx context.Context, id string) error {
+	f.mu.Lock()
+	f.markedUnread[id] = true
+	f.mu.Unlock()
+	return nil
 }
 
 func (f *fakeHeartbeatDB) TouchLastViewedAt(ctx context.Context, id string) error {
@@ -73,6 +82,27 @@ func TestAcknowledgeHandler(t *testing.T) {
 	db.mu.Lock()
 	if !db.acknowledged["sess-2"] {
 		t.Error("expected session to be acknowledged")
+	}
+	db.mu.Unlock()
+}
+
+func TestMarkUnreadHandler(t *testing.T) {
+	db := newFakeHeartbeatDB()
+	h := &heartbeatHandler{db: db}
+
+	req := httptest.NewRequest("POST", "/api/sessions/sess-3/unread", nil)
+	req.SetPathValue("id", "sess-3")
+	w := httptest.NewRecorder()
+
+	h.markUnread(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", w.Code)
+	}
+
+	db.mu.Lock()
+	if !db.markedUnread["sess-3"] {
+		t.Error("expected session to be marked unread")
 	}
 	db.mu.Unlock()
 }

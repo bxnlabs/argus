@@ -87,6 +87,7 @@ func NewRouter(deps Deps) http.Handler {
 		hb := &heartbeatHandler{db: deps.Database}
 		mux.HandleFunc("POST /api/sessions/{id}/heartbeat", hb.heartbeat)
 		mux.HandleFunc("POST /api/sessions/{id}/acknowledge", hb.acknowledge)
+		mux.HandleFunc("POST /api/sessions/{id}/unread", hb.markUnread)
 	}
 
 	// Terminal WebSocket

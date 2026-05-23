@@ -9,6 +9,7 @@ import (
 type HeartbeatDB interface {
 	TouchLastViewedAt(ctx context.Context, id string) error
 	AcknowledgeSession(ctx context.Context, id string) error
+	MarkSessionUnread(ctx context.Context, id string) error
 }
 
 type heartbeatHandler struct {
@@ -31,6 +32,17 @@ func (h *heartbeatHandler) heartbeat(w http.ResponseWriter, r *http.Request) {
 func (h *heartbeatHandler) acknowledge(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.db.AcknowledgeSession(r.Context(), id); err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// markUnread handles POST /api/sessions/{id}/unread.
+// Sets unread_since = now(). Idempotent.
+func (h *heartbeatHandler) markUnread(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.db.MarkSessionUnread(r.Context(), id); err != nil {
 		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
