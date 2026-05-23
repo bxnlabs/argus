@@ -541,34 +541,12 @@ func (m *Manager) getSession(id string) (sess *db.Session, alive bool, err error
 	return sess, HasSession(sess.TmuxName), nil
 }
 
-// EnsureSession guarantees the tmux session for the given session ID is running.
-// If the session is already alive, this is a no-op. If it was killed, it is
-// recreated from the DB record (agent type, model, auto-approve, resume ID).
-// Returns the tmux session name, or an error if the session doesn't exist in the DB.
-func (m *Manager) EnsureSession(id string) (string, error) {
-	// Fast path: if tmux is already alive, return without locking.
-	session, alive, err := m.getSession(id)
-	if err != nil {
-		return "", err
-	}
-	if alive {
-		return session.TmuxName, nil
-	}
-
-	// Slow path: acquire per-session lock and recreate.
-	l := m.sessionLock(id)
-	l.Lock()
-	defer l.Unlock()
-
-	// Re-check — session may have been deleted or recreated while we waited.
-	session, alive, err = m.getSession(id)
-	if err != nil {
-		return "", err
-	}
-	if alive {
-		return session.TmuxName, nil
-	}
-
+// respawnTmux (re)creates the tmux session for a DB session record. It resolves
+// the working directory, builds the agent command (resuming the stored
+// provider_session_id), sources the profile's post_create hooks, writes the
+// init script, spawns tmux, and applies the status bar. The caller must kill
+// any existing tmux session first.
+func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	tmuxName := session.TmuxName
 
 	cwd, err := shared.ExpandPath(session.WorkingDirectory)
@@ -639,6 +617,37 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 	ConfigureSession(tmuxName, session.ID, configDir, configBranch, home)
 
 	return tmuxName, nil
+}
+
+// EnsureSession guarantees the tmux session for the given session ID is running.
+// If the session is already alive, this is a no-op. If it was killed, it is
+// recreated from the DB record (agent type, model, auto-approve, resume ID).
+// Returns the tmux session name, or an error if the session doesn't exist in the DB.
+func (m *Manager) EnsureSession(id string) (string, error) {
+	// Fast path: if tmux is already alive, return without locking.
+	session, alive, err := m.getSession(id)
+	if err != nil {
+		return "", err
+	}
+	if alive {
+		return session.TmuxName, nil
+	}
+
+	// Slow path: acquire per-session lock and recreate.
+	l := m.sessionLock(id)
+	l.Lock()
+	defer l.Unlock()
+
+	// Re-check — session may have been deleted or recreated while we waited.
+	session, alive, err = m.getSession(id)
+	if err != nil {
+		return "", err
+	}
+	if alive {
+		return session.TmuxName, nil
+	}
+
+	return m.respawnTmux(session)
 }
 
 // Update updates session fields and returns the updated session.
