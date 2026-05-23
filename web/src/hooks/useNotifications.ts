@@ -43,6 +43,13 @@ export function useNotifications() {
     });
   }, []);
 
+  // Pre-mark a session as already-unread so a manual "mark unread" doesn't
+  // surface as a "finished working" notification. checkStateChanges treats the
+  // session as unchanged; the existing read transition later clears it.
+  const suppressUnreadNotification = useCallback((id: string) => {
+    previousUnread.current.add(id);
+  }, []);
+
   const checkStateChanges = useCallback(
     (
       states: Array<{ id: string; name: string; status: string; unreadSince?: string | null }>,
@@ -50,7 +57,10 @@ export function useNotifications() {
     ) => {
       if (!settings.enabled) return;
 
-      // Seed previousUnread on first call to avoid false notifications
+      // Seed previousUnread on first call to avoid false notifications. Add-only
+      // on purpose: a manual suppression added before the baseline must survive,
+      // so never delete here (rebuilding to the observed set would drop it and
+      // surface a false "finished working" toast once the mark-unread lands).
       if (!initialized.current) {
         initialized.current = true;
         for (const state of states) {
@@ -102,5 +112,5 @@ export function useNotifications() {
     return () => document.removeEventListener("visibilitychange", handler);
   }, []);
 
-  return { settings, permission, requestPermission, updateSettings, checkStateChanges };
+  return { settings, permission, requestPermission, updateSettings, checkStateChanges, suppressUnreadNotification };
 }

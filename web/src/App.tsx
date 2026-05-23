@@ -67,7 +67,7 @@ function HomeContent() {
   useViewportHeight();
 
   // Notifications
-  const { checkStateChanges } = useNotifications();
+  const { checkStateChanges, suppressUnreadNotification } = useNotifications();
 
   // Session statuses
   const { sessionStatuses } = useSessionStatuses({
@@ -249,14 +249,20 @@ function HomeContent() {
 
   const handleMarkUnread = useCallback(
     async (sessionId: string) => {
+      // Manual unread is a deliberate user action, not the agent finishing —
+      // suppress the "finished working" notification it would otherwise trigger.
+      suppressUnreadNotification(sessionId);
       try {
         await markUnread(sessionId);
       } catch (err) {
+        // Intentionally do NOT clear the suppression: the request may have
+        // committed server-side despite erroring, and undoing it would let the
+        // next status refetch fire a false "finished working" toast.
         console.error("Failed to mark session unread:", err);
         toast.error("Failed to mark session unread");
       }
     },
-    [markUnread],
+    [markUnread, suppressUnreadNotification],
   );
 
   // Render the main workspace
