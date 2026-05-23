@@ -1,12 +1,14 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/provider"
@@ -602,6 +604,94 @@ func TestDeleteWithBranchDeletionFailureIsBestEffort(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatal("session should be deleted even when branch deletion fails")
+	}
+}
+
+func TestChangeProfile(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	stateDir := t.TempDir()
+	workDir := t.TempDir()
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	preDestroyMarker := filepath.Join(t.TempDir(), "old-pre-destroy.txt")
+	preCreateMarker := filepath.Join(t.TempDir(), "new-pre-create.txt")
+
+	// Old profile: pre_destroy writes a marker on teardown.
+	oldHooks := filepath.Join(stateDir, "profiles", "old", "hooks")
+	if err := os.MkdirAll(oldHooks, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldHooks, "pre_destroy.sh"),
+		[]byte("#!/bin/bash\necho torn >> "+preDestroyMarker+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// New profile: pre_create writes a marker on setup.
+	newHooks := filepath.Join(stateDir, "profiles", "new", "hooks")
+	if err := os.MkdirAll(newHooks, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newHooks, "pre_create.sh"),
+		[]byte("#!/bin/bash\necho setup >> "+preCreateMarker+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	oldProfile := "old"
+	tmuxName := fmt.Sprintf("shell-test-%d", time.Now().UnixNano())
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-cp", Name: "cp", TmuxName: tmuxName,
+		WorkingDirectory: workDir, ProviderType: "shell", Profile: &oldProfile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { KillSession(tmuxName) })
+
+	newProfile := "new"
+	updated, err := mgr.ChangeProfile("sess-cp", &newProfile)
+	if err != nil {
+		t.Fatalf("ChangeProfile: %v", err)
+	}
+
+	if updated.Profile == nil || *updated.Profile != "new" {
+		t.Errorf("profile = %v, want %q", updated.Profile, "new")
+	}
+	if _, err := os.Stat(preDestroyMarker); err != nil {
+		t.Error("expected old profile pre_destroy to run")
+	}
+	if _, err := os.Stat(preCreateMarker); err != nil {
+		t.Error("expected new profile pre_create to run")
+	}
+	if !HasSession(tmuxName) {
+		t.Error("expected tmux session to be respawned")
+	}
+}
+
+func TestChangeProfileInvalidName(t *testing.T) {
+	stateDir := t.TempDir()
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	bad := "../evil"
+	if _, err := mgr.ChangeProfile("any-id", &bad); err == nil {
+		t.Fatal("expected ErrInvalidInput for bad profile name")
+	} else if !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput, got %v", err)
 	}
 }
 

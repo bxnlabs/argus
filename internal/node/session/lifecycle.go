@@ -464,6 +464,87 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 	return result, nil
 }
 
+// ChangeProfile attaches, changes, or detaches the profile on an existing
+// session and recreates the session in place so the new profile's hooks take
+// effect. The worktree is preserved (no worktree creation, no
+// on_create_worktree). The agent conversation is resumed via the stored
+// provider_session_id. Pass profile=nil or "" to detach.
+//
+// Order: validate -> old profile pre_destroy (profile-level, best-effort) ->
+// new profile pre_create (profile-level, abort on failure) -> persist -> kill
+// tmux -> respawn. The risky subprocess hooks run before persist/kill so a
+// pre_create failure leaves the session unchanged and still alive.
+func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error) {
+	// Treat an empty string as detach.
+	if profile != nil && strings.TrimSpace(*profile) == "" {
+		profile = nil
+	}
+
+	// Validate the target profile (nil -> "", non-nil validated + must exist).
+	resolvedProfile, err := m.resolveProfile(profile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	}
+
+	l := m.sessionLock(id)
+	l.Lock()
+	defer l.Unlock()
+
+	session, err := m.db.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("%w: %s", db.ErrNotFound, id)
+	}
+
+	oldProfile := ptrStr(session.Profile)
+	hookEnv := HookEnv{
+		SessionID:    session.ID,
+		WorkingDir:   session.WorkingDirectory,
+		ProviderType: session.ProviderType,
+	}
+
+	// 1. Old profile pre_destroy — profile-level only, best-effort.
+	if p := m.hooks.ResolveProfileHookPath(HookPreDestroy, oldProfile, true); p != "" {
+		hookEnv.Profile = oldProfile
+		m.hooks.RunHooksBestEffort([]string{p}, hookEnv)
+	}
+
+	// 2. New profile pre_create — profile-level only, abort on failure.
+	if p := m.hooks.ResolveProfileHookPath(HookPreCreate, resolvedProfile, true); p != "" {
+		hookEnv.Profile = resolvedProfile
+		if err := m.hooks.RunHook(p, hookEnv); err != nil {
+			return nil, fmt.Errorf("pre_create hook: %w", err)
+		}
+	}
+
+	// 3. Persist the new profile (nil clears it).
+	var profilePtr *string
+	if resolvedProfile != "" {
+		profilePtr = &resolvedProfile
+	}
+	if err := m.db.SetProfile(id, profilePtr); err != nil {
+		return nil, err
+	}
+
+	// 4. Kill the existing tmux session (if alive).
+	if HasSession(session.TmuxName) {
+		KillSession(session.TmuxName)
+	}
+
+	// 5. Respawn with the new profile (resumes agent, sources new post_create).
+	updated, err := m.db.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := m.respawnTmux(updated); err != nil {
+		return nil, err
+	}
+
+	return updated, nil
+}
+
 // Rename updates the display name of a session. The underlying tmux session
 // name is immutable (based on session ID) to preserve WebSocket connections
 // and guarantee uniqueness.
