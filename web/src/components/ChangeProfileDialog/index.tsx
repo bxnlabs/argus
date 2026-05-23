@@ -31,7 +31,7 @@ export function ChangeProfileDialog({
   onClose,
   onApply,
 }: ChangeProfileDialogProps) {
-  const { data: profilesData } = useProfilesQuery();
+  const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
 
   const currentValue = session?.profile ?? NONE_VALUE;
@@ -39,6 +39,9 @@ export function ChangeProfileDialog({
 
   // Reset the selection whenever a new session is targeted.
   useEffect(() => {
+    if (session) {
+      refetchProfiles();
+    }
     setSelected(session?.profile ?? NONE_VALUE);
   }, [session]);
 
