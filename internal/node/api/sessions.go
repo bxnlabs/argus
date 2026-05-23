@@ -130,6 +130,39 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"session": session})
 }
 
+// PUT /api/sessions/{id}/profile
+func (h *sessionHandler) setProfile(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var body struct {
+		Profile *string `json:"profile"`
+	}
+	if err := parseBody(w, r, &body); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	sess, err := h.manager.ChangeProfile(id, body.Profile)
+	if err != nil {
+		if errors.Is(err, session.ErrNotFound) {
+			respondError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		if errors.Is(err, session.ErrInvalidInput) {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondInternalError(w, err)
+		return
+	}
+
+	if h.watcherManager != nil {
+		h.watcherManager.EnsureWatching(sess.ID, sess.TmuxName, sess.ProviderType)
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{"session": sess})
+}
+
 // GET /api/profiles
 func (h *sessionHandler) listProfiles(w http.ResponseWriter, r *http.Request) {
 	profiles, err := h.manager.ListProfiles()
