@@ -137,7 +137,13 @@ func (d *DB) UpdateSession(id string, u SessionUpdate) (*Session, error) {
 		return d.GetSession(id)
 	}
 
-	sets = append(sets, "updated_at = datetime('now')")
+	// flagged/starred are user annotations, not session activity. Only refresh
+	// updated_at for identity/activity changes so toggling a star or flag
+	// doesn't reorder the list (sorted by updated_at) or show a misleading
+	// "just now" recency.
+	if u.Name != nil || u.TmuxName != nil || u.ProviderSessionID != nil || u.WorkingDirectory != nil {
+		sets = append(sets, "updated_at = datetime('now')")
+	}
 	args = append(args, id)
 
 	query := "UPDATE sessions SET "
@@ -314,11 +320,13 @@ func (d *DB) AcknowledgeSession(ctx context.Context, id string) error {
 	return err
 }
 
-// MarkSessionUnread sets unread_since to now. Mirrors AcknowledgeSession
-// (which clears it). Idempotent.
+// MarkSessionUnread sets unread_since to now, but only if it is not already
+// set. Mirrors AcknowledgeSession (which clears it). Idempotent: repeated
+// calls preserve the original unread_since, so the notification timer and
+// dedup key (which key off unread_since) stay stable.
 func (d *DB) MarkSessionUnread(ctx context.Context, id string) error {
 	_, err := d.sql.ExecContext(ctx,
-		`UPDATE sessions SET unread_since = datetime('now') WHERE id = ?`,
+		`UPDATE sessions SET unread_since = COALESCE(unread_since, datetime('now')) WHERE id = ?`,
 		id,
 	)
 	return err

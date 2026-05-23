@@ -723,6 +723,44 @@ func TestUpdateSessionFlaggedStarred(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionFlagStarDoesNotTouchUpdatedAt(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "~", ProviderType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Force an old updated_at so any refresh is detectable (datetime('now')
+	// has only second granularity).
+	old := "2000-01-01 00:00:00"
+	if _, err := db.sql.Exec(`UPDATE sessions SET updated_at = ? WHERE id = ?`, old, "s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Toggling star/flag is an annotation, not activity: updated_at must hold.
+	tru := true
+	got, err := db.UpdateSession("s1", SessionUpdate{Starred: &tru, Flagged: &tru})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UpdatedAt != old {
+		t.Errorf("star/flag must not bump updated_at: got %q, want %q", got.UpdatedAt, old)
+	}
+
+	// A rename, by contrast, is activity and should refresh updated_at.
+	name := "renamed"
+	got2, err := db.UpdateSession("s1", SessionUpdate{Name: &name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.UpdatedAt == old {
+		t.Error("rename should refresh updated_at")
+	}
+}
+
 func TestMarkSessionUnread(t *testing.T) {
 	db := testDB(t)
 	if err := db.RunMigrations(); err != nil {
@@ -749,6 +787,40 @@ func TestMarkSessionUnread(t *testing.T) {
 	s, _ = db.GetSession("s1")
 	if s.UnreadSince != nil {
 		t.Errorf("expected nil unread_since after acknowledge, got %v", s.UnreadSince)
+	}
+}
+
+func TestMarkSessionUnreadIdempotent(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := db.GetSession("s1")
+	if first.UnreadSince == nil {
+		t.Fatal("expected unread_since to be set after first MarkSessionUnread")
+	}
+
+	// Force the stored timestamp into the past, then re-mark. A repeated call
+	// must preserve the original unread_since (notifications key off it).
+	past := "2000-01-01 00:00:00"
+	if _, err := db.sql.Exec(`UPDATE sessions SET unread_since = ? WHERE id = ?`, past, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := db.GetSession("s1")
+	if second.UnreadSince == nil || *second.UnreadSince != past {
+		t.Errorf("repeated MarkSessionUnread must preserve unread_since: got %v, want %q", second.UnreadSince, past)
 	}
 }
 
@@ -820,5 +892,80 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	}
 	if !strings.Contains(err.Error(), "create_notifications_table") {
 		t.Fatalf("expected error to mention create_notifications_table, got: %v", err)
+	}
+}
+
+func TestMigrationRestartableAfterPartialColumnAdd(t *testing.T) {
+	// Simulate a DB where add_flagged_and_starred partially applied: flagged
+	// was added but starred was not, and the migration row was never written
+	// (e.g. the process died between the two ALTERs). Re-running migrations
+	// must not fail re-adding flagged, and must add the missing starred column.
+	path := filepath.Join(t.TempDir(), "partial.db")
+
+	rawDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Full current sessions schema minus the starred column.
+	_, err = rawDB.Exec(`
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  tmux_name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  working_directory TEXT NOT NULL DEFAULT '~',
+  provider_session_id TEXT,
+  model TEXT DEFAULT 'sonnet',
+  system_prompt TEXT,
+  provider_type TEXT NOT NULL DEFAULT 'claude',
+  auto_approve INTEGER NOT NULL DEFAULT 0,
+  worktree_branch TEXT,
+  git_parent_dir TEXT,
+  git_remote_url TEXT,
+  profile TEXT,
+  branch_created INTEGER NOT NULL DEFAULT 0,
+  unread_since TEXT,
+  last_viewed_at TEXT,
+  flagged INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE _migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`)
+	if err != nil {
+		rawDB.Close()
+		t.Fatal(err)
+	}
+	// All migrations recorded as applied except add_flagged_and_starred.
+	for _, name := range []string{
+		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
+		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
+		"add_unread_since_and_last_viewed_at", "create_notifications_table",
+	} {
+		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
+			rawDB.Close()
+			t.Fatal(err)
+		}
+	}
+	rawDB.Close()
+
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	if err := d.RunMigrations(); err != nil {
+		t.Fatalf("RunMigrations should be restartable after a partial column add: %v", err)
+	}
+
+	has, err := d.hasColumn("starred")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("expected starred column to be added on migration restart")
 	}
 }
