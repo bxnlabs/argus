@@ -695,6 +695,92 @@ func TestChangeProfileInvalidName(t *testing.T) {
 	}
 }
 
+func TestChangeProfileMissingWorkingDirBlocksBeforeSideEffects(t *testing.T) {
+	stateDir := t.TempDir()
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Both profiles must exist so validation passes and we reach the
+	// working-directory preflight.
+	for _, name := range []string{"old", "new"} {
+		if err := os.MkdirAll(filepath.Join(stateDir, "profiles", name, "hooks"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	oldProfile := "old"
+	missingDir := filepath.Join(t.TempDir(), "gone")
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-missing-cwd", Name: "missing", TmuxName: "shell-sess-missing-cwd",
+		WorkingDirectory: missingDir, ProviderType: "shell", Profile: &oldProfile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	newProfile := "new"
+	if _, err := mgr.ChangeProfile("sess-missing-cwd", &newProfile); err == nil {
+		t.Fatal("expected error when working directory is missing, got nil")
+	}
+
+	// Profile must be unchanged — preflight failed before persisting.
+	got, err := database.GetSession("sess-missing-cwd")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got.Profile == nil || *got.Profile != "old" {
+		t.Errorf("profile should be unchanged after preflight failure, got %v", got.Profile)
+	}
+}
+
+func TestChangeProfileRollsBackOnRespawnFailure(t *testing.T) {
+	stateDir := t.TempDir()
+	workDir := t.TempDir() // exists, so the preflight passes
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	for _, name := range []string{"old", "new"} {
+		if err := os.MkdirAll(filepath.Join(stateDir, "profiles", name, "hooks"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	// An invalid provider type makes respawnTmux fail at BuildCommand, after
+	// the preflight has already passed — exercising the rollback branch.
+	oldProfile := "old"
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-rollback", Name: "rb", TmuxName: "shell-sess-rollback",
+		WorkingDirectory: workDir, ProviderType: "bogus-provider", Profile: &oldProfile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	newProfile := "new"
+	if _, err := mgr.ChangeProfile("sess-rollback", &newProfile); err == nil {
+		t.Fatal("expected respawn failure for invalid provider, got nil")
+	}
+
+	// Profile must be rolled back to "old" after the respawn failure.
+	got, err := database.GetSession("sess-rollback")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got.Profile == nil || *got.Profile != "old" {
+		t.Errorf("profile should be rolled back to %q, got %v", "old", got.Profile)
+	}
+}
+
 func TestDeleteSharedWorktreeBranchOwnershipSurvives(t *testing.T) {
 	// Regression test: session A creates branch (BranchCreated=true),
 	// session B reuses the worktree (BranchCreated=false). Deleting A

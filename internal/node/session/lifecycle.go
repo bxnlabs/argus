@@ -498,6 +498,14 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		return nil, fmt.Errorf("%w: %s", db.ErrNotFound, id)
 	}
 
+	// Preflight: confirm the working directory still exists before tearing
+	// down the live session. Mirrors Delete's "check before side effects" so a
+	// doomed respawn (e.g. worktree removed externally) doesn't leave the
+	// session dead with a changed profile.
+	if _, err := m.resolveWorkingDir(session); err != nil {
+		return nil, err
+	}
+
 	oldProfile := ptrStr(session.Profile)
 	hookEnv := HookEnv{
 		SessionID:    session.ID,
@@ -539,6 +547,13 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		return nil, err
 	}
 	if _, err := m.respawnTmux(updated); err != nil {
+		// The preflight validated the working directory, so this is a rare
+		// failure (e.g. tmux spawn). Roll back the persisted profile so stored
+		// state matches the original config that EnsureSession will respawn
+		// with on next attach.
+		if rbErr := m.db.SetProfile(id, session.Profile); rbErr != nil {
+			log.Printf("rollback profile after respawn failure for %s: %v", id, rbErr)
+		}
 		return nil, err
 	}
 
@@ -622,14 +637,11 @@ func (m *Manager) getSession(id string) (sess *db.Session, alive bool, err error
 	return sess, HasSession(sess.TmuxName), nil
 }
 
-// respawnTmux (re)creates the tmux session for a DB session record. It resolves
-// the working directory, builds the agent command (resuming the stored
-// provider_session_id), sources the profile's post_create hooks, writes the
-// init script, spawns tmux, and applies the status bar. The caller must kill
-// any existing tmux session first.
-func (m *Manager) respawnTmux(session *db.Session) (string, error) {
-	tmuxName := session.TmuxName
-
+// resolveWorkingDir expands the session's working directory (falling back to
+// the home directory when empty) and verifies it still exists on disk. For
+// worktree-backed sessions the directory may have been removed externally;
+// without this check tmux would silently fall back to the home directory.
+func (m *Manager) resolveWorkingDir(session *db.Session) (string, error) {
 	cwd, err := shared.ExpandPath(session.WorkingDirectory)
 	if err != nil {
 		return "", fmt.Errorf("expand path: %w", err)
@@ -641,11 +653,23 @@ func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 		}
 		cwd = home
 	}
-	// Verify the working directory still exists on disk. For worktree-backed
-	// sessions the directory may have been removed externally; without this
-	// check tmux would silently fall back to the home directory.
 	if _, statErr := os.Stat(cwd); statErr != nil {
 		return "", fmt.Errorf("working directory no longer exists: %s", cwd)
+	}
+	return cwd, nil
+}
+
+// respawnTmux (re)creates the tmux session for a DB session record. It resolves
+// the working directory, builds the agent command (resuming the stored
+// provider_session_id), sources the profile's post_create hooks, writes the
+// init script, spawns tmux, and applies the status bar. The caller must kill
+// any existing tmux session first.
+func (m *Manager) respawnTmux(session *db.Session) (string, error) {
+	tmuxName := session.TmuxName
+
+	cwd, err := m.resolveWorkingDir(session)
+	if err != nil {
+		return "", err
 	}
 
 	agentCmd, err := provider.BuildCommand(provider.ProviderType(session.ProviderType), provider.BuildCommandOptions{

@@ -17,8 +17,10 @@ import { Button } from "@/components/ui/button";
 import { useProfilesQuery } from "@/data/sessions";
 import type { Session } from "@/types";
 
-// Sentinel value for the "no profile" option, since Radix Select cannot use "".
-const NONE_VALUE = "__none__";
+// Sentinel for the "no profile" option. Radix Select disallows "", and the "@"
+// chars fall outside the backend profile-name charset ([a-zA-Z0-9_-]), so this
+// can never collide with a real profile name.
+const NONE_VALUE = "@@none@@";
 
 interface ChangeProfileDialogProps {
   session: Session | null;

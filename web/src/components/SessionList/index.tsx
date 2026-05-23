@@ -344,7 +344,7 @@ export const SessionList = memo(function SessionList({
   }, []);
 
   const { data: profilesData } = useProfilesQuery();
-  const canChangeProfile = (profilesData?.profiles?.length ?? 0) > 0;
+  const hasProfiles = (profilesData?.profiles?.length ?? 0) > 0;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -416,7 +416,7 @@ export const SessionList = memo(function SessionList({
                   onAttachSession={onAttachSession}
                   onDeleteSession={onDeleteSession}
                   onChangeProfile={onChangeProfile}
-                  canChangeProfile={canChangeProfile}
+                  canChangeProfile={hasProfiles || session.profile !== null}
                   renamePendingRef={renamePendingRef}
                 />
               );
