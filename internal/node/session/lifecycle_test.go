@@ -738,7 +738,7 @@ func TestChangeProfileMissingWorkingDirBlocksBeforeSideEffects(t *testing.T) {
 	}
 }
 
-func TestChangeProfileRollsBackOnRespawnFailure(t *testing.T) {
+func TestChangeProfileRespawnFailureLeavesProfileUnchanged(t *testing.T) {
 	stateDir := t.TempDir()
 	workDir := t.TempDir() // exists, so the preflight passes
 	database, err := db.Open(filepath.Join(stateDir, "test.db"))
@@ -757,27 +757,28 @@ func TestChangeProfileRollsBackOnRespawnFailure(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// An invalid provider type makes respawnTmux fail at BuildCommand, after
-	// the preflight has already passed — exercising the rollback branch.
+	// the preflight has passed. Since the profile is persisted only after a
+	// successful respawn, the stored profile must remain unchanged.
 	oldProfile := "old"
 	if err := database.CreateSession(&db.Session{
-		ID: "sess-rollback", Name: "rb", TmuxName: "shell-sess-rollback",
+		ID: "sess-respawn-fail", Name: "rf", TmuxName: "shell-sess-respawn-fail",
 		WorkingDirectory: workDir, ProviderType: "bogus-provider", Profile: &oldProfile,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	newProfile := "new"
-	if _, err := mgr.ChangeProfile("sess-rollback", &newProfile); err == nil {
+	if _, err := mgr.ChangeProfile("sess-respawn-fail", &newProfile); err == nil {
 		t.Fatal("expected respawn failure for invalid provider, got nil")
 	}
 
-	// Profile must be rolled back to "old" after the respawn failure.
-	got, err := database.GetSession("sess-rollback")
+	// Profile must be unchanged — it is never persisted when respawn fails.
+	got, err := database.GetSession("sess-respawn-fail")
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
 	if got.Profile == nil || *got.Profile != "old" {
-		t.Errorf("profile should be rolled back to %q, got %v", "old", got.Profile)
+		t.Errorf("profile should be unchanged at %q, got %v", "old", got.Profile)
 	}
 }
 

@@ -470,10 +470,12 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 // on_create_worktree). The agent conversation is resumed via the stored
 // provider_session_id. Pass profile=nil or "" to detach.
 //
-// Order: validate -> old profile pre_destroy (profile-level, best-effort) ->
-// new profile pre_create (profile-level, abort on failure) -> persist -> kill
-// tmux -> respawn. The risky subprocess hooks run before persist/kill so a
-// pre_create failure leaves the session unchanged and still alive.
+// Order: validate -> working-dir preflight -> old profile pre_destroy
+// (profile-level, best-effort) -> new profile pre_create (profile-level, abort
+// on failure) -> kill tmux -> respawn from an in-memory copy carrying the new
+// profile -> persist. Persisting only after the new session is live means a
+// respawn failure leaves the stored profile untouched (no rollback), and the
+// preflight avoids killing a live session whose working directory is gone.
 func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error) {
 	// Treat an empty string as detach.
 	if profile != nil && strings.TrimSpace(*profile) == "" {
@@ -527,14 +529,16 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		}
 	}
 
-	// 3. Persist the new profile (nil clears it).
+	// 3. Build an in-memory copy carrying the new profile (nil clears it). We
+	// respawn from this copy and persist only once the new session is live, so
+	// a respawn failure leaves the stored profile — and the config EnsureSession
+	// resumes on next attach — untouched. No rollback needed.
 	var profilePtr *string
 	if resolvedProfile != "" {
 		profilePtr = &resolvedProfile
 	}
-	if err := m.db.SetProfile(id, profilePtr); err != nil {
-		return nil, err
-	}
+	updated := *session
+	updated.Profile = profilePtr
 
 	// 4. Kill the existing tmux session (if alive).
 	if HasSession(session.TmuxName) {
@@ -542,22 +546,16 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 	}
 
 	// 5. Respawn with the new profile (resumes agent, sources new post_create).
-	updated, err := m.db.GetSession(id)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := m.respawnTmux(updated); err != nil {
-		// The preflight validated the working directory, so this is a rare
-		// failure (e.g. tmux spawn). Roll back the persisted profile so stored
-		// state matches the original config that EnsureSession will respawn
-		// with on next attach.
-		if rbErr := m.db.SetProfile(id, session.Profile); rbErr != nil {
-			log.Printf("rollback profile after respawn failure for %s: %v", id, rbErr)
-		}
+	if _, err := m.respawnTmux(&updated); err != nil {
 		return nil, err
 	}
 
-	return updated, nil
+	// 6. Persist only after the new session is live.
+	if err := m.db.SetProfile(id, profilePtr); err != nil {
+		return nil, err
+	}
+
+	return m.db.GetSession(id)
 }
 
 // Rename updates the display name of a session. The underlying tmux session
