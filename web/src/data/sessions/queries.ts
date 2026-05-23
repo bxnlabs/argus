@@ -115,6 +115,55 @@ export function useRenameSession() {
   });
 }
 
+export interface UpdateSessionInput {
+  sessionId: string;
+  flagged?: boolean;
+  starred?: boolean;
+}
+
+export function useUpdateSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ sessionId, flagged, starred }: UpdateSessionInput) =>
+      apiFetch(`/node/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ flagged, starred }),
+      }),
+    onMutate: async ({ sessionId, flagged, starred }) => {
+      await queryClient.cancelQueries({ queryKey: sessionKeys.list() });
+      const previous = queryClient.getQueryData<SessionsResponse>(
+        sessionKeys.list(),
+      );
+      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(), (old) =>
+        old
+          ? {
+              ...old,
+              sessions: old.sessions.map((s) =>
+                s.id === sessionId
+                  ? {
+                      ...s,
+                      ...(flagged !== undefined ? { flagged } : {}),
+                      ...(starred !== undefined ? { starred } : {}),
+                    }
+                  : s,
+              ),
+            }
+          : old,
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(sessionKeys.list(), context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    },
+  });
+}
+
 interface ProfilesResponse {
   profiles: string[];
 }
