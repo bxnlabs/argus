@@ -80,6 +80,21 @@ func (hr *HookRunner) ResolvePostCreateHookPaths(profileName, projectKey string)
 	return hr.resolveHooks(HookPostCreate, profileName, projectKey, false, false)
 }
 
+// ResolveProfileHookPath returns the profile-level hook path for hookName, or
+// "" if it does not exist. Unlike ResolveHookPaths, it excludes project-level
+// hooks — used when only the profile changes. An empty profileName resolves to
+// the "default" profile, consistent with the other resolvers.
+func (hr *HookRunner) ResolveProfileHookPath(hookName, profileName string, requireExec bool) string {
+	if profileName == "" {
+		profileName = "default"
+	}
+	profilePath := filepath.Join(hr.stateDir, "profiles", profileName, "hooks", hookName)
+	if hr.hookExists(profilePath, requireExec) {
+		return profilePath
+	}
+	return ""
+}
+
 func (hr *HookRunner) resolveHooks(hookName, profileName, projectKey string, teardown, requireExec bool) []string {
 	// Resolve profile name: explicit or default.
 	if profileName == "" {

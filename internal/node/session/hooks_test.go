@@ -170,6 +170,63 @@ func TestResolvePostCreateHookPathsSkipsExecutableCheck(t *testing.T) {
 	}
 }
 
+func TestResolveProfileHookPath(t *testing.T) {
+	stateDir := t.TempDir()
+
+	// Profile-level pre_create (executable).
+	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
+	mustMkdirAll(t, profileHookDir)
+	profileHook := filepath.Join(profileHookDir, "pre_create.sh")
+	mustWriteFile(t, profileHook, []byte("#!/bin/bash"), 0755)
+
+	// Project-level pre_create — must be excluded.
+	projectHookDir := filepath.Join(stateDir, "projects", "--test--repo", "hooks")
+	mustMkdirAll(t, projectHookDir)
+	mustWriteFile(t, filepath.Join(projectHookDir, "pre_create.sh"), []byte("#!/bin/bash"), 0755)
+
+	hr := NewHookRunner(stateDir)
+
+	got := hr.ResolveProfileHookPath("pre_create.sh", "work", true)
+	if got != profileHook {
+		t.Errorf("got %q, want profile-level %q (project must be excluded)", got, profileHook)
+	}
+}
+
+func TestResolveProfileHookPathDefaultFallback(t *testing.T) {
+	stateDir := t.TempDir()
+	defaultHookDir := filepath.Join(stateDir, "profiles", "default", "hooks")
+	mustMkdirAll(t, defaultHookDir)
+	want := filepath.Join(defaultHookDir, "pre_destroy.sh")
+	mustWriteFile(t, want, []byte("#!/bin/bash"), 0755)
+
+	hr := NewHookRunner(stateDir)
+	got := hr.ResolveProfileHookPath("pre_destroy.sh", "", true)
+	if got != want {
+		t.Errorf("empty profile should fall back to default: got %q, want %q", got, want)
+	}
+}
+
+func TestResolveProfileHookPathMissing(t *testing.T) {
+	stateDir := t.TempDir()
+	hr := NewHookRunner(stateDir)
+	if got := hr.ResolveProfileHookPath("pre_create.sh", "ghost", true); got != "" {
+		t.Errorf("expected empty for missing hook, got %q", got)
+	}
+}
+
+func TestResolveProfileHookPathRequiresExec(t *testing.T) {
+	stateDir := t.TempDir()
+	profileHookDir := filepath.Join(stateDir, "profiles", "work", "hooks")
+	mustMkdirAll(t, profileHookDir)
+	// Not executable.
+	mustWriteFile(t, filepath.Join(profileHookDir, "pre_create.sh"), []byte("#!/bin/bash"), 0644)
+
+	hr := NewHookRunner(stateDir)
+	if got := hr.ResolveProfileHookPath("pre_create.sh", "work", true); got != "" {
+		t.Errorf("expected empty for non-executable hook when requireExec=true, got %q", got)
+	}
+}
+
 func TestRunHookTimeout(t *testing.T) {
 	stateDir := t.TempDir()
 	hookDir := filepath.Join(stateDir, "profiles", "slow", "hooks")
