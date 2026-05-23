@@ -669,3 +669,36 @@ func TestArgusHomeOverridesStateDir(t *testing.T) {
 		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, wantDB)
 	}
 }
+
+func TestExplicitConfigLoadsWithoutResolvableHome(t *testing.T) {
+	clearArgusEnv(t)
+	// An explicit --config with an explicit database.path must load even when
+	// the home dir can't be resolved (e.g. a daemon running without $HOME).
+	t.Setenv("HOME", "")
+
+	// Sanity-check that HOME="" actually disables state-dir resolution on this
+	// platform: with no explicit config, auto-discovery must fail. If it
+	// doesn't, the home dir is resolvable some other way and this test can't
+	// exercise the regression, so skip rather than pass vacuously.
+	if _, err := config.Load(config.Options{}); err == nil {
+		t.Skip("home dir resolvable without HOME; cannot exercise unresolvable-home path")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[database]
+path = "/tmp/explicit.db"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.Options{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("unexpected error loading explicit config without HOME: %v", err)
+	}
+	if cfg.Database.Path != "/tmp/explicit.db" {
+		t.Errorf("Database.Path = %q, want /tmp/explicit.db", cfg.Database.Path)
+	}
+}

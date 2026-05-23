@@ -156,6 +156,27 @@ func TestStateDir(t *testing.T) {
 		}
 	})
 
+	t.Run("expands tilde in ARGUS_HOME", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("ARGUS_HOME", "~/argus-dev")
+		got, err := StateDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(home, "argus-dev")
+		if got != want {
+			t.Errorf("StateDir() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("rejects relative ARGUS_HOME", func(t *testing.T) {
+		t.Setenv("ARGUS_HOME", "relative/dir")
+		if _, err := StateDir(); err == nil {
+			t.Fatal("expected error for relative ARGUS_HOME, got nil")
+		}
+	})
+
 	t.Run("defaults to ~/.argus when ARGUS_HOME unset", func(t *testing.T) {
 		t.Setenv("ARGUS_HOME", "")
 		home := t.TempDir()

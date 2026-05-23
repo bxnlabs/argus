@@ -1,4 +1,4 @@
-.PHONY: build build-web dev dev-api dev-web dev-prereqs install clean
+.PHONY: build build-web dev dev-api dev-web dev-prereqs install clean clean-dev
 
 # --- production ---
 build: build-web
@@ -34,4 +34,10 @@ dev-web:
 	cd web && ARGUS_SERVER_PORT=3100 ARGUS_WEB_PORT=5273 npm run dev
 
 clean:
-	rm -rf bin/ internal/web/dist/ tmp/ .dev/
+	rm -rf bin/ internal/web/dist/ tmp/
+
+# Wipe local dev state: db, sessions, worktrees, discovery file, and any
+# personal .dev/config.toml. Separate from `clean` so a routine build cleanup
+# never destroys hand-authored dev config or secrets.
+clean-dev:
+	rm -rf .dev/
