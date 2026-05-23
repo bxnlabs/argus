@@ -382,3 +382,44 @@ export function clearCounts(
   }
   return { all: comments.length, pending, submitted, unanchored };
 }
+
+/** One row of the Compare view's "Clear" menu. */
+export interface ClearMenuItem {
+  category: ClearCategory;
+  label: string;
+  count: number;
+  disabled: boolean;
+}
+
+const CLEAR_ORDER: readonly ClearCategory[] = ["all", "pending", "submitted", "unanchored"];
+
+const CLEAR_MENU_LABEL: Record<ClearCategory, string> = {
+  all: "Clear all",
+  pending: "Clear pending",
+  submitted: "Clear submitted",
+  unanchored: "Clear unanchored",
+};
+
+/** Build the menu rows (fixed order); a row is disabled when its count is 0. */
+export function clearMenuItems(counts: Record<ClearCategory, number>): ClearMenuItem[] {
+  return CLEAR_ORDER.map((category) => ({
+    category,
+    label: CLEAR_MENU_LABEL[category],
+    count: counts[category],
+    disabled: counts[category] === 0,
+  }));
+}
+
+// "" for `all` — the count alone reads clearly there ("Delete 3 comments?").
+const CLEAR_QUALIFIER: Record<ClearCategory, string> = {
+  all: "",
+  pending: "pending ",
+  submitted: "submitted ",
+  unanchored: "unanchored ",
+};
+
+/** The `window.confirm` message for clearing `count` comments of `category`. */
+export function clearConfirmMessage(category: ClearCategory, count: number): string {
+  const noun = count === 1 ? "comment" : "comments";
+  return `Delete ${count} ${CLEAR_QUALIFIER[category]}${noun}? This cannot be undone.`;
+}

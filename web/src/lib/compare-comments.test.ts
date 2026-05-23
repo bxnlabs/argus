@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { partitionComments, sortCommentsByRenderOrder, coalesceAutoExpand, commentsAfterClear, clearCounts } from "./compare-comments";
+import { partitionComments, sortCommentsByRenderOrder, coalesceAutoExpand, commentsAfterClear, clearCounts, clearMenuItems, clearConfirmMessage } from "./compare-comments";
 import type { DiffHunk, ParsedDiff } from "./diff-parser";
 import type { AnchorStatus, CommitFile, ReviewComment } from "@/types";
 
@@ -482,5 +482,39 @@ describe("clearCounts", () => {
       submitted: 0,
       unanchored: 0,
     });
+  });
+});
+
+describe("clearMenuItems", () => {
+  it("returns rows in fixed order with labels and counts", () => {
+    expect(clearMenuItems({ all: 3, pending: 1, submitted: 2, unanchored: 1 })).toEqual([
+      { category: "all", label: "Clear all", count: 3, disabled: false },
+      { category: "pending", label: "Clear pending", count: 1, disabled: false },
+      { category: "submitted", label: "Clear submitted", count: 2, disabled: false },
+      { category: "unanchored", label: "Clear unanchored", count: 1, disabled: false },
+    ]);
+  });
+
+  it("disables rows whose count is zero", () => {
+    const items = clearMenuItems({ all: 1, pending: 1, submitted: 0, unanchored: 0 });
+    const disabled = items.filter((i) => i.disabled).map((i) => i.category);
+    expect(disabled).toEqual(["submitted", "unanchored"]);
+  });
+});
+
+describe("clearConfirmMessage", () => {
+  it("pluralizes and qualifies per category", () => {
+    expect(clearConfirmMessage("pending", 5)).toBe("Delete 5 pending comments? This cannot be undone.");
+    expect(clearConfirmMessage("submitted", 7)).toBe("Delete 7 submitted comments? This cannot be undone.");
+    expect(clearConfirmMessage("unanchored", 2)).toBe("Delete 2 unanchored comments? This cannot be undone.");
+  });
+
+  it("omits the qualifier for 'all'", () => {
+    expect(clearConfirmMessage("all", 3)).toBe("Delete 3 comments? This cannot be undone.");
+  });
+
+  it("uses singular noun for a count of 1", () => {
+    expect(clearConfirmMessage("pending", 1)).toBe("Delete 1 pending comment? This cannot be undone.");
+    expect(clearConfirmMessage("all", 1)).toBe("Delete 1 comment? This cannot be undone.");
   });
 });
