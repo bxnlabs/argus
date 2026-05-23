@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/spf13/viper"
 )
 
@@ -72,12 +73,17 @@ type Options struct {
 func Load(opts Options) (*Config, error) {
 	v := viper.New()
 
+	stateDir, err := shared.StateDir()
+	if err != nil {
+		return nil, fmt.Errorf("config: determine state dir: %w", err)
+	}
+
 	// Defaults
 	v.SetDefault("server.port", 3000)
 	v.SetDefault("server.bind_address", "127.0.0.1")
 	v.SetDefault("node.port", 3011)
 	v.SetDefault("node.bind_address", "127.0.0.1")
-	v.SetDefault("database.path", "~/.argus/node.db")
+	v.SetDefault("database.path", filepath.Join(stateDir, "node.db"))
 	v.SetDefault("git.branch_prefix", "")
 	v.SetDefault("tailscale.enabled", false)
 	v.SetDefault("tailscale.hostname_prefix", "")
@@ -95,11 +101,7 @@ func Load(opts Options) (*Config, error) {
 	if opts.ConfigFile != "" {
 		v.SetConfigFile(opts.ConfigFile)
 	} else {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("config: determine home directory: %w", err)
-		}
-		v.AddConfigPath(filepath.Join(home, ".argus"))
+		v.AddConfigPath(stateDir)
 		v.SetConfigName("config")
 		v.SetConfigType("toml")
 	}

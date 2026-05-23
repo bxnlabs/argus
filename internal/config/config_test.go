@@ -17,6 +17,7 @@ func clearArgusEnv(t *testing.T) {
 		"ARGUS_SERVER_PORT", "ARGUS_SERVER_BIND_ADDRESS",
 		"ARGUS_NODE_PORT", "ARGUS_NODE_BIND_ADDRESS",
 		"ARGUS_DATABASE_PATH", "ARGUS_GIT_BRANCH_PREFIX",
+		"ARGUS_HOME",
 		"ARGUS_TAILSCALE_ENABLED",
 		"ARGUS_TAILSCALE_HOSTNAME_PREFIX",
 		"ARGUS_TAILSCALE_AUTH_KEY",
@@ -54,8 +55,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.Node.BindAddress != "127.0.0.1" {
 		t.Errorf("Node.BindAddress = %q, want 127.0.0.1", cfg.Node.BindAddress)
 	}
-	if cfg.Database.Path != "~/.argus/node.db" {
-		t.Errorf("Database.Path = %q, want ~/.argus/node.db", cfg.Database.Path)
+	wantDB := filepath.Join(os.Getenv("HOME"), ".argus", "node.db")
+	if cfg.Database.Path != wantDB {
+		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, wantDB)
 	}
 	if cfg.Git.BranchPrefix != "" {
 		t.Errorf("Git.BranchPrefix = %q, want empty", cfg.Git.BranchPrefix)
@@ -649,5 +651,21 @@ func TestNotificationsDisabledByDefault(t *testing.T) {
 	// Empty channel means disabled — no validation of slack fields
 	if cfg.Notifications.Channel != "" {
 		t.Errorf("Notifications.Channel = %q, want empty (disabled)", cfg.Notifications.Channel)
+	}
+}
+
+func TestArgusHomeOverridesStateDir(t *testing.T) {
+	clearArgusEnv(t)
+	argusHome := t.TempDir()
+	t.Setenv("ARGUS_HOME", argusHome)
+
+	cfg, err := config.Load(config.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantDB := filepath.Join(argusHome, "node.db")
+	if cfg.Database.Path != wantDB {
+		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, wantDB)
 	}
 }
