@@ -8,29 +8,89 @@ import { useLazyMount } from "@/hooks/useLazyMount";
 import { Plus, Minus, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Placeholder sizing — computed from diff.hunks (what UnifiedDiff actually
-// renders), not from the source file's totalLines. This matches the plan's
-// follow-up review: totalLines = full file line count (e.g. 2000 for a
-// 2000-line file) would produce a hugely over-sized placeholder for a small
-// change, and on iOS Safari without scroll anchoring a predecessor mounting
-// above the viewport would shrink document height and jolt the user.
-//
-// Per-file overhead:
-//   FILE_HEADER_HEIGHT_PX — sticky file header (min-h-[44px] in UnifiedDiff)
-// Per-hunk overhead:
-//   HUNK_OVERHEAD_PX     — hunk header row (~24px, py-1 + text-xs) plus
-//                          amortized expand-row padding (~16px per hunk)
-// Per-row overhead:
-//   PLACEHOLDER_LINE_HEIGHT_PX — DiffLine row (text-xs 16px + py-0.5 4px)
-//
-// The sum is deliberately a close approximation, not exact. Slight overshoot
-// (e.g. missing trailing expand-down row) is preferable to undershoot
-// because scrollHeight stability only needs same-order-of-magnitude accuracy
-// for the IntersectionObserver-driven lazy mount to behave well across
-// browsers that do and don't support CSS scroll anchoring.
-export const FILE_HEADER_HEIGHT_PX = 44;
-export const PLACEHOLDER_LINE_HEIGHT_PX = 20;
-export const HUNK_OVERHEAD_PX = 40;
+// Placeholder sizing. A lazy file is a short placeholder until it scrolls near
+// the viewport; we reserve roughly the height its mounted diff will occupy so
+// scrollHeight stays stable. The estimate is NOT relied on for pixel-accurate
+// scroll positioning — CompareView re-aligns the scroll target against the pane
+// after mounts settle (see its scroll-correction effect). Its only jobs here
+// are to keep scrollHeight large enough that a near-bottom target isn't clamped,
+// and to avoid gross layout jumps. Sized from diff.hunks (what UnifiedDiff
+// renders), never the source file's totalLines.
+const FILE_HEADER_HEIGHT_PX = 44; // sticky file header (min-h-[44px])
+const ROW_LINE_HEIGHT_PX = 16; // text-xs line-height for one visual line
+const ROW_PADDING_PX = 4; // py-0.5 applied once per logical DiffLine row
+const HUNK_HEADER_HEIGHT_PX = 26; // @@ header row: text-xs 16 + py-1 8 + border-y 2
+const EXPAND_ROW_HEIGHT_PX = 20; // expand affordance: h-3.5 icon 14 + py-0.5 4 + border-y 2
+const EMPTY_BODY_HEIGHT_PX = 85; // binary / "No changes": px-4 py-8 + text 84 + wrapper border-b 1
+const BODY_WRAPPER_BORDER_PX = 1; // diff body wrapper border-b
+// Assumed monospace columns in the diff content area, used only to approximate
+// how many visual rows a long line wraps into when wrapLines is on. A coarse
+// overshoot-biased clamp guard, NOT a correctness mechanism (the scroll
+// correction in CompareView absorbs the residual). Caveat: counts UTF-16 code
+// units, so tabs and wide/CJK glyphs are under-counted, and the true column
+// count depends on the resizable panel width.
+const WRAP_COLS = 80;
+
+/** Visual rows a logical diff line occupies, given the wrap mode. */
+function visualRows(content: string, wrapLines: boolean): number {
+  if (!wrapLines) return 1;
+  return Math.max(1, Math.ceil(content.length / WRAP_COLS));
+}
+
+/**
+ * Initial expand-context rows UnifiedDiff renders for a freshly-mounted diff.
+ * Mirrors the showExpandUp / gap / showExpandDown conditions in
+ * UnifiedDiff.tsx (see its hunk map) — keep the two in sync. At placeholder
+ * time there are no expand errors and onExpand is always wired, so the count is
+ * deterministic from hunk geometry and totalLines.
+ */
+function initialExpandRowCount(diff: ParsedDiff, totalLines: number): number {
+  const hunks = diff.hunks;
+  let rows = 0;
+  if (hunks[0].newStart > 1) rows += 1; // expand-up above the first hunk
+  for (let i = 1; i < hunks.length; i++) {
+    const prev = hunks[i - 1];
+    if (prev.newStart + prev.newCount < hunks[i].newStart) rows += 2; // gap: down + up
+  }
+  const last = hunks[hunks.length - 1];
+  if (totalLines > 0 && last.newCount > 0 && last.newStart + last.newCount - 1 < totalLines) {
+    rows += 1; // expand-down below the last hunk
+  }
+  return rows;
+}
+
+/**
+ * Approximate the mounted height of a file diff, for placeholder sizing.
+ * `wrapLines` mirrors UnifiedDiff: when on, long lines wrap to multiple visual
+ * rows; when off they scroll horizontally and occupy exactly one row.
+ */
+export function estimatePlaceholderMinHeight(
+  diff: ParsedDiff,
+  wrapLines: boolean,
+  totalLines: number,
+): number {
+  // Binary and zero-hunk diffs render a centered message body, not rows.
+  if (diff.isBinary || diff.hunks.length === 0) {
+    return FILE_HEADER_HEIGHT_PX + EMPTY_BODY_HEIGHT_PX;
+  }
+
+  let bodyHeight = 0;
+  for (const hunk of diff.hunks) {
+    for (const line of hunk.lines) {
+      // header-type lines render null in UnifiedDiff (the @@ heading shows in
+      // the hunk header row instead), so they take no body row.
+      if (line.type === "header") continue;
+      // py-0.5 padding applies once per logical row; each wrapped visual line
+      // adds one line-height. One row => 20px; each extra wrapped line => +16px.
+      bodyHeight += ROW_LINE_HEIGHT_PX * visualRows(line.content, wrapLines) + ROW_PADDING_PX;
+    }
+  }
+
+  const hunkHeaders = diff.hunks.length * HUNK_HEADER_HEIGHT_PX;
+  const expandRows = initialExpandRowCount(diff, totalLines) * EXPAND_ROW_HEIGHT_PX;
+
+  return FILE_HEADER_HEIGHT_PX + hunkHeaders + expandRows + bodyHeight + BODY_WRAPPER_BORDER_PX;
+}
 
 interface LazyFileDiffProps {
   diff: ParsedDiff;
@@ -88,7 +148,12 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
           onAutoExpandFailuresChange={props.onAutoExpandFailuresChange}
         />
       ) : (
-        <FilePlaceholder diff={props.diff} fileName={props.fileName} />
+        <FilePlaceholder
+          diff={props.diff}
+          fileName={props.fileName}
+          wrapLines={props.wrapLines}
+          totalLines={props.totalLines}
+        />
       )}
     </div>
   );
@@ -106,14 +171,15 @@ export const LazyFileDiff = memo(function LazyFileDiff(props: LazyFileDiffProps)
 export function FilePlaceholder({
   diff,
   fileName,
+  wrapLines,
+  totalLines,
 }: {
   diff: ParsedDiff;
   fileName: string;
+  wrapLines: boolean;
+  totalLines: number;
 }) {
-  const rowCount = diff.hunks.reduce((n, h) => n + h.lines.length, 0);
-  const hunkOverhead = diff.hunks.length * HUNK_OVERHEAD_PX;
-  const minHeight =
-    FILE_HEADER_HEIGHT_PX + rowCount * PLACEHOLDER_LINE_HEIGHT_PX + hunkOverhead;
+  const minHeight = estimatePlaceholderMinHeight(diff, wrapLines, totalLines);
   return (
     <div
       className={cn(

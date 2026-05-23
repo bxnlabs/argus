@@ -77,6 +77,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // Bumped to request a scroll to the unanchored section (from the sidebar).
   const [unanchoredScrollReq, setUnanchoredScrollReq] = useState(0);
   const scrollToFileRequestRef = useRef(0);
+  // The active scroll container (diff pane), used by the scroll-correction
+  // effect below. Only one of the desktop/mobile scrollers renders at a time,
+  // so a single ref attaches to whichever is active.
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [activeComment, setActiveComment] = useState<{
     file: string;
     position: DiffPosition;
@@ -711,27 +715,71 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     saveAndUpdate((prev) => ({ ...prev, body: undefined }));
   }, [saveAndUpdate]);
 
-  // Unified scroll-to-selected-file effect. Runs in useLayoutEffect to scroll
-  // in the same frame as the selection commit. Placeholders in LazyFileDiff
-  // are now sized to approximate rendered height, so scrollHeight is stable
-  // regardless of which files are mounted — no force-mount dance required.
-  // One rAF still lets the target settle: if it was a placeholder at click
-  // time, the IntersectionObserver swaps in real content on this frame; and
-  // ExpandableUnifiedDiff renders its hunks in a secondary effect. Measuring
-  // after one rAF avoids racing either.
+  // Scroll-to-selected-file with a measured post-mount correction window.
+  //
+  // Placeholders in LazyFileDiff only approximate rendered height, so a single
+  // scrollIntoView can land off-target: an off-screen target is a placeholder
+  // at click time and the IntersectionObserver mounts it (and its neighbours)
+  // *after* the scroll. As those resize, the target drifts — and on browsers
+  // without CSS scroll anchoring (iOS Safari) nothing corrects it.
+  //
+  // Instead we re-align the target to the pane top by measured delta every
+  // frame for a short window (~400ms), so it stays pinned as post-scroll lazy
+  // mounts / hunk expansion / font reflow settle. A frame loop tracks target
+  // *position* — which can drift even when total content height is unchanged —
+  // rather than content size. This composes with native anchoring (a no-op when
+  // it already held position) and does the work itself where it's absent.
   useLayoutEffect(() => {
     if (!selectedPath) return;
     if (isMobile && !mobileShowDiffs) return;
-    const el = diffRefs.current.get(selectedPath);
-    if (!el) return;
+    const pane = scrollContainerRef.current;
+    if (!pane) return;
+    const target = diffRefs.current.get(selectedPath);
+    if (!target) return;
+
     const rid = ++scrollToFileRequestRef.current;
-    const handle = requestAnimationFrame(() => {
-      if (rid !== scrollToFileRequestRef.current) return;
-      el.scrollIntoView({ behavior: "auto", block: "start" });
-    });
-    return () => {
-      cancelAnimationFrame(handle);
+    let active = true;
+    let rafHandle = 0;
+    let timeoutHandle = 0;
+
+    const align = () => {
+      // Skip if superseded, torn down, or the target detached — e.g. a compare
+      // swap replaced the diff nodes mid-window. A detached node measures 0,0
+      // and would otherwise trigger a spurious scroll.
+      if (!active || rid !== scrollToFileRequestRef.current || !target.isConnected) return;
+      const delta =
+        target.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+      if (Math.abs(delta) > 1) pane.scrollTop += delta;
     };
+
+    const deadline = performance.now() + 400;
+    const tick = () => {
+      align();
+      if (active && performance.now() < deadline) {
+        rafHandle = requestAnimationFrame(tick);
+      }
+    };
+
+    // Yield immediately on real user scroll input (programmatic scrollTop writes
+    // don't dispatch these). keydown is on window because focus is usually on
+    // the sidebar row — outside the pane — right after a file click.
+    const teardown = () => {
+      if (!active) return;
+      active = false;
+      cancelAnimationFrame(rafHandle);
+      clearTimeout(timeoutHandle);
+      pane.removeEventListener("wheel", teardown);
+      pane.removeEventListener("touchstart", teardown);
+      window.removeEventListener("keydown", teardown);
+    };
+
+    rafHandle = requestAnimationFrame(tick);
+    pane.addEventListener("wheel", teardown, { passive: true });
+    pane.addEventListener("touchstart", teardown, { passive: true });
+    window.addEventListener("keydown", teardown);
+    timeoutHandle = window.setTimeout(teardown, 400);
+
+    return teardown;
   }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
 
   // Scroll to the unanchored section when requested from the sidebar. The
@@ -941,7 +989,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const diffPane = (
-    <div className="flex-1 overflow-y-auto px-3 pb-3">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 pb-3">
       {loadingCompare ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
@@ -995,7 +1043,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
             />
           )}
         </div>
-        <div className="safe-area-bottom flex-1 overflow-auto">
+        <div ref={scrollContainerRef} className="safe-area-bottom flex-1 overflow-auto">
           {loadingCompare ? (
             <div className="flex h-32 items-center justify-center">
               <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
