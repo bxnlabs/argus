@@ -8,9 +8,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, SlidersHorizontal } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
+import { useProfilesQuery } from "@/data/sessions";
 
 function getStatusColor(status?: string) {
   switch (status) {
@@ -70,6 +71,8 @@ interface SessionItemProps {
   onStartRename: (session: Session) => void;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
+  onChangeProfile: (session: Session) => void;
+  canChangeProfile: boolean;
   renamePendingRef: React.RefObject<boolean>;
 }
 
@@ -89,6 +92,8 @@ const SessionItem = memo(function SessionItem({
   onStartRename,
   onAttachSession,
   onDeleteSession,
+  onChangeProfile,
+  canChangeProfile,
   renamePendingRef,
 }: SessionItemProps) {
   const repoPath = session.git_remote_url
@@ -206,6 +211,17 @@ const SessionItem = memo(function SessionItem({
             <Pencil className="mr-2 h-3 w-3" />
             Rename
           </DropdownMenuItem>
+          {canChangeProfile && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeProfile(session);
+              }}
+            >
+              <SlidersHorizontal className="mr-2 h-3 w-3" />
+              Change profile
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
@@ -249,6 +265,7 @@ interface SessionListProps {
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
+  onChangeProfile: (session: Session) => void;
   onNewSession: () => void;
   onRetry?: () => void;
 }
@@ -264,6 +281,7 @@ export const SessionList = memo(function SessionList({
   onAttachSession,
   onDeleteSession,
   onRenameSession,
+  onChangeProfile,
   onNewSession,
   onRetry,
 }: SessionListProps) {
@@ -324,6 +342,9 @@ export const SessionList = memo(function SessionList({
     setRenamingSessionId(null);
     setRenameValue("");
   }, []);
+
+  const { data: profilesData } = useProfilesQuery();
+  const canChangeProfile = (profilesData?.profiles?.length ?? 0) > 0;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -394,6 +415,8 @@ export const SessionList = memo(function SessionList({
                   onStartRename={handleStartRename}
                   onAttachSession={onAttachSession}
                   onDeleteSession={onDeleteSession}
+                  onChangeProfile={onChangeProfile}
+                  canChangeProfile={canChangeProfile}
                   renamePendingRef={renamePendingRef}
                 />
               );
