@@ -25,12 +25,17 @@ import {
   sortCommentsByRenderOrder,
   sortUnanchoredCommentsByFile,
   coalesceAutoExpand,
+  commentsAfterClear,
+  clearCounts,
+  clearConfirmMessage,
   type AutoExpandTarget,
   type InlineCommentEntry,
+  type ClearCategory,
 } from "@/lib/compare-comments";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation, reviewKeys } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
+import { ClearCommentsMenu } from "./ClearCommentsMenu";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
@@ -395,6 +400,16 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     [effectivePartition.unanchored, compareData?.files],
   );
 
+  const unanchoredIds = useMemo(
+    () => new Set(effectivePartition.unanchored.map((c) => c.id)),
+    [effectivePartition.unanchored],
+  );
+
+  const clearMenuCounts = useMemo(
+    () => clearCounts(comments, unanchoredIds),
+    [comments, unanchoredIds],
+  );
+
   // Tracks the last visited position so navigation can resume near it when
   // the focused comment is deleted. Updated from scrollToComment and from
   // a sync effect that mirrors the live focused index.
@@ -671,6 +686,19 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       comments: prev.comments.filter((c) => c.id !== id),
     }));
   }, [saveAndUpdate]);
+
+  const handleClearComments = useCallback(
+    (category: ClearCategory) => {
+      const count = clearMenuCounts[category];
+      if (count === 0) return;
+      if (!window.confirm(clearConfirmMessage(category, count))) return;
+      saveAndUpdate((prev) => ({
+        ...prev,
+        comments: commentsAfterClear(prev.comments, category, unanchoredIds),
+      }));
+    },
+    [clearMenuCounts, unanchoredIds, saveAndUpdate],
+  );
 
   const handleEditComment = useCallback(
     (id: string, body: string) => {
@@ -991,6 +1019,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onSubmit={handleSubmitComments}
             />
           )}
+          {baseBranch && reviewData && clearMenuCounts.all > 0 && (
+            <ClearCommentsMenu counts={clearMenuCounts} onClear={handleClearComments} />
+          )}
         </div>
         <div ref={scrollContainerRef} className="safe-area-bottom flex-1 overflow-auto">
           {loadingCompare ? (
@@ -1133,6 +1164,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
                 onGeneralCommentChange={handleGeneralCommentChange}
                 onSubmit={handleSubmitComments}
               />
+            )}
+            {reviewData && clearMenuCounts.all > 0 && (
+              <ClearCommentsMenu counts={clearMenuCounts} onClear={handleClearComments} />
             )}
           </div>
         )}
