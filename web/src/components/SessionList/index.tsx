@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Star, Flag } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
@@ -45,6 +45,15 @@ function getStatusLabel(status?: string) {
     default:
       return "";
   }
+}
+
+// Sort starred sessions to the top, then by updated_at descending within each
+// group. Returns a new array (does not mutate the input).
+export function sortSessions(sessions: Session[]): Session[] {
+  return [...sessions].sort((a, b) => {
+    if (a.starred !== b.starred) return a.starred ? -1 : 1;
+    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -132,9 +141,17 @@ const SessionItem = memo(function SessionItem({
           />
         ) : (
           <>
-            <span className="block truncate text-sm">
-              {session.name || "Unnamed Session"}
-            </span>
+            <div className="flex min-w-0 items-center gap-1">
+              <span className="truncate text-sm">
+                {session.name || "Unnamed Session"}
+              </span>
+              {session.starred && (
+                <Star className="h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" />
+              )}
+              {session.flagged && (
+                <Flag className="h-3.5 w-3.5 flex-shrink-0 text-orange-500" />
+              )}
+            </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <div
                 className={cn(
@@ -293,15 +310,8 @@ export const SessionList = memo(function SessionList({
     return () => clearInterval(id);
   }, []);
 
-  // Sessions sorted by updated_at descending
-  const sortedSessions = useMemo(
-    () =>
-      [...sessions].sort(
-        (a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      ),
-    [sessions]
-  );
+  // Starred sessions first, then by updated_at descending within each group.
+  const sortedSessions = useMemo(() => sortSessions(sessions), [sessions]);
 
   const handleStartRename = useCallback((session: Session) => {
     renamePendingRef.current = true;
