@@ -13,6 +13,8 @@ export interface Session {
   system_prompt: string | null;
   provider_type: ProviderType;
   auto_approve: boolean;
+  flagged: boolean;
+  starred: boolean;
 }
 
 export interface SessionStatusInfo {
