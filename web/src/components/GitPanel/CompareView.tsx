@@ -36,6 +36,7 @@ import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { UnanchoredCommentSection } from "./UnanchoredCommentSection";
 import { useViewport } from "@/hooks/useViewport";
+import { useScrollToFileCorrection } from "@/hooks/useScrollToFileCorrection";
 import { type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
@@ -76,12 +77,10 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [scrollRequestId, setScrollRequestId] = useState(0);
   // Bumped to request a scroll to the unanchored section (from the sidebar).
   const [unanchoredScrollReq, setUnanchoredScrollReq] = useState(0);
-  const scrollToFileRequestRef = useRef(0);
-  // True while a scroll-to-file is in flight. Force-mounts every diff so
-  // scrollHeight exceeds target.offsetTop + clientHeight; otherwise the
-  // browser clamps scrollTop short of the target when files after it are
-  // still lazy placeholders. Cleared one frame after the scroll lands.
-  const [isScrollPending, setIsScrollPending] = useState(false);
+  // The active scroll container (diff pane), used by the scroll-correction
+  // hook below. Only one of the desktop/mobile scrollers renders at a time, so
+  // a single ref attaches to whichever is active.
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [activeComment, setActiveComment] = useState<{
     file: string;
     position: DiffPosition;
@@ -108,7 +107,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   useEffect(() => {
     setBaseBranch(null);
     setSelectedPath(null);
-    setIsScrollPending(false);
     setEditingComment(null);
     setFocusedCommentId(null);
     setFailedByFile(new Map());
@@ -186,14 +184,6 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     compareData?.headRef,
     compareData?.baseRef,
   );
-
-  // Index of the selected file in the rendered diff order. -1 when nothing is
-  // selected, or when the selected path is no longer present in parsedDiffs
-  // (e.g. after the base branch changes).
-  const selectedIdx = useMemo(() => {
-    if (!selectedPath) return -1;
-    return parsedDiffs.findIndex((d) => getDiffPathKey(d) === selectedPath);
-  }, [selectedPath, parsedDiffs]);
 
   const saveReview = useSaveReviewMutation(workingDirectory);
 
@@ -517,13 +507,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
 
   const scrollToFile = useCallback((path: string) => {
     setSelectedPath(path);
-    setIsScrollPending(true);
     if (isMobile) {
       setMobileShowDiffs(true);
     }
-    // Bumping the request id triggers the unified scroll effect below, which
-    // runs in useLayoutEffect AFTER the force-mount propagation commits.
-    // Re-firing on repeat clicks to the same path is intentional.
+    // Bumping the request id re-triggers the unified scroll effect below on
+    // repeat clicks to the same path (same selectedPath, new rid).
     setScrollRequestId((n) => n + 1);
   }, [isMobile]);
 
@@ -727,49 +715,21 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     saveAndUpdate((prev) => ({ ...prev, body: undefined }));
   }, [saveAndUpdate]);
 
-  // Unified scroll-to-selected-file effect. Runs in useLayoutEffect AFTER the
-  // commit that applies forceMount to predecessor diffs (see renderDiffs
-  // below), so preceding LazyFileDiff instances have real heights before we
-  // measure. Uses behavior: "auto" (instant) because smooth scrolling during
-  // active reflow is what caused the original drift-to-wrong-file bug —
-  // placeholders kept inflating mid-animation and pushed the target down.
-  useLayoutEffect(() => {
-    if (!selectedPath) return;
-    // Drop the pending flag on any early-return path so predecessors don't
-    // stay in the expensive all-mounted state if the effect can't execute
-    // the scroll (mobile back-nav, target not in the current diff set, etc).
-    if (isMobile && !mobileShowDiffs) {
-      setIsScrollPending(false);
-      return;
-    }
-    const el = diffRefs.current.get(selectedPath);
-    if (!el) {
-      setIsScrollPending(false);
-      return;
-    }
-    const rid = ++scrollToFileRequestRef.current;
-    // One rAF lets the browser finalize layout for newly-mounted children
-    // before we measure. useLayoutEffect alone is not enough because
-    // ExpandableUnifiedDiff may render its hunks in a secondary effect.
-    let releaseHandle: number | null = null;
-    const handle = requestAnimationFrame(() => {
-      if (rid !== scrollToFileRequestRef.current) return;
-      el.scrollIntoView({ behavior: "auto", block: "start" });
-      // Wait one more frame before clearing isScrollPending so useLazyMount's
-      // IntersectionObserver has time to latch successors that came into view
-      // with the scroll. Without that delay, those successors unmount back to
-      // 44px placeholders in the same paint cycle, scrollHeight shrinks, and
-      // the browser can re-clamp scrollTop short of the target.
-      releaseHandle = requestAnimationFrame(() => {
-        if (rid !== scrollToFileRequestRef.current) return;
-        setIsScrollPending(false);
-      });
-    });
-    return () => {
-      cancelAnimationFrame(handle);
-      if (releaseHandle !== null) cancelAnimationFrame(releaseHandle);
-    };
-  }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
+  const getDiffEl = useCallback(
+    (path: string) => diffRefs.current.get(path) ?? null,
+    [],
+  );
+
+  // Scroll-to-selected-file with a measured post-mount correction window. See
+  // useScrollToFileCorrection for why a single scrollIntoView isn't enough.
+  useScrollToFileCorrection({
+    scrollContainerRef,
+    getTarget: getDiffEl,
+    selectedPath,
+    isMobile,
+    mobileShowDiffs,
+    requestId: scrollRequestId,
+  });
 
   // Scroll to the unanchored section when requested from the sidebar. The
   // section is always rendered (not lazy), so a single rAF to let the layout
@@ -918,15 +878,12 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       {reviewData?.body?.body && (
         <ReviewBodyCard body={reviewData.body} onDelete={handleDeleteBody} />
       )}
-      {parsedDiffs.map((diff, idx) => {
+      {parsedDiffs.map((diff) => {
         const pathKey = getDiffPathKey(diff);
         const fileName = getDiffFileName(diff);
         const fileComments = commentsByFile.get(pathKey) ?? EMPTY_COMMENTS;
         const fileActiveCommentLine = activeComment?.file === pathKey ? activeCommentLine : null;
         const fileAutoExpandTargets = autoExpandTargetsByFile.get(pathKey);
-        // Persistent force-mount for predecessors up to and including the
-        // selected file so their heights are real BEFORE scrollIntoView.
-        const inScrollTargetRange = selectedIdx >= 0 && idx <= selectedIdx;
         return (
           <div
             key={`${pathKey}@${compareData?.headRef ?? ""}~${compareData?.baseRef ?? ""}`}
@@ -936,9 +893,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               diff={diff}
               fileName={fileName}
               wrapLines={wrapLines}
-              // isScrollPending extends force-mount to files AFTER the target
-              // during the scroll so scrollHeight is large enough for the
-              // scroll to land. Released immediately after the scroll.
+              // Files with comments force-mount so their comment DOM refs
+              // (consumed by comment-nav) exist without waiting for the
+              // IntersectionObserver.
               //
               // failedByFile keeps a failed-auto-expand file mounted. Its
               // comment has moved to the unanchored section, so it's no longer
@@ -949,11 +906,14 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               // renders nowhere. Staying mounted also preserves the reducer's
               // failedAnchors so reconcileFailures can heal on a manual expand.
               // See docs/implementation/compare-auto-expand-failure-routing.md.
+              //
+              // All other files lazy-mount normally; their placeholders are
+              // pre-sized to approximate rendered height so scroll geometry is
+              // stable whether mounted or not — no force-mount-for-scroll
+              // needed.
               forceMount={
                 commentsByFile.has(pathKey) ||
-                failedByFile.has(pathKey) ||
-                inScrollTargetRange ||
-                isScrollPending
+                failedByFile.has(pathKey)
               }
               comments={fileComments}
               activeCommentLine={fileActiveCommentLine}
@@ -978,7 +938,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   );
 
   const diffPane = (
-    <div className="flex-1 overflow-y-auto px-3 pb-3">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 pb-3">
       {loadingCompare ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
@@ -1032,7 +992,7 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
             />
           )}
         </div>
-        <div className="safe-area-bottom flex-1 overflow-auto">
+        <div ref={scrollContainerRef} className="safe-area-bottom flex-1 overflow-auto">
           {loadingCompare ? (
             <div className="flex h-32 items-center justify-center">
               <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
