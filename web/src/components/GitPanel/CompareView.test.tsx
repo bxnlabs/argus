@@ -182,7 +182,12 @@ describe("CompareView — unanchored clear-count gating", () => {
     renderView();
 
     const menu = await screen.findByTestId("clear-menu");
+    // Only the unanchored category is suppressed; the submission-state
+    // categories stay live off the (untrusted-for-classification) comment list.
     expect(menu.getAttribute("data-unanchored")).toBe("0");
+    expect(menu.getAttribute("data-all")).toBe("3");
+    expect(menu.getAttribute("data-pending")).toBe("1");
+    expect(menu.getAttribute("data-submitted")).toBe("2");
   });
 
   it("classifies unanchored comments once compare data has loaded", async () => {
