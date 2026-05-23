@@ -36,6 +36,7 @@ import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { UnanchoredCommentSection } from "./UnanchoredCommentSection";
 import { useViewport } from "@/hooks/useViewport";
+import { useScrollToFileCorrection } from "@/hooks/useScrollToFileCorrection";
 import { type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
 
@@ -76,10 +77,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   const [scrollRequestId, setScrollRequestId] = useState(0);
   // Bumped to request a scroll to the unanchored section (from the sidebar).
   const [unanchoredScrollReq, setUnanchoredScrollReq] = useState(0);
-  const scrollToFileRequestRef = useRef(0);
   // The active scroll container (diff pane), used by the scroll-correction
-  // effect below. Only one of the desktop/mobile scrollers renders at a time,
-  // so a single ref attaches to whichever is active.
+  // hook below. Only one of the desktop/mobile scrollers renders at a time, so
+  // a single ref attaches to whichever is active.
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [activeComment, setActiveComment] = useState<{
     file: string;
@@ -715,72 +715,21 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     saveAndUpdate((prev) => ({ ...prev, body: undefined }));
   }, [saveAndUpdate]);
 
-  // Scroll-to-selected-file with a measured post-mount correction window.
-  //
-  // Placeholders in LazyFileDiff only approximate rendered height, so a single
-  // scrollIntoView can land off-target: an off-screen target is a placeholder
-  // at click time and the IntersectionObserver mounts it (and its neighbours)
-  // *after* the scroll. As those resize, the target drifts — and on browsers
-  // without CSS scroll anchoring (iOS Safari) nothing corrects it.
-  //
-  // Instead we re-align the target to the pane top by measured delta every
-  // frame for a short window (~400ms), so it stays pinned as post-scroll lazy
-  // mounts / hunk expansion / font reflow settle. A frame loop tracks target
-  // *position* — which can drift even when total content height is unchanged —
-  // rather than content size. This composes with native anchoring (a no-op when
-  // it already held position) and does the work itself where it's absent.
-  useLayoutEffect(() => {
-    if (!selectedPath) return;
-    if (isMobile && !mobileShowDiffs) return;
-    const pane = scrollContainerRef.current;
-    if (!pane) return;
-    const target = diffRefs.current.get(selectedPath);
-    if (!target) return;
+  const getDiffEl = useCallback(
+    (path: string) => diffRefs.current.get(path) ?? null,
+    [],
+  );
 
-    const rid = ++scrollToFileRequestRef.current;
-    let active = true;
-    let rafHandle = 0;
-    let timeoutHandle = 0;
-
-    const align = () => {
-      // Skip if superseded, torn down, or the target detached — e.g. a compare
-      // swap replaced the diff nodes mid-window. A detached node measures 0,0
-      // and would otherwise trigger a spurious scroll.
-      if (!active || rid !== scrollToFileRequestRef.current || !target.isConnected) return;
-      const delta =
-        target.getBoundingClientRect().top - pane.getBoundingClientRect().top;
-      if (Math.abs(delta) > 1) pane.scrollTop += delta;
-    };
-
-    const deadline = performance.now() + 400;
-    const tick = () => {
-      align();
-      if (active && performance.now() < deadline) {
-        rafHandle = requestAnimationFrame(tick);
-      }
-    };
-
-    // Yield immediately on real user scroll input (programmatic scrollTop writes
-    // don't dispatch these). keydown is on window because focus is usually on
-    // the sidebar row — outside the pane — right after a file click.
-    const teardown = () => {
-      if (!active) return;
-      active = false;
-      cancelAnimationFrame(rafHandle);
-      clearTimeout(timeoutHandle);
-      pane.removeEventListener("wheel", teardown);
-      pane.removeEventListener("touchstart", teardown);
-      window.removeEventListener("keydown", teardown);
-    };
-
-    rafHandle = requestAnimationFrame(tick);
-    pane.addEventListener("wheel", teardown, { passive: true });
-    pane.addEventListener("touchstart", teardown, { passive: true });
-    window.addEventListener("keydown", teardown);
-    timeoutHandle = window.setTimeout(teardown, 400);
-
-    return teardown;
-  }, [scrollRequestId, selectedPath, isMobile, mobileShowDiffs]);
+  // Scroll-to-selected-file with a measured post-mount correction window. See
+  // useScrollToFileCorrection for why a single scrollIntoView isn't enough.
+  useScrollToFileCorrection({
+    scrollContainerRef,
+    getTarget: getDiffEl,
+    selectedPath,
+    isMobile,
+    mobileShowDiffs,
+    requestId: scrollRequestId,
+  });
 
   // Scroll to the unanchored section when requested from the sidebar. The
   // section is always rendered (not lazy), so a single rAF to let the layout
