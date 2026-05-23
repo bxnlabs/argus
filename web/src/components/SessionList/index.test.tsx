@@ -67,5 +67,8 @@ describe("readMenuState", () => {
     expect(readMenuState(null, false).showMarkUnread).toBe(true);
     expect(readMenuState(null, true).showMarkUnread).toBe(false);
     expect(readMenuState("2026-01-01 00:00:00", false).showMarkUnread).toBe(false);
+    // Active session that is also unread: still can mark read, never mark unread.
+    expect(readMenuState("2026-01-01 00:00:00", true).showMarkRead).toBe(true);
+    expect(readMenuState("2026-01-01 00:00:00", true).showMarkUnread).toBe(false);
   });
 });
