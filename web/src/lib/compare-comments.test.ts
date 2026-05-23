@@ -488,10 +488,10 @@ describe("clearCounts", () => {
 describe("clearMenuItems", () => {
   it("returns rows in fixed order with labels and counts", () => {
     expect(clearMenuItems({ all: 3, pending: 1, submitted: 2, unanchored: 1 })).toEqual([
-      { category: "all", label: "Clear all", count: 3, disabled: false },
-      { category: "pending", label: "Clear pending", count: 1, disabled: false },
-      { category: "submitted", label: "Clear submitted", count: 2, disabled: false },
-      { category: "unanchored", label: "Clear unanchored", count: 1, disabled: false },
+      { category: "all", label: "All", count: 3, disabled: false },
+      { category: "pending", label: "Pending", count: 1, disabled: false },
+      { category: "submitted", label: "Submitted", count: 2, disabled: false },
+      { category: "unanchored", label: "Orphaned", count: 1, disabled: false },
     ]);
   });
 
@@ -506,7 +506,7 @@ describe("clearConfirmMessage", () => {
   it("pluralizes and qualifies per category", () => {
     expect(clearConfirmMessage("pending", 5)).toBe("Delete 5 pending comments? This cannot be undone.");
     expect(clearConfirmMessage("submitted", 7)).toBe("Delete 7 submitted comments? This cannot be undone.");
-    expect(clearConfirmMessage("unanchored", 2)).toBe("Delete 2 unanchored comments? This cannot be undone.");
+    expect(clearConfirmMessage("unanchored", 2)).toBe("Delete 2 orphaned comments? This cannot be undone.");
   });
 
   it("omits the qualifier for 'all'", () => {

@@ -394,10 +394,10 @@ export interface ClearMenuItem {
 const CLEAR_ORDER: readonly ClearCategory[] = ["all", "pending", "submitted", "unanchored"];
 
 const CLEAR_MENU_LABEL: Record<ClearCategory, string> = {
-  all: "Clear all",
-  pending: "Clear pending",
-  submitted: "Clear submitted",
-  unanchored: "Clear unanchored",
+  all: "All",
+  pending: "Pending",
+  submitted: "Submitted",
+  unanchored: "Orphaned",
 };
 
 /** Build the menu rows (fixed order); a row is disabled when its count is 0. */
@@ -415,7 +415,7 @@ const CLEAR_QUALIFIER: Record<ClearCategory, string> = {
   all: "",
   pending: "pending ",
   submitted: "submitted ",
-  unanchored: "unanchored ",
+  unanchored: "orphaned ",
 };
 
 /** The `window.confirm` message for clearing `count` comments of `category`. */
