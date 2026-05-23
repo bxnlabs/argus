@@ -337,3 +337,89 @@ export function sortUnanchoredCommentsByFile(
   }
   return out;
 }
+
+/**
+ * The bulk-clear categories surfaced in the Compare view's "Clear" menu. They
+ * are independent filters, not a partition: an unanchored comment is also either
+ * pending or submitted, and `all` is the union of pending and submitted.
+ */
+export type ClearCategory = "all" | "pending" | "submitted" | "unanchored";
+
+/**
+ * Returns the comments that survive clearing `category`. `unanchoredIds` is the
+ * set of comment ids currently shown in the unanchored section
+ * (`effectivePartition.unanchored`).
+ */
+export function commentsAfterClear(
+  comments: readonly ReviewComment[],
+  category: ClearCategory,
+  unanchoredIds: ReadonlySet<string>,
+): ReviewComment[] {
+  switch (category) {
+    case "all":
+      return [];
+    case "pending":
+      return comments.filter((c) => c.submitted);
+    case "submitted":
+      return comments.filter((c) => !c.submitted);
+    case "unanchored":
+      return comments.filter((c) => !unanchoredIds.has(c.id));
+  }
+}
+
+/** Live count of comments each category would remove. */
+export function clearCounts(
+  comments: readonly ReviewComment[],
+  unanchoredIds: ReadonlySet<string>,
+): Record<ClearCategory, number> {
+  let pending = 0;
+  let submitted = 0;
+  let unanchored = 0;
+  for (const c of comments) {
+    if (c.submitted) submitted++;
+    else pending++;
+    if (unanchoredIds.has(c.id)) unanchored++;
+  }
+  return { all: comments.length, pending, submitted, unanchored };
+}
+
+/** One row of the Compare view's "Clear" menu. */
+export interface ClearMenuItem {
+  category: ClearCategory;
+  label: string;
+  count: number;
+  disabled: boolean;
+}
+
+const CLEAR_ORDER: readonly ClearCategory[] = ["all", "pending", "submitted", "unanchored"];
+
+const CLEAR_MENU_LABEL: Record<ClearCategory, string> = {
+  all: "All",
+  pending: "Pending",
+  submitted: "Submitted",
+  unanchored: "Orphaned",
+};
+
+/** Build the menu rows (fixed order); a row is disabled when its count is 0. */
+export function clearMenuItems(counts: Record<ClearCategory, number>): ClearMenuItem[] {
+  return CLEAR_ORDER.map((category) => ({
+    category,
+    label: CLEAR_MENU_LABEL[category],
+    count: counts[category],
+    disabled: counts[category] === 0,
+  }));
+}
+
+// "" for `all` — the count alone reads clearly there ("Delete 3 comments?").
+const CLEAR_QUALIFIER: Record<ClearCategory, string> = {
+  all: "",
+  pending: "pending ",
+  submitted: "submitted ",
+  unanchored: "orphaned ",
+};
+
+/** The `window.confirm` message for clearing `count` comments of `category`. */
+export function clearConfirmMessage(category: ClearCategory, count: number): string {
+  const noun = count === 1 ? "comment" : "comments";
+  return `Delete ${count} ${CLEAR_QUALIFIER[category]}${noun}? This cannot be undone.`;
+}
