@@ -9,6 +9,7 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession } from "@/data/sessions/queries";
+import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
 import { useGitCheckQuery } from "@/data/git";
@@ -21,13 +22,14 @@ function HomeContent() {
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [activePanel, setActivePanel] = useState<SidePanel>(null);
+  const [changeProfileSession, setChangeProfileSession] = useState<Session | null>(null);
 
   // Tab context
   const { tabs, activeTab, attachSession, detachSessionById } = useTabs();
   const { isMobile, isHydrated } = useViewport();
 
   // Data hooks
-  const { sessions, homeDir, isLoaded: sessionsLoaded, deleteSession, renameSession } = useSessions();
+  const { sessions, homeDir, isLoaded: sessionsLoaded, deleteSession, renameSession, changeProfile } = useSessions();
   const createSessionMutation = useCreateSession();
   const createMutateRef = useRef(createSessionMutation.mutateAsync);
   createMutateRef.current = createSessionMutation.mutateAsync;
@@ -201,6 +203,19 @@ function HomeContent() {
     [renameSession]
   );
 
+  // Change-profile handler — recreates the session with the new profile.
+  const handleChangeProfileApply = useCallback(
+    async (sessionId: string, profile: string | null) => {
+      try {
+        await changeProfile(sessionId, profile);
+      } catch (err) {
+        console.error("Failed to change profile:", err);
+        toast.error("Failed to change profile");
+      }
+    },
+    [changeProfile],
+  );
+
   // Render the main workspace
   const renderWorkspace = useCallback(
     () => (
@@ -233,14 +248,20 @@ function HomeContent() {
     onCreateSession: handleCreateSession,
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
+    onChangeProfile: setChangeProfileSession,
     renderWorkspace,
   };
 
-  if (isMobile) {
-    return <MobileView {...viewProps} />;
-  }
-
-  return <DesktopView {...viewProps} />;
+  return (
+    <>
+      {isMobile ? <MobileView {...viewProps} /> : <DesktopView {...viewProps} />}
+      <ChangeProfileDialog
+        session={changeProfileSession}
+        onClose={() => setChangeProfileSession(null)}
+        onApply={handleChangeProfileApply}
+      />
+    </>
+  );
 }
 
 export function App() {

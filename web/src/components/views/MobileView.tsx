@@ -21,6 +21,7 @@ export function MobileView({
   onCreateSession,
   onDeleteSession,
   onRenameSession,
+  onChangeProfile,
   renderWorkspace,
 }: ViewProps) {
   const handleAttachSession = useCallback(
@@ -96,6 +97,7 @@ export function MobileView({
                     onAttachSession={handleAttachSession}
                     onDeleteSession={onDeleteSession}
                     onRenameSession={onRenameSession}
+                    onChangeProfile={onChangeProfile}
                     onNewSession={() => {
                       setShowNewSessionDialog(true);
                       setSidebarOpen(false);

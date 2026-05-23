@@ -27,6 +27,7 @@ export function DesktopView({
   onCreateSession,
   onDeleteSession,
   onRenameSession,
+  onChangeProfile,
   renderWorkspace,
 }: ViewProps) {
   const handleAttachSession = useCallback(
@@ -130,6 +131,7 @@ export function DesktopView({
                 onAttachSession={handleAttachSession}
                 onDeleteSession={onDeleteSession}
                 onRenameSession={onRenameSession}
+                onChangeProfile={onChangeProfile}
                 onNewSession={() => setShowNewSessionDialog(true)}
               />
             </div>
