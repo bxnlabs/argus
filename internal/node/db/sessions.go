@@ -246,6 +246,22 @@ func (d *DB) TransferBranchOwnership(excludeID, workingDir, branch string) error
 	return err
 }
 
+// SetProfile sets or clears the session's profile name. Pass nil to detach.
+func (d *DB) SetProfile(id string, profile *string) error {
+	res, err := d.sql.Exec(
+		`UPDATE sessions SET profile = ?, updated_at = datetime('now') WHERE id = ?`,
+		profile, id,
+	)
+	if err != nil {
+		return fmt.Errorf("set profile %s: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	return nil
+}
+
 // SetGitRemoteURL sets the git_remote_url for a session.
 func (d *DB) SetGitRemoteURL(id, url string) error {
 	_, err := d.sql.Exec(
