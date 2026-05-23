@@ -716,7 +716,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   profile TEXT,
   branch_created INTEGER NOT NULL DEFAULT 0,
   unread_since TEXT,
-  last_viewed_at TEXT
+  last_viewed_at TEXT,
+  flagged INTEGER NOT NULL DEFAULT 0,
+  starred INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS _migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -731,7 +733,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	for _, name := range []string{
 		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
 		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
-		"add_unread_since_and_last_viewed_at",
+		"add_unread_since_and_last_viewed_at", "add_flagged_and_starred",
 	} {
 		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
 			rawDB.Close()
