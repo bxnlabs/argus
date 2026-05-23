@@ -133,6 +133,19 @@ func (c *apiClient) patch(path string, body io.Reader) ([]byte, error) {
 	return readResponse(resp, "update")
 }
 
+func (c *apiClient) put(path string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodPut, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot reach Argus node at %s.\nCheck if the node is running.", c.baseURL)
+	}
+	return readResponse(resp, "update")
+}
+
 func (c *apiClient) delete(path string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodDelete, c.baseURL+path, nil)
 	if err != nil {
