@@ -10,25 +10,29 @@ import (
 const sessionColumns = `id, name, tmux_name, created_at, updated_at,
 	working_directory, provider_session_id, model, system_prompt,
 	provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile, branch_created,
-	unread_since, last_viewed_at`
+	unread_since, last_viewed_at, flagged, starred`
 
 func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var s Session
 	var autoApprove int
 	var branchCreated int
+	var flagged int
+	var starred int
 	err := row.Scan(
 		&s.ID, &s.Name, &s.TmuxName, &s.CreatedAt, &s.UpdatedAt,
 		&s.WorkingDirectory,
 		&s.ProviderSessionID, &s.Model, &s.SystemPrompt,
 		&s.ProviderType, &autoApprove, &s.WorktreeBranch,
 		&s.GitParentDir, &s.GitRemoteURL, &s.Profile, &branchCreated,
-		&s.UnreadSince, &s.LastViewedAt,
+		&s.UnreadSince, &s.LastViewedAt, &flagged, &starred,
 	)
 	if err != nil {
 		return nil, err
 	}
 	s.AutoApprove = autoApprove != 0
 	s.BranchCreated = branchCreated != 0
+	s.Flagged = flagged != 0
+	s.Starred = starred != 0
 	return &s, nil
 }
 

@@ -80,6 +80,13 @@ var allMigrations = []migration{
 			ON notifications(session_id, sent_at)`)
 		return err
 	}},
+	{"add_flagged_and_starred", func(d *DB) error {
+		if _, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`)
+		return err
+	}},
 }
 
 // CheckMigrations verifies that all expected migrations have been applied.

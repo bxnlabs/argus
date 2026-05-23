@@ -20,7 +20,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   profile TEXT,
   branch_created INTEGER NOT NULL DEFAULT 0,
   unread_since TEXT,
-  last_viewed_at TEXT
+  last_viewed_at TEXT,
+  flagged INTEGER NOT NULL DEFAULT 0,
+  starred INTEGER NOT NULL DEFAULT 0
 );
 
 -- Notifications tracking

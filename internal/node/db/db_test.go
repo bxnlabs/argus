@@ -665,6 +665,28 @@ func TestFreshDBCheckMigrations(t *testing.T) {
 	}
 }
 
+func TestSessionFlaggedStarredDefaults(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "~", ProviderType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetSession("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Flagged {
+		t.Error("expected flagged=false by default")
+	}
+	if got.Starred {
+		t.Error("expected starred=false by default")
+	}
+}
+
 func TestUpgradeDBRequiresNotificationsMigration(t *testing.T) {
 	// Simulate an existing database that has all current session columns
 	// (fully migrated) but predates the notifications feature.
