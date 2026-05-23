@@ -91,6 +91,8 @@ type SessionUpdate struct {
 	TmuxName          *string `json:"tmux_name,omitempty"`
 	ProviderSessionID *string `json:"provider_session_id,omitempty"`
 	WorkingDirectory  *string `json:"working_directory,omitempty"`
+	Flagged           *bool   `json:"flagged,omitempty"`
+	Starred           *bool   `json:"starred,omitempty"`
 }
 
 func (d *DB) UpdateSession(id string, u SessionUpdate) (*Session, error) {
@@ -113,6 +115,22 @@ func (d *DB) UpdateSession(id string, u SessionUpdate) (*Session, error) {
 	if u.WorkingDirectory != nil {
 		sets = append(sets, "working_directory = ?")
 		args = append(args, *u.WorkingDirectory)
+	}
+	if u.Flagged != nil {
+		sets = append(sets, "flagged = ?")
+		v := 0
+		if *u.Flagged {
+			v = 1
+		}
+		args = append(args, v)
+	}
+	if u.Starred != nil {
+		sets = append(sets, "starred = ?")
+		v := 0
+		if *u.Starred {
+			v = 1
+		}
+		args = append(args, v)
 	}
 
 	if len(sets) == 0 {

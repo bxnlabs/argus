@@ -687,6 +687,42 @@ func TestSessionFlaggedStarredDefaults(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionFlaggedStarred(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "~", ProviderType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tru := true
+	got, err := db.UpdateSession("s1", SessionUpdate{Flagged: &tru, Starred: &tru})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Flagged {
+		t.Error("expected flagged=true after update")
+	}
+	if !got.Starred {
+		t.Error("expected starred=true after update")
+	}
+
+	// Clearing flagged must not touch starred.
+	fls := false
+	got2, err := db.UpdateSession("s1", SessionUpdate{Flagged: &fls})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Flagged {
+		t.Error("expected flagged=false after second update")
+	}
+	if !got2.Starred {
+		t.Error("expected starred to remain true")
+	}
+}
+
 func TestUpgradeDBRequiresNotificationsMigration(t *testing.T) {
 	// Simulate an existing database that has all current session columns
 	// (fully migrated) but predates the notifications feature.
