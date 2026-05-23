@@ -10,9 +10,8 @@ bin/
 /argus
 /argus-node
 
-# Local dev state and watcher build dir
+# Local dev state (includes air's watcher build dir at .dev/air/)
 /.dev/
-/tmp/
 
 # Tauri build output
 src-tauri/target/
