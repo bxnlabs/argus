@@ -2,8 +2,9 @@ package api
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/bxnlabs/argus/internal/source"
 )
 
 func TestResolveProjectDirHonorsArgusHome(t *testing.T) {
@@ -12,9 +13,9 @@ func TestResolveProjectDirHonorsArgusHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPrefix := filepath.Join("/custom/home", "projects")
-	if !strings.HasPrefix(got, wantPrefix) {
-		t.Errorf("resolveProjectDir() = %q, want prefix %q", got, wantPrefix)
+	want := filepath.Join("/custom/home", "projects", source.ParentKeyFromPath("/some/repo"))
+	if got != want {
+		t.Errorf("resolveProjectDir() = %q, want %q", got, want)
 	}
 }
 
