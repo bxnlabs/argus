@@ -27,7 +27,7 @@ worktrees, discovery file — under the gitignored `./.dev/` directory via the
 
 To run the CLI against the dev node, point it at the same state dir:
 
-    ARGUS_HOME=$PWD/.dev go run ./cmd/argus session list
+    ARGUS_HOME=$PWD/.dev go run ./cmd/argus session ls
 
 Optional personal overrides (notifications, branch prefix) can be placed in
 `.dev/config.toml` — see `argus.dev.toml.example`.

@@ -3,7 +3,7 @@ tmp_dir = ".dev/air"
 
 [build]
   cmd = "go build -o ./.dev/air/argus ./cmd/argus"
-  bin = "./.dev/air/argus"
+  entrypoint = ["./.dev/air/argus"]
   include_ext = ["go"]
   exclude_dir = ["web", "internal/web/dist", "bin", ".dev", "docs", "node_modules"]
   exclude_regex = ["_test\\.go"]
