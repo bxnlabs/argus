@@ -10,29 +10,27 @@ import (
 const sessionColumns = `id, name, tmux_name, created_at, updated_at,
 	working_directory, provider_session_id, model, system_prompt,
 	provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile, branch_created,
-	unread_since, last_viewed_at, flagged, starred`
+	unread_since, last_viewed_at, pinned`
 
 func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var s Session
 	var autoApprove int
 	var branchCreated int
-	var flagged int
-	var starred int
+	var pinned int
 	err := row.Scan(
 		&s.ID, &s.Name, &s.TmuxName, &s.CreatedAt, &s.UpdatedAt,
 		&s.WorkingDirectory,
 		&s.ProviderSessionID, &s.Model, &s.SystemPrompt,
 		&s.ProviderType, &autoApprove, &s.WorktreeBranch,
 		&s.GitParentDir, &s.GitRemoteURL, &s.Profile, &branchCreated,
-		&s.UnreadSince, &s.LastViewedAt, &flagged, &starred,
+		&s.UnreadSince, &s.LastViewedAt, &pinned,
 	)
 	if err != nil {
 		return nil, err
 	}
 	s.AutoApprove = autoApprove != 0
 	s.BranchCreated = branchCreated != 0
-	s.Flagged = flagged != 0
-	s.Starred = starred != 0
+	s.Pinned = pinned != 0
 	return &s, nil
 }
 
@@ -91,8 +89,7 @@ type SessionUpdate struct {
 	TmuxName          *string `json:"tmux_name,omitempty"`
 	ProviderSessionID *string `json:"provider_session_id,omitempty"`
 	WorkingDirectory  *string `json:"working_directory,omitempty"`
-	Flagged           *bool   `json:"flagged,omitempty"`
-	Starred           *bool   `json:"starred,omitempty"`
+	Pinned            *bool   `json:"pinned,omitempty"`
 }
 
 func (d *DB) UpdateSession(id string, u SessionUpdate) (*Session, error) {
@@ -116,18 +113,10 @@ func (d *DB) UpdateSession(id string, u SessionUpdate) (*Session, error) {
 		sets = append(sets, "working_directory = ?")
 		args = append(args, *u.WorkingDirectory)
 	}
-	if u.Flagged != nil {
-		sets = append(sets, "flagged = ?")
+	if u.Pinned != nil {
+		sets = append(sets, "pinned = ?")
 		v := 0
-		if *u.Flagged {
-			v = 1
-		}
-		args = append(args, v)
-	}
-	if u.Starred != nil {
-		sets = append(sets, "starred = ?")
-		v := 0
-		if *u.Starred {
+		if *u.Pinned {
 			v = 1
 		}
 		args = append(args, v)
@@ -137,8 +126,8 @@ func (d *DB) UpdateSession(id string, u SessionUpdate) (*Session, error) {
 		return d.GetSession(id)
 	}
 
-	// flagged/starred are user annotations, not session activity. Only refresh
-	// updated_at for identity/activity changes so toggling a star or flag
+	// pinned is a user annotation, not session activity. Only refresh
+	// updated_at for identity/activity changes so toggling a pin
 	// doesn't reorder the list (sorted by updated_at) or show a misleading
 	// "just now" recency.
 	if u.Name != nil || u.TmuxName != nil || u.ProviderSessionID != nil || u.WorkingDirectory != nil {

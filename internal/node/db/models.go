@@ -25,6 +25,5 @@ type Session struct {
 	BranchCreated    bool    `json:"branch_created"`
 	UnreadSince      *string `json:"unread_since"`
 	LastViewedAt     *string `json:"last_viewed_at"`
-	Flagged          bool    `json:"flagged"`
-	Starred          bool    `json:"starred"`
+	Pinned           bool    `json:"pinned"`
 }

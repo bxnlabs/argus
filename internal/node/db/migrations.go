@@ -71,13 +71,9 @@ var allMigrations = []migration{
 			ON notifications(session_id, sent_at)`)
 		return err
 	}},
-	{"add_flagged_and_starred", func(d *DB) error {
-		if err := d.addColumnIfMissing("flagged",
-			`ALTER TABLE sessions ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return err
-		}
-		return d.addColumnIfMissing("starred",
-			`ALTER TABLE sessions ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`)
+	{"add_pinned", func(d *DB) error {
+		return d.addColumnIfMissing("pinned",
+			`ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)
 	}},
 }
 

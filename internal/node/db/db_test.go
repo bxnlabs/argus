@@ -665,7 +665,7 @@ func TestFreshDBCheckMigrations(t *testing.T) {
 	}
 }
 
-func TestSessionFlaggedStarredDefaults(t *testing.T) {
+func TestSessionPinnedDefault(t *testing.T) {
 	db := testDB(t)
 
 	if err := db.CreateSession(&Session{
@@ -679,15 +679,12 @@ func TestSessionFlaggedStarredDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Flagged {
-		t.Error("expected flagged=false by default")
-	}
-	if got.Starred {
-		t.Error("expected starred=false by default")
+	if got.Pinned {
+		t.Error("expected pinned=false by default")
 	}
 }
 
-func TestUpdateSessionFlaggedStarred(t *testing.T) {
+func TestUpdateSessionPinned(t *testing.T) {
 	db := testDB(t)
 
 	if err := db.CreateSession(&Session{
@@ -698,32 +695,25 @@ func TestUpdateSessionFlaggedStarred(t *testing.T) {
 	}
 
 	tru := true
-	got, err := db.UpdateSession("s1", SessionUpdate{Flagged: &tru, Starred: &tru})
+	got, err := db.UpdateSession("s1", SessionUpdate{Pinned: &tru})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Flagged {
-		t.Error("expected flagged=true after update")
-	}
-	if !got.Starred {
-		t.Error("expected starred=true after update")
+	if !got.Pinned {
+		t.Error("expected pinned=true after update")
 	}
 
-	// Clearing flagged must not touch starred.
 	fls := false
-	got2, err := db.UpdateSession("s1", SessionUpdate{Flagged: &fls})
+	got2, err := db.UpdateSession("s1", SessionUpdate{Pinned: &fls})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got2.Flagged {
-		t.Error("expected flagged=false after second update")
-	}
-	if !got2.Starred {
-		t.Error("expected starred to remain true")
+	if got2.Pinned {
+		t.Error("expected pinned=false after second update")
 	}
 }
 
-func TestUpdateSessionFlagStarDoesNotTouchUpdatedAt(t *testing.T) {
+func TestUpdateSessionPinDoesNotTouchUpdatedAt(t *testing.T) {
 	db := testDB(t)
 
 	if err := db.CreateSession(&Session{
@@ -733,21 +723,19 @@ func TestUpdateSessionFlagStarDoesNotTouchUpdatedAt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Force an old updated_at so any refresh is detectable (datetime('now')
-	// has only second granularity).
 	old := "2000-01-01 00:00:00"
 	if _, err := db.sql.Exec(`UPDATE sessions SET updated_at = ? WHERE id = ?`, old, "s1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Toggling star/flag is an annotation, not activity: updated_at must hold.
+	// Toggling pin is an annotation, not activity: updated_at must hold.
 	tru := true
-	got, err := db.UpdateSession("s1", SessionUpdate{Starred: &tru, Flagged: &tru})
+	got, err := db.UpdateSession("s1", SessionUpdate{Pinned: &tru})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.UpdatedAt != old {
-		t.Errorf("star/flag must not bump updated_at: got %q, want %q", got.UpdatedAt, old)
+		t.Errorf("pin must not bump updated_at: got %q, want %q", got.UpdatedAt, old)
 	}
 
 	// A rename, by contrast, is activity and should refresh updated_at.
@@ -854,8 +842,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   branch_created INTEGER NOT NULL DEFAULT 0,
   unread_since TEXT,
   last_viewed_at TEXT,
-  flagged INTEGER NOT NULL DEFAULT 0,
-  starred INTEGER NOT NULL DEFAULT 0
+  pinned INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS _migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -870,7 +857,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	for _, name := range []string{
 		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
 		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
-		"add_unread_since_and_last_viewed_at", "add_flagged_and_starred",
+		"add_unread_since_and_last_viewed_at", "add_pinned",
 	} {
 		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
 			rawDB.Close()
@@ -895,18 +882,14 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	}
 }
 
-func TestMigrationRestartableAfterPartialColumnAdd(t *testing.T) {
-	// Simulate a DB where add_flagged_and_starred partially applied: flagged
-	// was added but starred was not, and the migration row was never written
-	// (e.g. the process died between the two ALTERs). Re-running migrations
-	// must not fail re-adding flagged, and must add the missing starred column.
-	path := filepath.Join(t.TempDir(), "partial.db")
+func TestMigrationAddsPinnedToExistingDB(t *testing.T) {
+	// Simulate an existing DB that predates the pinned column.
+	path := filepath.Join(t.TempDir(), "no-pinned.db")
 
 	rawDB, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Full current sessions schema minus the starred column.
 	_, err = rawDB.Exec(`
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
@@ -926,8 +909,7 @@ CREATE TABLE sessions (
   profile TEXT,
   branch_created INTEGER NOT NULL DEFAULT 0,
   unread_since TEXT,
-  last_viewed_at TEXT,
-  flagged INTEGER NOT NULL DEFAULT 0
+  last_viewed_at TEXT
 );
 CREATE TABLE _migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -938,17 +920,6 @@ CREATE TABLE _migrations (
 		rawDB.Close()
 		t.Fatal(err)
 	}
-	// All migrations recorded as applied except add_flagged_and_starred.
-	for _, name := range []string{
-		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
-		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
-		"add_unread_since_and_last_viewed_at", "create_notifications_table",
-	} {
-		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
-			rawDB.Close()
-			t.Fatal(err)
-		}
-	}
 	rawDB.Close()
 
 	d, err := Open(path)
@@ -958,14 +929,14 @@ CREATE TABLE _migrations (
 	defer d.Close()
 
 	if err := d.RunMigrations(); err != nil {
-		t.Fatalf("RunMigrations should be restartable after a partial column add: %v", err)
+		t.Fatalf("RunMigrations should add the pinned column: %v", err)
 	}
 
-	has, err := d.hasColumn("starred")
+	has, err := d.hasColumn("pinned")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !has {
-		t.Error("expected starred column to be added on migration restart")
+		t.Error("expected pinned column to be added by migration")
 	}
 }
