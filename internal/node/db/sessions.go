@@ -10,7 +10,7 @@ import (
 const sessionColumns = `id, name, tmux_name, created_at, updated_at,
 	working_directory, provider_session_id, model, system_prompt,
 	provider_type, auto_approve, worktree_branch, git_parent_dir, git_remote_url, profile, branch_created,
-	unread_since, last_viewed_at, pinned`
+	unread_since, last_viewed_at, pinned, marked_unread_at`
 
 func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var s Session
@@ -23,7 +23,7 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 		&s.ProviderSessionID, &s.Model, &s.SystemPrompt,
 		&s.ProviderType, &autoApprove, &s.WorktreeBranch,
 		&s.GitParentDir, &s.GitRemoteURL, &s.Profile, &branchCreated,
-		&s.UnreadSince, &s.LastViewedAt, &pinned,
+		&s.UnreadSince, &s.LastViewedAt, &pinned, &s.MarkedUnreadAt,
 	)
 	if err != nil {
 		return nil, err
@@ -309,13 +309,25 @@ func (d *DB) AcknowledgeSession(ctx context.Context, id string) error {
 	return err
 }
 
-// MarkSessionUnread sets unread_since to now, but only if it is not already
-// set. Mirrors AcknowledgeSession (which clears it). Idempotent: repeated
-// calls preserve the original unread_since, so the notification timer and
-// dedup key (which key off unread_since) stay stable.
+// MarkSessionUnread sets the manual follow-up marker marked_unread_at to now,
+// but only if not already set (COALESCE). It does not touch unread_since (the
+// automatic "agent finished" signal). Idempotent: repeated calls preserve the
+// original timestamp.
 func (d *DB) MarkSessionUnread(ctx context.Context, id string) error {
 	_, err := d.sql.ExecContext(ctx,
-		`UPDATE sessions SET unread_since = COALESCE(unread_since, datetime('now')) WHERE id = ?`,
+		`UPDATE sessions SET marked_unread_at = COALESCE(marked_unread_at, datetime('now')) WHERE id = ?`,
+		id,
+	)
+	return err
+}
+
+// MarkSessionRead clears both the automatic unread_since and the manual
+// marked_unread_at marker, and sets last_viewed_at to now. This is the explicit
+// "Mark as read" action; unlike AcknowledgeSession (which clears only the
+// automatic signal) it also clears the sticky manual marker.
+func (d *DB) MarkSessionRead(ctx context.Context, id string) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE sessions SET unread_since = NULL, marked_unread_at = NULL, last_viewed_at = datetime('now') WHERE id = ?`,
 		id,
 	)
 	return err

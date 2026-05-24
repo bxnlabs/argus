@@ -764,17 +764,29 @@ func TestMarkSessionUnread(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ := db.GetSession("s1")
-	if s.UnreadSince == nil {
-		t.Error("expected unread_since to be set after MarkSessionUnread")
+	if s.MarkedUnreadAt == nil {
+		t.Error("expected marked_unread_at to be set after MarkSessionUnread")
+	}
+	if s.UnreadSince != nil {
+		t.Error("MarkSessionUnread must not set unread_since")
 	}
 
-	// Acknowledge should clear it again.
+	// Acknowledge clears only the automatic signal; the manual marker survives.
 	if err := db.AcknowledgeSession(context.Background(), "s1"); err != nil {
 		t.Fatal(err)
 	}
 	s, _ = db.GetSession("s1")
-	if s.UnreadSince != nil {
-		t.Errorf("expected nil unread_since after acknowledge, got %v", s.UnreadSince)
+	if s.MarkedUnreadAt == nil {
+		t.Error("acknowledge must not clear marked_unread_at")
+	}
+
+	// Explicit read clears the manual marker.
+	if err := db.MarkSessionRead(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = db.GetSession("s1")
+	if s.MarkedUnreadAt != nil {
+		t.Errorf("expected nil marked_unread_at after MarkSessionRead, got %v", s.MarkedUnreadAt)
 	}
 }
 
@@ -793,22 +805,57 @@ func TestMarkSessionUnreadIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, _ := db.GetSession("s1")
-	if first.UnreadSince == nil {
-		t.Fatal("expected unread_since to be set after first MarkSessionUnread")
+	if first.MarkedUnreadAt == nil {
+		t.Fatal("expected marked_unread_at to be set after first MarkSessionUnread")
 	}
 
 	// Force the stored timestamp into the past, then re-mark. A repeated call
-	// must preserve the original unread_since (notifications key off it).
+	// must preserve the original marked_unread_at.
 	past := "2000-01-01 00:00:00"
-	if _, err := db.sql.Exec(`UPDATE sessions SET unread_since = ? WHERE id = ?`, past, "s1"); err != nil {
+	if _, err := db.sql.Exec(`UPDATE sessions SET marked_unread_at = ? WHERE id = ?`, past, "s1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
 		t.Fatal(err)
 	}
 	second, _ := db.GetSession("s1")
-	if second.UnreadSince == nil || *second.UnreadSince != past {
-		t.Errorf("repeated MarkSessionUnread must preserve unread_since: got %v, want %q", second.UnreadSince, past)
+	if second.MarkedUnreadAt == nil || *second.MarkedUnreadAt != past {
+		t.Errorf("repeated MarkSessionUnread must preserve marked_unread_at: got %v, want %q", second.MarkedUnreadAt, past)
+	}
+}
+
+func TestMarkSessionReadClearsBoth(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	// Set both the automatic signal and the manual marker.
+	ts := "2026-05-24 12:00:00"
+	if err := db.SetUnreadSince(context.Background(), "s1", &ts); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.MarkSessionRead(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := db.GetSession("s1")
+	if s.UnreadSince != nil {
+		t.Errorf("expected nil unread_since after MarkSessionRead, got %v", s.UnreadSince)
+	}
+	if s.MarkedUnreadAt != nil {
+		t.Errorf("expected nil marked_unread_at after MarkSessionRead, got %v", s.MarkedUnreadAt)
+	}
+	if s.LastViewedAt == nil {
+		t.Error("expected last_viewed_at to be set after MarkSessionRead")
 	}
 }
 
@@ -842,7 +889,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   branch_created INTEGER NOT NULL DEFAULT 0,
   unread_since TEXT,
   last_viewed_at TEXT,
-  pinned INTEGER NOT NULL DEFAULT 0
+  pinned INTEGER NOT NULL DEFAULT 0,
+  marked_unread_at TEXT
 );
 CREATE TABLE IF NOT EXISTS _migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -857,7 +905,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	for _, name := range []string{
 		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
 		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
-		"add_unread_since_and_last_viewed_at", "add_pinned",
+		"add_unread_since_and_last_viewed_at", "add_pinned", "add_marked_unread_at",
 	} {
 		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
 			rawDB.Close()
@@ -938,5 +986,65 @@ CREATE TABLE _migrations (
 	}
 	if !has {
 		t.Error("expected pinned column to be added by migration")
+	}
+}
+
+func TestMigrationAddsMarkedUnreadToExistingDB(t *testing.T) {
+	// Simulate an existing DB that predates the marked_unread_at column.
+	path := filepath.Join(t.TempDir(), "no-marked.db")
+
+	rawDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rawDB.Exec(`
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  tmux_name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  working_directory TEXT NOT NULL DEFAULT '~',
+  provider_session_id TEXT,
+  model TEXT DEFAULT 'sonnet',
+  system_prompt TEXT,
+  provider_type TEXT NOT NULL DEFAULT 'claude',
+  auto_approve INTEGER NOT NULL DEFAULT 0,
+  worktree_branch TEXT,
+  git_parent_dir TEXT,
+  git_remote_url TEXT,
+  profile TEXT,
+  branch_created INTEGER NOT NULL DEFAULT 0,
+  unread_since TEXT,
+  last_viewed_at TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE _migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`)
+	if err != nil {
+		rawDB.Close()
+		t.Fatal(err)
+	}
+	rawDB.Close()
+
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	if err := d.RunMigrations(); err != nil {
+		t.Fatalf("RunMigrations should add marked_unread_at: %v", err)
+	}
+
+	has, err := d.hasColumn("marked_unread_at")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("expected marked_unread_at column to be added by migration")
 	}
 }
