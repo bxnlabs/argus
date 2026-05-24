@@ -16,6 +16,7 @@ type sessionInfo struct {
 	WorkingDirectory string  `json:"working_directory"`
 	ProviderType     string  `json:"provider_type"`
 	AutoApprove      bool    `json:"auto_approve"`
+	Pinned           bool    `json:"pinned"`
 	Model            *string `json:"model"`
 	WorktreeBranch   *string `json:"worktree_branch"`
 	GitParentDir     *string `json:"git_parent_dir"`
