@@ -80,8 +80,18 @@ function HomeContent() {
   const attachToSession = useCallback(
     (session: Session) => {
       attachSession(session.id);
+
+      // Acknowledge the automatic unread_since when selecting a session.
+      // Acknowledge leaves the manual marked_unread_at intact, so a sticky
+      // "Mark as unread" survives selection.
+      const status = sessionStatuses[session.id];
+      if (status?.unreadSince) {
+        fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
+          method: "POST",
+        }).catch(() => {});
+      }
     },
-    [attachSession]
+    [attachSession, sessionStatuses]
   );
 
   // Deep-link: auto-attach session from ?session= query param (e.g. from Slack notification)
