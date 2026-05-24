@@ -33,8 +33,7 @@ function HomeContent() {
     isLoaded: sessionsLoaded,
     deleteSession,
     renameSession,
-    toggleStar,
-    toggleFlag,
+    togglePin,
     markRead,
     markUnread,
   } = useSessions();
@@ -67,7 +66,7 @@ function HomeContent() {
   useViewportHeight();
 
   // Notifications
-  const { checkStateChanges, suppressUnreadNotification } = useNotifications();
+  const { checkStateChanges } = useNotifications();
 
   // Session statuses
   const { sessionStatuses } = useSessionStatuses({
@@ -81,16 +80,8 @@ function HomeContent() {
   const attachToSession = useCallback(
     (session: Session) => {
       attachSession(session.id);
-
-      // Acknowledge unread state when selecting a session
-      const status = sessionStatuses[session.id];
-      if (status?.unreadSince) {
-        fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
-          method: "POST",
-        }).catch(() => {});
-      }
     },
-    [attachSession, sessionStatuses]
+    [attachSession]
   );
 
   // Deep-link: auto-attach session from ?session= query param (e.g. from Slack notification)
@@ -211,28 +202,16 @@ function HomeContent() {
     [renameSession]
   );
 
-  const handleToggleStar = useCallback(
-    async (sessionId: string, starred: boolean) => {
+  const handleTogglePin = useCallback(
+    async (sessionId: string, pinned: boolean) => {
       try {
-        await toggleStar(sessionId, starred);
+        await togglePin(sessionId, pinned);
       } catch (err) {
         console.error("Failed to update session:", err);
         toast.error("Failed to update session");
       }
     },
-    [toggleStar],
-  );
-
-  const handleToggleFlag = useCallback(
-    async (sessionId: string, flagged: boolean) => {
-      try {
-        await toggleFlag(sessionId, flagged);
-      } catch (err) {
-        console.error("Failed to update session:", err);
-        toast.error("Failed to update session");
-      }
-    },
-    [toggleFlag],
+    [togglePin],
   );
 
   const handleMarkRead = useCallback(
@@ -249,20 +228,14 @@ function HomeContent() {
 
   const handleMarkUnread = useCallback(
     async (sessionId: string) => {
-      // Manual unread is a deliberate user action, not the agent finishing —
-      // suppress the "finished working" notification it would otherwise trigger.
-      suppressUnreadNotification(sessionId);
       try {
         await markUnread(sessionId);
       } catch (err) {
-        // Intentionally do NOT clear the suppression: the request may have
-        // committed server-side despite erroring, and undoing it would let the
-        // next status refetch fire a false "finished working" toast.
         console.error("Failed to mark session unread:", err);
         toast.error("Failed to mark session unread");
       }
     },
-    [markUnread, suppressUnreadNotification],
+    [markUnread],
   );
 
   // Render the main workspace
@@ -297,8 +270,7 @@ function HomeContent() {
     onCreateSession: handleCreateSession,
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
-    onToggleStar: handleToggleStar,
-    onToggleFlag: handleToggleFlag,
+    onTogglePin: handleTogglePin,
     onMarkRead: handleMarkRead,
     onMarkUnread: handleMarkUnread,
     renderWorkspace,

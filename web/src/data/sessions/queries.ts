@@ -121,20 +121,19 @@ export function useRenameSession() {
 
 export interface UpdateSessionInput {
   sessionId: string;
-  flagged?: boolean;
-  starred?: boolean;
+  pinned?: boolean;
 }
 
 export function useUpdateSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ sessionId, flagged, starred }: UpdateSessionInput) =>
+    mutationFn: ({ sessionId, pinned }: UpdateSessionInput) =>
       apiFetch(`/node/api/sessions/${sessionId}`, {
         method: "PATCH",
-        body: JSON.stringify({ flagged, starred }),
+        body: JSON.stringify({ pinned }),
       }),
-    onMutate: async ({ sessionId, flagged, starred }) => {
+    onMutate: async ({ sessionId, pinned }) => {
       await queryClient.cancelQueries({ queryKey: sessionKeys.list() });
       const previous = queryClient.getQueryData<SessionsResponse>(
         sessionKeys.list(),
@@ -145,11 +144,7 @@ export function useUpdateSession() {
               ...old,
               sessions: old.sessions.map((s) =>
                 s.id === sessionId
-                  ? {
-                      ...s,
-                      ...(flagged !== undefined ? { flagged } : {}),
-                      ...(starred !== undefined ? { starred } : {}),
-                    }
+                  ? { ...s, ...(pinned !== undefined ? { pinned } : {}) }
                   : s,
               ),
             }
@@ -174,7 +169,7 @@ export function useMarkRead() {
   return useMutation({
     mutationFn: (sessionId: string) =>
       apiTextFetch(
-        `/node/api/sessions/${encodeURIComponent(sessionId)}/acknowledge`,
+        `/node/api/sessions/${encodeURIComponent(sessionId)}/read`,
         { method: "POST" },
       ),
     onMutate: async (sessionId: string) => {
@@ -187,7 +182,7 @@ export function useMarkRead() {
           ...old,
           statuses: {
             ...old.statuses,
-            [sessionId]: { ...status, unreadSince: null },
+            [sessionId]: { ...status, unreadSince: null, markedUnreadAt: null },
           },
         };
       });
@@ -223,7 +218,7 @@ export function useMarkUnread() {
           ...old,
           statuses: {
             ...old.statuses,
-            [sessionId]: { ...status, unreadSince: new Date().toISOString() },
+            [sessionId]: { ...status, markedUnreadAt: new Date().toISOString() },
           },
         };
       });

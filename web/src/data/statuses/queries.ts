@@ -48,21 +48,6 @@ export function useSessionStatusesQuery({
     }).catch(() => {});
   }, [query.data, activeSessionId]);
 
-  // Auto-acknowledge unread state for the actively viewed session.
-  // Covers the case where the app opens with a session already selected
-  // (from localStorage) that became unread while the user was away.
-  useEffect(() => {
-    if (!activeSessionId || !query.data) return;
-    if (document.hidden) return;
-
-    const status = query.data.statuses?.[activeSessionId];
-    if (status?.unreadSince) {
-      fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(activeSessionId)}/acknowledge`, {
-        method: "POST",
-      }).catch(() => {});
-    }
-  }, [query.data, activeSessionId]);
-
   useEffect(() => {
     if (!query.data?.statuses) return;
 

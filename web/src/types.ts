@@ -13,8 +13,7 @@ export interface Session {
   system_prompt: string | null;
   provider_type: ProviderType;
   auto_approve: boolean;
-  flagged: boolean;
-  starred: boolean;
+  pinned: boolean;
 }
 
 export interface SessionStatusInfo {
@@ -22,6 +21,7 @@ export interface SessionStatusInfo {
   status: "active" | "idle" | "dead";
   providerType: ProviderType;
   unreadSince?: string | null;
+  markedUnreadAt?: string | null;
 }
 
 export type ProviderType = "claude" | "codex" | "gemini" | "shell";

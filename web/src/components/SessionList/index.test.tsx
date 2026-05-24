@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sortSessions, readMenuState } from "./index";
+import { partitionSessions, readMenuState } from "./index";
 import type { Session } from "@/types";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -18,57 +18,49 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     system_prompt: null,
     provider_type: "claude",
     auto_approve: false,
-    flagged: false,
-    starred: false,
+    pinned: false,
     ...overrides,
   };
 }
 
-describe("sortSessions", () => {
-  it("places starred sessions before unstarred ones", () => {
-    const a = makeSession({ id: "a", starred: false, updated_at: "2026-01-03 00:00:00" });
-    const b = makeSession({ id: "b", starred: true, updated_at: "2026-01-01 00:00:00" });
-    const sorted = sortSessions([a, b]);
-    expect(sorted.map((s) => s.id)).toEqual(["b", "a"]);
+describe("partitionSessions", () => {
+  it("splits pinned from the rest", () => {
+    const a = makeSession({ id: "a", pinned: false });
+    const b = makeSession({ id: "b", pinned: true });
+    const { pinned, rest } = partitionSessions([a, b]);
+    expect(pinned.map((s) => s.id)).toEqual(["b"]);
+    expect(rest.map((s) => s.id)).toEqual(["a"]);
   });
 
-  it("orders by updated_at descending within the same starred group", () => {
-    const older = makeSession({ id: "older", updated_at: "2026-01-01 00:00:00" });
-    const newer = makeSession({ id: "newer", updated_at: "2026-01-05 00:00:00" });
-    const sorted = sortSessions([older, newer]);
-    expect(sorted.map((s) => s.id)).toEqual(["newer", "older"]);
-  });
-
-  it("orders starred group by updated_at, then unstarred group by updated_at", () => {
-    const starredOld = makeSession({ id: "s-old", starred: true, updated_at: "2026-01-01 00:00:00" });
-    const starredNew = makeSession({ id: "s-new", starred: true, updated_at: "2026-01-04 00:00:00" });
-    const plainOld = makeSession({ id: "p-old", starred: false, updated_at: "2026-01-02 00:00:00" });
-    const plainNew = makeSession({ id: "p-new", starred: false, updated_at: "2026-01-09 00:00:00" });
-    const sorted = sortSessions([starredOld, plainOld, starredNew, plainNew]);
-    expect(sorted.map((s) => s.id)).toEqual(["s-new", "s-old", "p-new", "p-old"]);
+  it("orders each group by updated_at descending", () => {
+    const pOld = makeSession({ id: "p-old", pinned: true, updated_at: "2026-01-01 00:00:00" });
+    const pNew = makeSession({ id: "p-new", pinned: true, updated_at: "2026-01-04 00:00:00" });
+    const rOld = makeSession({ id: "r-old", updated_at: "2026-01-02 00:00:00" });
+    const rNew = makeSession({ id: "r-new", updated_at: "2026-01-09 00:00:00" });
+    const { pinned, rest } = partitionSessions([pOld, rOld, pNew, rNew]);
+    expect(pinned.map((s) => s.id)).toEqual(["p-new", "p-old"]);
+    expect(rest.map((s) => s.id)).toEqual(["r-new", "r-old"]);
   });
 
   it("does not mutate the input array", () => {
-    const input = [makeSession({ id: "a" }), makeSession({ id: "b", starred: true })];
+    const input = [makeSession({ id: "a" }), makeSession({ id: "b", pinned: true })];
     const copy = [...input];
-    sortSessions(input);
+    partitionSessions(input);
     expect(input).toEqual(copy);
   });
 });
 
 describe("readMenuState", () => {
-  it("shows 'Mark as read' only when the session is unread", () => {
-    expect(readMenuState("2026-01-01 00:00:00", false).showMarkRead).toBe(true);
-    expect(readMenuState(null, false).showMarkRead).toBe(false);
-    expect(readMenuState(undefined, false).showMarkRead).toBe(false);
+  it("shows 'Mark as read' when either unread signal is set", () => {
+    expect(readMenuState("2026-01-01 00:00:00", null).showMarkRead).toBe(true);
+    expect(readMenuState(null, "2026-01-01 00:00:00").showMarkRead).toBe(true);
+    expect(readMenuState(null, null).showMarkRead).toBe(false);
+    expect(readMenuState(undefined, undefined).showMarkRead).toBe(false);
   });
 
-  it("shows 'Mark as unread' only when read and not the active session", () => {
-    expect(readMenuState(null, false).showMarkUnread).toBe(true);
-    expect(readMenuState(null, true).showMarkUnread).toBe(false);
-    expect(readMenuState("2026-01-01 00:00:00", false).showMarkUnread).toBe(false);
-    // Active session that is also unread: still can mark read, never mark unread.
-    expect(readMenuState("2026-01-01 00:00:00", true).showMarkRead).toBe(true);
-    expect(readMenuState("2026-01-01 00:00:00", true).showMarkUnread).toBe(false);
+  it("shows 'Mark as unread' only when neither signal is set", () => {
+    expect(readMenuState(null, null).showMarkUnread).toBe(true);
+    expect(readMenuState("2026-01-01 00:00:00", null).showMarkUnread).toBe(false);
+    expect(readMenuState(null, "2026-01-01 00:00:00").showMarkUnread).toBe(false);
   });
 });

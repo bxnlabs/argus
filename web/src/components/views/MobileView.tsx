@@ -21,8 +21,7 @@ export function MobileView({
   onCreateSession,
   onDeleteSession,
   onRenameSession,
-  onToggleStar,
-  onToggleFlag,
+  onTogglePin,
   onMarkRead,
   onMarkUnread,
   renderWorkspace,
@@ -88,9 +87,6 @@ export function MobileView({
 
               {/* Sessions */}
               <div className="mt-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="text-muted-foreground px-4 pb-1 text-xs font-medium">
-                  Sessions
-                </div>
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <SessionList
                     sessions={sessions}
@@ -100,8 +96,7 @@ export function MobileView({
                     onAttachSession={handleAttachSession}
                     onDeleteSession={onDeleteSession}
                     onRenameSession={onRenameSession}
-                    onToggleStar={onToggleStar}
-                    onToggleFlag={onToggleFlag}
+                    onTogglePin={onTogglePin}
                     onMarkRead={onMarkRead}
                     onMarkUnread={onMarkUnread}
                     onNewSession={() => {

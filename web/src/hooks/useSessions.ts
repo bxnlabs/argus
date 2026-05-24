@@ -52,16 +52,9 @@ export function useSessions() {
     [],
   );
 
-  const toggleStar = useCallback(
-    async (sessionId: string, starred: boolean) => {
-      await updateMutateRef.current({ sessionId, starred });
-    },
-    [],
-  );
-
-  const toggleFlag = useCallback(
-    async (sessionId: string, flagged: boolean) => {
-      await updateMutateRef.current({ sessionId, flagged });
+  const togglePin = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      await updateMutateRef.current({ sessionId, pinned });
     },
     [],
   );
@@ -80,8 +73,7 @@ export function useSessions() {
     isLoaded: isSuccess,
     deleteSession,
     renameSession,
-    toggleStar,
-    toggleFlag,
+    togglePin,
     markRead,
     markUnread,
   };

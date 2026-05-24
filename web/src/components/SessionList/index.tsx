@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Star, Flag, MailOpen, Mail } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Pin, MailOpen, Mail } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
@@ -48,28 +48,43 @@ function getStatusLabel(status?: string) {
   }
 }
 
-// Sort starred sessions to the top, then by updated_at descending within each
-// group. Returns a new array (does not mutate the input).
-export function sortSessions(sessions: Session[]): Session[] {
-  return [...sessions].sort((a, b) => {
-    if (a.starred !== b.starred) return a.starred ? -1 : 1;
-    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-  });
+// Split sessions into pinned and the rest, each ordered by updated_at
+// descending. Returns new arrays (does not mutate the input).
+export function partitionSessions(sessions: Session[]): {
+  pinned: Session[];
+  rest: Session[];
+} {
+  const byUpdatedDesc = (a: Session, b: Session) =>
+    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+  return {
+    pinned: sessions.filter((s) => s.pinned).sort(byUpdatedDesc),
+    rest: sessions.filter((s) => !s.pinned).sort(byUpdatedDesc),
+  };
 }
 
-// Decide which read/unread menu items to show. "Mark as read" appears only
-// when the session is unread. "Mark as unread" appears only when the session
-// is read AND is not the active session (the active session auto-acknowledges,
-// so a manual unread there would immediately revert).
+// Decide which read/unread menu items to show. A session is "unread" when
+// either the automatic unread_since or the manual marked_unread_at is set.
+// "Mark as read" shows when unread; "Mark as unread" shows when read. The
+// manual marker survives auto-acknowledge, so the active session is no longer
+// special-cased.
 export function readMenuState(
   unreadSince: string | null | undefined,
-  isActive: boolean,
+  markedUnreadAt: string | null | undefined,
 ): { showMarkRead: boolean; showMarkUnread: boolean } {
-  const isUnread = !!unreadSince;
-  return {
-    showMarkRead: isUnread,
-    showMarkUnread: !isUnread && !isActive,
-  };
+  const isUnread = !!unreadSince || !!markedUnreadAt;
+  return { showMarkRead: isUnread, showMarkUnread: !isUnread };
+}
+
+// ---------------------------------------------------------------------------
+// SectionHeader
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-muted-foreground px-2 pt-2 pb-1 text-xs font-medium">
+      {children}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +100,7 @@ interface SessionItemProps {
   isActive: boolean;
   statusValue?: SessionStatusInfo["status"];
   unreadSince?: string | null;
+  markedUnreadAt?: string | null;
   minuteTick: number;
   isRenaming: boolean;
   renameValue: string;
@@ -95,8 +111,7 @@ interface SessionItemProps {
   onStartRename: (session: Session) => void;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
-  onToggleStar: (sessionId: string, starred: boolean) => void;
-  onToggleFlag: (sessionId: string, flagged: boolean) => void;
+  onTogglePin: (sessionId: string, pinned: boolean) => void;
   onMarkRead: (sessionId: string) => void;
   onMarkUnread: (sessionId: string) => void;
   renamePendingRef: React.RefObject<boolean>;
@@ -108,6 +123,7 @@ const SessionItem = memo(function SessionItem({
   isActive,
   statusValue,
   unreadSince,
+  markedUnreadAt,
   minuteTick: _minuteTick,
   isRenaming,
   renameValue,
@@ -118,8 +134,7 @@ const SessionItem = memo(function SessionItem({
   onStartRename,
   onAttachSession,
   onDeleteSession,
-  onToggleStar,
-  onToggleFlag,
+  onTogglePin,
   onMarkRead,
   onMarkUnread,
   renamePendingRef,
@@ -127,7 +142,8 @@ const SessionItem = memo(function SessionItem({
   const repoPath = session.git_remote_url
     ? parseRepoFromRemoteURL(session.git_remote_url)
     : null;
-  const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, isActive);
+  const isUnread = !!unreadSince || !!markedUnreadAt;
+  const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, markedUnreadAt);
 
   return (
     <div
@@ -170,24 +186,21 @@ const SessionItem = memo(function SessionItem({
               <span className="truncate text-sm">
                 {session.name || "Unnamed Session"}
               </span>
-              {session.starred && (
-                <Star className="h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" />
-              )}
-              {session.flagged && (
-                <Flag className="h-3.5 w-3.5 flex-shrink-0 text-orange-500" />
+              {session.pinned && (
+                <Pin className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
               )}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <div
                 className={cn(
                   "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                  unreadSince ? "bg-blue-500" : getStatusColor(statusValue),
-                  !unreadSince && getStatusAnimation(statusValue)
+                  isUnread ? "bg-blue-500" : getStatusColor(statusValue),
+                  !isUnread && getStatusAnimation(statusValue)
                 )}
               />
               <span className="text-muted-foreground text-xs">
                 {(() => {
-                  const label = unreadSince ? "Unread" : getStatusLabel(statusValue);
+                  const label = isUnread ? "Unread" : getStatusLabel(statusValue);
                   return label ? `${label} · ` : "";
                 })()}
                 {formatRelativeTime(session.updated_at)}
@@ -242,27 +255,13 @@ const SessionItem = memo(function SessionItem({
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
-              onToggleStar(session.id, !session.starred);
+              onTogglePin(session.id, !session.pinned);
             }}
           >
-            <Star
-              className={cn(
-                "mr-2 h-3 w-3",
-                session.starred && "fill-amber-400 text-amber-400"
-              )}
+            <Pin
+              className={cn("mr-2 h-3 w-3", session.pinned && "fill-current")}
             />
-            {session.starred ? "Unstar" : "Star"}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFlag(session.id, !session.flagged);
-            }}
-          >
-            <Flag
-              className={cn("mr-2 h-3 w-3", session.flagged && "text-orange-500")}
-            />
-            {session.flagged ? "Unflag" : "Flag"}
+            {session.pinned ? "Unpin" : "Pin"}
           </DropdownMenuItem>
           {showMarkRead && (
             <DropdownMenuItem
@@ -338,8 +337,7 @@ interface SessionListProps {
   errorMessage?: string;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
-  onToggleStar: (sessionId: string, starred: boolean) => void;
-  onToggleFlag: (sessionId: string, flagged: boolean) => void;
+  onTogglePin: (sessionId: string, pinned: boolean) => void;
   onMarkRead: (sessionId: string) => void;
   onMarkUnread: (sessionId: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
@@ -357,8 +355,7 @@ export const SessionList = memo(function SessionList({
   errorMessage,
   onAttachSession,
   onDeleteSession,
-  onToggleStar,
-  onToggleFlag,
+  onTogglePin,
   onMarkRead,
   onMarkUnread,
   onRenameSession,
@@ -391,8 +388,8 @@ export const SessionList = memo(function SessionList({
     return () => clearInterval(id);
   }, []);
 
-  // Starred sessions first, then by updated_at descending within each group.
-  const sortedSessions = useMemo(() => sortSessions(sessions), [sessions]);
+  // Pinned sessions in their own group; the rest below. Each updated_at DESC.
+  const { pinned, rest } = useMemo(() => partitionSessions(sessions), [sessions]);
 
   const handleStartRename = useCallback((session: Session) => {
     renamePendingRef.current = true;
@@ -415,6 +412,35 @@ export const SessionList = memo(function SessionList({
     setRenamingSessionId(null);
     setRenameValue("");
   }, []);
+
+  const renderItem = (session: Session) => {
+    const isRenaming = renamingSessionId === session.id;
+    return (
+      <SessionItem
+        key={session.id}
+        session={session}
+        homeDir={homeDir}
+        isActive={session.id === activeSessionId}
+        statusValue={sessionStatuses?.[session.id]?.status}
+        unreadSince={sessionStatuses?.[session.id]?.unreadSince}
+        markedUnreadAt={sessionStatuses?.[session.id]?.markedUnreadAt}
+        minuteTick={minuteTick}
+        isRenaming={isRenaming}
+        renameValue={isRenaming ? renameValue : ""}
+        renameInputRef={renameInputRef}
+        onRenameValueChange={setRenameValue}
+        onConfirmRename={handleConfirmRename}
+        onCancelRename={handleCancelRename}
+        onStartRename={handleStartRename}
+        onAttachSession={onAttachSession}
+        onDeleteSession={onDeleteSession}
+        onTogglePin={onTogglePin}
+        onMarkRead={onMarkRead}
+        onMarkUnread={onMarkUnread}
+        renamePendingRef={renamePendingRef}
+      />
+    );
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -461,38 +487,21 @@ export const SessionList = memo(function SessionList({
             </div>
           )}
 
-          {/* Flat session list */}
-          {!isLoading &&
-            !isError &&
-            sortedSessions.map((session) => {
-              const isRenaming = renamingSessionId === session.id;
+          {/* Pinned section — only when at least one session is pinned */}
+          {!isLoading && !isError && pinned.length > 0 && (
+            <>
+              <SectionHeader>Pinned</SectionHeader>
+              {pinned.map(renderItem)}
+            </>
+          )}
 
-              return (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  homeDir={homeDir}
-                  isActive={session.id === activeSessionId}
-                  statusValue={sessionStatuses?.[session.id]?.status}
-                  unreadSince={sessionStatuses?.[session.id]?.unreadSince}
-                  minuteTick={minuteTick}
-                  isRenaming={isRenaming}
-                  renameValue={isRenaming ? renameValue : ""}
-                  renameInputRef={renameInputRef}
-                  onRenameValueChange={setRenameValue}
-                  onConfirmRename={handleConfirmRename}
-                  onCancelRename={handleCancelRename}
-                  onStartRename={handleStartRename}
-                  onAttachSession={onAttachSession}
-                  onDeleteSession={onDeleteSession}
-                  onToggleStar={onToggleStar}
-                  onToggleFlag={onToggleFlag}
-                  onMarkRead={onMarkRead}
-                  onMarkUnread={onMarkUnread}
-                  renamePendingRef={renamePendingRef}
-                />
-              );
-            })}
+          {/* Recents section — the rest */}
+          {!isLoading && !isError && rest.length > 0 && (
+            <>
+              <SectionHeader>Recents</SectionHeader>
+              {rest.map(renderItem)}
+            </>
+          )}
         </div>
       </ScrollArea>
     </div>
