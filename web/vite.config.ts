@@ -34,10 +34,6 @@ export default defineConfig(() => {
           target: wsTarget,
           ws: true,
         },
-        "/api": {
-          target: apiTarget,
-          changeOrigin: true,
-        },
       },
     },
   };
