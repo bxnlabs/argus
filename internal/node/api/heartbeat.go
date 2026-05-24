@@ -40,7 +40,7 @@ func (h *heartbeatHandler) acknowledge(w http.ResponseWriter, r *http.Request) {
 }
 
 // markUnread handles POST /api/sessions/{id}/unread.
-// Sets unread_since = now(). Idempotent.
+// Sets the manual marked_unread_at marker; does not touch unread_since. Idempotent.
 func (h *heartbeatHandler) markUnread(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.db.MarkSessionUnread(r.Context(), id); err != nil {
@@ -51,7 +51,7 @@ func (h *heartbeatHandler) markUnread(w http.ResponseWriter, r *http.Request) {
 }
 
 // markRead handles POST /api/sessions/{id}/read.
-// Clears both unread_since and marked_unread_at and sets last_viewed_at.
+// Clears both unread_since and marked_unread_at and sets last_viewed_at. Idempotent.
 func (h *heartbeatHandler) markRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.db.MarkSessionRead(r.Context(), id); err != nil {

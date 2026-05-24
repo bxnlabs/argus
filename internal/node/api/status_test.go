@@ -165,6 +165,7 @@ func TestHandleStatus_IncludesMarkedUnreadAt(t *testing.T) {
 
 	var resp struct {
 		Statuses map[string]struct {
+			UnreadSince    *string `json:"unreadSince"`
 			MarkedUnreadAt *string `json:"markedUnreadAt"`
 		} `json:"statuses"`
 	}
@@ -177,5 +178,10 @@ func TestHandleStatus_IncludesMarkedUnreadAt(t *testing.T) {
 	}
 	if entry.MarkedUnreadAt == nil {
 		t.Error("expected markedUnreadAt to be present in status response")
+	}
+	// The manual marker is independent of the automatic signal: marking unread
+	// must not set unread_since.
+	if entry.UnreadSince != nil {
+		t.Error("MarkSessionUnread must not surface unreadSince in status")
 	}
 }
