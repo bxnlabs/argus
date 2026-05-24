@@ -6,10 +6,9 @@ interface InlineCommentFormProps {
   onCancel: () => void;
   initialBody?: string;
   submitLabel?: string;
-  bare?: boolean;
 }
 
-export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submitLabel = "Comment", bare = false }: InlineCommentFormProps) {
+export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submitLabel = "Comment" }: InlineCommentFormProps) {
   const [body, setBody] = useState(initialBody);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -28,7 +27,7 @@ export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submit
     }
   };
 
-  const inner = (
+  return (
     <>
       <textarea
         ref={textareaRef}
@@ -56,19 +55,5 @@ export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submit
           </Button>
       </div>
     </>
-  );
-
-  if (bare) {
-    return inner;
-  }
-
-  return (
-    <div className="px-3 py-1.5 font-sans">
-      <div className="bg-card/80 border-primary/40 rounded-md border border-l-2 border-l-primary shadow-sm">
-        <div className="p-3">
-          {inner}
-        </div>
-      </div>
-    </div>
   );
 }
