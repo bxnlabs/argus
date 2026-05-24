@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/bxnlabs/argus/internal/node/git/review"
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 	"github.com/spf13/cobra"
 )
@@ -44,11 +45,11 @@ func newReviewGetCmd() *cobra.Command {
 			}
 			repoDir := resolved.LocalPath
 			parentKey := resolved.ParentKey()
-			home, err := os.UserHomeDir()
+			stateDir, err := shared.StateDir()
 			if err != nil {
-				return fmt.Errorf("cannot determine home directory: %w", err)
+				return fmt.Errorf("cannot determine state dir: %w", err)
 			}
-			projectDir := filepath.Join(home, ".argus", "projects", parentKey)
+			projectDir := filepath.Join(stateDir, "projects", parentKey)
 
 			dp, err := discoveryFilePath()
 			if err != nil {

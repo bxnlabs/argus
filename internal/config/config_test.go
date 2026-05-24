@@ -17,6 +17,7 @@ func clearArgusEnv(t *testing.T) {
 		"ARGUS_SERVER_PORT", "ARGUS_SERVER_BIND_ADDRESS",
 		"ARGUS_NODE_PORT", "ARGUS_NODE_BIND_ADDRESS",
 		"ARGUS_DATABASE_PATH", "ARGUS_GIT_BRANCH_PREFIX",
+		"ARGUS_HOME",
 		"ARGUS_TAILSCALE_ENABLED",
 		"ARGUS_TAILSCALE_HOSTNAME_PREFIX",
 		"ARGUS_TAILSCALE_AUTH_KEY",
@@ -54,8 +55,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.Node.BindAddress != "127.0.0.1" {
 		t.Errorf("Node.BindAddress = %q, want 127.0.0.1", cfg.Node.BindAddress)
 	}
-	if cfg.Database.Path != "~/.argus/node.db" {
-		t.Errorf("Database.Path = %q, want ~/.argus/node.db", cfg.Database.Path)
+	wantDB := filepath.Join(os.Getenv("HOME"), ".argus", "node.db")
+	if cfg.Database.Path != wantDB {
+		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, wantDB)
 	}
 	if cfg.Git.BranchPrefix != "" {
 		t.Errorf("Git.BranchPrefix = %q, want empty", cfg.Git.BranchPrefix)
@@ -649,5 +651,54 @@ func TestNotificationsDisabledByDefault(t *testing.T) {
 	// Empty channel means disabled — no validation of slack fields
 	if cfg.Notifications.Channel != "" {
 		t.Errorf("Notifications.Channel = %q, want empty (disabled)", cfg.Notifications.Channel)
+	}
+}
+
+func TestArgusHomeOverridesStateDir(t *testing.T) {
+	clearArgusEnv(t)
+	argusHome := t.TempDir()
+	t.Setenv("ARGUS_HOME", argusHome)
+
+	cfg, err := config.Load(config.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantDB := filepath.Join(argusHome, "node.db")
+	if cfg.Database.Path != wantDB {
+		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, wantDB)
+	}
+}
+
+func TestExplicitConfigLoadsWithoutResolvableHome(t *testing.T) {
+	clearArgusEnv(t)
+	// An explicit --config with an explicit database.path must load even when
+	// the home dir can't be resolved (e.g. a daemon running without $HOME).
+	t.Setenv("HOME", "")
+
+	// Sanity-check that HOME="" actually disables state-dir resolution on this
+	// platform: with no explicit config, auto-discovery must fail. If it
+	// doesn't, the home dir is resolvable some other way and this test can't
+	// exercise the regression, so skip rather than pass vacuously.
+	if _, err := config.Load(config.Options{}); err == nil {
+		t.Skip("home dir resolvable without HOME; cannot exercise unresolvable-home path")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[database]
+path = "/tmp/explicit.db"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.Options{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("unexpected error loading explicit config without HOME: %v", err)
+	}
+	if cfg.Database.Path != "/tmp/explicit.db" {
+		t.Errorf("Database.Path = %q, want /tmp/explicit.db", cfg.Database.Path)
 	}
 }

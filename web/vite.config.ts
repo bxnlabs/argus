@@ -3,34 +3,38 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  test: {
-    environment: "jsdom",
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+export default defineConfig(() => {
+  const apiPort = process.env.ARGUS_SERVER_PORT ?? "3000";
+  const webPort = Number(process.env.ARGUS_WEB_PORT ?? "5273");
+  const apiTarget = `http://localhost:${apiPort}`;
+  const wsTarget = `ws://localhost:${apiPort}`;
+
+  return {
+    plugins: [react(), tailwindcss()],
+    test: {
+      environment: "jsdom",
     },
-  },
-  build: {
-    outDir: path.resolve(__dirname, "../internal/web/dist"),
-    emptyOutDir: true,
-  },
-  server: {
-    proxy: {
-      "/node/api": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-      "/node/ws": {
-        target: "ws://localhost:3000",
-        ws: true,
-      },
-      "/api": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
       },
     },
-  },
+    build: {
+      outDir: path.resolve(__dirname, "../internal/web/dist"),
+      emptyOutDir: true,
+    },
+    server: {
+      port: webPort,
+      proxy: {
+        "/node/api": {
+          target: apiTarget,
+          changeOrigin: true,
+        },
+        "/node/ws": {
+          target: wsTarget,
+          ws: true,
+        },
+      },
+    },
+  };
 });
