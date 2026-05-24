@@ -88,6 +88,7 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc("POST /api/sessions/{id}/heartbeat", hb.heartbeat)
 		mux.HandleFunc("POST /api/sessions/{id}/acknowledge", hb.acknowledge)
 		mux.HandleFunc("POST /api/sessions/{id}/unread", hb.markUnread)
+		mux.HandleFunc("POST /api/sessions/{id}/read", hb.markRead)
 	}
 
 	// Terminal WebSocket

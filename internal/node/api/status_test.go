@@ -137,3 +137,45 @@ func TestHandleStatus_AllDBSessionsAppearInResponse(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleStatus_IncludesMarkedUnreadAt(t *testing.T) {
+	database := testDB(t)
+
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-marked", Name: "Marked", TmuxName: "claude-marked", ProviderType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MarkSessionUnread(context.Background(), "sess-marked"); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := status.NewWatcherManager(&emptyLister{}, &noopWatcherDB{}, nil)
+	mgr.Start(context.Background())
+	defer mgr.Close()
+
+	handler := handleStatus(mgr, database)
+	req := httptest.NewRequest("GET", "/api/sessions/status", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Statuses map[string]struct {
+			MarkedUnreadAt *string `json:"markedUnreadAt"`
+		} `json:"statuses"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := resp.Statuses["sess-marked"]
+	if !ok {
+		t.Fatal("expected sess-marked in response")
+	}
+	if entry.MarkedUnreadAt == nil {
+		t.Error("expected markedUnreadAt to be present in status response")
+	}
+}
