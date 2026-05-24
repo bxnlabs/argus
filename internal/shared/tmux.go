@@ -80,9 +80,13 @@ func SeedTmuxConfig() (string, error) {
 	f, err := os.OpenFile(confPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	switch {
 	case err == nil:
-		defer f.Close()
-		if _, werr := f.WriteString(baseTmuxConfig); werr != nil {
+		_, werr := f.WriteString(baseTmuxConfig)
+		cerr := f.Close()
+		if werr != nil {
 			return "", fmt.Errorf("write tmux config: %w", werr)
+		}
+		if cerr != nil {
+			return "", fmt.Errorf("close tmux config: %w", cerr)
 		}
 	case errors.Is(err, os.ErrExist):
 		// Existing file (possibly user-edited) — leave it untouched.
