@@ -33,7 +33,7 @@ export function ChangeProfileDialog({
   onClose,
   onApply,
 }: ChangeProfileDialogProps) {
-  const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
+  const { data: profilesData } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
 
   const currentValue = session?.profile ?? NONE_VALUE;
@@ -41,9 +41,6 @@ export function ChangeProfileDialog({
 
   // Reset the selection whenever a new session is targeted.
   useEffect(() => {
-    if (session) {
-      refetchProfiles();
-    }
     setSelected(session?.profile ?? NONE_VALUE);
   }, [session]);
 
@@ -82,8 +79,7 @@ export function ChangeProfileDialog({
           </div>
 
           <p className="text-muted-foreground text-xs">
-            Changing the profile restarts this session; your conversation is
-            preserved.
+            Changing the profile restarts this session.
           </p>
         </div>
 

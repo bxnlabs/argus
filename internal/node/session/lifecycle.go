@@ -467,15 +467,18 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 // ChangeProfile attaches, changes, or detaches the profile on an existing
 // session and recreates the session in place so the new profile's hooks take
 // effect. The worktree is preserved (no worktree creation, no
-// on_create_worktree). The agent conversation is resumed via the stored
-// provider_session_id. Pass profile=nil or "" to detach.
+// on_create_worktree); only profile-level hooks run. The session is restarted:
+// the tmux session is killed and respawned with the new profile. The agent
+// conversation is not resumed unless a provider_session_id was already stored,
+// which mirrors EnsureSession; an actively-running session starts fresh.
+// Pass profile=nil or "" to detach.
 //
-// Order: validate -> working-dir preflight -> old profile pre_destroy
-// (profile-level, best-effort) -> new profile pre_create (profile-level, abort
-// on failure) -> kill tmux -> respawn from an in-memory copy carrying the new
-// profile -> persist. Persisting only after the new session is live means a
-// respawn failure leaves the stored profile untouched (no rollback), and the
-// preflight avoids killing a live session whose working directory is gone.
+// Order: validate -> working-dir preflight -> new profile pre_create
+// (profile-level, abort on failure) -> old profile pre_destroy (profile-level,
+// best-effort) -> persist -> kill tmux -> respawn. pre_create runs before any
+// teardown so a failed change leaves the session untouched and still alive. The
+// profile is persisted before the kill so a respawn failure is self-healing:
+// EnsureSession revives from the new profile on next access.
 func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error) {
 	// Treat an empty string as detach.
 	if profile != nil && strings.TrimSpace(*profile) == "" {
@@ -501,27 +504,22 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 	}
 
 	// Preflight: confirm the working directory still exists before tearing
-	// down the live session. Mirrors Delete's "check before side effects" so a
-	// doomed respawn (e.g. worktree removed externally) doesn't leave the
-	// session dead with a changed profile.
-	if _, err := m.resolveWorkingDir(session); err != nil {
+	// down the live session, and reuse the resolved path for the hook env so
+	// hooks run in the same directory the respawn will use.
+	cwd, err := m.resolveWorkingDir(session)
+	if err != nil {
 		return nil, err
 	}
 
 	oldProfile := ptrStr(session.Profile)
 	hookEnv := HookEnv{
 		SessionID:    session.ID,
-		WorkingDir:   session.WorkingDirectory,
+		WorkingDir:   cwd,
 		ProviderType: session.ProviderType,
 	}
 
-	// 1. Old profile pre_destroy — profile-level only, best-effort.
-	if p := m.hooks.ResolveProfileHookPath(HookPreDestroy, oldProfile, true); p != "" {
-		hookEnv.Profile = oldProfile
-		m.hooks.RunHooksBestEffort([]string{p}, hookEnv)
-	}
-
-	// 2. New profile pre_create — profile-level only, abort on failure.
+	// 1. New profile pre_create — profile-level only, abort on failure. Runs
+	// before any teardown so a failure leaves the session untouched and alive.
 	if p := m.hooks.ResolveProfileHookPath(HookPreCreate, resolvedProfile, true); p != "" {
 		hookEnv.Profile = resolvedProfile
 		if err := m.hooks.RunHook(p, hookEnv); err != nil {
@@ -529,33 +527,41 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		}
 	}
 
-	// 3. Build an in-memory copy carrying the new profile (nil clears it). We
-	// respawn from this copy and persist only once the new session is live, so
-	// a respawn failure leaves the stored profile — and the config EnsureSession
-	// resumes on next attach — untouched. No rollback needed.
+	// 2. Old profile pre_destroy — profile-level only, best-effort.
+	if p := m.hooks.ResolveProfileHookPath(HookPreDestroy, oldProfile, true); p != "" {
+		hookEnv.Profile = oldProfile
+		m.hooks.RunHooksBestEffort([]string{p}, hookEnv)
+	}
+
+	// 3. Persist the new profile (nil clears it) before the kill, so a respawn
+	// failure is self-healing: EnsureSession revives from the new profile.
 	var profilePtr *string
 	if resolvedProfile != "" {
 		profilePtr = &resolvedProfile
 	}
-	updated := *session
-	updated.Profile = profilePtr
-
-	// 4. Kill the existing tmux session (if alive).
-	if HasSession(session.TmuxName) {
-		KillSession(session.TmuxName)
-	}
-
-	// 5. Respawn with the new profile (resumes agent, sources new post_create).
-	if _, err := m.respawnTmux(&updated); err != nil {
-		return nil, err
-	}
-
-	// 6. Persist only after the new session is live.
 	if err := m.db.SetProfile(id, profilePtr); err != nil {
 		return nil, err
 	}
 
-	return m.db.GetSession(id)
+	// 4. Kill the existing tmux session (if alive). Tolerate a race where the
+	// session disappeared between the check and the kill.
+	if HasSession(session.TmuxName) {
+		if err := KillSession(session.TmuxName); err != nil && HasSession(session.TmuxName) {
+			return nil, fmt.Errorf("kill tmux session %s: %w", session.TmuxName, err)
+		}
+	}
+
+	// 5. Re-fetch (now carries the new profile) and respawn, sourcing the new
+	// profile's post_create.
+	updated, err := m.db.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := m.respawnTmux(updated); err != nil {
+		return nil, err
+	}
+
+	return updated, nil
 }
 
 // Rename updates the display name of a session. The underlying tmux session

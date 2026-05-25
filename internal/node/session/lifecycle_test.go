@@ -620,26 +620,26 @@ func TestChangeProfile(t *testing.T) {
 	}
 	defer database.Close()
 
-	preDestroyMarker := filepath.Join(t.TempDir(), "old-pre-destroy.txt")
-	preCreateMarker := filepath.Join(t.TempDir(), "new-pre-create.txt")
+	// New profile pre_create and old profile pre_destroy append to a shared
+	// marker so we can assert the new profile's pre_create runs before the old
+	// profile's pre_destroy.
+	orderMarker := filepath.Join(t.TempDir(), "hook-order.txt")
 
-	// Old profile: pre_destroy writes a marker on teardown.
 	oldHooks := filepath.Join(stateDir, "profiles", "old", "hooks")
 	if err := os.MkdirAll(oldHooks, 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(oldHooks, "pre_destroy.sh"),
-		[]byte("#!/bin/bash\necho torn >> "+preDestroyMarker+"\n"), 0755); err != nil {
+		[]byte("#!/bin/bash\necho pre_destroy >> "+orderMarker+"\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// New profile: pre_create writes a marker on setup.
 	newHooks := filepath.Join(stateDir, "profiles", "new", "hooks")
 	if err := os.MkdirAll(newHooks, 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(newHooks, "pre_create.sh"),
-		[]byte("#!/bin/bash\necho setup >> "+preCreateMarker+"\n"), 0755); err != nil {
+		[]byte("#!/bin/bash\necho pre_create >> "+orderMarker+"\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -665,11 +665,12 @@ func TestChangeProfile(t *testing.T) {
 	if updated.Profile == nil || *updated.Profile != "new" {
 		t.Errorf("profile = %v, want %q", updated.Profile, "new")
 	}
-	if _, err := os.Stat(preDestroyMarker); err != nil {
-		t.Error("expected old profile pre_destroy to run")
+	order, err := os.ReadFile(orderMarker)
+	if err != nil {
+		t.Fatalf("expected pre_create and pre_destroy hooks to run: %v", err)
 	}
-	if _, err := os.Stat(preCreateMarker); err != nil {
-		t.Error("expected new profile pre_create to run")
+	if got := strings.TrimSpace(string(order)); got != "pre_create\npre_destroy" {
+		t.Errorf("hook order = %q, want new pre_create before old pre_destroy", got)
 	}
 	if !HasSession(tmuxName) {
 		t.Error("expected tmux session to be respawned")
@@ -738,7 +739,7 @@ func TestChangeProfileMissingWorkingDirBlocksBeforeSideEffects(t *testing.T) {
 	}
 }
 
-func TestChangeProfileRespawnFailureLeavesProfileUnchanged(t *testing.T) {
+func TestChangeProfileRespawnFailurePersistsProfile(t *testing.T) {
 	stateDir := t.TempDir()
 	workDir := t.TempDir() // exists, so the preflight passes
 	database, err := db.Open(filepath.Join(stateDir, "test.db"))
@@ -757,8 +758,8 @@ func TestChangeProfileRespawnFailureLeavesProfileUnchanged(t *testing.T) {
 	mgr := NewManager(database, wt, stateDir)
 
 	// An invalid provider type makes respawnTmux fail at BuildCommand, after
-	// the preflight has passed. Since the profile is persisted only after a
-	// successful respawn, the stored profile must remain unchanged.
+	// the profile has been persisted. The new profile must remain persisted so
+	// EnsureSession revives from it on next access (roll-forward, self-healing).
 	oldProfile := "old"
 	if err := database.CreateSession(&db.Session{
 		ID: "sess-respawn-fail", Name: "rf", TmuxName: "shell-sess-respawn-fail",
@@ -772,13 +773,14 @@ func TestChangeProfileRespawnFailureLeavesProfileUnchanged(t *testing.T) {
 		t.Fatal("expected respawn failure for invalid provider, got nil")
 	}
 
-	// Profile must be unchanged — it is never persisted when respawn fails.
+	// Profile is persisted before the kill/respawn, so it must reflect the new
+	// profile even though the respawn failed.
 	got, err := database.GetSession("sess-respawn-fail")
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	if got.Profile == nil || *got.Profile != "old" {
-		t.Errorf("profile should be unchanged at %q, got %v", "old", got.Profile)
+	if got.Profile == nil || *got.Profile != "new" {
+		t.Errorf("profile should be persisted to %q despite respawn failure, got %v", "new", got.Profile)
 	}
 }
 

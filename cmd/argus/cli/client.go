@@ -69,7 +69,10 @@ func newClient(discoveryPath string) (*apiClient, error) {
 	c := &apiClient{
 		baseURL: "http://" + info.Address + "/node",
 		http: http.Client{
-			Timeout: 10 * time.Second,
+			// Lifecycle mutations (create, delete, change-profile) run user
+			// hooks that can each take up to 30s, so the client must wait well
+			// past the default. A refused connection still fails immediately.
+			Timeout: 120 * time.Second,
 		},
 	}
 	return c, nil
