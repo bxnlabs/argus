@@ -60,11 +60,15 @@ func (p *prodWatcherDB) GetSession(id string) (unreadSince, lastViewedAt *string
 // Setup initializes the node: opens the database, verifies migrations are
 // current, and returns an HTTP handler with all node API routes.
 func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
-	// Resolve Argus's state root once (ARGUS_HOME, else ~/.argus) and share it
-	// with every component below, so state never splits across locations.
-	stateDir, err := shared.StateDir()
+	// Resolve Argus's state root once (ARGUS_HOME, else ~/.argus), secure it to
+	// 0700, and share it with every component below. The database lives directly
+	// in the root, so it must be private before db.Open. config.Load already
+	// secures the root on the auto-discovery path; this also covers an explicit
+	// --config run, where config.Load doesn't touch the state dir. Per-subdir
+	// EnsureSecureDir calls only tighten their own leaves.
+	stateDir, err := shared.EnsureStateDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve state dir: %w", err)
+		return nil, nil, fmt.Errorf("prepare state dir: %w", err)
 	}
 
 	// Bootstrap the dedicated tmux server state before anything else: the

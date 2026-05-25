@@ -74,6 +74,23 @@ func StateDir() (string, error) {
 	return filepath.Join(home, ".argus"), nil
 }
 
+// EnsureStateDir resolves the state root (see StateDir) and guarantees it
+// exists with 0700 permissions, returning the path. Call this once at process
+// startup — before opening the database or creating any state subdirectory —
+// so the root holding the config file and database is never world-readable.
+// The per-subdir EnsureSecureDir calls only tighten their own leaf, so the
+// root itself (e.g. one left at 0755 by an older version) is repaired here.
+func EnsureStateDir() (string, error) {
+	dir, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	if err := EnsureSecureDir(dir); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
 // DBPath returns the path to Argus's SQLite database: <StateDir>/node.db.
 // The database always lives inside the state dir so all per-user state stays
 // co-located; set ARGUS_HOME to relocate it (e.g. for an isolated dev stack or

@@ -628,6 +628,36 @@ func TestNotificationsDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestAutoDiscoverySecuresStateRoot(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod root: %v", err)
+	}
+	// A config holding secrets sitting in a world-readable root is exactly what
+	// auto-discovery must tighten before reading.
+	content := []byte("[tailscale]\nauth_key = \"tskey-secret\"\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), content, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("ARGUS_HOME", dir)
+
+	cfg, err := config.Load(config.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Tailscale.AuthKey != "tskey-secret" {
+		t.Errorf("AuthKey = %q, want tskey-secret (config not read)", cfg.Tailscale.AuthKey)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat root: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("state root perm = %o, want 700 (auto-discovery did not tighten it)", perm)
+	}
+}
+
 func TestExplicitConfigLoadsWithoutResolvableHome(t *testing.T) {
 	clearArgusEnv(t)
 	// An explicit --config must load even when the home dir can't be resolved

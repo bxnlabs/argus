@@ -97,6 +97,15 @@ func Load(opts Options) (*Config, error) {
 		if stateDirErr != nil {
 			return nil, fmt.Errorf("config: determine state dir: %w", stateDirErr)
 		}
+		// Secure the state root before reading config from it: ~/.argus/config.toml
+		// may hold secrets (Tailscale auth key, Slack token), so a root left at
+		// 0755 by an older version must be tightened first. This is the earliest
+		// point every config-loading command (server, node, combined, migrate)
+		// passes through. Scoped to auto-discovery so an explicit --config still
+		// loads without a resolvable home (see TestExplicitConfigLoadsWithoutResolvableHome).
+		if err := shared.EnsureSecureDir(stateDir); err != nil {
+			return nil, fmt.Errorf("config: secure state dir: %w", err)
+		}
 		v.AddConfigPath(stateDir)
 		v.SetConfigName("config")
 		v.SetConfigType("toml")

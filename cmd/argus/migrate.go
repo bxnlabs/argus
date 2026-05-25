@@ -26,6 +26,16 @@ func newMigrateCmd() *cobra.Command {
 }
 
 func runMigrate(c *config.Config) error {
+	// Resolve and secure the state root before touching the database. This both
+	// repairs an older 0755 root and creates it on a fresh machine, where
+	// db.Open would otherwise leave the new parent world-readable. The same
+	// canonical root feeds the backfill managers below (see node.Setup), so
+	// migration operates on the worktrees the node reads at runtime.
+	stateDir, err := shared.EnsureStateDir()
+	if err != nil {
+		return fmt.Errorf("prepare state dir: %w", err)
+	}
+
 	dbPath, err := shared.DBPath()
 	if err != nil {
 		return fmt.Errorf("resolve db path: %w", err)
@@ -40,14 +50,6 @@ func runMigrate(c *config.Config) error {
 		return fmt.Errorf("migrations: %w", err)
 	}
 	log.Println("schema migrations complete")
-
-	// Resolve the same canonical state root the running node uses (see
-	// node.Setup), so migration backfills operate on the same worktrees,
-	// hooks, and profiles the node will read at runtime.
-	stateDir, err := shared.StateDir()
-	if err != nil {
-		return fmt.Errorf("resolve state dir: %w", err)
-	}
 
 	wtMgr := worktree.NewManager(stateDir, c)
 	mgr := session.NewManager(database, wtMgr, stateDir)
