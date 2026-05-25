@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 type Config struct {
 	Server        ServerConfig        `mapstructure:"server"`
 	Node          NodeConfig          `mapstructure:"node"`
-	Database      DatabaseConfig      `mapstructure:"database"`
 	Git           GitConfig           `mapstructure:"git"`
 	Tailscale     TailscaleConfig     `mapstructure:"tailscale"`
 	Notifications NotificationsConfig `mapstructure:"notifications"`
@@ -30,10 +28,6 @@ type ServerConfig struct {
 type NodeConfig struct {
 	Port        int    `mapstructure:"port"`
 	BindAddress string `mapstructure:"bind_address"`
-}
-
-type DatabaseConfig struct {
-	Path string `mapstructure:"path"`
 }
 
 type GitConfig struct {
@@ -73,10 +67,9 @@ type Options struct {
 func Load(opts Options) (*Config, error) {
 	v := viper.New()
 
-	// The state dir is only required to derive the default database path and
-	// to auto-discover ~/.argus/config.toml. An explicit --config with an
-	// explicit database.path must still load when the home dir is
-	// unavailable, so defer treating this as fatal until it's actually used.
+	// The state dir is only needed to auto-discover ~/.argus/config.toml. An
+	// explicit --config must still load when the home dir is unavailable, so
+	// defer treating this as fatal until it's actually used below.
 	stateDir, stateDirErr := shared.StateDir()
 
 	// Defaults
@@ -84,9 +77,6 @@ func Load(opts Options) (*Config, error) {
 	v.SetDefault("server.bind_address", "127.0.0.1")
 	v.SetDefault("node.port", 3011)
 	v.SetDefault("node.bind_address", "127.0.0.1")
-	if stateDirErr == nil {
-		v.SetDefault("database.path", filepath.Join(stateDir, "node.db"))
-	}
 	v.SetDefault("git.branch_prefix", "")
 	v.SetDefault("tailscale.enabled", false)
 	v.SetDefault("tailscale.hostname_prefix", "")
@@ -149,9 +139,6 @@ func validate(cfg *Config) error {
 	}
 	if err := validateIP("node.bind_address", cfg.Node.BindAddress); err != nil {
 		return err
-	}
-	if cfg.Database.Path == "" {
-		return fmt.Errorf("database.path must not be empty")
 	}
 	if cfg.Tailscale.Port < 0 || cfg.Tailscale.Port > 65535 {
 		return fmt.Errorf("tailscale.port must be 0-65535, got %d", cfg.Tailscale.Port)

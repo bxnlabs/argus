@@ -78,7 +78,11 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 		return nil, nil, fmt.Errorf("seed tmux config: %w", err)
 	}
 
-	database, err := db.Open(cfg.Database.Path)
+	dbPath, err := shared.DBPath()
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve db path: %w", err)
+	}
+	database, err := db.Open(dbPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open db: %w", err)
 	}

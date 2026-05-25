@@ -74,6 +74,18 @@ func StateDir() (string, error) {
 	return filepath.Join(home, ".argus"), nil
 }
 
+// DBPath returns the path to Argus's SQLite database: <StateDir>/node.db.
+// The database always lives inside the state dir so all per-user state stays
+// co-located; set ARGUS_HOME to relocate it (e.g. for an isolated dev stack or
+// a home-less CI run).
+func DBPath() (string, error) {
+	dir, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "node.db"), nil
+}
+
 // CleanPath expands ~ and resolves the path to an absolute, cleaned form.
 // Unlike SafeExpandPath, it does not restrict paths to the home directory.
 // OS-level permissions are the sole access guard. This is acceptable under

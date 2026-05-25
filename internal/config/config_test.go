@@ -55,10 +55,6 @@ func TestDefaults(t *testing.T) {
 	if cfg.Node.BindAddress != "127.0.0.1" {
 		t.Errorf("Node.BindAddress = %q, want 127.0.0.1", cfg.Node.BindAddress)
 	}
-	wantDB := filepath.Join(os.Getenv("HOME"), ".argus", "node.db")
-	if cfg.Database.Path != wantDB {
-		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, wantDB)
-	}
 	if cfg.Git.BranchPrefix != "" {
 		t.Errorf("Git.BranchPrefix = %q, want empty", cfg.Git.BranchPrefix)
 	}
@@ -75,9 +71,6 @@ bind_address = "0.0.0.0"
 [node]
 port = 5000
 bind_address = "192.168.1.1"
-
-[database]
-path = "/tmp/test.db"
 
 [git]
 branch_prefix = "jeev"
@@ -102,9 +95,6 @@ branch_prefix = "jeev"
 	}
 	if cfg.Node.BindAddress != "192.168.1.1" {
 		t.Errorf("Node.BindAddress = %q, want 192.168.1.1", cfg.Node.BindAddress)
-	}
-	if cfg.Database.Path != "/tmp/test.db" {
-		t.Errorf("Database.Path = %q, want /tmp/test.db", cfg.Database.Path)
 	}
 	if cfg.Git.BranchPrefix != "jeev" {
 		t.Errorf("Git.BranchPrefix = %q, want jeev", cfg.Git.BranchPrefix)
@@ -252,22 +242,6 @@ bind_address = "not-an-ip"
 	_, err := config.Load(config.Options{ConfigFile: path})
 	if err == nil {
 		t.Fatal("expected error for invalid bind_address, got nil")
-	}
-}
-
-func TestValidation_EmptyDatabasePath(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	content := []byte(`
-[database]
-path = ""
-`)
-	if err := os.WriteFile(path, content, 0644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := config.Load(config.Options{ConfigFile: path})
-	if err == nil {
-		t.Fatal("expected error for empty database.path, got nil")
 	}
 }
 
@@ -654,26 +628,11 @@ func TestNotificationsDisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestArgusHomeOverridesStateDir(t *testing.T) {
-	clearArgusEnv(t)
-	argusHome := t.TempDir()
-	t.Setenv("ARGUS_HOME", argusHome)
-
-	cfg, err := config.Load(config.Options{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	wantDB := filepath.Join(argusHome, "node.db")
-	if cfg.Database.Path != wantDB {
-		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, wantDB)
-	}
-}
-
 func TestExplicitConfigLoadsWithoutResolvableHome(t *testing.T) {
 	clearArgusEnv(t)
-	// An explicit --config with an explicit database.path must load even when
-	// the home dir can't be resolved (e.g. a daemon running without $HOME).
+	// An explicit --config must load even when the home dir can't be resolved
+	// (e.g. a daemon or CI run without $HOME). The state dir is only needed to
+	// auto-discover ~/.argus/config.toml, so an explicit path sidesteps it.
 	t.Setenv("HOME", "")
 
 	// Sanity-check that HOME="" actually disables state-dir resolution on this
@@ -687,8 +646,8 @@ func TestExplicitConfigLoadsWithoutResolvableHome(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
-[database]
-path = "/tmp/explicit.db"
+[server]
+port = 4567
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
 		t.Fatal(err)
@@ -698,7 +657,7 @@ path = "/tmp/explicit.db"
 	if err != nil {
 		t.Fatalf("unexpected error loading explicit config without HOME: %v", err)
 	}
-	if cfg.Database.Path != "/tmp/explicit.db" {
-		t.Errorf("Database.Path = %q, want /tmp/explicit.db", cfg.Database.Path)
+	if cfg.Server.Port != 4567 {
+		t.Errorf("Server.Port = %d, want 4567", cfg.Server.Port)
 	}
 }

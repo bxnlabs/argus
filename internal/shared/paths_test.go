@@ -192,6 +192,35 @@ func TestStateDir(t *testing.T) {
 	})
 }
 
+func TestDBPath(t *testing.T) {
+	t.Run("lives under ARGUS_HOME", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("ARGUS_HOME", dir)
+		got, err := DBPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(dir, "node.db")
+		if got != want {
+			t.Errorf("DBPath() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("resolves without HOME when ARGUS_HOME is set", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", "")
+		t.Setenv("ARGUS_HOME", dir)
+		got, err := DBPath()
+		if err != nil {
+			t.Fatalf("DBPath() with HOME unset: %v", err)
+		}
+		want := filepath.Join(dir, "node.db")
+		if got != want {
+			t.Errorf("DBPath() = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestCleanPath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
