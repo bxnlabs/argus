@@ -344,6 +344,57 @@ describe("useKeyboardChords", () => {
     expect(n).toHaveBeenCalledTimes(1);
   });
 
+  it("does not cancel pending state on a repeated leader keydown", () => {
+    // Holding the leader emits auto-repeated keydowns; the second one must be
+    // ignored so the chord stays armed.
+    const { bindings } = makeBindings();
+    const { result } = renderHook(() => useKeyboardChords(bindings));
+
+    act(() => {
+      dispatchLeader();
+    });
+    expect(result.current.pending).not.toBeNull();
+
+    // Simulate the OS auto-repeating the leader combo.
+    act(() => {
+      dispatchKey(";", isMacMock() ? { metaKey: true, repeat: true } : { ctrlKey: true, repeat: true });
+    });
+    // Chord must still be armed.
+    expect(result.current.pending).not.toBeNull();
+  });
+
+  it("does not prevent repeated keydowns while idle", () => {
+    // Mirrors the existing "does not prevent keys while idle" test but with
+    // repeat:true — repeat events should pass through completely when idle.
+    const { bindings } = makeBindings();
+    renderHook(() => useKeyboardChords(bindings));
+
+    let event!: KeyboardEvent;
+    act(() => {
+      event = dispatchKey("n", { repeat: true });
+    });
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("does not cancel pending state on an IME composition keydown", () => {
+    // While pending, a key emitted during IME composition must not cancel the
+    // chord or consume the event.
+    const { bindings } = makeBindings();
+    const { result } = renderHook(() => useKeyboardChords(bindings));
+
+    act(() => {
+      dispatchLeader();
+    });
+    expect(result.current.pending).not.toBeNull();
+
+    let event!: KeyboardEvent;
+    act(() => {
+      event = dispatchKey("a", { isComposing: true });
+    });
+    expect(result.current.pending).not.toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it("removes listeners and clears the timer on unmount", () => {
     vi.useFakeTimers();
     const { bindings, n } = makeBindings();

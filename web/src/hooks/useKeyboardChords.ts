@@ -140,6 +140,14 @@ export function useKeyboardChords(
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Ignore OS key auto-repeat entirely: a held leader would otherwise land in
+      // the pending branch, fail to match ";", and silently disarm the chord.
+      if (event.repeat) return;
+
+      // During IME composition browsers emit keydown with isComposing=true; while
+      // pending such a key would be captured/prevented and cancel the chord.
+      if (event.isComposing) return;
+
       const current = pathRef.current;
 
       // --- idle: react only to the leader combo, pass everything else through.
