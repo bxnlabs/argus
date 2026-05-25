@@ -7,3 +7,11 @@ export const isTouchDevice =
 export function isPhoneSized() {
   return Math.min(window.innerWidth, window.innerHeight) < 768;
 }
+
+/** macOS / iOS device — checks userAgent at call time for testability */
+export function isMac() {
+  return (
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+  );
+}
