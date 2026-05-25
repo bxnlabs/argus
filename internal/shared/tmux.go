@@ -61,7 +61,7 @@ func EnsureTmuxStateDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := EnsureSecureDir(dir); err != nil {
 		return "", fmt.Errorf("create tmux dir: %w", err)
 	}
 	return dir, nil
