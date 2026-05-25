@@ -13,16 +13,29 @@ import (
 	"github.com/bxnlabs/argus/internal/shared"
 )
 
-// HasSession checks if a tmux session exists.
+// HasSession checks if a tmux session exists on Argus's dedicated server.
 func HasSession(name string) bool {
-	cmd := exec.Command("tmux", "has-session", "-t", name)
+	cmd, err := shared.TmuxCommand("has-session", "-t", name)
+	if err != nil {
+		return false
+	}
 	return cmd.Run() == nil
 }
 
-// NewSession creates a new tmux session running the given command.
-// If command is empty, starts a default shell.
+// NewSession creates a new tmux session running the given command on Argus's
+// dedicated server. If command is empty, starts a default shell. The dedicated
+// server's config is seeded (once) and passed via -f so the first session
+// create boots the server with Argus's base config.
 func NewSession(name, cwd, command string) error {
-	args := []string{"new-session", "-d", "-s", name}
+	var args []string
+	if confPath, err := shared.SeedTmuxConfig(); err != nil {
+		// Degrade rather than block session creation: the server still starts,
+		// just without Argus's base config.
+		log.Printf("seed tmux config: %v", err)
+	} else {
+		args = append(args, "-f", confPath)
+	}
+	args = append(args, "new-session", "-d", "-s", name)
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
@@ -30,7 +43,10 @@ func NewSession(name, cwd, command string) error {
 		args = append(args, command)
 	}
 
-	cmd := exec.Command("tmux", args...)
+	cmd, err := shared.TmuxCommand(args...)
+	if err != nil {
+		return fmt.Errorf("build tmux command: %w", err)
+	}
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
@@ -71,28 +87,28 @@ func buildStatusRight(sessionID, dir, branch, home string) string {
 	return fmt.Sprintf("#[fg=#a6adc8]%s #[fg=#6c7086]| #[fg=#cba6f7] %s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, displayBranch, displayDir)
 }
 
-// ConfigureSession applies the standard Argus tmux status bar styling to a session.
+// ConfigureSession applies the per-session dynamic status-right to a session.
+// Static styling (status-style, status-left, mouse, position, lengths) lives in
+// the dedicated server's seeded tmux.conf, so only the per-session value is
+// applied at runtime here.
 func ConfigureSession(name, sessionID, dir, branch, home string) {
 	statusRight := buildStatusRight(sessionID, dir, branch, home)
-	options := []struct{ key, val string }{
-		{"status-style", "bg=#1e1e2e,fg=#cdd6f4"},
-		{"status-left", "#[fg=#cba6f7,bold] Argus #[fg=#6c7086]| "},
-		{"status-left-length", "20"},
-		{"status-right", statusRight},
-		{"status-right-length", "110"},
-		{"status-position", "bottom"},
-		{"mouse", "on"},
+	cmd, err := shared.TmuxCommand("set-option", "-t", name, "status-right", statusRight)
+	if err != nil {
+		log.Printf("tmux set-option status-right: %v", err)
+		return
 	}
-	for _, o := range options {
-		if err := exec.Command("tmux", "set-option", "-t", name, o.key, o.val).Run(); err != nil {
-			log.Printf("tmux set-option %s: %v", o.key, err)
-		}
+	if err := cmd.Run(); err != nil {
+		log.Printf("tmux set-option status-right: %v", err)
 	}
 }
 
 // KillSession kills a tmux session.
 func KillSession(name string) error {
-	cmd := exec.Command("tmux", "kill-session", "-t", name)
+	cmd, err := shared.TmuxCommand("kill-session", "-t", name)
+	if err != nil {
+		return fmt.Errorf("build tmux command: %w", err)
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux kill-session: %w: %s", err, string(out))
@@ -100,9 +116,12 @@ func KillSession(name string) error {
 	return nil
 }
 
-// ListSessions returns all tmux session names.
+// ListSessions returns all tmux session names on the dedicated server.
 func ListSessions() ([]string, error) {
-	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")
+	cmd, err := shared.TmuxCommand("list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return nil, err
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		// tmux exits non-zero when no server is running — expected.
@@ -131,7 +150,10 @@ func CapturePane(name string) (string, error) {
 
 // CapturePaneContext captures pane content with context for cancellation/timeout.
 func CapturePaneContext(ctx context.Context, name string) (string, error) {
-	cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", name, "-p", "-J")
+	cmd, err := shared.TmuxCommandContext(ctx, "capture-pane", "-t", name, "-p", "-J")
+	if err != nil {
+		return "", err
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("tmux capture-pane: %w", err)
@@ -141,7 +163,10 @@ func CapturePaneContext(ctx context.Context, name string) (string, error) {
 
 // GetPaneCwd returns the current working directory of a tmux pane.
 func GetPaneCwd(name string) (string, error) {
-	cmd := exec.Command("tmux", "display-message", "-t", name, "-p", "#{pane_current_path}")
+	cmd, err := shared.TmuxCommand("display-message", "-t", name, "-p", "#{pane_current_path}")
+	if err != nil {
+		return "", err
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("tmux display-message: %w", err)
@@ -175,7 +200,10 @@ func parsePaneDimensions(s string) (width, height int, ok bool) {
 
 // GetPaneDimensionsContext returns the dimensions of the named tmux pane.
 func GetPaneDimensionsContext(ctx context.Context, name string) (PaneDimensions, error) {
-	cmd := exec.CommandContext(ctx, "tmux", "display-message", "-t", name, "-p", "#{pane_width}x#{pane_height}")
+	cmd, err := shared.TmuxCommandContext(ctx, "display-message", "-t", name, "-p", "#{pane_width}x#{pane_height}")
+	if err != nil {
+		return PaneDimensions{}, err
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return PaneDimensions{}, fmt.Errorf("tmux display-message: %w", err)
@@ -189,7 +217,10 @@ func GetPaneDimensionsContext(ctx context.Context, name string) (PaneDimensions,
 
 // HasSessionContext checks if a tmux session exists, with context for cancellation/timeout.
 func HasSessionContext(ctx context.Context, name string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "tmux", "has-session", "-t", name)
+	cmd, err := shared.TmuxCommandContext(ctx, "has-session", "-t", name)
+	if err != nil {
+		return false, err
+	}
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return true, nil
@@ -222,7 +253,10 @@ type SessionActivity struct {
 // It uses window_activity (last pane output) rather than session_activity
 // so that merely attaching to a session does not bump the timestamp.
 func GetSessionActivitiesContext(ctx context.Context) ([]SessionActivity, error) {
-	cmd := exec.CommandContext(ctx, "tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_activity}")
+	cmd, err := shared.TmuxCommandContext(ctx, "list-windows", "-a", "-F", "#{session_name}\t#{window_activity}")
+	if err != nil {
+		return nil, err
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		// Context cancellation kills the process, producing an ExitError.
