@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/bxnlabs/argus/internal/shared"
 )
 
 func newAttachCmd() *cobra.Command {
@@ -51,12 +53,10 @@ func newAttachCmd() *cobra.Command {
 
 // attachTmux runs tmux attach-session as a subprocess with a heartbeat goroutine.
 func attachTmux(sessionID, tmuxName, baseURL string) error {
-	tmuxPath, err := exec.LookPath("tmux")
+	tmuxCmd, err := shared.TmuxCommand("attach-session", "-t", tmuxName)
 	if err != nil {
-		return fmt.Errorf("tmux not found: %w", err)
+		return fmt.Errorf("build tmux command: %w", err)
 	}
-
-	tmuxCmd := exec.Command(tmuxPath, "attach-session", "-t", tmuxName)
 	tmuxCmd.Stdin = os.Stdin
 	tmuxCmd.Stdout = os.Stdout
 	tmuxCmd.Stderr = os.Stderr
