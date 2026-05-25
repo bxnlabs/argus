@@ -121,6 +121,8 @@ export function GitPanel({ workingDirectory, requestedTab }: GitPanelProps) {
   // may already be mounted when a chord like `g h` fires, so the initial-state
   // value alone isn't enough — this effect picks up subsequent requests while
   // still allowing manual tab clicks to work freely until the next request.
+  // The `if (requestedTab)` guard is load-bearing, not a null check: an
+  // absent prop must never reset the user's manual selection.
   useEffect(() => {
     if (requestedTab) setActiveTab(requestedTab);
   }, [requestedTab]);
