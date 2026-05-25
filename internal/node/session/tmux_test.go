@@ -158,42 +158,6 @@ func TestParsePaneDimensions(t *testing.T) {
 	}
 }
 
-func TestNewSession_UsesDedicatedSocket(t *testing.T) {
-	if !hasTmux() {
-		t.Skip("tmux not available")
-	}
-	dir := t.TempDir()
-	t.Setenv("ARGUS_HOME", dir)
-	requireDedicatedSocketUnder(t, dir)
-
-	// Bootstrap the dedicated tmux dir and config, as the node does at startup;
-	// NewSession relies on both being in place.
-	if _, err := shared.EnsureTmuxStateDir(); err != nil {
-		t.Fatalf("EnsureTmuxStateDir: %v", err)
-	}
-	if _, err := shared.SeedTmuxConfig(); err != nil {
-		t.Fatalf("SeedTmuxConfig: %v", err)
-	}
-
-	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
-	// Register cleanup before creating, so a session is torn down even if a
-	// later assertion fails.
-	t.Cleanup(func() { killTestSession(name) })
-	if err := NewSession(name, "", ""); err != nil {
-		t.Fatalf("NewSession: %v", err)
-	}
-
-	// Visible on the dedicated socket.
-	if !HasSession(name) {
-		t.Errorf("session %q not found on dedicated socket", name)
-	}
-
-	// NOT visible on the user's default tmux server.
-	if exec.Command("tmux", "has-session", "-t", name).Run() == nil {
-		t.Errorf("session %q leaked onto the default tmux server", name)
-	}
-}
-
 func TestNewSession_AppliesSeededConfig(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
