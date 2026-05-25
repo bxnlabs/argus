@@ -25,19 +25,15 @@ func HasSession(name string) bool {
 
 // NewSession creates a new tmux session running the given command on Argus's
 // dedicated server. If command is empty, starts a default shell. The dedicated
-// server's directory and config are bootstrapped at node startup (see
-// shared.EnsureTmuxStateDir / SeedTmuxConfig); the first session create boots
-// the server with that config via -f.
+// server's directory and config are bootstrapped (fatally) at node startup
+// (see shared.EnsureTmuxStateDir / SeedTmuxConfig), so the config is guaranteed
+// present; the first session create boots the server with it via -f.
 func NewSession(name, cwd, command string) error {
-	var args []string
-	// Pass the seeded config via -f only when it exists, so a missing config
-	// degrades to tmux's built-in defaults rather than failing the session.
-	if confPath, err := shared.TmuxConfigPath(); err == nil {
-		if _, statErr := os.Stat(confPath); statErr == nil {
-			args = append(args, "-f", confPath)
-		}
+	confPath, err := shared.TmuxConfigPath()
+	if err != nil {
+		return fmt.Errorf("build tmux command: %w", err)
 	}
-	args = append(args, "new-session", "-d", "-s", name)
+	args := []string{"-f", confPath, "new-session", "-d", "-s", name}
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}

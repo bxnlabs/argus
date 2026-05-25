@@ -166,10 +166,13 @@ func TestNewSession_UsesDedicatedSocket(t *testing.T) {
 	t.Setenv("ARGUS_HOME", dir)
 	requireDedicatedSocketUnder(t, dir)
 
-	// Bootstrap the dedicated tmux dir, as the node does at startup; NewSession
-	// no longer creates it.
+	// Bootstrap the dedicated tmux dir and config, as the node does at startup;
+	// NewSession relies on both being in place.
 	if _, err := shared.EnsureTmuxStateDir(); err != nil {
 		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
 	}
 
 	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
@@ -188,6 +191,43 @@ func TestNewSession_UsesDedicatedSocket(t *testing.T) {
 	// NOT visible on the user's default tmux server.
 	if exec.Command("tmux", "has-session", "-t", name).Run() == nil {
 		t.Errorf("session %q leaked onto the default tmux server", name)
+	}
+}
+
+func TestNewSession_AppliesSeededConfig(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	dir := t.TempDir()
+	t.Setenv("ARGUS_HOME", dir)
+	requireDedicatedSocketUnder(t, dir)
+
+	// Bootstrap dir + config as the node does at startup.
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
+	}
+
+	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
+	t.Cleanup(func() { killTestSession(name) })
+	if err := NewSession(name, "", ""); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	// The seeded config sets `mouse on` (tmux defaults to off), so its effect on
+	// the running server proves NewSession booted it with -f <seeded config>.
+	cmd, err := shared.TmuxCommand("show-options", "-g", "mouse")
+	if err != nil {
+		t.Fatalf("build show-options: %v", err)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("show-options: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "mouse on" {
+		t.Errorf("seeded config not applied: show-options -g mouse = %q, want %q", got, "mouse on")
 	}
 }
 

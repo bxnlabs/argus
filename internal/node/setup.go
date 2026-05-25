@@ -84,15 +84,16 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 	stateDir := filepath.Dir(absDBPath)
 
 	// Bootstrap Argus's dedicated tmux server state before any session is
-	// created. The directory is required (tmux places the server socket there),
-	// so a failure is fatal. Seeding the default config only affects status-bar
-	// styling, so a failure there is logged and tolerated.
+	// created: the directory holds the server socket, and the seeded config is
+	// read once at first server start. Both are required, so a failure here is
+	// fatal rather than leaving the server permanently misconfigured.
 	if _, err := shared.EnsureTmuxStateDir(); err != nil {
 		database.Close()
 		return nil, nil, fmt.Errorf("ensure tmux dir: %w", err)
 	}
 	if _, err := shared.SeedTmuxConfig(); err != nil {
-		log.Printf("seed tmux config: %v", err)
+		database.Close()
+		return nil, nil, fmt.Errorf("seed tmux config: %w", err)
 	}
 
 	wtMgr := worktree.NewManager(stateDir, cfg)

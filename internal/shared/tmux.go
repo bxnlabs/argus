@@ -102,13 +102,14 @@ func SeedTmuxConfig() (string, error) {
 	case err == nil:
 		_, werr := f.WriteString(baseTmuxConfig)
 		cerr := f.Close()
-		if werr != nil {
+		if werr != nil || cerr != nil {
 			// Remove the empty/partial file so a later run re-seeds it rather
-			// than treating the truncated config as the user's own.
+			// than treating the truncated config as the user's own. A close
+			// error can surface a deferred write failure, so handle it too.
 			os.Remove(confPath)
-			return "", fmt.Errorf("write tmux config: %w", werr)
-		}
-		if cerr != nil {
+			if werr != nil {
+				return "", fmt.Errorf("write tmux config: %w", werr)
+			}
 			return "", fmt.Errorf("close tmux config: %w", cerr)
 		}
 	case errors.Is(err, os.ErrExist):
