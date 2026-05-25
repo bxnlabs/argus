@@ -30,12 +30,13 @@ import type { GitFile } from "@/types";
 
 interface GitPanelProps {
   workingDirectory: string;
+  requestedTab?: GitTab;
 }
 
-export function GitPanel({ workingDirectory }: GitPanelProps) {
+export function GitPanel({ workingDirectory, requestedTab }: GitPanelProps) {
   const { isMobile } = useViewport();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<GitTab>("changes");
+  const [activeTab, setActiveTab] = useState<GitTab>(requestedTab ?? "changes");
 
   // Narrow subscriptions — neither includes isRefetching
   const {
@@ -115,6 +116,14 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       setSelectedPath(null);
     }
   }, [selectedPath, fileStatus]);
+
+  // Sync active tab when an external caller changes requestedTab. The panel
+  // may already be mounted when a chord like `g h` fires, so the initial-state
+  // value alone isn't enough — this effect picks up subsequent requests while
+  // still allowing manual tab clicks to work freely until the next request.
+  useEffect(() => {
+    if (requestedTab) setActiveTab(requestedTab);
+  }, [requestedTab]);
 
   // Resizable panel state (desktop)
   const [listWidth, setListWidth] = useState(400);
