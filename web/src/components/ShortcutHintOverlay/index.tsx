@@ -2,6 +2,7 @@ import React from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -40,7 +41,9 @@ function KeyChip({ children, className }: { children: React.ReactNode; className
 
 /**
  * Walk `bindings` along `path` and join the labels of each step with " › ".
- * Returns null when the path doesn't resolve (should never happen in practice).
+ * Stops early if a mid-path binding has no children (shouldn't happen — path
+ * is always produced by descending into children). Returns null only when a
+ * key is missing entirely.
  */
 function buildBreadcrumb(bindings: ChordMap, path: string[]): string | null {
   let level: ChordMap = bindings;
@@ -148,6 +151,9 @@ export function ShortcutHintOverlay({
         <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Keyboard Shortcuts</DialogTitle>
+            <DialogDescription>
+              Available keyboard shortcuts and chord sequences.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-3">
