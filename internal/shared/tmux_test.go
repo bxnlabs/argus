@@ -118,6 +118,33 @@ func TestSeedTmuxConfig_WritesWhenMissing(t *testing.T) {
 	}
 }
 
+func TestSeedTmuxConfig_LeavesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ARGUS_HOME", dir)
+	tmuxDir, err := EnsureTmuxStateDir()
+	if err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	// First call creates the config; second hits the EEXIST link path. Neither
+	// must leave behind the temp file used for the atomic publish.
+	for i := 0; i < 2; i++ {
+		if _, err := SeedTmuxConfig(); err != nil {
+			t.Fatalf("SeedTmuxConfig (call %d): %v", i+1, err)
+		}
+	}
+	entries, err := os.ReadDir(tmuxDir)
+	if err != nil {
+		t.Fatalf("read tmux dir: %v", err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if len(names) != 1 || names[0] != "tmux.conf" {
+		t.Errorf("tmux dir = %v, want only [tmux.conf] (stray temp file?)", names)
+	}
+}
+
 func TestSeedTmuxConfig_DoesNotOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ARGUS_HOME", dir)

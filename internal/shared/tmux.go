@@ -97,25 +97,35 @@ func SeedTmuxConfig() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	f, err := os.OpenFile(confPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-	switch {
-	case err == nil:
-		_, werr := f.WriteString(baseTmuxConfig)
-		cerr := f.Close()
-		if werr != nil || cerr != nil {
-			// Remove the empty/partial file so a later run re-seeds it rather
-			// than treating the truncated config as the user's own. A close
-			// error can surface a deferred write failure, so handle it too.
-			os.Remove(confPath)
-			if werr != nil {
-				return "", fmt.Errorf("write tmux config: %w", werr)
-			}
-			return "", fmt.Errorf("close tmux config: %w", cerr)
+
+	// Write the defaults to a temp file in the same directory and publish it
+	// with a hard link. The link is atomic and fails with EEXIST when a
+	// (possibly user-edited) config already exists, so we never overwrite it —
+	// and a crash mid-write can only leave an orphan temp, never a truncated
+	// tmux.conf that a later run would mistake for the user's own.
+	tmp, err := os.CreateTemp(filepath.Dir(confPath), ".tmux.conf-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp tmux config: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+
+	if _, err := tmp.WriteString(baseTmuxConfig); err != nil {
+		tmp.Close()
+		return "", fmt.Errorf("write tmux config: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return "", fmt.Errorf("sync tmux config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close tmux config: %w", err)
+	}
+
+	if err := os.Link(tmp.Name(), confPath); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return confPath, nil
 		}
-	case errors.Is(err, os.ErrExist):
-		// Existing file (possibly user-edited) — leave it untouched.
-	default:
-		return "", fmt.Errorf("open tmux config: %w", err)
+		return "", fmt.Errorf("publish tmux config: %w", err)
 	}
 	return confPath, nil
 }
