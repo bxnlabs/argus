@@ -68,9 +68,32 @@ func TestTmuxCommandContextThreadsSocket(t *testing.T) {
 	}
 }
 
+func TestEnsureTmuxStateDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ARGUS_HOME", dir)
+	got, err := EnsureTmuxStateDir()
+	if err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	want := filepath.Join(dir, "tmux")
+	if got != want {
+		t.Fatalf("EnsureTmuxStateDir() = %q, want %q", got, want)
+	}
+	info, err := os.Stat(want)
+	if err != nil {
+		t.Fatalf("stat tmux dir: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("tmux dir perm = %o, want 700", perm)
+	}
+}
+
 func TestSeedTmuxConfig_WritesWhenMissing(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ARGUS_HOME", dir)
+	if _, err := EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
 	got, err := SeedTmuxConfig()
 	if err != nil {
 		t.Fatalf("SeedTmuxConfig: %v", err)
@@ -93,18 +116,14 @@ func TestSeedTmuxConfig_WritesWhenMissing(t *testing.T) {
 			t.Errorf("config missing %q\ngot:\n%s", directive, data)
 		}
 	}
-	info, err := os.Stat(filepath.Join(dir, "tmux"))
-	if err != nil {
-		t.Fatalf("stat tmux dir: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o700 {
-		t.Errorf("tmux dir perm = %o, want 700", perm)
-	}
 }
 
 func TestSeedTmuxConfig_DoesNotOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ARGUS_HOME", dir)
+	if _, err := EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("ensure dir: %v", err)
+	}
 	if _, err := SeedTmuxConfig(); err != nil {
 		t.Fatalf("first seed: %v", err)
 	}

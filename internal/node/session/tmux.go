@@ -25,16 +25,17 @@ func HasSession(name string) bool {
 
 // NewSession creates a new tmux session running the given command on Argus's
 // dedicated server. If command is empty, starts a default shell. The dedicated
-// server's config is seeded (once) and passed via -f so the first session
-// create boots the server with Argus's base config.
+// server's directory and config are bootstrapped at node startup (see
+// shared.EnsureTmuxStateDir / SeedTmuxConfig); the first session create boots
+// the server with that config via -f.
 func NewSession(name, cwd, command string) error {
 	var args []string
-	if confPath, err := shared.SeedTmuxConfig(); err != nil {
-		// Degrade rather than block session creation: the server still starts,
-		// just without Argus's base config.
-		log.Printf("seed tmux config: %v", err)
-	} else {
-		args = append(args, "-f", confPath)
+	// Pass the seeded config via -f only when it exists, so a missing config
+	// degrades to tmux's built-in defaults rather than failing the session.
+	if confPath, err := shared.TmuxConfigPath(); err == nil {
+		if _, statErr := os.Stat(confPath); statErr == nil {
+			args = append(args, "-f", confPath)
+		}
 	}
 	args = append(args, "new-session", "-d", "-s", name)
 	if cwd != "" {
@@ -115,33 +116,6 @@ func KillSession(name string) error {
 		return fmt.Errorf("tmux kill-session: %w: %s", err, string(out))
 	}
 	return nil
-}
-
-// ListSessions returns all tmux session names on the dedicated server.
-func ListSessions() ([]string, error) {
-	cmd, err := shared.TmuxCommand("list-sessions", "-F", "#{session_name}")
-	if err != nil {
-		return nil, fmt.Errorf("build tmux command: %w", err)
-	}
-	out, err := cmd.Output()
-	if err != nil {
-		// tmux exits non-zero when no server is running — expected.
-		// Log and propagate unexpected errors (e.g. binary not found).
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			log.Printf("tmux list-sessions: %v", err)
-			return nil, err
-		}
-		return nil, nil
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	var names []string
-	for _, l := range lines {
-		if l = strings.TrimSpace(l); l != "" {
-			names = append(names, l)
-		}
-	}
-	return names, nil
 }
 
 // CapturePane captures the visible pane content of a tmux session.
@@ -235,6 +209,12 @@ func HasSessionContext(ctx context.Context, name string) (bool, error) {
 	// tmux exits non-zero for both, but connection errors should propagate
 	// so the caller can skip the cycle rather than falsely marking dead.
 	if msg := strings.TrimSpace(string(out)); strings.Contains(msg, "error connecting") {
+		// A missing socket means no dedicated server is running (e.g. the last
+		// session exited and the server shut down), which is "not alive" — not
+		// a transient connection error to retry.
+		if strings.Contains(msg, "No such file or directory") {
+			return false, nil
+		}
 		return false, fmt.Errorf("tmux has-session: %s", msg)
 	}
 	var exitErr *exec.ExitError
@@ -242,70 +222,4 @@ func HasSessionContext(ctx context.Context, name string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("tmux has-session: %w", err)
-}
-
-// SessionActivity holds tmux session activity timestamps.
-type SessionActivity struct {
-	Name      string
-	Timestamp int64 // unix timestamp of last activity
-}
-
-// GetSessionActivitiesContext returns activity timestamps with context for cancellation/timeout.
-// It uses window_activity (last pane output) rather than session_activity
-// so that merely attaching to a session does not bump the timestamp.
-func GetSessionActivitiesContext(ctx context.Context) ([]SessionActivity, error) {
-	cmd, err := shared.TmuxCommandContext(ctx, "list-windows", "-a", "-F", "#{session_name}\t#{window_activity}")
-	if err != nil {
-		return nil, fmt.Errorf("build tmux command: %w", err)
-	}
-	out, err := cmd.Output()
-	if err != nil {
-		// Context cancellation kills the process, producing an ExitError.
-		// Return the context error so callers can preserve stale state.
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		// tmux exits non-zero when no server is running — expected.
-		// Log and propagate unexpected errors (e.g. binary not found).
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			log.Printf("tmux list-windows: %v", err)
-			return nil, err
-		}
-		return nil, nil
-	}
-
-	return parseWindowActivities(string(out)), nil
-}
-
-// parseWindowActivities parses the tab-separated output of
-// `tmux list-windows -a -F "#{session_name}\t#{window_activity}"`.
-// A session may have multiple windows; the max timestamp wins.
-func parseWindowActivities(output string) []SessionActivity {
-	maxTS := make(map[string]int64)
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 || parts[0] == "" {
-			continue
-		}
-		ts, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			continue
-		}
-		if cur, ok := maxTS[parts[0]]; !ok || ts > cur {
-			maxTS[parts[0]] = ts
-		}
-	}
-
-	activities := make([]SessionActivity, 0, len(maxTS))
-	for name, ts := range maxTS {
-		activities = append(activities, SessionActivity{
-			Name:      name,
-			Timestamp: ts,
-		})
-	}
-	return activities
 }

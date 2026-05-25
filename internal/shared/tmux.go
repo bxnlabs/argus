@@ -24,23 +24,47 @@ set -g status-right-length 110
 set -g status-position bottom
 `
 
-// TmuxSocketPath returns the path to Argus's dedicated tmux server socket:
-// <StateDir>/tmux/server. Honors ARGUS_HOME so the dev stack is isolated.
-func TmuxSocketPath() (string, error) {
+// tmuxStateDir returns Argus's dedicated tmux directory: <StateDir>/tmux.
+// Honors ARGUS_HOME so the dev stack is isolated.
+func tmuxStateDir() (string, error) {
 	dir, err := StateDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "tmux", "server"), nil
+	return filepath.Join(dir, "tmux"), nil
+}
+
+// TmuxSocketPath returns the path to Argus's dedicated tmux server socket:
+// <StateDir>/tmux/server.
+func TmuxSocketPath() (string, error) {
+	dir, err := tmuxStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "server"), nil
 }
 
 // TmuxConfigPath returns the path to Argus's tmux config: <StateDir>/tmux/tmux.conf.
 func TmuxConfigPath() (string, error) {
-	dir, err := StateDir()
+	dir, err := tmuxStateDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "tmux", "tmux.conf"), nil
+	return filepath.Join(dir, "tmux.conf"), nil
+}
+
+// EnsureTmuxStateDir creates Argus's dedicated tmux directory (<StateDir>/tmux)
+// if missing and returns it. tmux places the dedicated server's socket here on
+// first new-session, so this must succeed before any session can be created.
+func EnsureTmuxStateDir() (string, error) {
+	dir, err := tmuxStateDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("create tmux dir: %w", err)
+	}
+	return dir, nil
 }
 
 // TmuxCommand builds an *exec.Cmd that targets Argus's dedicated tmux server
@@ -65,17 +89,13 @@ func TmuxCommandContext(ctx context.Context, args ...string) (*exec.Cmd, error) 
 	return exec.CommandContext(ctx, "tmux", full...), nil
 }
 
-// SeedTmuxConfig ensures <StateDir>/tmux exists and writes the default
-// tmux.conf only when it is missing, so a user-edited config is never
-// overwritten. Returns the config path; the directory creation it performs is
-// also what lets tmux create the socket there on first new-session.
+// SeedTmuxConfig writes the default tmux.conf into Argus's tmux directory only
+// when it is missing, so a user-edited config is never overwritten. The
+// directory must already exist (see EnsureTmuxStateDir). Returns the config path.
 func SeedTmuxConfig() (string, error) {
 	confPath, err := TmuxConfigPath()
 	if err != nil {
 		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(confPath), 0700); err != nil {
-		return "", fmt.Errorf("create tmux dir: %w", err)
 	}
 	f, err := os.OpenFile(confPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	switch {
@@ -83,6 +103,9 @@ func SeedTmuxConfig() (string, error) {
 		_, werr := f.WriteString(baseTmuxConfig)
 		cerr := f.Close()
 		if werr != nil {
+			// Remove the empty/partial file so a later run re-seeds it rather
+			// than treating the truncated config as the user's own.
+			os.Remove(confPath)
 			return "", fmt.Errorf("write tmux config: %w", werr)
 		}
 		if cerr != nil {
