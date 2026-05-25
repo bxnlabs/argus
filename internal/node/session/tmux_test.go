@@ -285,7 +285,8 @@ func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 	t.Setenv("ARGUS_HOME", dir)
 	requireDedicatedSocketUnder(t, dir)
 
-	// Ensure the dedicated socket directory exists before tmux creates the socket.
+	// SeedTmuxConfig's side-effect is creating the tmux dir so tmux can place
+	// the socket there; the seeded config itself is not used by this test.
 	if _, err := shared.SeedTmuxConfig(); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}

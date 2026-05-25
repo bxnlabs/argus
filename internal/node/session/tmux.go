@@ -17,6 +17,7 @@ import (
 func HasSession(name string) bool {
 	cmd, err := shared.TmuxCommand("has-session", "-t", name)
 	if err != nil {
+		// A build error (e.g. misconfigured ARGUS_HOME) is treated as "not found".
 		return false
 	}
 	return cmd.Run() == nil
@@ -120,7 +121,7 @@ func KillSession(name string) error {
 func ListSessions() ([]string, error) {
 	cmd, err := shared.TmuxCommand("list-sessions", "-F", "#{session_name}")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build tmux command: %w", err)
 	}
 	out, err := cmd.Output()
 	if err != nil {
@@ -152,7 +153,7 @@ func CapturePane(name string) (string, error) {
 func CapturePaneContext(ctx context.Context, name string) (string, error) {
 	cmd, err := shared.TmuxCommandContext(ctx, "capture-pane", "-t", name, "-p", "-J")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("build tmux command: %w", err)
 	}
 	out, err := cmd.Output()
 	if err != nil {
@@ -165,7 +166,7 @@ func CapturePaneContext(ctx context.Context, name string) (string, error) {
 func GetPaneCwd(name string) (string, error) {
 	cmd, err := shared.TmuxCommand("display-message", "-t", name, "-p", "#{pane_current_path}")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("build tmux command: %w", err)
 	}
 	out, err := cmd.Output()
 	if err != nil {
@@ -202,7 +203,7 @@ func parsePaneDimensions(s string) (width, height int, ok bool) {
 func GetPaneDimensionsContext(ctx context.Context, name string) (PaneDimensions, error) {
 	cmd, err := shared.TmuxCommandContext(ctx, "display-message", "-t", name, "-p", "#{pane_width}x#{pane_height}")
 	if err != nil {
-		return PaneDimensions{}, err
+		return PaneDimensions{}, fmt.Errorf("build tmux command: %w", err)
 	}
 	out, err := cmd.Output()
 	if err != nil {
@@ -219,7 +220,7 @@ func GetPaneDimensionsContext(ctx context.Context, name string) (PaneDimensions,
 func HasSessionContext(ctx context.Context, name string) (bool, error) {
 	cmd, err := shared.TmuxCommandContext(ctx, "has-session", "-t", name)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("build tmux command: %w", err)
 	}
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -255,7 +256,7 @@ type SessionActivity struct {
 func GetSessionActivitiesContext(ctx context.Context) ([]SessionActivity, error) {
 	cmd, err := shared.TmuxCommandContext(ctx, "list-windows", "-a", "-F", "#{session_name}\t#{window_activity}")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build tmux command: %w", err)
 	}
 	out, err := cmd.Output()
 	if err != nil {
