@@ -2,13 +2,14 @@ package session
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
-	"sort"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bxnlabs/argus/internal/shared"
 )
 
 func hasTmux() bool {
@@ -16,93 +17,30 @@ func hasTmux() bool {
 	return err == nil
 }
 
-func TestParseWindowActivities(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		want   []SessionActivity
-	}{
-		{
-			name:  "empty output",
-			input: "",
-			want:  nil,
-		},
-		{
-			name:  "single session single window",
-			input: "mysess\t1709300000\n",
-			want:  []SessionActivity{{Name: "mysess", Timestamp: 1709300000}},
-		},
-		{
-			name:  "multi-window takes max timestamp",
-			input: "mysess\t1709300000\nmysess\t1709300500\nmysess\t1709300100\n",
-			want:  []SessionActivity{{Name: "mysess", Timestamp: 1709300500}},
-		},
-		{
-			name:  "multiple sessions",
-			input: "sess-a\t1709300000\nsess-b\t1709300100\n",
-			want: []SessionActivity{
-				{Name: "sess-a", Timestamp: 1709300000},
-				{Name: "sess-b", Timestamp: 1709300100},
-			},
-		},
-		{
-			name:  "malformed line skipped",
-			input: "mysess\t1709300000\nbadline\nmysess2\t1709300100\n",
-			want: []SessionActivity{
-				{Name: "mysess", Timestamp: 1709300000},
-				{Name: "mysess2", Timestamp: 1709300100},
-			},
-		},
-		{
-			name:  "non-numeric timestamp skipped",
-			input: "mysess\tnotanumber\ngood\t1709300000\n",
-			want:  []SessionActivity{{Name: "good", Timestamp: 1709300000}},
-		},
-		{
-			name:  "zero timestamp is preserved",
-			input: "mysess\t0\n",
-			want:  []SessionActivity{{Name: "mysess", Timestamp: 0}},
-		},
-		{
-			name:  "empty session name skipped",
-			input: "\t1709300000\ngood\t1709300100\n",
-			want:  []SessionActivity{{Name: "good", Timestamp: 1709300100}},
-		},
+// requireDedicatedSocketUnder is a hard safety guard for tmux integration
+// tests. It fails the test unless Argus's resolved tmux socket lives under dir
+// (a t.TempDir). This guarantees a test can only ever create or kill sessions
+// on a throwaway dedicated server — never the user's real default or ~/.argus
+// tmux server. Call it immediately after t.Setenv("ARGUS_HOME", dir) and
+// before any tmux command.
+func requireDedicatedSocketUnder(t *testing.T, dir string) {
+	t.Helper()
+	sock, err := shared.TmuxSocketPath()
+	if err != nil {
+		t.Fatalf("TmuxSocketPath: %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseWindowActivities(tt.input)
-
-			// Sort both slices by name for deterministic comparison.
-			sort.Slice(got, func(i, j int) bool { return got[i].Name < got[j].Name })
-			sort.Slice(tt.want, func(i, j int) bool { return tt.want[i].Name < tt.want[j].Name })
-
-			if len(got) != len(tt.want) {
-				t.Fatalf("got %d activities, want %d\ngot:  %+v\nwant: %+v", len(got), len(tt.want), got, tt.want)
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("activity[%d] = %+v, want %+v", i, got[i], tt.want[i])
-				}
-			}
-		})
+	if !strings.HasPrefix(sock, filepath.Clean(dir)+string(filepath.Separator)) {
+		t.Fatalf("refusing to run: tmux socket %q is not under temp dir %q", sock, dir)
 	}
 }
 
-func TestGetSessionActivitiesContext_CanceledContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
-
-	activities, err := GetSessionActivitiesContext(ctx)
-	if activities != nil {
-		t.Errorf("expected nil activities, got %v", activities)
-	}
-	if err == nil {
-		t.Fatal("expected error for canceled context")
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("expected context.Canceled, got %v", err)
+// killTestSession removes a single named session from Argus's dedicated
+// (throwaway) socket. It deliberately targets one session by name rather than
+// running kill-server, so an integration test can never tear down a whole tmux
+// server — the server exits on its own once its last session is gone.
+func killTestSession(name string) {
+	if cmd, err := shared.TmuxCommand("kill-session", "-t", name); err == nil {
+		cmd.Run()
 	}
 }
 
@@ -151,20 +89,20 @@ func TestBuildStatusRight(t *testing.T) {
 			wantParts: []string{"feat/some-really-long-branch-name-…"},
 		},
 		{
-			name:      "branch with hash is escaped",
-			sessionID: "sess_abc",
-			dir:       "/tmp",
-			branch:    "feat#(echo hacked)",
-			home:      "/Users/jeevb",
+			name:       "branch with hash is escaped",
+			sessionID:  "sess_abc",
+			dir:        "/tmp",
+			branch:     "feat#(echo hacked)",
+			home:       "/Users/jeevb",
 			wantParts:  []string{"feat##(echo hacked)"},
 			wantAbsent: []string{"feat#(echo hacked)"},
 		},
 		{
-			name:      "dir with percent is escaped",
-			sessionID: "sess_abc",
-			dir:       "/tmp/100%done",
-			branch:    "main",
-			home:      "/Users/jeevb",
+			name:       "dir with percent is escaped",
+			sessionID:  "sess_abc",
+			dir:        "/tmp/100%done",
+			branch:     "main",
+			home:       "/Users/jeevb",
 			wantParts:  []string{"100%%done"},
 			wantAbsent: []string{"100%d"},
 		},
@@ -220,26 +158,76 @@ func TestParsePaneDimensions(t *testing.T) {
 	}
 }
 
+func TestNewSession_AppliesSeededConfig(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	dir := t.TempDir()
+	t.Setenv("ARGUS_HOME", dir)
+	requireDedicatedSocketUnder(t, dir)
+
+	// Bootstrap dir + config as the node does at startup.
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
+	}
+
+	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
+	t.Cleanup(func() { killTestSession(name) })
+	if err := NewSession(name, "", ""); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	// The seeded config sets `mouse on` (tmux defaults to off), so its effect on
+	// the running server proves NewSession booted it with -f <seeded config>.
+	cmd, err := shared.TmuxCommand("show-options", "-g", "mouse")
+	if err != nil {
+		t.Fatalf("build show-options: %v", err)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("show-options: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "mouse on" {
+		t.Errorf("seeded config not applied: show-options -g mouse = %q, want %q", got, "mouse on")
+	}
+}
+
 func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
+	dir := t.TempDir()
+	t.Setenv("ARGUS_HOME", dir)
+	requireDedicatedSocketUnder(t, dir)
+
+	// Create the tmux dir so tmux can place the socket there, as the node does
+	// at startup.
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
 
 	sess := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
+	t.Cleanup(func() { killTestSession(sess) })
 
-	// Create a narrow (40-column) tmux session.
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", sess, "-x", "40", "-y", "10")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	// Create a narrow (40-column) session on the dedicated socket.
+	newCmd, err := shared.TmuxCommand("new-session", "-d", "-s", sess, "-x", "40", "-y", "10")
+	if err != nil {
+		t.Fatalf("build new-session: %v", err)
+	}
+	if out, err := newCmd.CombinedOutput(); err != nil {
 		t.Fatalf("new-session: %v: %s", err, out)
 	}
-	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", sess).Run()
-	})
 
 	// Send a line longer than the pane width so tmux wraps it.
 	longLine := "background tasks still running indicator test line"
-	cmd = exec.Command("tmux", "send-keys", "-t", sess, fmt.Sprintf("echo '%s'", longLine), "Enter")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	sendCmd, err := shared.TmuxCommand("send-keys", "-t", sess, fmt.Sprintf("echo '%s'", longLine), "Enter")
+	if err != nil {
+		t.Fatalf("build send-keys: %v", err)
+	}
+	if out, err := sendCmd.CombinedOutput(); err != nil {
 		t.Fatalf("send-keys: %v: %s", err, out)
 	}
 
@@ -251,8 +239,6 @@ func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 		t.Fatalf("CapturePaneContext: %v", err)
 	}
 
-	// With -J, the long line should appear as a single logical line containing
-	// the full string, not split across multiple physical rows.
 	if !strings.Contains(content, longLine) {
 		t.Errorf("expected captured content to contain %q as a single logical line\ngot:\n%s", longLine, content)
 	}

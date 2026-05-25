@@ -173,6 +173,7 @@ export interface BranchList {
 }
 
 export type {
+  DiffSide,
   DiffPosition,
   LineRange,
   AnchorStatus,

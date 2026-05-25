@@ -5,18 +5,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"path/filepath"
 	"time"
 
+	"github.com/bxnlabs/argus/internal/config"
+	"github.com/bxnlabs/argus/internal/git/worktree"
+	ghsvc "github.com/bxnlabs/argus/internal/github"
 	"github.com/bxnlabs/argus/internal/node/api"
 	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/notifications"
 	"github.com/bxnlabs/argus/internal/node/session"
 	"github.com/bxnlabs/argus/internal/node/status"
-	"github.com/bxnlabs/argus/internal/config"
-	ghsvc "github.com/bxnlabs/argus/internal/github"
 	"github.com/bxnlabs/argus/internal/shared"
-	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
 // prodTmuxOps is the production implementation of TmuxWatcherOps.
@@ -61,7 +60,33 @@ func (p *prodWatcherDB) GetSession(id string) (unreadSince, lastViewedAt *string
 // Setup initializes the node: opens the database, verifies migrations are
 // current, and returns an HTTP handler with all node API routes.
 func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
-	database, err := db.Open(cfg.Database.Path)
+	// Resolve Argus's state root once (ARGUS_HOME, else ~/.argus), secure it to
+	// 0700, and share it with every component below. The database lives directly
+	// in the root, so it must be private before db.Open. config.Load already
+	// secures the root on the auto-discovery path; this also covers an explicit
+	// --config run, where config.Load doesn't touch the state dir. Per-subdir
+	// EnsureSecureDir calls only tighten their own leaves.
+	stateDir, err := shared.EnsureStateDir()
+	if err != nil {
+		return nil, nil, fmt.Errorf("prepare state dir: %w", err)
+	}
+
+	// Bootstrap the dedicated tmux server state before anything else: the
+	// directory holds the server socket and the seeded config is read once at
+	// first server start. Both are required, so a failure here is fatal rather
+	// than leaving the server permanently misconfigured.
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		return nil, nil, fmt.Errorf("ensure tmux dir: %w", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		return nil, nil, fmt.Errorf("seed tmux config: %w", err)
+	}
+
+	dbPath, err := shared.DBPath()
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve db path: %w", err)
+	}
+	database, err := db.Open(dbPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open db: %w", err)
 	}
@@ -70,18 +95,6 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 		database.Close()
 		return nil, nil, err
 	}
-
-	expandedDBPath, err := shared.ExpandPath(cfg.Database.Path)
-	if err != nil {
-		database.Close()
-		return nil, nil, fmt.Errorf("expand db path: %w", err)
-	}
-	absDBPath, err := filepath.Abs(expandedDBPath)
-	if err != nil {
-		database.Close()
-		return nil, nil, fmt.Errorf("abs db path: %w", err)
-	}
-	stateDir := filepath.Dir(absDBPath)
 
 	wtMgr := worktree.NewManager(stateDir, cfg)
 

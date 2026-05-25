@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/spf13/viper"
 )
 
@@ -15,7 +15,6 @@ import (
 type Config struct {
 	Server        ServerConfig        `mapstructure:"server"`
 	Node          NodeConfig          `mapstructure:"node"`
-	Database      DatabaseConfig      `mapstructure:"database"`
 	Git           GitConfig           `mapstructure:"git"`
 	Tailscale     TailscaleConfig     `mapstructure:"tailscale"`
 	Notifications NotificationsConfig `mapstructure:"notifications"`
@@ -29,10 +28,6 @@ type ServerConfig struct {
 type NodeConfig struct {
 	Port        int    `mapstructure:"port"`
 	BindAddress string `mapstructure:"bind_address"`
-}
-
-type DatabaseConfig struct {
-	Path string `mapstructure:"path"`
 }
 
 type GitConfig struct {
@@ -72,12 +67,16 @@ type Options struct {
 func Load(opts Options) (*Config, error) {
 	v := viper.New()
 
+	// The state dir is only needed to auto-discover ~/.argus/config.toml. An
+	// explicit --config must still load when the home dir is unavailable, so
+	// defer treating this as fatal until it's actually used below.
+	stateDir, stateDirErr := shared.StateDir()
+
 	// Defaults
 	v.SetDefault("server.port", 3000)
 	v.SetDefault("server.bind_address", "127.0.0.1")
 	v.SetDefault("node.port", 3011)
 	v.SetDefault("node.bind_address", "127.0.0.1")
-	v.SetDefault("database.path", "~/.argus/node.db")
 	v.SetDefault("git.branch_prefix", "")
 	v.SetDefault("tailscale.enabled", false)
 	v.SetDefault("tailscale.hostname_prefix", "")
@@ -95,11 +94,19 @@ func Load(opts Options) (*Config, error) {
 	if opts.ConfigFile != "" {
 		v.SetConfigFile(opts.ConfigFile)
 	} else {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("config: determine home directory: %w", err)
+		if stateDirErr != nil {
+			return nil, fmt.Errorf("config: determine state dir: %w", stateDirErr)
 		}
-		v.AddConfigPath(filepath.Join(home, ".argus"))
+		// Secure the state root before reading config from it: ~/.argus/config.toml
+		// may hold secrets (Tailscale auth key, Slack token), so a root left at
+		// 0755 by an older version must be tightened first. This is the earliest
+		// point every config-loading command (server, node, combined, migrate)
+		// passes through. Scoped to auto-discovery so an explicit --config still
+		// loads without a resolvable home (see TestExplicitConfigLoadsWithoutResolvableHome).
+		if err := shared.EnsureSecureDir(stateDir); err != nil {
+			return nil, fmt.Errorf("config: secure state dir: %w", err)
+		}
+		v.AddConfigPath(stateDir)
 		v.SetConfigName("config")
 		v.SetConfigType("toml")
 	}
@@ -141,9 +148,6 @@ func validate(cfg *Config) error {
 	}
 	if err := validateIP("node.bind_address", cfg.Node.BindAddress); err != nil {
 		return err
-	}
-	if cfg.Database.Path == "" {
-		return fmt.Errorf("database.path must not be empty")
 	}
 	if cfg.Tailscale.Port < 0 || cfg.Tailscale.Port > 65535 {
 		return fmt.Errorf("tailscale.port must be 0-65535, got %d", cfg.Tailscale.Port)

@@ -1,0 +1,20 @@
+# Local development config template.
+#
+# Copy to .dev/config.toml to apply personal overrides for `make dev`.
+# This file is OPTIONAL: `make dev` exports ARGUS_HOME=$PWD/.dev, which
+# relocates ALL Argus state (db, sessions, worktrees, discovery file) under
+# ./.dev, and sets the dev backend port via ARGUS_SERVER_PORT=3100. Defaults
+# plus those env vars are enough to run the stack.
+#
+# Use this file only if you want extras such as notifications or a branch
+# prefix while developing.
+
+# [git]
+# branch_prefix = "dev/"
+
+# [notifications]
+# channel = "slack"
+# notify_after_unread_for = "5m"
+# [notifications.slack]
+# bot_token = ""
+# channel_id = ""

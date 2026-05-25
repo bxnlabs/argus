@@ -2,9 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -35,9 +35,9 @@ func NewSessionCmd() *cobra.Command {
 
 // discoveryFilePath returns the path to the node discovery file.
 func discoveryFilePath() (string, error) {
-	home, err := os.UserHomeDir()
+	stateDir, err := shared.StateDir()
 	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
+		return "", fmt.Errorf("cannot determine state dir: %w", err)
 	}
-	return filepath.Join(home, ".argus", "node.json"), nil
+	return filepath.Join(stateDir, "node.json"), nil
 }

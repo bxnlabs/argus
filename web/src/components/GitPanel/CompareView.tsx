@@ -25,12 +25,17 @@ import {
   sortCommentsByRenderOrder,
   sortUnanchoredCommentsByFile,
   coalesceAutoExpand,
+  commentsAfterClear,
+  clearCounts,
+  clearConfirmMessage,
   type AutoExpandTarget,
   type InlineCommentEntry,
+  type ClearCategory,
 } from "@/lib/compare-comments";
 import { useCompareBranchesQuery, useCompareQuery, useGitCurrentBranchQuery } from "@/data/git";
 import { useReviewQuery, useSaveReviewMutation, reviewKeys } from "@/data/review";
 import { ReviewSubmitButton } from "./ReviewSubmitButton";
+import { ClearCommentsMenu } from "./ClearCommentsMenu";
 import { ReviewBodyCard } from "./ReviewBodyCard";
 import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
@@ -395,6 +400,29 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
     [effectivePartition.unanchored, compareData?.files],
   );
 
+  // Unanchored classification is only trustworthy when the compare query is in a
+  // good state. While compareData is undefined (loading or a base-branch switch)
+  // parsedDiffs is empty, so partitionComments marks every comment unanchored —
+  // which would make "Clear unanchored" silently equivalent to "Clear all". An
+  // errored refetch is excluded too: react-query keeps the last successful data
+  // on a same-key refetch failure, so compareData can be present-but-stale while
+  // compareError is true. Treat the bucket as empty in both cases, which zeroes
+  // the unanchored count (disabling that menu row) and no-ops its clear action;
+  // the all/pending/submitted categories don't depend on compare classification.
+  const canClassifyUnanchored = !!compareData && !compareError;
+  const unanchoredIds = useMemo(
+    () =>
+      canClassifyUnanchored
+        ? new Set(effectivePartition.unanchored.map((c) => c.id))
+        : new Set<string>(),
+    [canClassifyUnanchored, effectivePartition.unanchored],
+  );
+
+  const clearMenuCounts = useMemo(
+    () => clearCounts(comments, unanchoredIds),
+    [comments, unanchoredIds],
+  );
+
   // Tracks the last visited position so navigation can resume near it when
   // the focused comment is deleted. Updated from scrollToComment and from
   // a sync effect that mirrors the live focused index.
@@ -671,6 +699,19 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
       comments: prev.comments.filter((c) => c.id !== id),
     }));
   }, [saveAndUpdate]);
+
+  const handleClearComments = useCallback(
+    (category: ClearCategory) => {
+      const count = clearMenuCounts[category];
+      if (count === 0) return;
+      if (!window.confirm(clearConfirmMessage(category, count))) return;
+      saveAndUpdate((prev) => ({
+        ...prev,
+        comments: commentsAfterClear(prev.comments, category, unanchoredIds),
+      }));
+    },
+    [clearMenuCounts, unanchoredIds, saveAndUpdate],
+  );
 
   const handleEditComment = useCallback(
     (id: string, body: string) => {
@@ -991,6 +1032,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               onSubmit={handleSubmitComments}
             />
           )}
+          {baseBranch && reviewData && clearMenuCounts.all > 0 && (
+            <ClearCommentsMenu counts={clearMenuCounts} onClear={handleClearComments} />
+          )}
         </div>
         <div ref={scrollContainerRef} className="safe-area-bottom flex-1 overflow-auto">
           {loadingCompare ? (
@@ -1077,7 +1121,17 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
               )}
             </>
           ) : unanchoredSection ? (
-            <div className="p-3">{unanchoredSection}</div>
+            <>
+              {/* No file rows in this state, so the diff-view toolbar (the
+                  menu's only other mobile home) is unreachable — surface the
+                  clear menu here too. */}
+              {baseBranch && reviewData && clearMenuCounts.all > 0 && (
+                <div className="bg-muted/30 flex justify-end p-2">
+                  <ClearCommentsMenu counts={clearMenuCounts} onClear={handleClearComments} />
+                </div>
+              )}
+              <div className="p-3">{unanchoredSection}</div>
+            </>
           ) : compareData ? (
             <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
               <GitCompareArrows className="mb-4 h-12 w-12 opacity-50" />
@@ -1133,6 +1187,9 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
                 onGeneralCommentChange={handleGeneralCommentChange}
                 onSubmit={handleSubmitComments}
               />
+            )}
+            {reviewData && clearMenuCounts.all > 0 && (
+              <ClearCommentsMenu counts={clearMenuCounts} onClear={handleClearComments} />
             )}
           </div>
         )}
