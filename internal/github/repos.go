@@ -18,6 +18,8 @@ import (
 	"github.com/sahilm/fuzzy"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/bxnlabs/argus/internal/shared"
 )
 
 // RepoIndexer maintains an in-memory snapshot of the user's GitHub repos,
@@ -315,7 +317,7 @@ func (idx *RepoIndexer) saveSnapshot(repos []string) {
 		return
 	}
 	dir := filepath.Dir(idx.snapshotPath())
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := shared.EnsureSecureDir(dir); err != nil {
 		log.Printf("repo indexer: mkdir %s: %v", dir, err)
 		return
 	}

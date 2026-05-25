@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"path/filepath"
 
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git/worktree"
@@ -27,7 +26,21 @@ func newMigrateCmd() *cobra.Command {
 }
 
 func runMigrate(c *config.Config) error {
-	database, err := db.Open(c.Database.Path)
+	// Resolve and secure the state root before touching the database. This both
+	// repairs an older 0755 root and creates it on a fresh machine, where
+	// db.Open would otherwise leave the new parent world-readable. The same
+	// canonical root feeds the backfill managers below (see node.Setup), so
+	// migration operates on the worktrees the node reads at runtime.
+	stateDir, err := shared.EnsureStateDir()
+	if err != nil {
+		return fmt.Errorf("prepare state dir: %w", err)
+	}
+
+	dbPath, err := shared.DBPath()
+	if err != nil {
+		return fmt.Errorf("resolve db path: %w", err)
+	}
+	database, err := db.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -37,16 +50,6 @@ func runMigrate(c *config.Config) error {
 		return fmt.Errorf("migrations: %w", err)
 	}
 	log.Println("schema migrations complete")
-
-	expandedDBPath, err := shared.ExpandPath(c.Database.Path)
-	if err != nil {
-		return fmt.Errorf("expand db path: %w", err)
-	}
-	absDBPath, err := filepath.Abs(expandedDBPath)
-	if err != nil {
-		return fmt.Errorf("abs db path: %w", err)
-	}
-	stateDir := filepath.Dir(absDBPath)
 
 	wtMgr := worktree.NewManager(stateDir, c)
 	mgr := session.NewManager(database, wtMgr, stateDir)
