@@ -1,6 +1,7 @@
 /** Touch-primary device — stable across orientation changes */
 export const isTouchDevice =
   typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
   window.matchMedia("(pointer: coarse)").matches;
 
 /** Phone-sized: shortest screen dimension is under 768px */

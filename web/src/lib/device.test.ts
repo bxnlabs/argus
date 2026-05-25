@@ -1,10 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
-// Stub matchMedia so the module-level isTouchDevice const doesn't throw
-// when device.ts is first imported in the jsdom environment.
-beforeEach(() => {
-  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
-});
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 afterEach(() => {
   vi.unstubAllGlobals();
