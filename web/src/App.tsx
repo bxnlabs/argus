@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabProvider, useTabs } from "@/contexts/TabContext";
@@ -9,21 +9,38 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession } from "@/data/sessions/queries";
+import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
+import { ShortcutHintOverlay } from "@/components/ShortcutHintOverlay";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
 import { useGitCheckQuery } from "@/data/git";
+import { isMac } from "@/lib/device";
 import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
+import type { GitTab } from "@/components/GitPanel/GitPanelTabs";
 
 function HomeContent() {
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [activePanel, setActivePanel] = useState<SidePanel>(null);
+  // Latest Git sub-tab intent. GitPanel re-mounts each time the panel opens, so
+  // this must always reflect the most recent chord so it opens to the right tab.
+  const [requestedGitTab, setRequestedGitTab] = useState<GitTab>("changes");
 
   // Tab context
-  const { tabs, activeTab, attachSession, detachSessionById } = useTabs();
+  const {
+    tabs,
+    activeTab,
+    activeTabId,
+    addTab,
+    closeTab,
+    switchTab,
+    attachSession,
+    detachSessionById,
+  } = useTabs();
   const { isMobile, isHydrated } = useViewport();
 
   // Data hooks
@@ -112,25 +129,85 @@ function HomeContent() {
     if (isHydrated && !isMobile) setSidebarOpen(true);
   }, [isHydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keyboard shortcut: Cmd+K to open quick switcher
+  // Keyboard shortcut: Cmd+K (mac) / Ctrl+K (else) to open quick switcher.
+  // Bound to the platform-primary modifier ONLY (not both) so on macOS it
+  // doesn't shadow readline's Ctrl+K (kill-to-end-of-line) in the terminal.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((isMac() ? e.metaKey : e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setShowQuickSwitcher(true);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "G") {
-        e.preventDefault();
-        setActivePanel((prev) => (prev === "git" ? null : "git"));
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "E") {
-        e.preventDefault();
-        setActivePanel((prev) => (prev === "editor" ? null : "editor"));
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // Leader-key chord tree. `g`/`e` are conditionally included on the same
+  // availability rules as the ViewModeRail buttons (Git only on a repo, Editor
+  // only with a working dir) — which keeps unavailable actions out of the hint
+  // overlay and dodges the open-then-auto-close flicker from Workspace's reset.
+  const bindings: ChordMap = useMemo(() => {
+    const switchRelative = (delta: number) => {
+      const i = tabs.findIndex((t) => t.id === activeTabId);
+      if (i === -1) return;
+      switchTab(tabs[(i + delta + tabs.length) % tabs.length].id);
+    };
+    return {
+      n: { label: "New session", run: () => setShowNewSessionDialog(true) },
+      "=": { label: "New tab", run: () => addTab() },
+      "-": { label: "Close tab", run: () => closeTab(activeTabId) },
+      ArrowLeft: { label: "Previous tab", run: () => switchRelative(-1) },
+      ArrowRight: { label: "Next tab", run: () => switchRelative(1) },
+      t: { label: "Terminal", run: () => setActivePanel(null) },
+      ...(isGitRepo
+        ? {
+            g: {
+              label: "Git",
+              run: () => {
+                setRequestedGitTab("changes");
+                setActivePanel((prev) => (prev === "git" ? null : "git"));
+              },
+              children: {
+                h: {
+                  label: "History",
+                  run: () => {
+                    setRequestedGitTab("history");
+                    setActivePanel("git");
+                  },
+                },
+                c: {
+                  label: "Compare",
+                  run: () => {
+                    setRequestedGitTab("compare");
+                    setActivePanel("git");
+                  },
+                },
+              },
+            },
+          }
+        : {}),
+      ...(activeWorkingDirectory
+        ? {
+            e: {
+              label: "Editor",
+              run: () =>
+                setActivePanel((prev) => (prev === "editor" ? null : "editor")),
+            },
+          }
+        : {}),
+      "?": { label: "Show all shortcuts", run: () => setShowShortcutsHelp(true) },
+    };
+  }, [tabs, activeTabId, isGitRepo, activeWorkingDirectory, addTab, closeTab, switchTab]);
+
+  // Chord engine — desktop only (touch devices have no leader key).
+  const { pending } = useKeyboardChords(bindings, { enabled: !isMobile });
+
+  const leaderLabel = isMac() ? "⌘ ;" : "Ctrl ;";
+  const extraShortcuts = [
+    { keys: isMac() ? "⌘ K" : "Ctrl K", label: "Search / quick-switch" },
+    { keys: "Esc", label: "Cancel chord / return to terminal" },
+  ];
 
   // Session selection handler
   const handleSelectSession = useCallback(
@@ -210,12 +287,13 @@ function HomeContent() {
         setActivePanel={setActivePanel}
         activeWorkingDirectory={activeWorkingDirectory}
         isGitRepo={isGitRepo}
+        requestedGitTab={requestedGitTab}
         onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
         onSelectSession={handleSelectSession}
         onNewSession={() => setShowNewSessionDialog(true)}
       />
     ),
-    [sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo]
+    [sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo, requestedGitTab]
   );
 
   const viewProps = {
@@ -240,7 +318,19 @@ function HomeContent() {
     return <MobileView {...viewProps} />;
   }
 
-  return <DesktopView {...viewProps} />;
+  return (
+    <>
+      <DesktopView {...viewProps} />
+      <ShortcutHintOverlay
+        pending={pending}
+        bindings={bindings}
+        leaderLabel={leaderLabel}
+        helpOpen={showShortcutsHelp}
+        onHelpOpenChange={setShowShortcutsHelp}
+        extraShortcuts={extraShortcuts}
+      />
+    </>
+  );
 }
 
 export function App() {
