@@ -395,6 +395,35 @@ describe("useKeyboardChords", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it("suppresses sibling capture-phase listeners for the leader and follow-ups", () => {
+    // Regression guard: stopImmediatePropagation must prevent sibling document
+    // capture-phase listeners (e.g. terminal-init's Cmd+C handler) from seeing
+    // keys that the chord engine fully owns.
+    const { bindings } = makeBindings();
+    renderHook(() => useKeyboardChords(bindings));
+
+    // Register the sibling spy AFTER the hook mounts so it is a later sibling —
+    // the realistic scenario where terminal-init also registered on capture.
+    const siblingSpy = vi.fn();
+    document.addEventListener("keydown", siblingSpy, true);
+
+    try {
+      // 1. Leader: sibling must NOT see it.
+      act(() => {
+        dispatchLeader();
+      });
+      expect(siblingSpy).not.toHaveBeenCalled();
+
+      // 2. Follow-up while pending: sibling must NOT see it either.
+      act(() => {
+        dispatchKey("n");
+      });
+      expect(siblingSpy).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", siblingSpy, true);
+    }
+  });
+
   it("removes listeners and clears the timer on unmount", () => {
     vi.useFakeTimers();
     const { bindings, n } = makeBindings();

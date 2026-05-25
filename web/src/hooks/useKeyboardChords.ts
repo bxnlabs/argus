@@ -155,7 +155,7 @@ export function useKeyboardChords(
         const leaderHeld = isMac() ? event.metaKey : event.ctrlKey;
         if (leaderHeld && event.key === LEADER_KEY) {
           event.preventDefault();
-          event.stopPropagation();
+          event.stopImmediatePropagation();
           transition([]);
         }
         return;
@@ -168,8 +168,10 @@ export function useKeyboardChords(
 
       // Any real follow-up is captured airtight so it can't leak to the
       // PTY/editor/input — regardless of whether it ends up matching.
+      // stopImmediatePropagation (not just stopPropagation) ensures sibling
+      // capture-phase listeners on the same target are also suppressed.
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
 
       if (event.key === "Escape") {
         cancel();
