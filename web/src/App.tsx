@@ -176,8 +176,8 @@ function HomeContent() {
       n: { label: "New session", run: () => setShowNewSessionDialog(true) },
       "=": { label: "New tab", run: () => addTab() },
       "-": { label: "Close tab", run: () => closeTab(activeTabId) },
-      ArrowLeft: { label: "Previous tab", run: () => switchRelative(-1) },
-      ArrowRight: { label: "Next tab", run: () => switchRelative(1) },
+      a: { label: "Previous tab", run: () => switchRelative(-1) },
+      d: { label: "Next tab", run: () => switchRelative(1) },
       t: { label: "Terminal", run: () => setActivePanel(null) },
       ...(isGitRepo
         ? {

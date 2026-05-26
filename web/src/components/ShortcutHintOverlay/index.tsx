@@ -18,13 +18,6 @@ interface ShortcutHintOverlayProps {
   extraShortcuts?: { keys: string; label: string }[];
 }
 
-/** Map special key names to display symbols; everything else is verbatim. */
-function formatKey(key: string): string {
-  if (key === "ArrowLeft") return "←";
-  if (key === "ArrowRight") return "→";
-  return key;
-}
-
 /** Pill-style key chip matching QuickSwitcher kbd conventions. */
 function KeyChip({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -64,7 +57,7 @@ function ChordRows({ level }: { level: ChordMap }) {
     <>
       {Object.entries(level).map(([key, binding]) => (
         <div key={key} className="flex items-center gap-2">
-          <KeyChip>{formatKey(key)}</KeyChip>
+          <KeyChip>{key}</KeyChip>
           <span className="text-foreground/80 min-w-0 truncate text-xs">
             {binding.label}
           </span>
@@ -95,7 +88,7 @@ function ChordTreeRows({
               depth > 0 && "pl-4",
             )}
           >
-            <KeyChip>{formatKey(key)}</KeyChip>
+            <KeyChip>{key}</KeyChip>
             <span className="text-foreground/80 min-w-0 truncate text-xs">
               {binding.label}
             </span>
