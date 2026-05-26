@@ -127,12 +127,19 @@ export function ShortcutHintOverlay({
             "w-52 p-3",
           )}
         >
-          {/* Heading: breadcrumb when inside a sub-chord, leader label at top level */}
-          <p className="text-muted-foreground mb-2 text-xs font-medium">
-            {pending.path.length === 0
-              ? leaderLabel
-              : (buildBreadcrumb(bindings, pending.path) ?? leaderLabel) + " ›"}
-          </p>
+          {/* Heading: leader chip + title at top level, breadcrumb in a sub-chord */}
+          {pending.path.length === 0 ? (
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-foreground text-xs font-semibold">
+                Keyboard Shortcuts
+              </span>
+              <KeyChip>{leaderLabel}</KeyChip>
+            </div>
+          ) : (
+            <p className="text-muted-foreground mb-2 text-xs font-medium">
+              {(buildBreadcrumb(bindings, pending.path) ?? leaderLabel) + " ›"}
+            </p>
+          )}
           <div className="flex flex-col gap-1.5">
             <ChordRows level={pending.level} />
           </div>
@@ -157,7 +164,7 @@ export function ShortcutHintOverlay({
               </p>
               <div className="flex items-center gap-2">
                 <KeyChip>{leaderLabel}</KeyChip>
-                <span className="text-foreground/80 text-xs">Open command palette</span>
+                <span className="text-foreground/80 text-xs">Show shortcuts</span>
               </div>
             </section>
 
