@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { isMac } from "@/lib/device";
 
 interface InlineCommentFormProps {
   onSubmit: (body: string) => void;
@@ -50,7 +51,7 @@ export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submit
           >
             {submitLabel}
             <kbd className="text-[10px] opacity-60">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
+              {isMac() ? "⌘" : "Ctrl"}-Enter
             </kbd>
           </Button>
       </div>

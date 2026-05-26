@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { isMac } from "@/lib/device";
 import type { SidePanel } from "@/components/views/types";
 
 interface ViewModeRailProps {
@@ -71,6 +72,7 @@ export function ViewModeRail({
   const isTerminalActive = activePanel === null;
   const isGitActive = activePanel === "git";
   const isEditorActive = activePanel === "editor";
+  const leader = isMac() ? "⌘ ;" : "Ctrl ;";
 
   return (
     <nav
@@ -81,7 +83,7 @@ export function ViewModeRail({
       <RailButton
         active={isTerminalActive}
         onClick={() => onSetActivePanel(null)}
-        tooltip="Terminal"
+        tooltip={`Terminal (${leader} T)`}
       >
         <TerminalIcon className={cn("h-6 w-6", isTerminalActive && "text-primary")} />
       </RailButton>
@@ -90,7 +92,7 @@ export function ViewModeRail({
         active={isGitActive}
         disabled={!isGitEnabled}
         onClick={() => onSetActivePanel("git")}
-        tooltip="Git"
+        tooltip={`Git (${leader} G)`}
       >
         <GitBranch className={cn("h-6 w-6", isGitActive && "text-primary")} />
       </RailButton>
@@ -99,7 +101,7 @@ export function ViewModeRail({
         active={isEditorActive}
         disabled={!isEditorEnabled}
         onClick={() => onSetActivePanel("editor")}
-        tooltip="Editor"
+        tooltip={`Editor (${leader} E)`}
       >
         <FilePenLine className={cn("h-6 w-6", isEditorActive && "text-primary")} />
       </RailButton>

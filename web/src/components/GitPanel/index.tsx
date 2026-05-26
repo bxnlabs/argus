@@ -8,7 +8,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { FileChanges } from "./FileChanges";
-import { GitPanelTabs, type GitTab } from "./GitPanelTabs";
+import { GitPanelTabs, type GitTab, type GitTabRequest } from "./GitPanelTabs";
 import { CommitHistory } from "./CommitHistory";
 import { CompareView } from "./CompareView";
 import { GitStatusHeader } from "./GitStatusHeader";
@@ -30,12 +30,13 @@ import type { GitFile } from "@/types";
 
 interface GitPanelProps {
   workingDirectory: string;
+  requestedTab?: GitTabRequest;
 }
 
-export function GitPanel({ workingDirectory }: GitPanelProps) {
+export function GitPanel({ workingDirectory, requestedTab }: GitPanelProps) {
   const { isMobile } = useViewport();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<GitTab>("changes");
+  const [activeTab, setActiveTab] = useState<GitTab>(requestedTab?.tab ?? "changes");
 
   // Narrow subscriptions — neither includes isRefetching
   const {
@@ -115,6 +116,18 @@ export function GitPanel({ workingDirectory }: GitPanelProps) {
       setSelectedPath(null);
     }
   }, [selectedPath, fileStatus]);
+
+  // Sync active tab when an external caller issues a new requestedTab. The panel
+  // may already be mounted when a chord like `g h` fires, so the initial-state
+  // value alone isn't enough — this effect picks up subsequent requests while
+  // still allowing manual tab clicks to work freely until the next request.
+  // requestedTab is a fresh object per request (its `seq` bumps), so the effect
+  // re-fires even when the same tab is requested twice after a manual switch.
+  // The `if (requestedTab)` guard is load-bearing, not a null check: an absent
+  // prop must never reset the user's manual selection.
+  useEffect(() => {
+    if (requestedTab) setActiveTab(requestedTab.tab);
+  }, [requestedTab]);
 
   // Resizable panel state (desktop)
   const [listWidth, setListWidth] = useState(400);

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { MessageSquare, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
 import {
   Sheet,
@@ -176,7 +177,7 @@ export function ReviewSubmitButton({
             >
               Submit review
               <kbd className="text-[10px] opacity-60">
-                {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}-Enter
+                {isMac() ? "⌘" : "Ctrl"}-Enter
               </kbd>
             </Button>
           </div>
