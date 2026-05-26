@@ -21,7 +21,7 @@ export interface SessionStatusInfo {
   status: "active" | "idle" | "dead";
   providerType: ProviderType;
   unreadSince?: string | null;
-  markedUnreadAt?: string | null;
+  userMarkedUnreadAt?: string | null;
 }
 
 export type ProviderType = "claude" | "codex" | "gemini" | "shell";

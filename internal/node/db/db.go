@@ -56,7 +56,7 @@ func (d *DB) seedMigrations() error {
 	}
 	defer rows.Close()
 
-	var hasWorktreeBranch, hasBranchCreated, hasGitParentDir, hasGitRemoteURL, hasProfile, hasProviderType, hasUnreadSince, hasLastViewedAt, hasPinned, hasMarkedUnreadAt bool
+	var hasWorktreeBranch, hasBranchCreated, hasGitParentDir, hasGitRemoteURL, hasProfile, hasProviderType, hasUnreadSince, hasLastViewedAt, hasPinned, hasUserMarkedUnreadAt bool
 	for rows.Next() {
 		var cid int
 		var name, colType string
@@ -84,8 +84,8 @@ func (d *DB) seedMigrations() error {
 			hasLastViewedAt = true
 		case "pinned":
 			hasPinned = true
-		case "marked_unread_at":
-			hasMarkedUnreadAt = true
+		case "user_marked_unread_at":
+			hasUserMarkedUnreadAt = true
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -105,7 +105,7 @@ func (d *DB) seedMigrations() error {
 		{hasProviderType, "rename_agent_type_to_provider_type"},
 		{hasUnreadSince && hasLastViewedAt, "add_unread_since_and_last_viewed_at"},
 		{hasPinned, "add_pinned"},
-		{hasMarkedUnreadAt, "add_marked_unread_at"},
+		{hasUserMarkedUnreadAt, "add_user_marked_unread_at"},
 	}
 	allColumnsPresent := true
 	for _, s := range seeds {

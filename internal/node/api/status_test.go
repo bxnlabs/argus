@@ -138,7 +138,7 @@ func TestHandleStatus_AllDBSessionsAppearInResponse(t *testing.T) {
 	}
 }
 
-func TestHandleStatus_IncludesMarkedUnreadAt(t *testing.T) {
+func TestHandleStatus_IncludesUserMarkedUnreadAt(t *testing.T) {
 	database := testDB(t)
 
 	if err := database.CreateSession(&db.Session{
@@ -165,8 +165,8 @@ func TestHandleStatus_IncludesMarkedUnreadAt(t *testing.T) {
 
 	var resp struct {
 		Statuses map[string]struct {
-			UnreadSince    *string `json:"unreadSince"`
-			MarkedUnreadAt *string `json:"markedUnreadAt"`
+			UnreadSince        *string `json:"unreadSince"`
+			UserMarkedUnreadAt *string `json:"userMarkedUnreadAt"`
 		} `json:"statuses"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
@@ -176,8 +176,8 @@ func TestHandleStatus_IncludesMarkedUnreadAt(t *testing.T) {
 	if !ok {
 		t.Fatal("expected sess-marked in response")
 	}
-	if entry.MarkedUnreadAt == nil {
-		t.Error("expected markedUnreadAt to be present in status response")
+	if entry.UserMarkedUnreadAt == nil {
+		t.Error("expected userMarkedUnreadAt to be present in status response")
 	}
 	// The manual marker is independent of the automatic signal: marking unread
 	// must not set unread_since.

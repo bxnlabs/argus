@@ -63,15 +63,15 @@ export function partitionSessions(sessions: Session[]): {
 }
 
 // Decide which read/unread menu items to show. A session is "unread" when
-// either the automatic unread_since or the manual marked_unread_at is set.
+// either the automatic unread_since or the manual user_marked_unread_at is set.
 // "Mark as read" shows when unread; "Mark as unread" shows when read. The
 // manual marker survives auto-acknowledge, so the active session is no longer
 // special-cased.
 export function readMenuState(
   unreadSince: string | null | undefined,
-  markedUnreadAt: string | null | undefined,
+  userMarkedUnreadAt: string | null | undefined,
 ): { showMarkRead: boolean; showMarkUnread: boolean } {
-  const isUnread = !!unreadSince || !!markedUnreadAt;
+  const isUnread = !!unreadSince || !!userMarkedUnreadAt;
   return { showMarkRead: isUnread, showMarkUnread: !isUnread };
 }
 
@@ -100,7 +100,7 @@ interface SessionItemProps {
   isActive: boolean;
   statusValue?: SessionStatusInfo["status"];
   unreadSince?: string | null;
-  markedUnreadAt?: string | null;
+  userMarkedUnreadAt?: string | null;
   minuteTick: number;
   isRenaming: boolean;
   renameValue: string;
@@ -123,7 +123,7 @@ const SessionItem = memo(function SessionItem({
   isActive,
   statusValue,
   unreadSince,
-  markedUnreadAt,
+  userMarkedUnreadAt,
   minuteTick: _minuteTick,
   isRenaming,
   renameValue,
@@ -142,8 +142,8 @@ const SessionItem = memo(function SessionItem({
   const repoPath = session.git_remote_url
     ? parseRepoFromRemoteURL(session.git_remote_url)
     : null;
-  const isUnread = !!unreadSince || !!markedUnreadAt;
-  const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, markedUnreadAt);
+  const isUnread = !!unreadSince || !!userMarkedUnreadAt;
+  const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, userMarkedUnreadAt);
 
   return (
     <div
@@ -423,7 +423,7 @@ export const SessionList = memo(function SessionList({
         isActive={session.id === activeSessionId}
         statusValue={sessionStatuses?.[session.id]?.status}
         unreadSince={sessionStatuses?.[session.id]?.unreadSince}
-        markedUnreadAt={sessionStatuses?.[session.id]?.markedUnreadAt}
+        userMarkedUnreadAt={sessionStatuses?.[session.id]?.userMarkedUnreadAt}
         minuteTick={minuteTick}
         isRenaming={isRenaming}
         renameValue={isRenaming ? renameValue : ""}

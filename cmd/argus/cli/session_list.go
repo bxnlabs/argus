@@ -63,9 +63,9 @@ func newListCmd() *cobra.Command {
 
 			// Fetch session statuses (best-effort — don't fail if unavailable)
 			type statusEntry struct {
-				Status         string  `json:"status"`
-				UnreadSince    *string `json:"unreadSince"`
-				MarkedUnreadAt *string `json:"markedUnreadAt"`
+				Status             string  `json:"status"`
+				UnreadSince        *string `json:"unreadSince"`
+				UserMarkedUnreadAt *string `json:"userMarkedUnreadAt"`
 			}
 			statuses := make(map[string]statusEntry)
 			if statusBody, err := c.get("/api/sessions/status"); err == nil {
@@ -100,10 +100,10 @@ func newListCmd() *cobra.Command {
 				}
 
 				// Unread marker — set by either the automatic unread_since or the
-				// manual marked_unread_at follow-up marker.
+				// manual user_marked_unread_at follow-up marker.
 				eff := entry.UnreadSince
 				if eff == nil {
-					eff = entry.MarkedUnreadAt
+					eff = entry.UserMarkedUnreadAt
 				}
 				marker := " "
 				updated := relativeTime(s.UpdatedAt)

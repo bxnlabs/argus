@@ -82,7 +82,7 @@ function HomeContent() {
       attachSession(session.id);
 
       // Acknowledge the automatic unread_since when selecting a session.
-      // Acknowledge leaves the manual marked_unread_at intact, so a sticky
+      // Acknowledge leaves the manual user_marked_unread_at intact, so a sticky
       // "Mark as unread" survives selection.
       const status = sessionStatuses[session.id];
       if (status?.unreadSince) {

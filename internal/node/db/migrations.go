@@ -75,9 +75,9 @@ var allMigrations = []migration{
 		return d.addColumnIfMissing("pinned",
 			`ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)
 	}},
-	{"add_marked_unread_at", func(d *DB) error {
-		return d.addColumnIfMissing("marked_unread_at",
-			`ALTER TABLE sessions ADD COLUMN marked_unread_at TEXT`)
+	{"add_user_marked_unread_at", func(d *DB) error {
+		return d.addColumnIfMissing("user_marked_unread_at",
+			`ALTER TABLE sessions ADD COLUMN user_marked_unread_at TEXT`)
 	}},
 }
 

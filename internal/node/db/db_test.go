@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func TestCreateAndGetSession(t *testing.T) {
 		Name:             "Test Session",
 		TmuxName:         "claude-sess-1",
 		WorkingDirectory: "~/code",
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		Model:            &model,
 	}
 	if err := db.CreateSession(s); err != nil {
@@ -764,8 +765,8 @@ func TestMarkSessionUnread(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ := db.GetSession("s1")
-	if s.MarkedUnreadAt == nil {
-		t.Error("expected marked_unread_at to be set after MarkSessionUnread")
+	if s.UserMarkedUnreadAt == nil {
+		t.Error("expected user_marked_unread_at to be set after MarkSessionUnread")
 	}
 	if s.UnreadSince != nil {
 		t.Error("MarkSessionUnread must not set unread_since")
@@ -776,8 +777,8 @@ func TestMarkSessionUnread(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ = db.GetSession("s1")
-	if s.MarkedUnreadAt == nil {
-		t.Error("acknowledge must not clear marked_unread_at")
+	if s.UserMarkedUnreadAt == nil {
+		t.Error("acknowledge must not clear user_marked_unread_at")
 	}
 
 	// Explicit read clears the manual marker.
@@ -785,8 +786,8 @@ func TestMarkSessionUnread(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ = db.GetSession("s1")
-	if s.MarkedUnreadAt != nil {
-		t.Errorf("expected nil marked_unread_at after MarkSessionRead, got %v", s.MarkedUnreadAt)
+	if s.UserMarkedUnreadAt != nil {
+		t.Errorf("expected nil user_marked_unread_at after MarkSessionRead, got %v", s.UserMarkedUnreadAt)
 	}
 }
 
@@ -805,22 +806,22 @@ func TestMarkSessionUnreadIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, _ := db.GetSession("s1")
-	if first.MarkedUnreadAt == nil {
-		t.Fatal("expected marked_unread_at to be set after first MarkSessionUnread")
+	if first.UserMarkedUnreadAt == nil {
+		t.Fatal("expected user_marked_unread_at to be set after first MarkSessionUnread")
 	}
 
 	// Force the stored timestamp into the past, then re-mark. A repeated call
-	// must preserve the original marked_unread_at.
+	// must preserve the original user_marked_unread_at.
 	past := "2000-01-01 00:00:00"
-	if _, err := db.sql.Exec(`UPDATE sessions SET marked_unread_at = ? WHERE id = ?`, past, "s1"); err != nil {
+	if _, err := db.sql.Exec(`UPDATE sessions SET user_marked_unread_at = ? WHERE id = ?`, past, "s1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
 		t.Fatal(err)
 	}
 	second, _ := db.GetSession("s1")
-	if second.MarkedUnreadAt == nil || *second.MarkedUnreadAt != past {
-		t.Errorf("repeated MarkSessionUnread must preserve marked_unread_at: got %v, want %q", second.MarkedUnreadAt, past)
+	if second.UserMarkedUnreadAt == nil || *second.UserMarkedUnreadAt != past {
+		t.Errorf("repeated MarkSessionUnread must preserve user_marked_unread_at: got %v, want %q", second.UserMarkedUnreadAt, past)
 	}
 }
 
@@ -851,11 +852,38 @@ func TestMarkSessionReadClearsBoth(t *testing.T) {
 	if s.UnreadSince != nil {
 		t.Errorf("expected nil unread_since after MarkSessionRead, got %v", s.UnreadSince)
 	}
-	if s.MarkedUnreadAt != nil {
-		t.Errorf("expected nil marked_unread_at after MarkSessionRead, got %v", s.MarkedUnreadAt)
+	if s.UserMarkedUnreadAt != nil {
+		t.Errorf("expected nil user_marked_unread_at after MarkSessionRead, got %v", s.UserMarkedUnreadAt)
 	}
 	if s.LastViewedAt == nil {
 		t.Error("expected last_viewed_at to be set after MarkSessionRead")
+	}
+}
+
+// The unread-state mutations must report ErrNotFound for a session that does
+// not exist, rather than silently succeeding on a zero-row UPDATE.
+func TestUnreadMutationsMissingSession(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		fn   func() error
+	}{
+		{"TouchLastViewedAt", func() error { return db.TouchLastViewedAt(ctx, "missing") }},
+		{"AcknowledgeSession", func() error { return db.AcknowledgeSession(ctx, "missing") }},
+		{"MarkSessionUnread", func() error { return db.MarkSessionUnread(ctx, "missing") }},
+		{"MarkSessionRead", func() error { return db.MarkSessionRead(ctx, "missing") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.fn(); !errors.Is(err, ErrNotFound) {
+				t.Errorf("expected ErrNotFound for missing session, got %v", err)
+			}
+		})
 	}
 }
 
@@ -890,7 +918,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   unread_since TEXT,
   last_viewed_at TEXT,
   pinned INTEGER NOT NULL DEFAULT 0,
-  marked_unread_at TEXT
+  user_marked_unread_at TEXT
 );
 CREATE TABLE IF NOT EXISTS _migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -905,7 +933,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	for _, name := range []string{
 		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
 		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
-		"add_unread_since_and_last_viewed_at", "add_pinned", "add_marked_unread_at",
+		"add_unread_since_and_last_viewed_at", "add_pinned", "add_user_marked_unread_at",
 	} {
 		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
 			rawDB.Close()
@@ -989,8 +1017,8 @@ CREATE TABLE _migrations (
 	}
 }
 
-func TestMigrationAddsMarkedUnreadToExistingDB(t *testing.T) {
-	// Simulate an existing DB that predates the marked_unread_at column.
+func TestMigrationAddsUserMarkedUnreadToExistingDB(t *testing.T) {
+	// Simulate an existing DB that predates the user_marked_unread_at column.
 	path := filepath.Join(t.TempDir(), "no-marked.db")
 
 	rawDB, err := sql.Open("sqlite", path)
@@ -1037,14 +1065,14 @@ CREATE TABLE _migrations (
 	defer d.Close()
 
 	if err := d.RunMigrations(); err != nil {
-		t.Fatalf("RunMigrations should add marked_unread_at: %v", err)
+		t.Fatalf("RunMigrations should add user_marked_unread_at: %v", err)
 	}
 
-	has, err := d.hasColumn("marked_unread_at")
+	has, err := d.hasColumn("user_marked_unread_at")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !has {
-		t.Error("expected marked_unread_at column to be added by migration")
+		t.Error("expected user_marked_unread_at column to be added by migration")
 	}
 }

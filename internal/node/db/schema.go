@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   unread_since TEXT,
   last_viewed_at TEXT,
   pinned INTEGER NOT NULL DEFAULT 0,
-  marked_unread_at TEXT
+  user_marked_unread_at TEXT
 );
 
 -- Notifications tracking

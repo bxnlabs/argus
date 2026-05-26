@@ -37,8 +37,8 @@ func handleStatus(mgr *status.WatcherManager, database *db.DB) http.HandlerFunc 
 			if s.UnreadSince != nil {
 				item["unreadSince"] = *s.UnreadSince
 			}
-			if s.MarkedUnreadAt != nil {
-				item["markedUnreadAt"] = *s.MarkedUnreadAt
+			if s.UserMarkedUnreadAt != nil {
+				item["userMarkedUnreadAt"] = *s.UserMarkedUnreadAt
 			}
 			result[s.ID] = item
 		}

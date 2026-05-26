@@ -1,11 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiTextFetch } from "@/api/client";
-import type { Session, ProviderType, SessionStatusInfo } from "@/types";
-import { sessionKeys, statusKeys, profileKeys } from "./keys";
-
-interface StatusCache {
-  statuses: Record<string, SessionStatusInfo>;
-}
+import { apiFetch } from "@/api/client";
+import type { Session, ProviderType } from "@/types";
+import { sessionKeys, profileKeys } from "./keys";
 
 interface SessionsResponse {
   sessions: Session[];
@@ -159,78 +155,6 @@ export function useUpdateSession() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
-    },
-  });
-}
-
-export function useMarkRead() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (sessionId: string) =>
-      apiTextFetch(
-        `/node/api/sessions/${encodeURIComponent(sessionId)}/read`,
-        { method: "POST" },
-      ),
-    onMutate: async (sessionId: string) => {
-      await queryClient.cancelQueries({ queryKey: statusKeys.all });
-      const previous = queryClient.getQueryData<StatusCache>(statusKeys.all);
-      queryClient.setQueryData<StatusCache>(statusKeys.all, (old) => {
-        const status = old?.statuses?.[sessionId];
-        if (!old || !status) return old;
-        return {
-          ...old,
-          statuses: {
-            ...old.statuses,
-            [sessionId]: { ...status, unreadSince: null, markedUnreadAt: null },
-          },
-        };
-      });
-      return { previous };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(statusKeys.all, context.previous);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: statusKeys.all });
-    },
-  });
-}
-
-export function useMarkUnread() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (sessionId: string) =>
-      apiTextFetch(
-        `/node/api/sessions/${encodeURIComponent(sessionId)}/unread`,
-        { method: "POST" },
-      ),
-    onMutate: async (sessionId: string) => {
-      await queryClient.cancelQueries({ queryKey: statusKeys.all });
-      const previous = queryClient.getQueryData<StatusCache>(statusKeys.all);
-      queryClient.setQueryData<StatusCache>(statusKeys.all, (old) => {
-        const status = old?.statuses?.[sessionId];
-        if (!old || !status) return old;
-        return {
-          ...old,
-          statuses: {
-            ...old.statuses,
-            [sessionId]: { ...status, markedUnreadAt: new Date().toISOString() },
-          },
-        };
-      });
-      return { previous };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(statusKeys.all, context.previous);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: statusKeys.all });
     },
   });
 }

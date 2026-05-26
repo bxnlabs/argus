@@ -5,9 +5,8 @@ import {
   useDeleteSession,
   useRenameSession,
   useUpdateSession,
-  useMarkRead,
-  useMarkUnread,
 } from "@/data/sessions";
+import { useMarkRead, useMarkUnread } from "@/data/statuses/queries";
 
 export function useSessions() {
   const { data, isSuccess } = useSessionsQuery();
