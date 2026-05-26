@@ -4,6 +4,7 @@ export {
   useCreateSession,
   useDeleteSession,
   useRenameSession,
+  useUpdateSession,
   useProfilesQuery,
 } from "./queries";
-export type { CreateSessionInput } from "./queries";
+export type { CreateSessionInput, UpdateSessionInput } from "./queries";

@@ -50,7 +50,8 @@ export function useNotifications() {
     ) => {
       if (!settings.enabled) return;
 
-      // Seed previousUnread on first call to avoid false notifications
+      // Seed previousUnread on first call to avoid false notifications for
+      // sessions that are already unread when the app loads.
       if (!initialized.current) {
         initialized.current = true;
         for (const state of states) {

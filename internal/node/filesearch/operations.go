@@ -159,7 +159,7 @@ func ensureIgnoreFile(stateDir string) (string, error) {
 		return path, nil // already exists
 	}
 
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+	if err := shared.EnsureSecureDir(stateDir); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", stateDir, err)
 	}
 	if err := os.WriteFile(path, []byte(defaultIgnoreContents), 0o600); err != nil {

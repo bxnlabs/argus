@@ -34,7 +34,7 @@ func WriteDiscoveryFile(path, address string) error {
 	if err != nil {
 		return fmt.Errorf("marshal discovery: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := shared.EnsureSecureDir(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("mkdir discovery: %w", err)
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -79,6 +80,25 @@ func TestRelativeTime(t *testing.T) {
 				t.Errorf("relativeTime(%q) = %q, want %q", ts, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPinnedFirst(t *testing.T) {
+	in := []sessionInfo{
+		{ID: "a"},
+		{ID: "b", Pinned: true},
+		{ID: "c"},
+		{ID: "d", Pinned: true},
+	}
+	got := pinnedFirst(in)
+
+	var ids []string
+	for _, s := range got {
+		ids = append(ids, s.ID)
+	}
+	want := []string{"b", "d", "a", "c"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Errorf("pinnedFirst order = %v, want %v", ids, want)
 	}
 }
 

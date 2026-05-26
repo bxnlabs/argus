@@ -10,6 +10,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// pinnedFirst returns sessions with pinned ones first, preserving the input
+// order within each group (the API already returns sessions updated_at DESC).
+func pinnedFirst(sessions []sessionInfo) []sessionInfo {
+	out := make([]sessionInfo, 0, len(sessions))
+	for _, s := range sessions {
+		if s.Pinned {
+			out = append(out, s)
+		}
+	}
+	for _, s := range sessions {
+		if !s.Pinned {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func newListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
@@ -46,8 +63,9 @@ func newListCmd() *cobra.Command {
 
 			// Fetch session statuses (best-effort — don't fail if unavailable)
 			type statusEntry struct {
-				Status      string  `json:"status"`
-				UnreadSince *string `json:"unreadSince"`
+				Status             string  `json:"status"`
+				UnreadSince        *string `json:"unreadSince"`
+				UserMarkedUnreadAt *string `json:"userMarkedUnreadAt"`
 			}
 			statuses := make(map[string]statusEntry)
 			if statusBody, err := c.get("/api/sessions/status"); err == nil {
@@ -60,8 +78,8 @@ func newListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "  ID\tNAME\tSTATUS\tPROVIDER\tDIRECTORY\tBRANCH\tUPDATED")
-			for _, s := range resp.Sessions {
+			fmt.Fprintln(w, "  ID\tPINNED\tNAME\tSTATUS\tPROVIDER\tDIRECTORY\tBRANCH\tUPDATED")
+			for _, s := range pinnedFirst(resp.Sessions) {
 				entry := statuses[s.ID]
 				st := entry.Status
 				if st == "" {
@@ -81,16 +99,26 @@ func newListCmd() *cobra.Command {
 					dir = compressPath(dir, resp.HomeDir, 35)
 				}
 
-				// Unread marker
+				// Unread marker — set by either the automatic unread_since or the
+				// manual user_marked_unread_at follow-up marker.
+				eff := entry.UnreadSince
+				if eff == nil {
+					eff = entry.UserMarkedUnreadAt
+				}
 				marker := " "
 				updated := relativeTime(s.UpdatedAt)
-				if entry.UnreadSince != nil {
+				if eff != nil {
 					marker = "*"
-					updated += " (unread " + relativeTime(*entry.UnreadSince) + ")"
+					updated += " (unread " + relativeTime(*eff) + ")"
 				}
 
-				fmt.Fprintf(w, "%s %s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					marker, s.ID, s.Name, st, s.ProviderType, dir, branch, updated)
+				pinnedMark := ""
+				if s.Pinned {
+					pinnedMark = "✓"
+				}
+
+				fmt.Fprintf(w, "%s %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					marker, s.ID, pinnedMark, s.Name, st, s.ProviderType, dir, branch, updated)
 			}
 			w.Flush()
 			return nil
