@@ -185,7 +185,7 @@ function HomeContent() {
               label: "Git",
               run: () => {
                 requestGitTab("changes");
-                setActivePanel((prev) => (prev === "git" ? null : "git"));
+                setActivePanel("git");
               },
               children: {
                 h: {
@@ -210,8 +210,7 @@ function HomeContent() {
         ? {
             e: {
               label: "Editor",
-              run: () =>
-                setActivePanel((prev) => (prev === "editor" ? null : "editor")),
+              run: () => setActivePanel("editor"),
             },
           }
         : {}),
