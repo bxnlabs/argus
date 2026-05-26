@@ -52,3 +52,15 @@ func TestRemoveDiscoveryFile_Missing(t *testing.T) {
 	// Should not panic on missing file.
 	RemoveDiscoveryFile("/tmp/nonexistent-argus-test-file.json")
 }
+
+func TestDefaultDiscoveryPathHonorsArgusHome(t *testing.T) {
+	t.Setenv("ARGUS_HOME", "/custom/home")
+	got, err := DefaultDiscoveryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join("/custom/home", "node.json")
+	if got != want {
+		t.Errorf("DefaultDiscoveryPath() = %q, want %q", got, want)
+	}
+}

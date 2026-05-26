@@ -28,6 +28,9 @@ export function DesktopView({
   onDeleteSession,
   onRenameSession,
   onChangeProfile,
+  onTogglePin,
+  onMarkRead,
+  onMarkUnread,
   renderWorkspace,
 }: ViewProps) {
   const handleAttachSession = useCallback(
@@ -119,9 +122,6 @@ export function DesktopView({
         {/* Sessions section — expanded only */}
         {sidebarOpen && (
           <div className="mt-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="text-muted-foreground px-4 pb-1 text-xs font-medium">
-              Sessions
-            </div>
             <div className="min-h-0 flex-1 overflow-hidden">
               <SessionList
                 sessions={sessions}
@@ -132,6 +132,9 @@ export function DesktopView({
                 onDeleteSession={onDeleteSession}
                 onRenameSession={onRenameSession}
                 onChangeProfile={onChangeProfile}
+                onTogglePin={onTogglePin}
+                onMarkRead={onMarkRead}
+                onMarkUnread={onMarkUnread}
                 onNewSession={() => setShowNewSessionDialog(true)}
               />
             </div>

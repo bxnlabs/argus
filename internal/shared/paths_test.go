@@ -144,6 +144,127 @@ func TestSafeExpandPath_Symlinks(t *testing.T) {
 	})
 }
 
+func TestStateDir(t *testing.T) {
+	t.Run("honors ARGUS_HOME", func(t *testing.T) {
+		t.Setenv("ARGUS_HOME", "/custom/argus/home")
+		got, err := StateDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "/custom/argus/home" {
+			t.Errorf("StateDir() = %q, want /custom/argus/home", got)
+		}
+	})
+
+	t.Run("expands tilde in ARGUS_HOME", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("ARGUS_HOME", "~/argus-dev")
+		got, err := StateDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(home, "argus-dev")
+		if got != want {
+			t.Errorf("StateDir() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("rejects relative ARGUS_HOME", func(t *testing.T) {
+		t.Setenv("ARGUS_HOME", "relative/dir")
+		if _, err := StateDir(); err == nil {
+			t.Fatal("expected error for relative ARGUS_HOME, got nil")
+		}
+	})
+
+	t.Run("defaults to ~/.argus when ARGUS_HOME unset", func(t *testing.T) {
+		t.Setenv("ARGUS_HOME", "")
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		got, err := StateDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(home, ".argus")
+		if got != want {
+			t.Errorf("StateDir() = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestEnsureStateDir(t *testing.T) {
+	t.Run("creates a fresh root with 0700", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "argus")
+		t.Setenv("ARGUS_HOME", dir)
+		got, err := EnsureStateDir()
+		if err != nil {
+			t.Fatalf("EnsureStateDir: %v", err)
+		}
+		if got != dir {
+			t.Errorf("EnsureStateDir() = %q, want %q", got, dir)
+		}
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("stat root: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o700 {
+			t.Errorf("root perm = %o, want 700", perm)
+		}
+	})
+
+	t.Run("tightens a pre-existing 0755 root to 0700", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatalf("chmod root: %v", err)
+		}
+		// A secret sitting directly in the root (e.g. config.toml) must end up
+		// inside a private directory.
+		if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("auth_key = x"), 0o644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		t.Setenv("ARGUS_HOME", dir)
+		if _, err := EnsureStateDir(); err != nil {
+			t.Fatalf("EnsureStateDir: %v", err)
+		}
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("stat root: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o700 {
+			t.Errorf("root perm = %o, want 700 (pre-existing 0755 root not tightened)", perm)
+		}
+	})
+}
+
+func TestDBPath(t *testing.T) {
+	t.Run("lives under ARGUS_HOME", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("ARGUS_HOME", dir)
+		got, err := DBPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(dir, "node.db")
+		if got != want {
+			t.Errorf("DBPath() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("resolves without HOME when ARGUS_HOME is set", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", "")
+		t.Setenv("ARGUS_HOME", dir)
+		got, err := DBPath()
+		if err != nil {
+			t.Fatalf("DBPath() with HOME unset: %v", err)
+		}
+		want := filepath.Join(dir, "node.db")
+		if got != want {
+			t.Errorf("DBPath() = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestCleanPath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

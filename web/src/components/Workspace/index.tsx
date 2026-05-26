@@ -3,6 +3,7 @@ import { useTabs } from "@/contexts/TabContext";
 import { useViewport } from "@/hooks/useViewport";
 import type { Session } from "@/types";
 import type { SidePanel } from "@/components/views/types";
+import type { GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
 import { cn } from "@/lib/utils";
 import { shellEscape } from "@/lib/shell";
 import { MobileTabBar } from "./MobileTabBar";
@@ -25,6 +26,7 @@ interface WorkspaceProps {
   onMenuClick?: () => void;
   onSelectSession?: (sessionId: string) => void;
   onNewSession?: () => void;
+  requestedGitTab?: GitTabRequest;
 }
 
 export const Workspace = memo(function Workspace({
@@ -36,6 +38,7 @@ export const Workspace = memo(function Workspace({
   onMenuClick,
   onSelectSession,
   onNewSession,
+  requestedGitTab,
 }: WorkspaceProps) {
   const { isMobile } = useViewport();
   const {
@@ -218,7 +221,7 @@ export const Workspace = memo(function Workspace({
           >
             {activePanel === "git" && (
               activeWorkingDirectory ? (
-                <GitPanel workingDirectory={activeWorkingDirectory} />
+                <GitPanel workingDirectory={activeWorkingDirectory} requestedTab={requestedGitTab} />
               ) : (
                 <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
                   Attach a session to view git status

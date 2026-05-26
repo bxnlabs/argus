@@ -1,0 +1,14 @@
+root = "."
+tmp_dir = ".dev/air"
+
+[build]
+  cmd = "go build -o ./.dev/air/argus ./cmd/argus"
+  entrypoint = ["./.dev/air/argus"]
+  include_ext = ["go"]
+  exclude_dir = ["web", "internal/web/dist", "bin", ".dev", "docs", "node_modules"]
+  exclude_regex = ["_test\\.go"]
+  stop_on_error = true
+  delay = 500
+
+[misc]
+  clean_on_exit = true

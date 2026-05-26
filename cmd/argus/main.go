@@ -16,8 +16,9 @@ import (
 	"time"
 
 	"github.com/bxnlabs/argus/cmd/argus/cli"
-	"github.com/bxnlabs/argus/internal/node"
 	"github.com/bxnlabs/argus/internal/config"
+	"github.com/bxnlabs/argus/internal/node"
+	"github.com/bxnlabs/argus/internal/shared"
 	ts "github.com/bxnlabs/argus/internal/tailscale"
 	"github.com/bxnlabs/argus/internal/web"
 	"github.com/spf13/cobra"
@@ -282,11 +283,16 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 		return nil, "", "", nil, fmt.Errorf("determine hostname: failed to resolve OS hostname")
 	}
 
-	home, err := os.UserHomeDir()
+	// Secure the state root before creating Tailscale state under it. This is
+	// the one serving path that bypasses config.Load's auto-discovery securing
+	// (explicit --config) and node.Setup (server mode). Tailscale already needs
+	// a resolvable home here, so this adds no new requirement for the
+	// Tailscale-disabled server, which returns above.
+	argusHome, err := shared.EnsureStateDir()
 	if err != nil {
-		return nil, "", "", nil, fmt.Errorf("determine home directory: %w", err)
+		return nil, "", "", nil, fmt.Errorf("prepare state dir: %w", err)
 	}
-	stateDir := filepath.Join(home, ".argus", "tailscale", hostname)
+	stateDir := filepath.Join(argusHome, "tailscale", hostname)
 
 	tsServer := ts.New(hostname, tsCfg.AuthKey, stateDir, uint16(tsCfg.Port))
 

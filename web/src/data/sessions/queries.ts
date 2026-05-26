@@ -136,6 +136,50 @@ export function useChangeSessionProfile() {
   });
 }
 
+export interface UpdateSessionInput {
+  sessionId: string;
+  pinned?: boolean;
+}
+
+export function useUpdateSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ sessionId, pinned }: UpdateSessionInput) =>
+      apiFetch(`/node/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pinned }),
+      }),
+    onMutate: async ({ sessionId, pinned }) => {
+      await queryClient.cancelQueries({ queryKey: sessionKeys.list() });
+      const previous = queryClient.getQueryData<SessionsResponse>(
+        sessionKeys.list(),
+      );
+      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(), (old) =>
+        old
+          ? {
+              ...old,
+              sessions: old.sessions.map((s) =>
+                s.id === sessionId
+                  ? { ...s, ...(pinned !== undefined ? { pinned } : {}) }
+                  : s,
+              ),
+            }
+          : old,
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(sessionKeys.list(), context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    },
+  });
+}
+
 interface ProfilesResponse {
   profiles: string[];
 }

@@ -6,6 +6,7 @@ import type { ReviewComment, DiffPosition } from "@/types";
 import type { ExpandDirection } from "@/hooks/useExpandableDiff";
 import { InlineCommentForm } from "./InlineCommentForm";
 import { InlineCommentCard } from "./InlineCommentCard";
+import { InlineCommentFrame } from "./InlineCommentFrame";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
 
@@ -298,13 +299,15 @@ const Hunk = memo(function Hunk({
                 <InlineCommentCard comment={c} onDelete={onDeleteComment} onEdit={onEditComment} onEditRequest={onEditCommentRequest} />
               </div>
             ))}
-            {showForm && onAddComment && onCancelComment && (
+            {showForm && activePos && onAddComment && onCancelComment && (
               <div className={cn(!wrapLines && "sticky left-0")}
                 style={!wrapLines ? { width: "calc(100vw - 0.75rem * 2 - 2px)" } : undefined}>
-                <InlineCommentForm
-                  onSubmit={onAddComment}
-                  onCancel={onCancelComment}
-                />
+                <InlineCommentFrame side={activePos.side} line={activePos.line} isDraft>
+                  <InlineCommentForm
+                    onSubmit={onAddComment}
+                    onCancel={onCancelComment}
+                  />
+                </InlineCommentFrame>
               </div>
             )}
           </Fragment>

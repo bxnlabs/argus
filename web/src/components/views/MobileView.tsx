@@ -22,6 +22,9 @@ export function MobileView({
   onDeleteSession,
   onRenameSession,
   onChangeProfile,
+  onTogglePin,
+  onMarkRead,
+  onMarkUnread,
   renderWorkspace,
 }: ViewProps) {
   const handleAttachSession = useCallback(
@@ -85,9 +88,6 @@ export function MobileView({
 
               {/* Sessions */}
               <div className="mt-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="text-muted-foreground px-4 pb-1 text-xs font-medium">
-                  Sessions
-                </div>
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <SessionList
                     sessions={sessions}
@@ -98,6 +98,9 @@ export function MobileView({
                     onDeleteSession={onDeleteSession}
                     onRenameSession={onRenameSession}
                     onChangeProfile={onChangeProfile}
+                    onTogglePin={onTogglePin}
+                    onMarkRead={onMarkRead}
+                    onMarkUnread={onMarkUnread}
                     onNewSession={() => {
                       setShowNewSessionDialog(true);
                       setSidebarOpen(false);

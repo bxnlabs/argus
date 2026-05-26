@@ -13,6 +13,7 @@ import (
 	"time"
 
 	agentsession "github.com/bxnlabs/argus/internal/node/session"
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 )
@@ -323,7 +324,12 @@ func HandleSessionWebSocket(sf sessionFactory, onReady SessionReadyFunc) http.Ha
 		if onReady != nil {
 			onReady(id, tmuxName)
 		}
-		cmd := exec.Command("tmux", "attach-session", "-t", tmuxName)
+		cmd, err := shared.TmuxCommand("attach-session", "-t", tmuxName)
+		if err != nil {
+			log.Printf("build tmux command for %s: %v", id, err)
+			http.Error(w, "session not available", http.StatusInternalServerError)
+			return
+		}
 		handleConnection(w, r, cmd, tmuxName)
 	}
 }

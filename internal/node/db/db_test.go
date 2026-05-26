@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func TestCreateAndGetSession(t *testing.T) {
 		Name:             "Test Session",
 		TmuxName:         "claude-sess-1",
 		WorkingDirectory: "~/code",
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		Model:            &model,
 	}
 	if err := db.CreateSession(s); err != nil {
@@ -703,6 +704,227 @@ func TestSetProfileNotFound(t *testing.T) {
 	}
 }
 
+func TestSessionPinnedDefault(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "test", TmuxName: "claude-s1",
+		WorkingDirectory: "~", ProviderType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetSession("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Pinned {
+		t.Error("expected pinned=false by default")
+	}
+}
+
+func TestUpdateSessionPinned(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "~", ProviderType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tru := true
+	got, err := db.UpdateSession("s1", SessionUpdate{Pinned: &tru})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Pinned {
+		t.Error("expected pinned=true after update")
+	}
+
+	fls := false
+	got2, err := db.UpdateSession("s1", SessionUpdate{Pinned: &fls})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Pinned {
+		t.Error("expected pinned=false after second update")
+	}
+}
+
+func TestUpdateSessionPinDoesNotTouchUpdatedAt(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "~", ProviderType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	old := "2000-01-01 00:00:00"
+	if _, err := db.sql.Exec(`UPDATE sessions SET updated_at = ? WHERE id = ?`, old, "s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Toggling pin is an annotation, not activity: updated_at must hold.
+	tru := true
+	got, err := db.UpdateSession("s1", SessionUpdate{Pinned: &tru})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UpdatedAt != old {
+		t.Errorf("pin must not bump updated_at: got %q, want %q", got.UpdatedAt, old)
+	}
+
+	// A rename, by contrast, is activity and should refresh updated_at.
+	name := "renamed"
+	got2, err := db.UpdateSession("s1", SessionUpdate{Name: &name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.UpdatedAt == old {
+		t.Error("rename should refresh updated_at")
+	}
+}
+
+func TestMarkSessionUnread(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := db.GetSession("s1")
+	if s.UserMarkedUnreadAt == nil {
+		t.Error("expected user_marked_unread_at to be set after MarkSessionUnread")
+	}
+	if s.UnreadSince != nil {
+		t.Error("MarkSessionUnread must not set unread_since")
+	}
+
+	// Acknowledge clears only the automatic signal; the manual marker survives.
+	if err := db.AcknowledgeSession(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = db.GetSession("s1")
+	if s.UserMarkedUnreadAt == nil {
+		t.Error("acknowledge must not clear user_marked_unread_at")
+	}
+
+	// Explicit read clears the manual marker.
+	if err := db.MarkSessionRead(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = db.GetSession("s1")
+	if s.UserMarkedUnreadAt != nil {
+		t.Errorf("expected nil user_marked_unread_at after MarkSessionRead, got %v", s.UserMarkedUnreadAt)
+	}
+}
+
+func TestMarkSessionUnreadIdempotent(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := db.GetSession("s1")
+	if first.UserMarkedUnreadAt == nil {
+		t.Fatal("expected user_marked_unread_at to be set after first MarkSessionUnread")
+	}
+
+	// Force the stored timestamp into the past, then re-mark. A repeated call
+	// must preserve the original user_marked_unread_at.
+	past := "2000-01-01 00:00:00"
+	if _, err := db.sql.Exec(`UPDATE sessions SET user_marked_unread_at = ? WHERE id = ?`, past, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := db.GetSession("s1")
+	if second.UserMarkedUnreadAt == nil || *second.UserMarkedUnreadAt != past {
+		t.Errorf("repeated MarkSessionUnread must preserve user_marked_unread_at: got %v, want %q", second.UserMarkedUnreadAt, past)
+	}
+}
+
+func TestMarkSessionReadClearsBoth(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	db.CreateSession(&Session{
+		ID: "s1", Name: "t", TmuxName: "claude-s1",
+		WorkingDirectory: "/tmp", ProviderType: "claude",
+	})
+
+	// Set both the automatic signal and the manual marker.
+	ts := "2026-05-24 12:00:00"
+	if err := db.SetUnreadSince(context.Background(), "s1", &ts); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkSessionUnread(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.MarkSessionRead(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := db.GetSession("s1")
+	if s.UnreadSince != nil {
+		t.Errorf("expected nil unread_since after MarkSessionRead, got %v", s.UnreadSince)
+	}
+	if s.UserMarkedUnreadAt != nil {
+		t.Errorf("expected nil user_marked_unread_at after MarkSessionRead, got %v", s.UserMarkedUnreadAt)
+	}
+	if s.LastViewedAt == nil {
+		t.Error("expected last_viewed_at to be set after MarkSessionRead")
+	}
+}
+
+// The unread-state mutations must report ErrNotFound for a session that does
+// not exist, rather than silently succeeding on a zero-row UPDATE.
+func TestUnreadMutationsMissingSession(t *testing.T) {
+	db := testDB(t)
+	if err := db.RunMigrations(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		fn   func() error
+	}{
+		{"TouchLastViewedAt", func() error { return db.TouchLastViewedAt(ctx, "missing") }},
+		{"AcknowledgeSession", func() error { return db.AcknowledgeSession(ctx, "missing") }},
+		{"MarkSessionUnread", func() error { return db.MarkSessionUnread(ctx, "missing") }},
+		{"MarkSessionRead", func() error { return db.MarkSessionRead(ctx, "missing") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.fn(); !errors.Is(err, ErrNotFound) {
+				t.Errorf("expected ErrNotFound for missing session, got %v", err)
+			}
+		})
+	}
+}
+
 func TestUpgradeDBRequiresNotificationsMigration(t *testing.T) {
 	// Simulate an existing database that has all current session columns
 	// (fully migrated) but predates the notifications feature.
@@ -732,7 +954,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   profile TEXT,
   branch_created INTEGER NOT NULL DEFAULT 0,
   unread_since TEXT,
-  last_viewed_at TEXT
+  last_viewed_at TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  user_marked_unread_at TEXT
 );
 CREATE TABLE IF NOT EXISTS _migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -747,7 +971,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	for _, name := range []string{
 		"add_worktree_branch", "add_git_parent_dir", "add_git_remote_url",
 		"add_profile", "add_branch_created", "rename_agent_type_to_provider_type",
-		"add_unread_since_and_last_viewed_at",
+		"add_unread_since_and_last_viewed_at", "add_pinned", "add_user_marked_unread_at",
 	} {
 		if _, err := rawDB.Exec(`INSERT INTO _migrations (name) VALUES (?)`, name); err != nil {
 			rawDB.Close()
@@ -769,5 +993,124 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	}
 	if !strings.Contains(err.Error(), "create_notifications_table") {
 		t.Fatalf("expected error to mention create_notifications_table, got: %v", err)
+	}
+}
+
+func TestMigrationAddsPinnedToExistingDB(t *testing.T) {
+	// Simulate an existing DB that predates the pinned column.
+	path := filepath.Join(t.TempDir(), "no-pinned.db")
+
+	rawDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rawDB.Exec(`
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  tmux_name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  working_directory TEXT NOT NULL DEFAULT '~',
+  provider_session_id TEXT,
+  model TEXT DEFAULT 'sonnet',
+  system_prompt TEXT,
+  provider_type TEXT NOT NULL DEFAULT 'claude',
+  auto_approve INTEGER NOT NULL DEFAULT 0,
+  worktree_branch TEXT,
+  git_parent_dir TEXT,
+  git_remote_url TEXT,
+  profile TEXT,
+  branch_created INTEGER NOT NULL DEFAULT 0,
+  unread_since TEXT,
+  last_viewed_at TEXT
+);
+CREATE TABLE _migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`)
+	if err != nil {
+		rawDB.Close()
+		t.Fatal(err)
+	}
+	rawDB.Close()
+
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	if err := d.RunMigrations(); err != nil {
+		t.Fatalf("RunMigrations should add the pinned column: %v", err)
+	}
+
+	has, err := d.hasColumn("pinned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("expected pinned column to be added by migration")
+	}
+}
+
+func TestMigrationAddsUserMarkedUnreadToExistingDB(t *testing.T) {
+	// Simulate an existing DB that predates the user_marked_unread_at column.
+	path := filepath.Join(t.TempDir(), "no-marked.db")
+
+	rawDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rawDB.Exec(`
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  tmux_name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  working_directory TEXT NOT NULL DEFAULT '~',
+  provider_session_id TEXT,
+  model TEXT DEFAULT 'sonnet',
+  system_prompt TEXT,
+  provider_type TEXT NOT NULL DEFAULT 'claude',
+  auto_approve INTEGER NOT NULL DEFAULT 0,
+  worktree_branch TEXT,
+  git_parent_dir TEXT,
+  git_remote_url TEXT,
+  profile TEXT,
+  branch_created INTEGER NOT NULL DEFAULT 0,
+  unread_since TEXT,
+  last_viewed_at TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE _migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`)
+	if err != nil {
+		rawDB.Close()
+		t.Fatal(err)
+	}
+	rawDB.Close()
+
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	if err := d.RunMigrations(); err != nil {
+		t.Fatalf("RunMigrations should add user_marked_unread_at: %v", err)
+	}
+
+	has, err := d.hasColumn("user_marked_unread_at")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("expected user_marked_unread_at column to be added by migration")
 	}
 }

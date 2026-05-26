@@ -14,6 +14,7 @@ import (
 	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
 
@@ -613,6 +614,18 @@ func TestChangeProfile(t *testing.T) {
 	}
 	stateDir := t.TempDir()
 	workDir := t.TempDir()
+
+	// respawnTmux boots the dedicated server with the seeded config (NewSession
+	// -f <config>), so point ARGUS_HOME at stateDir and seed it as the node does
+	// at startup.
+	t.Setenv("ARGUS_HOME", stateDir)
+	requireDedicatedSocketUnder(t, stateDir)
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
+	}
 
 	database, err := db.Open(filepath.Join(stateDir, "test.db"))
 	if err != nil {

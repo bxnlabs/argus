@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabProvider, useTabs } from "@/contexts/TabContext";
@@ -10,26 +10,61 @@ import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession } from "@/data/sessions/queries";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
+import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
+import { ShortcutHintOverlay } from "@/components/ShortcutHintOverlay";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
 import { useGitCheckQuery } from "@/data/git";
+import { isMac } from "@/lib/device";
 import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
+import type { GitTab, GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
 
 function HomeContent() {
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [activePanel, setActivePanel] = useState<SidePanel>(null);
   const [changeProfileSession, setChangeProfileSession] = useState<Session | null>(null);
+  // Latest Git sub-tab intent. GitPanel re-mounts each time the panel opens, so
+  // this must always reflect the most recent chord so it opens to the right tab.
+  // Modeled as an event (bumping `seq`) rather than a bare value so repeating a
+  // chord re-navigates even when the panel is already open on another tab.
+  const [requestedGitTab, setRequestedGitTab] = useState<GitTabRequest>({
+    tab: "changes",
+    seq: 0,
+  });
+  const requestGitTab = useCallback((tab: GitTab) => {
+    setRequestedGitTab((prev) => ({ tab, seq: prev.seq + 1 }));
+  }, []);
 
   // Tab context
-  const { tabs, activeTab, attachSession, detachSessionById } = useTabs();
+  const {
+    tabs,
+    activeTab,
+    activeTabId,
+    addTab,
+    closeTab,
+    switchTab,
+    attachSession,
+    detachSessionById,
+  } = useTabs();
   const { isMobile, isHydrated } = useViewport();
 
   // Data hooks
-  const { sessions, homeDir, isLoaded: sessionsLoaded, deleteSession, renameSession, changeProfile } = useSessions();
+  const {
+    sessions,
+    homeDir,
+    isLoaded: sessionsLoaded,
+    deleteSession,
+    renameSession,
+    changeProfile,
+    togglePin,
+    markRead,
+    markUnread,
+  } = useSessions();
   const createSessionMutation = useCreateSession();
   const createMutateRef = useRef(createSessionMutation.mutateAsync);
   createMutateRef.current = createSessionMutation.mutateAsync;
@@ -74,7 +109,9 @@ function HomeContent() {
     (session: Session) => {
       attachSession(session.id);
 
-      // Acknowledge unread state when selecting a session
+      // Acknowledge the automatic unread_since when selecting a session.
+      // Acknowledge leaves the manual user_marked_unread_at intact, so a sticky
+      // "Mark as unread" survives selection.
       const status = sessionStatuses[session.id];
       if (status?.unreadSince) {
         fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
@@ -114,25 +151,84 @@ function HomeContent() {
     if (isHydrated && !isMobile) setSidebarOpen(true);
   }, [isHydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keyboard shortcut: Cmd+K to open quick switcher
+  // Keyboard shortcut: Cmd+K (mac) / Ctrl+K (else) to open quick switcher.
+  // Bound to the platform-primary modifier ONLY (not both) so on macOS it
+  // doesn't shadow readline's Ctrl+K (kill-to-end-of-line) in the terminal.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((isMac() ? e.metaKey : e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setShowQuickSwitcher(true);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "G") {
-        e.preventDefault();
-        setActivePanel((prev) => (prev === "git" ? null : "git"));
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "E") {
-        e.preventDefault();
-        setActivePanel((prev) => (prev === "editor" ? null : "editor"));
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // Leader-key chord tree. `g`/`e` are conditionally included on the same
+  // availability rules as the ViewModeRail buttons (Git only on a repo, Editor
+  // only with a working dir) — which keeps unavailable actions out of the hint
+  // overlay and dodges the open-then-auto-close flicker from Workspace's reset.
+  const bindings: ChordMap = useMemo(() => {
+    const switchRelative = (delta: number) => {
+      const i = tabs.findIndex((t) => t.id === activeTabId);
+      if (i === -1) return;
+      switchTab(tabs[(i + delta + tabs.length) % tabs.length].id);
+    };
+    return {
+      n: { label: "New session", run: () => setShowNewSessionDialog(true) },
+      "=": { label: "New tab", run: () => addTab() },
+      "-": { label: "Close tab", run: () => closeTab(activeTabId) },
+      a: { label: "Previous tab", run: () => switchRelative(-1) },
+      d: { label: "Next tab", run: () => switchRelative(1) },
+      t: { label: "Terminal", run: () => setActivePanel(null) },
+      ...(isGitRepo
+        ? {
+            g: {
+              label: "Git",
+              run: () => {
+                requestGitTab("changes");
+                setActivePanel("git");
+              },
+              children: {
+                h: {
+                  label: "History",
+                  run: () => {
+                    requestGitTab("history");
+                    setActivePanel("git");
+                  },
+                },
+                c: {
+                  label: "Compare",
+                  run: () => {
+                    requestGitTab("compare");
+                    setActivePanel("git");
+                  },
+                },
+              },
+            },
+          }
+        : {}),
+      ...(activeWorkingDirectory
+        ? {
+            e: {
+              label: "Editor",
+              run: () => setActivePanel("editor"),
+            },
+          }
+        : {}),
+      "?": { label: "Show all shortcuts", run: () => setShowShortcutsHelp(true) },
+    };
+  }, [tabs, activeTabId, isGitRepo, activeWorkingDirectory, addTab, closeTab, switchTab, requestGitTab]);
+
+  // Chord engine — desktop only (touch devices have no leader key).
+  const { pending } = useKeyboardChords(bindings, { enabled: !isMobile });
+
+  const leaderLabel = isMac() ? "⌘ ;" : "Ctrl ;";
+  const extraShortcuts = [
+    { keys: isMac() ? "⌘ K" : "Ctrl K", label: "Search / quick-switch" },
+    { keys: "Esc", label: "Cancel chord / return to terminal" },
+  ];
 
   // Session selection handler
   const handleSelectSession = useCallback(
@@ -216,6 +312,42 @@ function HomeContent() {
     [changeProfile],
   );
 
+  const handleTogglePin = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      try {
+        await togglePin(sessionId, pinned);
+      } catch (err) {
+        console.error("Failed to update session:", err);
+        toast.error("Failed to update session");
+      }
+    },
+    [togglePin],
+  );
+
+  const handleMarkRead = useCallback(
+    async (sessionId: string) => {
+      try {
+        await markRead(sessionId);
+      } catch (err) {
+        console.error("Failed to mark session read:", err);
+        toast.error("Failed to mark session read");
+      }
+    },
+    [markRead],
+  );
+
+  const handleMarkUnread = useCallback(
+    async (sessionId: string) => {
+      try {
+        await markUnread(sessionId);
+      } catch (err) {
+        console.error("Failed to mark session unread:", err);
+        toast.error("Failed to mark session unread");
+      }
+    },
+    [markUnread],
+  );
+
   // Render the main workspace
   const renderWorkspace = useCallback(
     () => (
@@ -225,12 +357,13 @@ function HomeContent() {
         setActivePanel={setActivePanel}
         activeWorkingDirectory={activeWorkingDirectory}
         isGitRepo={isGitRepo}
+        requestedGitTab={requestedGitTab}
         onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
         onSelectSession={handleSelectSession}
         onNewSession={() => setShowNewSessionDialog(true)}
       />
     ),
-    [sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo]
+    [sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo, requestedGitTab]
   );
 
   const viewProps = {
@@ -249,12 +382,36 @@ function HomeContent() {
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
     onChangeProfile: setChangeProfileSession,
+    onTogglePin: handleTogglePin,
+    onMarkRead: handleMarkRead,
+    onMarkUnread: handleMarkUnread,
     renderWorkspace,
   };
 
+  if (isMobile) {
+    return (
+      <>
+        <MobileView {...viewProps} />
+        <ChangeProfileDialog
+          session={changeProfileSession}
+          onClose={() => setChangeProfileSession(null)}
+          onApply={handleChangeProfileApply}
+        />
+      </>
+    );
+  }
+
   return (
     <>
-      {isMobile ? <MobileView {...viewProps} /> : <DesktopView {...viewProps} />}
+      <DesktopView {...viewProps} />
+      <ShortcutHintOverlay
+        pending={pending}
+        bindings={bindings}
+        leaderLabel={leaderLabel}
+        helpOpen={showShortcutsHelp}
+        onHelpOpenChange={setShowShortcutsHelp}
+        extraShortcuts={extraShortcuts}
+      />
       <ChangeProfileDialog
         session={changeProfileSession}
         onClose={() => setChangeProfileSession(null)}

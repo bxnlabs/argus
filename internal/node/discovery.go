@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/bxnlabs/argus/internal/shared"
 )
 
 // DiscoveryInfo is the content of ~/.argus/node.json.
@@ -13,13 +15,13 @@ type DiscoveryInfo struct {
 	Address string `json:"address"`
 }
 
-// DefaultDiscoveryPath returns ~/.argus/node.json.
+// DefaultDiscoveryPath returns <ARGUS_HOME or ~/.argus>/node.json.
 func DefaultDiscoveryPath() (string, error) {
-	home, err := os.UserHomeDir()
+	stateDir, err := shared.StateDir()
 	if err != nil {
-		return "", fmt.Errorf("home dir: %w", err)
+		return "", fmt.Errorf("state dir: %w", err)
 	}
-	return filepath.Join(home, ".argus", "node.json"), nil
+	return filepath.Join(stateDir, "node.json"), nil
 }
 
 // WriteDiscoveryFile writes the node discovery file.
@@ -32,7 +34,7 @@ func WriteDiscoveryFile(path, address string) error {
 	if err != nil {
 		return fmt.Errorf("marshal discovery: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := shared.EnsureSecureDir(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("mkdir discovery: %w", err)
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {

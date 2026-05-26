@@ -261,13 +261,8 @@ func (h *filesHandler) upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uploadDir := h.getUploadDir()
-	if err := os.MkdirAll(uploadDir, 0700); err != nil {
+	if err := shared.EnsureSecureDir(uploadDir); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create upload directory")
-		return
-	}
-	// Tighten permissions if the directory already existed with broader mode
-	if err := os.Chmod(uploadDir, 0700); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to set upload directory permissions")
 		return
 	}
 

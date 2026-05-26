@@ -29,6 +29,9 @@ export interface ViewProps {
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
   onChangeProfile: (session: Session) => void;
+  onTogglePin: (sessionId: string, pinned: boolean) => void;
+  onMarkRead: (sessionId: string) => void;
+  onMarkUnread: (sessionId: string) => void;
 
   // Content
   renderWorkspace: () => React.ReactNode;

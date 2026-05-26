@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { isMac } from "@/lib/device";
 import type { Session } from "@/types";
 import type { TabData } from "@/lib/tabs";
 
@@ -34,6 +35,8 @@ export function DesktopTabBar({
   onTabAdd,
   onDetach,
 }: DesktopTabBarProps) {
+  const leader = isMac() ? "⌘ ;" : "Ctrl ;";
+
   const getTabName = (tab: TabData) => {
     if (tab.sessionId) {
       const s = sessions.find((sess) => sess.id === tab.sessionId);
@@ -92,7 +95,7 @@ export function DesktopTabBar({
               <Plus className="h-3 w-3" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>New tab</TooltipContent>
+          <TooltipContent>New tab ({leader} =)</TooltipContent>
         </Tooltip>
       </div>
 

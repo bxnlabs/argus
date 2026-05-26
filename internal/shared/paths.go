@@ -22,6 +22,87 @@ func ExpandPath(p string) (string, error) {
 	return p, nil
 }
 
+// EnsureSecureDir creates dir (and any missing parents) with 0700 permissions.
+// If dir already exists with broader permissions, it is tightened to 0700.
+// MkdirAll only applies the mode to directories it creates, so a directory left
+// over from a looser umask (or pre-created by another user) would otherwise keep
+// its permissions and expose the private state Argus stores inside. Use this for
+// any directory holding sockets, tokens, indexes, or other per-user state.
+func EnsureSecureDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() != 0o700 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// StateDir returns the root directory for Argus's per-user state: config
+// file, database, discovery file, project worktrees, and the search ignore
+// file. It honors the ARGUS_HOME environment variable when set; otherwise it
+// defaults to ~/.argus. ARGUS_HOME lets a local dev stack run fully isolated
+// from a production instance on the same machine.
+//
+// ARGUS_HOME must be absolute (or start with ~). Callers join subpaths onto
+// the result directly without re-expanding, so a relative override would
+// resolve against each process's working directory — splitting state between
+// the server and the CLI when they're launched from different directories.
+// Expanding ~ and rejecting relative paths guarantees every consumer agrees
+// on a single location.
+func StateDir() (string, error) {
+	if dir := os.Getenv("ARGUS_HOME"); dir != "" {
+		expanded, err := ExpandPath(dir)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(expanded) {
+			return "", fmt.Errorf("ARGUS_HOME must be an absolute path or start with ~, got %q", dir)
+		}
+		return filepath.Clean(expanded), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determine state dir: %w", err)
+	}
+	return filepath.Join(home, ".argus"), nil
+}
+
+// EnsureStateDir resolves the state root (see StateDir) and guarantees it
+// exists with 0700 permissions, returning the path. Call this once at process
+// startup — before opening the database or creating any state subdirectory —
+// so the root holding the config file and database is never world-readable.
+// The per-subdir EnsureSecureDir calls only tighten their own leaf, so the
+// root itself (e.g. one left at 0755 by an older version) is repaired here.
+func EnsureStateDir() (string, error) {
+	dir, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	if err := EnsureSecureDir(dir); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// DBPath returns the path to Argus's SQLite database: <StateDir>/node.db.
+// The database always lives inside the state dir so all per-user state stays
+// co-located; set ARGUS_HOME to relocate it (e.g. for an isolated dev stack or
+// a home-less CI run).
+func DBPath() (string, error) {
+	dir, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "node.db"), nil
+}
+
 // CleanPath expands ~ and resolves the path to an absolute, cleaned form.
 // Unlike SafeExpandPath, it does not restrict paths to the home directory.
 // OS-level permissions are the sole access guard. This is acceptable under

@@ -14,6 +14,7 @@ export interface Session {
   provider_type: ProviderType;
   auto_approve: boolean;
   profile: string | null;
+  pinned: boolean;
 }
 
 export interface SessionStatusInfo {
@@ -21,6 +22,7 @@ export interface SessionStatusInfo {
   status: "active" | "idle" | "dead";
   providerType: ProviderType;
   unreadSince?: string | null;
+  userMarkedUnreadAt?: string | null;
 }
 
 export type ProviderType = "claude" | "codex" | "gemini" | "shell";
@@ -172,6 +174,7 @@ export interface BranchList {
 }
 
 export type {
+  DiffSide,
   DiffPosition,
   LineRange,
   AnchorStatus,

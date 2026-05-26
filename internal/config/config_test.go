@@ -17,6 +17,7 @@ func clearArgusEnv(t *testing.T) {
 		"ARGUS_SERVER_PORT", "ARGUS_SERVER_BIND_ADDRESS",
 		"ARGUS_NODE_PORT", "ARGUS_NODE_BIND_ADDRESS",
 		"ARGUS_DATABASE_PATH", "ARGUS_GIT_BRANCH_PREFIX",
+		"ARGUS_HOME",
 		"ARGUS_TAILSCALE_ENABLED",
 		"ARGUS_TAILSCALE_HOSTNAME_PREFIX",
 		"ARGUS_TAILSCALE_AUTH_KEY",
@@ -54,9 +55,6 @@ func TestDefaults(t *testing.T) {
 	if cfg.Node.BindAddress != "127.0.0.1" {
 		t.Errorf("Node.BindAddress = %q, want 127.0.0.1", cfg.Node.BindAddress)
 	}
-	if cfg.Database.Path != "~/.argus/node.db" {
-		t.Errorf("Database.Path = %q, want ~/.argus/node.db", cfg.Database.Path)
-	}
 	if cfg.Git.BranchPrefix != "" {
 		t.Errorf("Git.BranchPrefix = %q, want empty", cfg.Git.BranchPrefix)
 	}
@@ -73,9 +71,6 @@ bind_address = "0.0.0.0"
 [node]
 port = 5000
 bind_address = "192.168.1.1"
-
-[database]
-path = "/tmp/test.db"
 
 [git]
 branch_prefix = "jeev"
@@ -100,9 +95,6 @@ branch_prefix = "jeev"
 	}
 	if cfg.Node.BindAddress != "192.168.1.1" {
 		t.Errorf("Node.BindAddress = %q, want 192.168.1.1", cfg.Node.BindAddress)
-	}
-	if cfg.Database.Path != "/tmp/test.db" {
-		t.Errorf("Database.Path = %q, want /tmp/test.db", cfg.Database.Path)
 	}
 	if cfg.Git.BranchPrefix != "jeev" {
 		t.Errorf("Git.BranchPrefix = %q, want jeev", cfg.Git.BranchPrefix)
@@ -250,22 +242,6 @@ bind_address = "not-an-ip"
 	_, err := config.Load(config.Options{ConfigFile: path})
 	if err == nil {
 		t.Fatal("expected error for invalid bind_address, got nil")
-	}
-}
-
-func TestValidation_EmptyDatabasePath(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	content := []byte(`
-[database]
-path = ""
-`)
-	if err := os.WriteFile(path, content, 0644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := config.Load(config.Options{ConfigFile: path})
-	if err == nil {
-		t.Fatal("expected error for empty database.path, got nil")
 	}
 }
 
@@ -649,5 +625,69 @@ func TestNotificationsDisabledByDefault(t *testing.T) {
 	// Empty channel means disabled — no validation of slack fields
 	if cfg.Notifications.Channel != "" {
 		t.Errorf("Notifications.Channel = %q, want empty (disabled)", cfg.Notifications.Channel)
+	}
+}
+
+func TestAutoDiscoverySecuresStateRoot(t *testing.T) {
+	clearArgusEnv(t)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod root: %v", err)
+	}
+	// A config holding secrets sitting in a world-readable root is exactly what
+	// auto-discovery must tighten before reading.
+	content := []byte("[tailscale]\nauth_key = \"tskey-secret\"\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), content, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("ARGUS_HOME", dir)
+
+	cfg, err := config.Load(config.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Tailscale.AuthKey != "tskey-secret" {
+		t.Errorf("AuthKey = %q, want tskey-secret (config not read)", cfg.Tailscale.AuthKey)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat root: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("state root perm = %o, want 700 (auto-discovery did not tighten it)", perm)
+	}
+}
+
+func TestExplicitConfigLoadsWithoutResolvableHome(t *testing.T) {
+	clearArgusEnv(t)
+	// An explicit --config must load even when the home dir can't be resolved
+	// (e.g. a daemon or CI run without $HOME). The state dir is only needed to
+	// auto-discover ~/.argus/config.toml, so an explicit path sidesteps it.
+	t.Setenv("HOME", "")
+
+	// Sanity-check that HOME="" actually disables state-dir resolution on this
+	// platform: with no explicit config, auto-discovery must fail. If it
+	// doesn't, the home dir is resolvable some other way and this test can't
+	// exercise the regression, so skip rather than pass vacuously.
+	if _, err := config.Load(config.Options{}); err == nil {
+		t.Skip("home dir resolvable without HOME; cannot exercise unresolvable-home path")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := []byte(`
+[server]
+port = 4567
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(config.Options{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("unexpected error loading explicit config without HOME: %v", err)
+	}
+	if cfg.Server.Port != 4567 {
+		t.Errorf("Server.Port = %d, want 4567", cfg.Server.Port)
 	}
 }
