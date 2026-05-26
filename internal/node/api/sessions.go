@@ -108,6 +108,7 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name              *string `json:"name"`
 		ProviderSessionID *string `json:"provider_session_id"`
+		Pinned            *bool   `json:"pinned"`
 	}
 	if err := parseBody(w, r, &body); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
@@ -117,6 +118,7 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	update := db.SessionUpdate{
 		Name:              body.Name,
 		ProviderSessionID: body.ProviderSessionID,
+		Pinned:            body.Pinned,
 	}
 	session, err := h.manager.Update(id, update)
 	if err != nil {

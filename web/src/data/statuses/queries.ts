@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { apiFetch } from "@/api/client";
+import { apiFetch, apiTextFetch } from "@/api/client";
 import type { Session, SessionStatusInfo } from "@/types";
 import { statusKeys } from "../sessions/keys";
 
@@ -48,9 +48,11 @@ export function useSessionStatusesQuery({
     }).catch(() => {});
   }, [query.data, activeSessionId]);
 
-  // Auto-acknowledge unread state for the actively viewed session.
+  // Auto-acknowledge the automatic unread_since for the actively viewed session.
   // Covers the case where the app opens with a session already selected
-  // (from localStorage) that became unread while the user was away.
+  // (from localStorage) that became unread while the user was away. Acknowledge
+  // clears unread_since only and leaves the manual user_marked_unread_at intact,
+  // so a sticky "Mark as unread" survives viewing.
   useEffect(() => {
     if (!activeSessionId || !query.data) return;
     if (document.hidden) return;
@@ -81,4 +83,78 @@ export function useSessionStatusesQuery({
     sessionStatuses: query.data?.statuses ?? ({} as Record<string, SessionStatusInfo>),
     isLoading: query.isLoading,
   };
+}
+
+// Mark a session read: clears both the automatic unread_since and the manual
+// user_marked_unread_at, optimistically updating the status cache.
+export function useMarkRead() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      apiTextFetch(`/node/api/sessions/${encodeURIComponent(sessionId)}/read`, {
+        method: "POST",
+      }),
+    onMutate: async (sessionId: string) => {
+      await queryClient.cancelQueries({ queryKey: statusKeys.all });
+      const previous = queryClient.getQueryData<StatusResponse>(statusKeys.all);
+      queryClient.setQueryData<StatusResponse>(statusKeys.all, (old) => {
+        const status = old?.statuses?.[sessionId];
+        if (!old || !status) return old;
+        return {
+          ...old,
+          statuses: {
+            ...old.statuses,
+            [sessionId]: { ...status, unreadSince: null, userMarkedUnreadAt: null },
+          },
+        };
+      });
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(statusKeys.all, context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: statusKeys.all });
+    },
+  });
+}
+
+// Mark a session unread: sets the manual user_marked_unread_at marker,
+// optimistically updating the status cache.
+export function useMarkUnread() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      apiTextFetch(`/node/api/sessions/${encodeURIComponent(sessionId)}/unread`, {
+        method: "POST",
+      }),
+    onMutate: async (sessionId: string) => {
+      await queryClient.cancelQueries({ queryKey: statusKeys.all });
+      const previous = queryClient.getQueryData<StatusResponse>(statusKeys.all);
+      queryClient.setQueryData<StatusResponse>(statusKeys.all, (old) => {
+        const status = old?.statuses?.[sessionId];
+        if (!old || !status) return old;
+        return {
+          ...old,
+          statuses: {
+            ...old.statuses,
+            [sessionId]: { ...status, userMarkedUnreadAt: new Date().toISOString() },
+          },
+        };
+      });
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(statusKeys.all, context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: statusKeys.all });
+    },
+  });
 }

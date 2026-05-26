@@ -27,7 +27,16 @@ function HomeContent() {
   const { isMobile, isHydrated } = useViewport();
 
   // Data hooks
-  const { sessions, homeDir, isLoaded: sessionsLoaded, deleteSession, renameSession } = useSessions();
+  const {
+    sessions,
+    homeDir,
+    isLoaded: sessionsLoaded,
+    deleteSession,
+    renameSession,
+    togglePin,
+    markRead,
+    markUnread,
+  } = useSessions();
   const createSessionMutation = useCreateSession();
   const createMutateRef = useRef(createSessionMutation.mutateAsync);
   createMutateRef.current = createSessionMutation.mutateAsync;
@@ -72,7 +81,9 @@ function HomeContent() {
     (session: Session) => {
       attachSession(session.id);
 
-      // Acknowledge unread state when selecting a session
+      // Acknowledge the automatic unread_since when selecting a session.
+      // Acknowledge leaves the manual user_marked_unread_at intact, so a sticky
+      // "Mark as unread" survives selection.
       const status = sessionStatuses[session.id];
       if (status?.unreadSince) {
         fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
@@ -201,6 +212,42 @@ function HomeContent() {
     [renameSession]
   );
 
+  const handleTogglePin = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      try {
+        await togglePin(sessionId, pinned);
+      } catch (err) {
+        console.error("Failed to update session:", err);
+        toast.error("Failed to update session");
+      }
+    },
+    [togglePin],
+  );
+
+  const handleMarkRead = useCallback(
+    async (sessionId: string) => {
+      try {
+        await markRead(sessionId);
+      } catch (err) {
+        console.error("Failed to mark session read:", err);
+        toast.error("Failed to mark session read");
+      }
+    },
+    [markRead],
+  );
+
+  const handleMarkUnread = useCallback(
+    async (sessionId: string) => {
+      try {
+        await markUnread(sessionId);
+      } catch (err) {
+        console.error("Failed to mark session unread:", err);
+        toast.error("Failed to mark session unread");
+      }
+    },
+    [markUnread],
+  );
+
   // Render the main workspace
   const renderWorkspace = useCallback(
     () => (
@@ -233,6 +280,9 @@ function HomeContent() {
     onCreateSession: handleCreateSession,
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
+    onTogglePin: handleTogglePin,
+    onMarkRead: handleMarkRead,
+    onMarkUnread: handleMarkUnread,
     renderWorkspace,
   };
 

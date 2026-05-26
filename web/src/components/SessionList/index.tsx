@@ -5,10 +5,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Pin, MailOpen, Mail } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 
@@ -47,6 +48,45 @@ function getStatusLabel(status?: string) {
   }
 }
 
+// Split sessions into pinned and the rest, each ordered by updated_at
+// descending. Returns new arrays (does not mutate the input).
+export function partitionSessions(sessions: Session[]): {
+  pinned: Session[];
+  rest: Session[];
+} {
+  const byUpdatedDesc = (a: Session, b: Session) =>
+    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+  return {
+    pinned: sessions.filter((s) => s.pinned).sort(byUpdatedDesc),
+    rest: sessions.filter((s) => !s.pinned).sort(byUpdatedDesc),
+  };
+}
+
+// Decide which read/unread menu items to show. A session is "unread" when
+// either the automatic unread_since or the manual user_marked_unread_at is set.
+// "Mark as read" shows when unread; "Mark as unread" shows when read. The
+// manual marker survives auto-acknowledge, so the active session is no longer
+// special-cased.
+export function readMenuState(
+  unreadSince: string | null | undefined,
+  userMarkedUnreadAt: string | null | undefined,
+): { showMarkRead: boolean; showMarkUnread: boolean } {
+  const isUnread = !!unreadSince || !!userMarkedUnreadAt;
+  return { showMarkRead: isUnread, showMarkUnread: !isUnread };
+}
+
+// ---------------------------------------------------------------------------
+// SectionHeader
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-muted-foreground px-2 pt-2 pb-1 text-xs font-medium">
+      {children}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // SessionItem — memoized so it only re-renders when its own data changes.
 // Receives `statusValue` (the enum string) instead of the full
@@ -60,6 +100,7 @@ interface SessionItemProps {
   isActive: boolean;
   statusValue?: SessionStatusInfo["status"];
   unreadSince?: string | null;
+  userMarkedUnreadAt?: string | null;
   minuteTick: number;
   isRenaming: boolean;
   renameValue: string;
@@ -70,6 +111,9 @@ interface SessionItemProps {
   onStartRename: (session: Session) => void;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
+  onTogglePin: (sessionId: string, pinned: boolean) => void;
+  onMarkRead: (sessionId: string) => void;
+  onMarkUnread: (sessionId: string) => void;
   renamePendingRef: React.RefObject<boolean>;
 }
 
@@ -79,6 +123,7 @@ const SessionItem = memo(function SessionItem({
   isActive,
   statusValue,
   unreadSince,
+  userMarkedUnreadAt,
   minuteTick: _minuteTick,
   isRenaming,
   renameValue,
@@ -89,11 +134,16 @@ const SessionItem = memo(function SessionItem({
   onStartRename,
   onAttachSession,
   onDeleteSession,
+  onTogglePin,
+  onMarkRead,
+  onMarkUnread,
   renamePendingRef,
 }: SessionItemProps) {
   const repoPath = session.git_remote_url
     ? parseRepoFromRemoteURL(session.git_remote_url)
     : null;
+  const isUnread = !!unreadSince || !!userMarkedUnreadAt;
+  const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, userMarkedUnreadAt);
 
   return (
     <div
@@ -132,20 +182,25 @@ const SessionItem = memo(function SessionItem({
           />
         ) : (
           <>
-            <span className="block truncate text-sm">
-              {session.name || "Unnamed Session"}
-            </span>
+            <div className="flex min-w-0 items-center gap-1">
+              <span className="truncate text-sm">
+                {session.name || "Unnamed Session"}
+              </span>
+              {session.pinned && (
+                <Pin className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+              )}
+            </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <div
                 className={cn(
                   "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                  unreadSince ? "bg-blue-500" : getStatusColor(statusValue),
-                  !unreadSince && getStatusAnimation(statusValue)
+                  isUnread ? "bg-blue-500" : getStatusColor(statusValue),
+                  !isUnread && getStatusAnimation(statusValue)
                 )}
               />
               <span className="text-muted-foreground text-xs">
                 {(() => {
-                  const label = unreadSince ? "Unread" : getStatusLabel(statusValue);
+                  const label = isUnread ? "Unread" : getStatusLabel(statusValue);
                   return label ? `${label} · ` : "";
                 })()}
                 {formatRelativeTime(session.updated_at)}
@@ -200,6 +255,40 @@ const SessionItem = memo(function SessionItem({
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
+              onTogglePin(session.id, !session.pinned);
+            }}
+          >
+            <Pin
+              className={cn("mr-2 h-3 w-3", session.pinned && "fill-current")}
+            />
+            {session.pinned ? "Unpin" : "Pin"}
+          </DropdownMenuItem>
+          {showMarkRead && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarkRead(session.id);
+              }}
+            >
+              <MailOpen className="mr-2 h-3 w-3" />
+              Mark as read
+            </DropdownMenuItem>
+          )}
+          {showMarkUnread && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarkUnread(session.id);
+              }}
+            >
+              <Mail className="mr-2 h-3 w-3" />
+              Mark as unread
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
               onStartRename(session);
             }}
           >
@@ -248,6 +337,9 @@ interface SessionListProps {
   errorMessage?: string;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
+  onTogglePin: (sessionId: string, pinned: boolean) => void;
+  onMarkRead: (sessionId: string) => void;
+  onMarkUnread: (sessionId: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
   onNewSession: () => void;
   onRetry?: () => void;
@@ -263,6 +355,9 @@ export const SessionList = memo(function SessionList({
   errorMessage,
   onAttachSession,
   onDeleteSession,
+  onTogglePin,
+  onMarkRead,
+  onMarkUnread,
   onRenameSession,
   onNewSession,
   onRetry,
@@ -293,15 +388,8 @@ export const SessionList = memo(function SessionList({
     return () => clearInterval(id);
   }, []);
 
-  // Sessions sorted by updated_at descending
-  const sortedSessions = useMemo(
-    () =>
-      [...sessions].sort(
-        (a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      ),
-    [sessions]
-  );
+  // Pinned sessions in their own group; the rest below. Each updated_at DESC.
+  const { pinned, rest } = useMemo(() => partitionSessions(sessions), [sessions]);
 
   const handleStartRename = useCallback((session: Session) => {
     renamePendingRef.current = true;
@@ -324,6 +412,35 @@ export const SessionList = memo(function SessionList({
     setRenamingSessionId(null);
     setRenameValue("");
   }, []);
+
+  const renderItem = (session: Session) => {
+    const isRenaming = renamingSessionId === session.id;
+    return (
+      <SessionItem
+        key={session.id}
+        session={session}
+        homeDir={homeDir}
+        isActive={session.id === activeSessionId}
+        statusValue={sessionStatuses?.[session.id]?.status}
+        unreadSince={sessionStatuses?.[session.id]?.unreadSince}
+        userMarkedUnreadAt={sessionStatuses?.[session.id]?.userMarkedUnreadAt}
+        minuteTick={minuteTick}
+        isRenaming={isRenaming}
+        renameValue={isRenaming ? renameValue : ""}
+        renameInputRef={renameInputRef}
+        onRenameValueChange={setRenameValue}
+        onConfirmRename={handleConfirmRename}
+        onCancelRename={handleCancelRename}
+        onStartRename={handleStartRename}
+        onAttachSession={onAttachSession}
+        onDeleteSession={onDeleteSession}
+        onTogglePin={onTogglePin}
+        onMarkRead={onMarkRead}
+        onMarkUnread={onMarkUnread}
+        renamePendingRef={renamePendingRef}
+      />
+    );
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -370,34 +487,21 @@ export const SessionList = memo(function SessionList({
             </div>
           )}
 
-          {/* Flat session list */}
-          {!isLoading &&
-            !isError &&
-            sortedSessions.map((session) => {
-              const isRenaming = renamingSessionId === session.id;
+          {/* Pinned section — only when at least one session is pinned */}
+          {!isLoading && !isError && pinned.length > 0 && (
+            <>
+              <SectionHeader>Pinned</SectionHeader>
+              {pinned.map(renderItem)}
+            </>
+          )}
 
-              return (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  homeDir={homeDir}
-                  isActive={session.id === activeSessionId}
-                  statusValue={sessionStatuses?.[session.id]?.status}
-                  unreadSince={sessionStatuses?.[session.id]?.unreadSince}
-                  minuteTick={minuteTick}
-                  isRenaming={isRenaming}
-                  renameValue={isRenaming ? renameValue : ""}
-                  renameInputRef={renameInputRef}
-                  onRenameValueChange={setRenameValue}
-                  onConfirmRename={handleConfirmRename}
-                  onCancelRename={handleCancelRename}
-                  onStartRename={handleStartRename}
-                  onAttachSession={onAttachSession}
-                  onDeleteSession={onDeleteSession}
-                  renamePendingRef={renamePendingRef}
-                />
-              );
-            })}
+          {/* Recents section — the rest */}
+          {!isLoading && !isError && rest.length > 0 && (
+            <>
+              <SectionHeader>Recents</SectionHeader>
+              {rest.map(renderItem)}
+            </>
+          )}
         </div>
       </ScrollArea>
     </div>

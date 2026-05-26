@@ -31,18 +31,8 @@ var allMigrations = []migration{
 		return err
 	}},
 	{"add_branch_created", func(d *DB) error {
-		var hasColumn int
-		row := d.sql.QueryRow(
-			`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'branch_created'`,
-		)
-		if err := row.Scan(&hasColumn); err != nil {
-			return err
-		}
-		if hasColumn > 0 {
-			return nil // column already exists (fresh schema)
-		}
-		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN branch_created INTEGER NOT NULL DEFAULT 0`)
-		return err
+		return d.addColumnIfMissing("branch_created",
+			`ALTER TABLE sessions ADD COLUMN branch_created INTEGER NOT NULL DEFAULT 0`)
 	}},
 	{"rename_agent_type_to_provider_type", func(d *DB) error {
 		// Only rename if the old column still exists (no-op for fresh databases
@@ -61,11 +51,12 @@ var allMigrations = []migration{
 		return err
 	}},
 	{"add_unread_since_and_last_viewed_at", func(d *DB) error {
-		if _, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN unread_since TEXT`); err != nil {
+		if err := d.addColumnIfMissing("unread_since",
+			`ALTER TABLE sessions ADD COLUMN unread_since TEXT`); err != nil {
 			return err
 		}
-		_, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN last_viewed_at TEXT`)
-		return err
+		return d.addColumnIfMissing("last_viewed_at",
+			`ALTER TABLE sessions ADD COLUMN last_viewed_at TEXT`)
 	}},
 	{"create_notifications_table", func(d *DB) error {
 		if _, err := d.sql.Exec(`CREATE TABLE IF NOT EXISTS notifications (
@@ -80,6 +71,42 @@ var allMigrations = []migration{
 			ON notifications(session_id, sent_at)`)
 		return err
 	}},
+	{"add_pinned", func(d *DB) error {
+		return d.addColumnIfMissing("pinned",
+			`ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)
+	}},
+	{"add_user_marked_unread_at", func(d *DB) error {
+		return d.addColumnIfMissing("user_marked_unread_at",
+			`ALTER TABLE sessions ADD COLUMN user_marked_unread_at TEXT`)
+	}},
+}
+
+// hasColumn reports whether the sessions table already has the named column.
+func (d *DB) hasColumn(column string) (bool, error) {
+	var count int
+	row := d.sql.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = ?`,
+		column,
+	)
+	if err := row.Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// addColumnIfMissing runs the given ALTER TABLE only when the column is absent.
+// This keeps multi-column migrations restartable after a partial failure and
+// makes them no-ops when the column already exists in the base schema.
+func (d *DB) addColumnIfMissing(column, alterSQL string) error {
+	has, err := d.hasColumn(column)
+	if err != nil {
+		return err
+	}
+	if has {
+		return nil
+	}
+	_, err = d.sql.Exec(alterSQL)
+	return err
 }
 
 // CheckMigrations verifies that all expected migrations have been applied.

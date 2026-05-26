@@ -4,7 +4,9 @@ import {
   useSessionsQuery,
   useDeleteSession,
   useRenameSession,
+  useUpdateSession,
 } from "@/data/sessions";
+import { useMarkRead, useMarkUnread } from "@/data/statuses/queries";
 
 export function useSessions() {
   const { data, isSuccess } = useSessionsQuery();
@@ -13,6 +15,9 @@ export function useSessions() {
 
   const deleteMutation = useDeleteSession();
   const renameMutation = useRenameSession();
+  const updateMutation = useUpdateSession();
+  const markReadMutation = useMarkRead();
+  const markUnreadMutation = useMarkUnread();
 
   // Keep stable refs to mutateAsync so callbacks don't change on every render.
   // TanStack Query's useMutation returns a new object each render, which would
@@ -21,6 +26,12 @@ export function useSessions() {
   deleteMutateRef.current = deleteMutation.mutateAsync;
   const renameMutateRef = useRef(renameMutation.mutateAsync);
   renameMutateRef.current = renameMutation.mutateAsync;
+  const updateMutateRef = useRef(updateMutation.mutateAsync);
+  updateMutateRef.current = updateMutation.mutateAsync;
+  const markReadRef = useRef(markReadMutation.mutateAsync);
+  markReadRef.current = markReadMutation.mutateAsync;
+  const markUnreadRef = useRef(markUnreadMutation.mutateAsync);
+  markUnreadRef.current = markUnreadMutation.mutateAsync;
 
   const deleteSession = useCallback(
     async (sessionId: string, deleteBranch?: boolean) => {
@@ -40,5 +51,29 @@ export function useSessions() {
     [],
   );
 
-  return { sessions, homeDir, isLoaded: isSuccess, deleteSession, renameSession };
+  const togglePin = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      await updateMutateRef.current({ sessionId, pinned });
+    },
+    [],
+  );
+
+  const markRead = useCallback(async (sessionId: string) => {
+    await markReadRef.current(sessionId);
+  }, []);
+
+  const markUnread = useCallback(async (sessionId: string) => {
+    await markUnreadRef.current(sessionId);
+  }, []);
+
+  return {
+    sessions,
+    homeDir,
+    isLoaded: isSuccess,
+    deleteSession,
+    renameSession,
+    togglePin,
+    markRead,
+    markUnread,
+  };
 }
