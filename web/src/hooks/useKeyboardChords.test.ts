@@ -239,6 +239,48 @@ describe("useKeyboardChords", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it("passes a non-leader modifier combo (Cmd+K) through to other window listeners", () => {
+    // The engine captures on window; while idle it must not swallow combos like
+    // the app's Cmd+K quick-switch (a window listener in App.tsx). It only acts
+    // on the leader key, so Cmd+K reaches downstream listeners unprevented.
+    const { bindings } = makeBindings();
+    renderHook(() => useKeyboardChords(bindings));
+
+    const downstream = vi.fn();
+    window.addEventListener("keydown", downstream);
+    try {
+      let event!: KeyboardEvent;
+      act(() => {
+        event = dispatchKey("k", { metaKey: true });
+      });
+      expect(downstream).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(false);
+    } finally {
+      window.removeEventListener("keydown", downstream);
+    }
+  });
+
+  it("passes a non-leader modifier combo (Ctrl+K) through off macOS", () => {
+    // Mirror of the Cmd+K case for the non-mac leader (Ctrl): the idle engine
+    // must not swallow Ctrl+K either.
+    isMacMock.mockReturnValue(false);
+    const { bindings } = makeBindings();
+    renderHook(() => useKeyboardChords(bindings));
+
+    const downstream = vi.fn();
+    window.addEventListener("keydown", downstream);
+    try {
+      let event!: KeyboardEvent;
+      act(() => {
+        event = dispatchKey("k", { ctrlKey: true });
+      });
+      expect(downstream).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(false);
+    } finally {
+      window.removeEventListener("keydown", downstream);
+    }
+  });
+
   it("exposes the pending state at the prefix and sub levels", () => {
     const { bindings } = makeBindings();
     const { result } = renderHook(() => useKeyboardChords(bindings));
@@ -268,6 +310,34 @@ describe("useKeyboardChords", () => {
     });
     expect(result.current.pending).toBeNull();
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("clears a pending chord when it becomes disabled", () => {
+    const { bindings, n } = makeBindings();
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useKeyboardChords(bindings, { enabled }),
+      { initialProps: { enabled: true } },
+    );
+
+    // Arm a chord, then disable mid-flight (e.g. a resize crosses the mobile
+    // breakpoint while the user is mid-chord).
+    act(() => {
+      dispatchLeader();
+    });
+    expect(result.current.pending).not.toBeNull();
+
+    rerender({ enabled: false });
+    expect(result.current.pending).toBeNull();
+
+    // Re-enabling must resume from idle: a bare follow-up key with no fresh
+    // leader press must not fire a stale action.
+    rerender({ enabled: true });
+    act(() => {
+      dispatchKey("n");
+    });
+    expect(n).not.toHaveBeenCalled();
+    expect(result.current.pending).toBeNull();
   });
 
   it("cancels pending state on window blur", () => {
@@ -424,10 +494,34 @@ describe("useKeyboardChords", () => {
     }
   });
 
+  it("beats a document-capture listener registered before the hook", () => {
+    // Window-capture runs before any document-capture listener regardless of
+    // registration order, so even a terminal handler that subscribed FIRST must
+    // not see chord keys. (A document-capture hook would lose this race.)
+    const earlySibling = vi.fn();
+    document.addEventListener("keydown", earlySibling, true);
+    const { bindings } = makeBindings();
+
+    try {
+      renderHook(() => useKeyboardChords(bindings));
+
+      act(() => {
+        dispatchLeader();
+      });
+      expect(earlySibling).not.toHaveBeenCalled();
+
+      act(() => {
+        dispatchKey("n");
+      });
+      expect(earlySibling).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", earlySibling, true);
+    }
+  });
+
   it("removes listeners and clears the timer on unmount", () => {
     vi.useFakeTimers();
     const { bindings, n } = makeBindings();
-    const removeSpy = vi.spyOn(document, "removeEventListener");
     const windowRemoveSpy = vi.spyOn(window, "removeEventListener");
     const { unmount } = renderHook(() => useKeyboardChords(bindings));
 
@@ -436,7 +530,7 @@ describe("useKeyboardChords", () => {
     });
 
     unmount();
-    expect(removeSpy).toHaveBeenCalledWith("keydown", expect.any(Function), true);
+    expect(windowRemoveSpy).toHaveBeenCalledWith("keydown", expect.any(Function), true);
     expect(windowRemoveSpy).toHaveBeenCalledWith("blur", expect.any(Function));
 
     // A leader after unmount does nothing (listener gone), and the pending

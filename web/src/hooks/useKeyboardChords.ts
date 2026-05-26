@@ -83,9 +83,11 @@ function resolveLevel(bindings: ChordMap, path: string[]): ChordMap | null {
 
 /**
  * Leader-key chord engine. Action-agnostic: it knows nothing about which
- * actions exist, only the `ChordMap` it's handed. Listens on `document` in the
- * capture phase so it intercepts keys before a focused terminal/editor sees
- * them — mirroring `Terminal/hooks/terminal-init.ts`.
+ * actions exist, only the `ChordMap` it's handed. Listens on `window` in the
+ * capture phase so it intercepts keys before any `document`-level capture
+ * listener (e.g. `Terminal/hooks/terminal-init.ts`'s Cmd+C handler) — `window`
+ * precedes `document` in the capture phase regardless of registration order, so
+ * the chord engine always gets first refusal.
  *
  * @param bindings  Chord tree. The caller rebuilds this (via `useMemo`) as app
  *   state changes; the latest version is always read through a ref so `run`
@@ -116,8 +118,6 @@ export function useKeyboardChords(
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!enabled) return;
-
     const clearTimer = () => {
       if (timerRef.current !== null) {
         clearTimeout(timerRef.current);
@@ -130,6 +130,16 @@ export function useKeyboardChords(
       pathRef.current = null;
       setPath(null);
     };
+
+    // Disabled: reset to a clean idle state and attach nothing. Clearing pending
+    // here (not just clearing the timer) is what makes the hook "completely
+    // inert" — `enabled` is tied to `!isMobile`, so a viewport flip mid-chord
+    // would otherwise leave a half-entered `path` that re-arms on re-enable with
+    // no fresh leader press.
+    if (!enabled) {
+      cancel();
+      return;
+    }
 
     // Move to a new pending position and (re)start the inactivity timer.
     const transition = (next: string[]) => {
@@ -206,22 +216,22 @@ export function useKeyboardChords(
       }
     };
 
-    document.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("blur", cancel);
 
     return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("blur", cancel);
       clearTimer();
     };
   }, [enabled]);
 
   const pending = useMemo<ChordPending | null>(() => {
-    if (path === null) return null;
+    if (!enabled || path === null) return null;
     const level = resolveLevel(bindings, path);
     if (!level) return null;
     return { level, path };
-  }, [path, bindings]);
+  }, [enabled, path, bindings]);
 
   return { pending };
 }

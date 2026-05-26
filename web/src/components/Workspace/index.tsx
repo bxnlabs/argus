@@ -3,7 +3,7 @@ import { useTabs } from "@/contexts/TabContext";
 import { useViewport } from "@/hooks/useViewport";
 import type { Session } from "@/types";
 import type { SidePanel } from "@/components/views/types";
-import type { GitTab } from "@/components/GitPanel/GitPanelTabs";
+import type { GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
 import { cn } from "@/lib/utils";
 import { shellEscape } from "@/lib/shell";
 import { MobileTabBar } from "./MobileTabBar";
@@ -26,7 +26,7 @@ interface WorkspaceProps {
   onMenuClick?: () => void;
   onSelectSession?: (sessionId: string) => void;
   onNewSession?: () => void;
-  requestedGitTab?: GitTab;
+  requestedGitTab?: GitTabRequest;
 }
 
 export const Workspace = memo(function Workspace({

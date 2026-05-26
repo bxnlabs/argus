@@ -17,7 +17,7 @@ import { useGitCheckQuery } from "@/data/git";
 import { isMac } from "@/lib/device";
 import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
-import type { GitTab } from "@/components/GitPanel/GitPanelTabs";
+import type { GitTab, GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
 
 function HomeContent() {
   // UI State
@@ -28,7 +28,15 @@ function HomeContent() {
   const [activePanel, setActivePanel] = useState<SidePanel>(null);
   // Latest Git sub-tab intent. GitPanel re-mounts each time the panel opens, so
   // this must always reflect the most recent chord so it opens to the right tab.
-  const [requestedGitTab, setRequestedGitTab] = useState<GitTab>("changes");
+  // Modeled as an event (bumping `seq`) rather than a bare value so repeating a
+  // chord re-navigates even when the panel is already open on another tab.
+  const [requestedGitTab, setRequestedGitTab] = useState<GitTabRequest>({
+    tab: "changes",
+    seq: 0,
+  });
+  const requestGitTab = useCallback((tab: GitTab) => {
+    setRequestedGitTab((prev) => ({ tab, seq: prev.seq + 1 }));
+  }, []);
 
   // Tab context
   const {
@@ -176,21 +184,21 @@ function HomeContent() {
             g: {
               label: "Git",
               run: () => {
-                setRequestedGitTab("changes");
+                requestGitTab("changes");
                 setActivePanel((prev) => (prev === "git" ? null : "git"));
               },
               children: {
                 h: {
                   label: "History",
                   run: () => {
-                    setRequestedGitTab("history");
+                    requestGitTab("history");
                     setActivePanel("git");
                   },
                 },
                 c: {
                   label: "Compare",
                   run: () => {
-                    setRequestedGitTab("compare");
+                    requestGitTab("compare");
                     setActivePanel("git");
                   },
                 },
@@ -209,7 +217,7 @@ function HomeContent() {
         : {}),
       "?": { label: "Show all shortcuts", run: () => setShowShortcutsHelp(true) },
     };
-  }, [tabs, activeTabId, isGitRepo, activeWorkingDirectory, addTab, closeTab, switchTab]);
+  }, [tabs, activeTabId, isGitRepo, activeWorkingDirectory, addTab, closeTab, switchTab, requestGitTab]);
 
   // Chord engine — desktop only (touch devices have no leader key).
   const { pending } = useKeyboardChords(bindings, { enabled: !isMobile });
