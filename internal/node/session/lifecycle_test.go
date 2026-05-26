@@ -690,6 +690,54 @@ func TestChangeProfile(t *testing.T) {
 	}
 }
 
+func TestChangeProfileSameProfileIsNoop(t *testing.T) {
+	stateDir := t.TempDir()
+	workDir := t.TempDir()
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Profile "p" with a pre_create hook that writes a marker if it ever runs.
+	marker := filepath.Join(t.TempDir(), "ran.txt")
+	hooks := filepath.Join(stateDir, "profiles", "p", "hooks")
+	if err := os.MkdirAll(hooks, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "pre_create.sh"),
+		[]byte("#!/bin/bash\necho ran > "+marker+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	profile := "p"
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-noop", Name: "noop", TmuxName: "shell-sess-noop",
+		WorkingDirectory: workDir, ProviderType: "shell", Profile: &profile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := mgr.ChangeProfile("sess-noop", &profile)
+	if err != nil {
+		t.Fatalf("ChangeProfile (same profile): %v", err)
+	}
+	if updated.Profile == nil || *updated.Profile != "p" {
+		t.Errorf("profile = %v, want %q", updated.Profile, "p")
+	}
+	// An unchanged profile must run no hooks and spawn no tmux session.
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Errorf("expected no hooks to run for an unchanged profile (stat err: %v)", statErr)
+	}
+	if HasSession("shell-sess-noop") {
+		t.Error("expected no tmux session to be spawned for a no-op profile change")
+	}
+}
+
 func TestChangeProfileInvalidName(t *testing.T) {
 	stateDir := t.TempDir()
 	database, err := db.Open(filepath.Join(stateDir, "test.db"))

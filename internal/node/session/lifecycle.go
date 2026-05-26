@@ -466,19 +466,25 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 
 // ChangeProfile attaches, changes, or detaches the profile on an existing
 // session and recreates the session in place so the new profile's hooks take
-// effect. The worktree is preserved (no worktree creation, no
-// on_create_worktree); only profile-level hooks run. The session is restarted:
-// the tmux session is killed and respawned with the new profile. The agent
-// conversation is not resumed unless a provider_session_id was already stored,
-// which mirrors EnsureSession; an actively-running session starts fresh.
-// Pass profile=nil or "" to detach.
+// effect. If the requested profile matches the current one it is a no-op:
+// nothing runs and the session is left untouched. The worktree is preserved (no
+// worktree creation, no on_create_worktree). Only the profile-level pre_create
+// and pre_destroy run for the change itself; project-level setup/teardown hooks
+// are intentionally not run. The session is then restarted: the tmux session is
+// killed and respawned, which re-sources post_create (both profile- and
+// project-level) exactly as a normal EnsureSession revival does, so the
+// restarted shell environment matches any other revival of this session. The
+// agent conversation is not resumed unless a provider_session_id was already
+// stored, which mirrors EnsureSession; an actively-running session starts
+// fresh. Pass profile=nil or "" to detach.
 //
-// Order: validate -> working-dir preflight -> new profile pre_create
-// (profile-level, abort on failure) -> old profile pre_destroy (profile-level,
-// best-effort) -> persist -> kill tmux -> respawn. pre_create runs before any
-// teardown so a failed change leaves the session untouched and still alive. The
-// profile is persisted before the kill so a respawn failure is self-healing:
-// EnsureSession revives from the new profile on next access.
+// Order: validate -> no-op if unchanged -> working-dir preflight -> new profile
+// pre_create (profile-level, abort on failure) -> old profile pre_destroy
+// (profile-level, best-effort) -> persist -> kill tmux -> respawn (re-sources
+// profile + project post_create, identical to EnsureSession). pre_create runs
+// before any teardown so a failed change leaves the session untouched and still
+// alive. The profile is persisted before the kill so a respawn failure is
+// self-healing: EnsureSession revives from the new profile on next access.
 func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error) {
 	// Treat an empty string as detach.
 	if profile != nil && strings.TrimSpace(*profile) == "" {
@@ -503,6 +509,13 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		return nil, fmt.Errorf("%w: %s", db.ErrNotFound, id)
 	}
 
+	// No-op when the profile is unchanged: leave the session and its hooks
+	// untouched rather than needlessly restarting it.
+	oldProfile := ptrStr(session.Profile)
+	if oldProfile == resolvedProfile {
+		return session, nil
+	}
+
 	// Preflight: confirm the working directory still exists before tearing
 	// down the live session, and reuse the resolved path for the hook env so
 	// hooks run in the same directory the respawn will use.
@@ -511,7 +524,6 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		return nil, err
 	}
 
-	oldProfile := ptrStr(session.Profile)
 	hookEnv := HookEnv{
 		SessionID:    session.ID,
 		WorkingDir:   cwd,
@@ -551,8 +563,8 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		}
 	}
 
-	// 5. Re-fetch (now carries the new profile) and respawn, sourcing the new
-	// profile's post_create.
+	// 5. Re-fetch (now carries the new profile) and respawn. The respawn
+	// re-sources post_create (profile + project), identical to EnsureSession.
 	updated, err := m.db.GetSession(id)
 	if err != nil {
 		return nil, err
@@ -665,9 +677,9 @@ func (m *Manager) resolveWorkingDir(session *db.Session) (string, error) {
 
 // respawnTmux (re)creates the tmux session for a DB session record. It resolves
 // the working directory, builds the agent command (resuming the stored
-// provider_session_id), sources the profile's post_create hooks, writes the
-// init script, spawns tmux, and applies the status bar. The caller must kill
-// any existing tmux session first.
+// provider_session_id), sources the profile- and project-level post_create
+// hooks, writes the init script, spawns tmux, and applies the status bar. The
+// caller must kill any existing tmux session first.
 func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	tmuxName := session.TmuxName
 
