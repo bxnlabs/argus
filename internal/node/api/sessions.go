@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/node/session"
-	"github.com/bxnlabs/argus/internal/git/worktree"
 )
 
 // watcherEnsurer is satisfied by *status.WatcherManager.

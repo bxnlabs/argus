@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bxnlabs/argus/internal/node/db"
-	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
@@ -148,7 +148,7 @@ func TestDeleteDirtyWorktreeBlocksBeforeSideEffects(t *testing.T) {
 		Name:             "dirty-test",
 		TmuxName:         "claude-sess-dirty-test",
 		WorkingDirectory: wtPath,
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -212,7 +212,7 @@ func TestDeletePreDestroyHookDirtyingWorktreeStillSucceeds(t *testing.T) {
 		Name:             "hook-dirty",
 		TmuxName:         "claude-sess-hook-dirty",
 		WorkingDirectory: wtPath,
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -265,7 +265,7 @@ func TestDeleteForceBypassesDirtyCheck(t *testing.T) {
 		Name:             "force-test",
 		TmuxName:         "claude-sess-force-test",
 		WorkingDirectory: wtPath,
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -330,9 +330,9 @@ func TestListProfiles(t *testing.T) {
 	// Create profiles directory with valid and invalid entries
 	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "work", "hooks"))
 	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "default", "hooks"))
-	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "has space", "hooks"))  // invalid name
-	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "..evil", "hooks"))     // invalid name
-	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "no-hooks-dir"))        // no hooks/ subdir
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "has space", "hooks")) // invalid name
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "..evil", "hooks"))    // invalid name
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "no-hooks-dir"))       // no hooks/ subdir
 	mustWriteFile(t, filepath.Join(stateDir, "profiles", "a-file"), []byte("not a dir"), 0644)
 
 	profiles, err = mgr.ListProfiles()

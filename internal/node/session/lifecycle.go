@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bxnlabs/argus/internal/node/db"
-	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
