@@ -20,6 +20,7 @@ type sessionInfo struct {
 	Model            *string `json:"model"`
 	WorktreeBranch   *string `json:"worktree_branch"`
 	GitParentDir     *string `json:"git_parent_dir"`
+	Profile          *string `json:"profile"`
 }
 
 // fetchAndResolve fetches all sessions from the node and resolves the query

@@ -27,6 +27,7 @@ func NewSessionCmd() *cobra.Command {
 		newAttachCmd(),
 		newDeleteCmd(),
 		newRenameCmd(),
+		newProfileCmd(),
 		newPwdCmd(),
 	)
 

@@ -69,7 +69,10 @@ func newClient(discoveryPath string) (*apiClient, error) {
 	c := &apiClient{
 		baseURL: "http://" + info.Address + "/node",
 		http: http.Client{
-			Timeout: 10 * time.Second,
+			// Lifecycle mutations (create, delete, change-profile) run user
+			// hooks that can each take up to 30s, so the client must wait well
+			// past the default. A refused connection still fails immediately.
+			Timeout: 120 * time.Second,
 		},
 	}
 	return c, nil
@@ -122,6 +125,19 @@ func (c *apiClient) post(path string, body io.Reader) ([]byte, error) {
 
 func (c *apiClient) patch(path string, body io.Reader) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPatch, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot reach Argus node at %s.\nCheck if the node is running.", c.baseURL)
+	}
+	return readResponse(resp, "update")
+}
+
+func (c *apiClient) put(path string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodPut, c.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}

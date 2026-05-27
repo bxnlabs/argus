@@ -4,6 +4,7 @@ export {
   useCreateSession,
   useDeleteSession,
   useRenameSession,
+  useChangeSessionProfile,
   useUpdateSession,
   useProfilesQuery,
 } from "./queries";

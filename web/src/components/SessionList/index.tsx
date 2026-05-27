@@ -9,9 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Pin, MailOpen, Mail } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, SlidersHorizontal, Pin, MailOpen, Mail } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
+import { useProfilesQuery } from "@/data/sessions";
 
 function getStatusColor(status?: string) {
   switch (status) {
@@ -111,6 +112,8 @@ interface SessionItemProps {
   onStartRename: (session: Session) => void;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
+  onChangeProfile: (session: Session) => void;
+  canChangeProfile: boolean;
   onTogglePin: (sessionId: string, pinned: boolean) => void;
   onMarkRead: (sessionId: string) => void;
   onMarkUnread: (sessionId: string) => void;
@@ -134,6 +137,8 @@ const SessionItem = memo(function SessionItem({
   onStartRename,
   onAttachSession,
   onDeleteSession,
+  onChangeProfile,
+  canChangeProfile,
   onTogglePin,
   onMarkRead,
   onMarkUnread,
@@ -295,6 +300,17 @@ const SessionItem = memo(function SessionItem({
             <Pencil className="mr-2 h-3 w-3" />
             Rename
           </DropdownMenuItem>
+          {canChangeProfile && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeProfile(session);
+              }}
+            >
+              <SlidersHorizontal className="mr-2 h-3 w-3" />
+              Change profile
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
@@ -341,6 +357,7 @@ interface SessionListProps {
   onMarkRead: (sessionId: string) => void;
   onMarkUnread: (sessionId: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
+  onChangeProfile: (session: Session) => void;
   onNewSession: () => void;
   onRetry?: () => void;
 }
@@ -359,6 +376,7 @@ export const SessionList = memo(function SessionList({
   onMarkRead,
   onMarkUnread,
   onRenameSession,
+  onChangeProfile,
   onNewSession,
   onRetry,
 }: SessionListProps) {
@@ -413,6 +431,9 @@ export const SessionList = memo(function SessionList({
     setRenameValue("");
   }, []);
 
+  const { data: profilesData } = useProfilesQuery();
+  const hasProfiles = (profilesData?.profiles?.length ?? 0) > 0;
+
   const renderItem = (session: Session) => {
     const isRenaming = renamingSessionId === session.id;
     return (
@@ -434,6 +455,8 @@ export const SessionList = memo(function SessionList({
         onStartRename={handleStartRename}
         onAttachSession={onAttachSession}
         onDeleteSession={onDeleteSession}
+        onChangeProfile={onChangeProfile}
+        canChangeProfile={hasProfiles || session.profile !== null}
         onTogglePin={onTogglePin}
         onMarkRead={onMarkRead}
         onMarkUnread={onMarkUnread}

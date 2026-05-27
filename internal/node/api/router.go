@@ -33,6 +33,8 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}", sh.get)
 	mux.HandleFunc("PATCH /api/sessions/{id}", sh.update)
 	mux.HandleFunc("DELETE /api/sessions/{id}", sh.delete)
+	mux.HandleFunc("PUT /api/sessions/{id}/profile", sh.setProfile)
+	mux.HandleFunc("DELETE /api/sessions/{id}/profile", sh.detachProfile)
 
 	// Profile routes
 	mux.HandleFunc("GET /api/profiles", sh.listProfiles)

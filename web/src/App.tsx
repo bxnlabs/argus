@@ -9,6 +9,7 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession } from "@/data/sessions/queries";
+import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
 import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
 import { ShortcutHintOverlay } from "@/components/ShortcutHintOverlay";
 import { DesktopView } from "@/components/views/DesktopView";
@@ -26,6 +27,7 @@ function HomeContent() {
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [activePanel, setActivePanel] = useState<SidePanel>(null);
+  const [changeProfileSession, setChangeProfileSession] = useState<Session | null>(null);
   // Latest Git sub-tab intent. GitPanel re-mounts each time the panel opens, so
   // this must always reflect the most recent chord so it opens to the right tab.
   // Modeled as an event (bumping `seq`) rather than a bare value so repeating a
@@ -58,6 +60,7 @@ function HomeContent() {
     isLoaded: sessionsLoaded,
     deleteSession,
     renameSession,
+    changeProfile,
     togglePin,
     markRead,
     markUnread,
@@ -296,6 +299,19 @@ function HomeContent() {
     [renameSession]
   );
 
+  // Change-profile handler — recreates the session with the new profile.
+  const handleChangeProfileApply = useCallback(
+    async (sessionId: string, profile: string | null) => {
+      try {
+        await changeProfile(sessionId, profile);
+      } catch (err) {
+        console.error("Failed to change profile:", err);
+        toast.error("Failed to change profile");
+      }
+    },
+    [changeProfile],
+  );
+
   const handleTogglePin = useCallback(
     async (sessionId: string, pinned: boolean) => {
       try {
@@ -365,6 +381,7 @@ function HomeContent() {
     onCreateSession: handleCreateSession,
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
+    onChangeProfile: setChangeProfileSession,
     onTogglePin: handleTogglePin,
     onMarkRead: handleMarkRead,
     onMarkUnread: handleMarkUnread,
@@ -372,7 +389,16 @@ function HomeContent() {
   };
 
   if (isMobile) {
-    return <MobileView {...viewProps} />;
+    return (
+      <>
+        <MobileView {...viewProps} />
+        <ChangeProfileDialog
+          session={changeProfileSession}
+          onClose={() => setChangeProfileSession(null)}
+          onApply={handleChangeProfileApply}
+        />
+      </>
+    );
   }
 
   return (
@@ -385,6 +411,11 @@ function HomeContent() {
         helpOpen={showShortcutsHelp}
         onHelpOpenChange={setShowShortcutsHelp}
         extraShortcuts={extraShortcuts}
+      />
+      <ChangeProfileDialog
+        session={changeProfileSession}
+        onClose={() => setChangeProfileSession(null)}
+        onApply={handleChangeProfileApply}
       />
     </>
   );

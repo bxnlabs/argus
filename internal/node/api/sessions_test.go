@@ -1,0 +1,101 @@
+package api
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/bxnlabs/argus/internal/config"
+	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/session"
+)
+
+func newTestSessionHandler(t *testing.T) (*sessionHandler, *db.DB) {
+	t.Helper()
+	stateDir := t.TempDir()
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := session.NewManager(database, wt, stateDir)
+	return &sessionHandler{manager: mgr}, database
+}
+
+func TestSetProfileHandler_InvalidName(t *testing.T) {
+	h, _ := newTestSessionHandler(t)
+
+	req := httptest.NewRequest("PUT", "/api/sessions/whatever/profile",
+		strings.NewReader(`{"profile":"../evil"}`))
+	req.SetPathValue("id", "whatever")
+	w := httptest.NewRecorder()
+
+	h.setProfile(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid profile name, got %d", w.Code)
+	}
+}
+
+func TestSetProfileHandler_RequiresProfile(t *testing.T) {
+	h, _ := newTestSessionHandler(t)
+
+	// PUT sets a named profile; absent, null, and "" are all rejected. Detach
+	// is a separate operation (DELETE). The handler rejects before touching the
+	// manager, so the session need not exist.
+	for _, body := range []string{`{}`, `{"profile":null}`, `{"profile":""}`} {
+		req := httptest.NewRequest("PUT", "/api/sessions/whatever/profile",
+			strings.NewReader(body))
+		req.SetPathValue("id", "whatever")
+		w := httptest.NewRecorder()
+
+		h.setProfile(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body %s: expected 400, got %d", body, w.Code)
+		}
+	}
+}
+
+func TestDetachProfileHandler_SessionNotFound(t *testing.T) {
+	h, _ := newTestSessionHandler(t)
+
+	// DELETE detaches; the session itself is missing.
+	req := httptest.NewRequest("DELETE", "/api/sessions/missing/profile", nil)
+	req.SetPathValue("id", "missing")
+	w := httptest.NewRecorder()
+
+	h.detachProfile(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing session, got %d", w.Code)
+	}
+}
+
+func TestDetachProfileHandler_AlreadyDetachedIsNoop(t *testing.T) {
+	h, database := newTestSessionHandler(t)
+
+	// A session that already has no profile. Detaching again is an idempotent
+	// no-op: ChangeProfile returns early (profile unchanged) without killing or
+	// respawning tmux, so the handler responds 200.
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-detached", Name: "d", TmuxName: "shell-sess-detached",
+		WorkingDirectory: t.TempDir(), ProviderType: "shell", Profile: nil,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/api/sessions/sess-detached/profile", nil)
+	req.SetPathValue("id", "sess-detached")
+	w := httptest.NewRecorder()
+
+	h.detachProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for idempotent detach, got %d", w.Code)
+	}
+}

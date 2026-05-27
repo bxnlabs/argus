@@ -666,6 +666,44 @@ func TestFreshDBCheckMigrations(t *testing.T) {
 	}
 }
 
+func TestSetProfile(t *testing.T) {
+	db := testDB(t)
+
+	if err := db.CreateSession(&Session{
+		ID: "s1", Name: "x", TmuxName: "claude-s1",
+		WorkingDirectory: "~", ProviderType: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set a profile.
+	p := "work"
+	if err := db.SetProfile("s1", &p); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := db.GetSession("s1")
+	if s.Profile == nil || *s.Profile != "work" {
+		t.Errorf("profile = %v, want %q", s.Profile, "work")
+	}
+
+	// Clear it (detach).
+	if err := db.SetProfile("s1", nil); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = db.GetSession("s1")
+	if s.Profile != nil {
+		t.Errorf("expected nil profile, got %v", s.Profile)
+	}
+}
+
+func TestSetProfileNotFound(t *testing.T) {
+	db := testDB(t)
+	p := "work"
+	if err := db.SetProfile("missing", &p); err == nil {
+		t.Fatal("expected error for missing session")
+	}
+}
+
 func TestSessionPinnedDefault(t *testing.T) {
 	db := testDB(t)
 

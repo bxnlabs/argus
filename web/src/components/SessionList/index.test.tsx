@@ -18,6 +18,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     system_prompt: null,
     provider_type: "claude",
     auto_approve: false,
+    profile: null,
     pinned: false,
     ...overrides,
   };

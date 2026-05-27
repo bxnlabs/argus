@@ -24,6 +24,16 @@ const (
 
 var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
+// effectiveProfileName returns the profile whose hook directory a name resolves
+// to. An empty name falls back to "default", so the implicit default and an
+// explicit "default" map to the same hooks.
+func effectiveProfileName(profileName string) string {
+	if profileName == "" {
+		return "default"
+	}
+	return profileName
+}
+
 // ValidateProfileName checks that a profile name is safe for use as a
 // directory name. Empty names are rejected; use "" to mean "no profile".
 func ValidateProfileName(name string) error {
@@ -80,11 +90,21 @@ func (hr *HookRunner) ResolvePostCreateHookPaths(profileName, projectKey string)
 	return hr.resolveHooks(HookPostCreate, profileName, projectKey, false, false)
 }
 
-func (hr *HookRunner) resolveHooks(hookName, profileName, projectKey string, teardown, requireExec bool) []string {
-	// Resolve profile name: explicit or default.
-	if profileName == "" {
-		profileName = "default"
+// ResolveProfileHookPath returns the profile-level hook path for hookName, or
+// "" if it does not exist. Unlike ResolveHookPaths, it excludes project-level
+// hooks — used when only the profile changes. An empty profileName resolves to
+// the "default" profile, consistent with the other resolvers.
+func (hr *HookRunner) ResolveProfileHookPath(hookName, profileName string, requireExec bool) string {
+	profileName = effectiveProfileName(profileName)
+	profilePath := filepath.Join(hr.stateDir, "profiles", profileName, "hooks", hookName)
+	if hr.hookExists(profilePath, requireExec) {
+		return profilePath
 	}
+	return ""
+}
+
+func (hr *HookRunner) resolveHooks(hookName, profileName, projectKey string, teardown, requireExec bool) []string {
+	profileName = effectiveProfileName(profileName)
 
 	profilePath := filepath.Join(hr.stateDir, "profiles", profileName, "hooks", hookName)
 	projectPath := filepath.Join(hr.stateDir, "projects", projectKey, "hooks", hookName)

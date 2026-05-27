@@ -72,25 +72,32 @@ func escapeTmuxLiteral(s string) string {
 }
 
 // buildStatusRight formats the right side of the tmux status bar.
-// Layout with branch:    "{sessionID} | {branch} | {dir} "
-// Layout without branch: "{sessionID} | {dir} "
-func buildStatusRight(sessionID, dir, branch, home string) string {
+// Layout (segments are included only when non-empty):
+//
+//	"{sessionID} | {profile} | {branch} | {dir} "
+func buildStatusRight(sessionID, dir, branch, profile, home string) string {
 	displayDir := escapeTmuxLiteral(shared.CompressPath(dir, home, maxDirWidth))
 	displayID := escapeTmuxLiteral(sessionID)
 
+	// Optional profile segment, rendered right after the session ID.
+	profileSeg := ""
+	if profile != "" {
+		profileSeg = fmt.Sprintf("#[fg=#6c7086]| #[fg=#a6e3a1]%s ", escapeTmuxLiteral(profile))
+	}
+
 	if branch == "" {
-		return fmt.Sprintf("#[fg=#a6adc8]%s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, displayDir)
+		return fmt.Sprintf("#[fg=#a6adc8]%s %s#[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, profileSeg, displayDir)
 	}
 	displayBranch := escapeTmuxLiteral(shared.TruncateRight(branch, maxBranchWidth))
-	return fmt.Sprintf("#[fg=#a6adc8]%s #[fg=#6c7086]| #[fg=#cba6f7] %s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, displayBranch, displayDir)
+	return fmt.Sprintf("#[fg=#a6adc8]%s %s#[fg=#6c7086]| #[fg=#cba6f7] %s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, profileSeg, displayBranch, displayDir)
 }
 
 // ConfigureSession applies the per-session dynamic status-right to a session.
 // Static styling (status-style, status-left, mouse, position, lengths) lives in
 // the dedicated server's seeded tmux.conf, so only the per-session value is
 // applied at runtime here.
-func ConfigureSession(name, sessionID, dir, branch, home string) {
-	statusRight := buildStatusRight(sessionID, dir, branch, home)
+func ConfigureSession(name, sessionID, dir, branch, profile, home string) {
+	statusRight := buildStatusRight(sessionID, dir, branch, profile, home)
 	cmd, err := shared.TmuxCommand("set-option", "-t", name, "status-right", statusRight)
 	if err != nil {
 		log.Printf("tmux set-option status-right: %v", err)

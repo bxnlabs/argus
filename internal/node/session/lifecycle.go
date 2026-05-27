@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bxnlabs/argus/internal/node/db"
-	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
@@ -210,7 +210,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if err != nil {
 		log.Printf("resolve home dir: %v", err)
 	}
-	ConfigureSession(tmuxName, sessionID, configDir, configBranch, home)
+	ConfigureSession(tmuxName, sessionID, configDir, configBranch, resolvedProfile, home)
 
 	// Insert into database
 	var providerSessionID *string
@@ -464,6 +464,134 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 	return result, nil
 }
 
+// ChangeProfile attaches, changes, or detaches the profile on an existing
+// session and recreates the session in place so the new profile's hooks take
+// effect. If the requested profile matches the current one it is a no-op:
+// nothing runs and the session is left untouched. The worktree is preserved (no
+// worktree creation, no on_create_worktree). Only the profile-level pre_create
+// and pre_destroy run for the change itself; project-level setup/teardown hooks
+// are intentionally not run. The session is then restarted: the tmux session is
+// killed and respawned, which re-sources post_create (both profile- and
+// project-level) exactly as a normal EnsureSession revival does, so the
+// restarted shell environment matches any other revival of this session. The
+// agent conversation is not resumed unless a provider_session_id was already
+// stored, which mirrors EnsureSession; an actively-running session starts
+// fresh. Pass profile=nil or "" to detach.
+//
+// Order: validate -> no-op if unchanged -> working-dir preflight -> new profile
+// pre_create (profile-level, abort on failure) -> old profile pre_destroy
+// (profile-level, best-effort) -> kill tmux -> persist -> respawn (re-sources
+// profile + project post_create, identical to EnsureSession). pre_create runs
+// before any teardown so a failed change leaves the session untouched and still
+// alive. The tmux session is killed before the profile is persisted, so a
+// failed kill leaves the DB on the old profile — consistent with the still-live
+// shell and safe to retry. The profile is then persisted before the respawn, so
+// a respawn failure is self-healing: EnsureSession revives the now-dead session
+// from the new profile on next access. The pre_create/pre_destroy transition
+// hooks are skipped when the old and new profiles resolve to the same hook
+// directory (e.g. switching between the implicit default and an explicit
+// "default"), since running default's pre_create then pre_destroy would tear
+// down the setup it just ran.
+func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error) {
+	// Treat an empty string as detach.
+	if profile != nil && strings.TrimSpace(*profile) == "" {
+		profile = nil
+	}
+
+	// Validate the target profile (nil -> "", non-nil validated + must exist).
+	resolvedProfile, err := m.resolveProfile(profile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	}
+
+	l := m.sessionLock(id)
+	l.Lock()
+	defer l.Unlock()
+
+	session, err := m.db.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("%w: %s", db.ErrNotFound, id)
+	}
+
+	// No-op when the profile is unchanged: leave the session and its hooks
+	// untouched rather than needlessly restarting it.
+	oldProfile := ptrStr(session.Profile)
+	if oldProfile == resolvedProfile {
+		return session, nil
+	}
+
+	// Preflight: confirm the working directory still exists before tearing
+	// down the live session, and reuse the resolved path for the hook env so
+	// hooks run in the same directory the respawn will use.
+	cwd, err := m.resolveWorkingDir(session)
+	if err != nil {
+		return nil, err
+	}
+
+	hookEnv := HookEnv{
+		SessionID:    session.ID,
+		WorkingDir:   cwd,
+		ProviderType: session.ProviderType,
+	}
+
+	// 1. Profile-level transition hooks. Skip them entirely when the old and
+	// new profiles resolve to the same hook directory (e.g. implicit default ""
+	// vs explicit "default"): running that profile's pre_create then pre_destroy
+	// would tear down the setup it just ran.
+	if effectiveProfileName(oldProfile) != effectiveProfileName(resolvedProfile) {
+		// New profile pre_create — abort on failure. Runs before any teardown
+		// so a failure leaves the session untouched and alive.
+		if p := m.hooks.ResolveProfileHookPath(HookPreCreate, resolvedProfile, true); p != "" {
+			hookEnv.Profile = resolvedProfile
+			if err := m.hooks.RunHook(p, hookEnv); err != nil {
+				return nil, fmt.Errorf("pre_create hook: %w", err)
+			}
+		}
+
+		// Old profile pre_destroy — best-effort.
+		if p := m.hooks.ResolveProfileHookPath(HookPreDestroy, oldProfile, true); p != "" {
+			hookEnv.Profile = oldProfile
+			m.hooks.RunHooksBestEffort([]string{p}, hookEnv)
+		}
+	}
+
+	// 2. Kill the existing tmux session (if alive) before persisting, so a
+	// failed kill leaves the DB on the old profile — consistent with the
+	// still-live shell and safe to retry. Tolerate a race where the session
+	// disappeared between the check and the kill.
+	if HasSession(session.TmuxName) {
+		if err := KillSession(session.TmuxName); err != nil && HasSession(session.TmuxName) {
+			return nil, fmt.Errorf("kill tmux session %s: %w", session.TmuxName, err)
+		}
+	}
+
+	// 3. Persist the new profile (nil clears it) after the kill but before the
+	// respawn, so a respawn failure is self-healing: EnsureSession revives the
+	// now-dead session from the new profile.
+	var profilePtr *string
+	if resolvedProfile != "" {
+		profilePtr = &resolvedProfile
+	}
+	if err := m.db.SetProfile(id, profilePtr); err != nil {
+		return nil, err
+	}
+
+	// 4. Re-fetch (now carries the new profile) and respawn. The respawn
+	// re-sources post_create (profile + project), identical to EnsureSession.
+	updated, err := m.db.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := m.respawnTmux(updated); err != nil {
+		return nil, err
+	}
+
+	return updated, nil
+}
+
 // Rename updates the display name of a session. The underlying tmux session
 // name is immutable (based on session ID) to preserve WebSocket connections
 // and guarantee uniqueness.
@@ -541,36 +669,11 @@ func (m *Manager) getSession(id string) (sess *db.Session, alive bool, err error
 	return sess, HasSession(sess.TmuxName), nil
 }
 
-// EnsureSession guarantees the tmux session for the given session ID is running.
-// If the session is already alive, this is a no-op. If it was killed, it is
-// recreated from the DB record (agent type, model, auto-approve, resume ID).
-// Returns the tmux session name, or an error if the session doesn't exist in the DB.
-func (m *Manager) EnsureSession(id string) (string, error) {
-	// Fast path: if tmux is already alive, return without locking.
-	session, alive, err := m.getSession(id)
-	if err != nil {
-		return "", err
-	}
-	if alive {
-		return session.TmuxName, nil
-	}
-
-	// Slow path: acquire per-session lock and recreate.
-	l := m.sessionLock(id)
-	l.Lock()
-	defer l.Unlock()
-
-	// Re-check — session may have been deleted or recreated while we waited.
-	session, alive, err = m.getSession(id)
-	if err != nil {
-		return "", err
-	}
-	if alive {
-		return session.TmuxName, nil
-	}
-
-	tmuxName := session.TmuxName
-
+// resolveWorkingDir expands the session's working directory (falling back to
+// the home directory when empty) and verifies it still exists on disk. For
+// worktree-backed sessions the directory may have been removed externally;
+// without this check tmux would silently fall back to the home directory.
+func (m *Manager) resolveWorkingDir(session *db.Session) (string, error) {
 	cwd, err := shared.ExpandPath(session.WorkingDirectory)
 	if err != nil {
 		return "", fmt.Errorf("expand path: %w", err)
@@ -582,11 +685,23 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 		}
 		cwd = home
 	}
-	// Verify the working directory still exists on disk. For worktree-backed
-	// sessions the directory may have been removed externally; without this
-	// check tmux would silently fall back to the home directory.
 	if _, statErr := os.Stat(cwd); statErr != nil {
 		return "", fmt.Errorf("working directory no longer exists: %s", cwd)
+	}
+	return cwd, nil
+}
+
+// respawnTmux (re)creates the tmux session for a DB session record. It resolves
+// the working directory, builds the agent command (resuming the stored
+// provider_session_id), sources the profile- and project-level post_create
+// hooks, writes the init script, spawns tmux, and applies the status bar. The
+// caller must kill any existing tmux session first.
+func (m *Manager) respawnTmux(session *db.Session) (string, error) {
+	tmuxName := session.TmuxName
+
+	cwd, err := m.resolveWorkingDir(session)
+	if err != nil {
+		return "", err
 	}
 
 	agentCmd, err := provider.BuildCommand(provider.ProviderType(session.ProviderType), provider.BuildCommandOptions{
@@ -636,9 +751,40 @@ func (m *Manager) EnsureSession(id string) (string, error) {
 	if err != nil {
 		log.Printf("resolve home dir: %v", err)
 	}
-	ConfigureSession(tmuxName, session.ID, configDir, configBranch, home)
+	ConfigureSession(tmuxName, session.ID, configDir, configBranch, profileName, home)
 
 	return tmuxName, nil
+}
+
+// EnsureSession guarantees the tmux session for the given session ID is running.
+// If the session is already alive, this is a no-op. If it was killed, it is
+// recreated from the DB record (agent type, model, auto-approve, resume ID).
+// Returns the tmux session name, or an error if the session doesn't exist in the DB.
+func (m *Manager) EnsureSession(id string) (string, error) {
+	// Fast path: if tmux is already alive, return without locking.
+	session, alive, err := m.getSession(id)
+	if err != nil {
+		return "", err
+	}
+	if alive {
+		return session.TmuxName, nil
+	}
+
+	// Slow path: acquire per-session lock and recreate.
+	l := m.sessionLock(id)
+	l.Lock()
+	defer l.Unlock()
+
+	// Re-check — session may have been deleted or recreated while we waited.
+	session, alive, err = m.getSession(id)
+	if err != nil {
+		return "", err
+	}
+	if alive {
+		return session.TmuxName, nil
+	}
+
+	return m.respawnTmux(session)
 }
 
 // Update updates session fields and returns the updated session.

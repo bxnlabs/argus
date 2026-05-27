@@ -1,17 +1,20 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/bxnlabs/argus/internal/node/db"
-	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/provider"
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
 
@@ -145,7 +148,7 @@ func TestDeleteDirtyWorktreeBlocksBeforeSideEffects(t *testing.T) {
 		Name:             "dirty-test",
 		TmuxName:         "claude-sess-dirty-test",
 		WorkingDirectory: wtPath,
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -209,7 +212,7 @@ func TestDeletePreDestroyHookDirtyingWorktreeStillSucceeds(t *testing.T) {
 		Name:             "hook-dirty",
 		TmuxName:         "claude-sess-hook-dirty",
 		WorkingDirectory: wtPath,
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -262,7 +265,7 @@ func TestDeleteForceBypassesDirtyCheck(t *testing.T) {
 		Name:             "force-test",
 		TmuxName:         "claude-sess-force-test",
 		WorkingDirectory: wtPath,
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &gitRoot,
 	}
@@ -327,9 +330,9 @@ func TestListProfiles(t *testing.T) {
 	// Create profiles directory with valid and invalid entries
 	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "work", "hooks"))
 	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "default", "hooks"))
-	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "has space", "hooks"))  // invalid name
-	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "..evil", "hooks"))     // invalid name
-	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "no-hooks-dir"))        // no hooks/ subdir
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "has space", "hooks")) // invalid name
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "..evil", "hooks"))    // invalid name
+	mustMkdirAll(t, filepath.Join(stateDir, "profiles", "no-hooks-dir"))       // no hooks/ subdir
 	mustWriteFile(t, filepath.Join(stateDir, "profiles", "a-file"), []byte("not a dir"), 0644)
 
 	profiles, err = mgr.ListProfiles()
@@ -602,6 +605,307 @@ func TestDeleteWithBranchDeletionFailureIsBestEffort(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatal("session should be deleted even when branch deletion fails")
+	}
+}
+
+func TestChangeProfile(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	stateDir := t.TempDir()
+	workDir := t.TempDir()
+
+	// respawnTmux boots the dedicated server with the seeded config (NewSession
+	// -f <config>), so point ARGUS_HOME at stateDir and seed it as the node does
+	// at startup.
+	t.Setenv("ARGUS_HOME", stateDir)
+	requireDedicatedSocketUnder(t, stateDir)
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
+	}
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// New profile pre_create and old profile pre_destroy append to a shared
+	// marker so we can assert the new profile's pre_create runs before the old
+	// profile's pre_destroy.
+	orderMarker := filepath.Join(t.TempDir(), "hook-order.txt")
+
+	oldHooks := filepath.Join(stateDir, "profiles", "old", "hooks")
+	if err := os.MkdirAll(oldHooks, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldHooks, "pre_destroy.sh"),
+		[]byte("#!/bin/bash\necho pre_destroy >> "+orderMarker+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	newHooks := filepath.Join(stateDir, "profiles", "new", "hooks")
+	if err := os.MkdirAll(newHooks, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newHooks, "pre_create.sh"),
+		[]byte("#!/bin/bash\necho pre_create >> "+orderMarker+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	oldProfile := "old"
+	tmuxName := fmt.Sprintf("shell-test-%d", time.Now().UnixNano())
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-cp", Name: "cp", TmuxName: tmuxName,
+		WorkingDirectory: workDir, ProviderType: "shell", Profile: &oldProfile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { KillSession(tmuxName) })
+
+	newProfile := "new"
+	updated, err := mgr.ChangeProfile("sess-cp", &newProfile)
+	if err != nil {
+		t.Fatalf("ChangeProfile: %v", err)
+	}
+
+	if updated.Profile == nil || *updated.Profile != "new" {
+		t.Errorf("profile = %v, want %q", updated.Profile, "new")
+	}
+	order, err := os.ReadFile(orderMarker)
+	if err != nil {
+		t.Fatalf("expected pre_create and pre_destroy hooks to run: %v", err)
+	}
+	if got := strings.TrimSpace(string(order)); got != "pre_create\npre_destroy" {
+		t.Errorf("hook order = %q, want new pre_create before old pre_destroy", got)
+	}
+	if !HasSession(tmuxName) {
+		t.Error("expected tmux session to be respawned")
+	}
+}
+
+func TestChangeProfileSameProfileIsNoop(t *testing.T) {
+	stateDir := t.TempDir()
+	workDir := t.TempDir()
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Profile "p" with a pre_create hook that writes a marker if it ever runs.
+	marker := filepath.Join(t.TempDir(), "ran.txt")
+	hooks := filepath.Join(stateDir, "profiles", "p", "hooks")
+	if err := os.MkdirAll(hooks, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "pre_create.sh"),
+		[]byte("#!/bin/bash\necho ran > "+marker+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	profile := "p"
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-noop", Name: "noop", TmuxName: "shell-sess-noop",
+		WorkingDirectory: workDir, ProviderType: "shell", Profile: &profile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := mgr.ChangeProfile("sess-noop", &profile)
+	if err != nil {
+		t.Fatalf("ChangeProfile (same profile): %v", err)
+	}
+	if updated.Profile == nil || *updated.Profile != "p" {
+		t.Errorf("profile = %v, want %q", updated.Profile, "p")
+	}
+	// An unchanged profile must run no hooks and spawn no tmux session.
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Errorf("expected no hooks to run for an unchanged profile (stat err: %v)", statErr)
+	}
+	if HasSession("shell-sess-noop") {
+		t.Error("expected no tmux session to be spawned for a no-op profile change")
+	}
+}
+
+func TestChangeProfileInvalidName(t *testing.T) {
+	stateDir := t.TempDir()
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	bad := "../evil"
+	if _, err := mgr.ChangeProfile("any-id", &bad); err == nil {
+		t.Fatal("expected ErrInvalidInput for bad profile name")
+	} else if !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestChangeProfileMissingWorkingDirBlocksBeforeSideEffects(t *testing.T) {
+	stateDir := t.TempDir()
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Both profiles must exist so validation passes and we reach the
+	// working-directory preflight.
+	for _, name := range []string{"old", "new"} {
+		if err := os.MkdirAll(filepath.Join(stateDir, "profiles", name, "hooks"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	oldProfile := "old"
+	missingDir := filepath.Join(t.TempDir(), "gone")
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-missing-cwd", Name: "missing", TmuxName: "shell-sess-missing-cwd",
+		WorkingDirectory: missingDir, ProviderType: "shell", Profile: &oldProfile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	newProfile := "new"
+	if _, err := mgr.ChangeProfile("sess-missing-cwd", &newProfile); err == nil {
+		t.Fatal("expected error when working directory is missing, got nil")
+	}
+
+	// Profile must be unchanged — preflight failed before persisting.
+	got, err := database.GetSession("sess-missing-cwd")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got.Profile == nil || *got.Profile != "old" {
+		t.Errorf("profile should be unchanged after preflight failure, got %v", got.Profile)
+	}
+}
+
+func TestChangeProfileRespawnFailurePersistsProfile(t *testing.T) {
+	stateDir := t.TempDir()
+	workDir := t.TempDir() // exists, so the preflight passes
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	for _, name := range []string{"old", "new"} {
+		if err := os.MkdirAll(filepath.Join(stateDir, "profiles", name, "hooks"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	// An invalid provider type makes respawnTmux fail at BuildCommand, after
+	// the profile has been persisted. The new profile must remain persisted so
+	// EnsureSession revives from it on next access (roll-forward, self-healing).
+	oldProfile := "old"
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-respawn-fail", Name: "rf", TmuxName: "shell-sess-respawn-fail",
+		WorkingDirectory: workDir, ProviderType: "bogus-provider", Profile: &oldProfile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	newProfile := "new"
+	if _, err := mgr.ChangeProfile("sess-respawn-fail", &newProfile); err == nil {
+		t.Fatal("expected respawn failure for invalid provider, got nil")
+	}
+
+	// Profile is persisted after the kill but before the respawn, so it must
+	// reflect the new profile even though the respawn failed.
+	got, err := database.GetSession("sess-respawn-fail")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got.Profile == nil || *got.Profile != "new" {
+		t.Errorf("profile should be persisted to %q despite respawn failure, got %v", "new", got.Profile)
+	}
+}
+
+func TestChangeProfileDefaultEquivalenceSkipsTransitionHooks(t *testing.T) {
+	stateDir := t.TempDir()
+	workDir := t.TempDir() // exists, so the preflight passes
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Implicit default ("") and explicit "default" resolve to the same hook dir,
+	// so switching between them must not run default's pre_create/pre_destroy
+	// (which would tear down the setup it just ran). Both write a marker if run.
+	preCreateMarker := filepath.Join(t.TempDir(), "pre_create.txt")
+	preDestroyMarker := filepath.Join(t.TempDir(), "pre_destroy.txt")
+	hooks := filepath.Join(stateDir, "profiles", "default", "hooks")
+	if err := os.MkdirAll(hooks, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "pre_create.sh"),
+		[]byte("#!/bin/bash\necho ran > "+preCreateMarker+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "pre_destroy.sh"),
+		[]byte("#!/bin/bash\necho ran > "+preDestroyMarker+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	// Start with no profile (implicit default). A bogus provider makes the
+	// respawn fail after the transition-hook decision and the persist, so the
+	// test needs no live tmux server.
+	if err := database.CreateSession(&db.Session{
+		ID: "sess-default-equiv", Name: "de", TmuxName: "shell-sess-default-equiv",
+		WorkingDirectory: workDir, ProviderType: "bogus-provider", Profile: nil,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	defaultProfile := "default"
+	if _, err := mgr.ChangeProfile("sess-default-equiv", &defaultProfile); err == nil {
+		t.Fatal("expected respawn failure for invalid provider, got nil")
+	}
+
+	// Transition hooks must be skipped: the effective profile is unchanged.
+	if _, statErr := os.Stat(preCreateMarker); !os.IsNotExist(statErr) {
+		t.Errorf("pre_create should be skipped for nil -> \"default\" (stat err: %v)", statErr)
+	}
+	if _, statErr := os.Stat(preDestroyMarker); !os.IsNotExist(statErr) {
+		t.Errorf("pre_destroy should be skipped for nil -> \"default\" (stat err: %v)", statErr)
+	}
+
+	// The stored profile still changes (and ARGUS_PROFILE with it), persisted
+	// before the respawn so the change rolls forward despite the failure.
+	got, err := database.GetSession("sess-default-equiv")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got.Profile == nil || *got.Profile != "default" {
+		t.Errorf("profile should be persisted to %q, got %v", "default", got.Profile)
 	}
 }
 

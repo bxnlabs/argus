@@ -115,6 +115,31 @@ export function useRenameSession() {
   });
 }
 
+export function useChangeSessionProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      sessionId,
+      profile,
+    }: {
+      sessionId: string;
+      profile: string | null;
+    }) =>
+      profile === null
+        ? apiFetch(`/node/api/sessions/${sessionId}/profile`, {
+            method: "DELETE",
+          })
+        : apiFetch(`/node/api/sessions/${sessionId}/profile`, {
+            method: "PUT",
+            body: JSON.stringify({ profile }),
+          }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    },
+  });
+}
+
 export interface UpdateSessionInput {
   sessionId: string;
   pinned?: boolean;
