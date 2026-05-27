@@ -92,7 +92,7 @@ strictDepBuilds: true
 # package.json "overrides"; rollup added empirically (see below).
 overrides:
   dompurify: "^3.4.0"
-  rollup: "^4.22.4"   # DOM-clobbering XSS fix (GHSA-gcx4-mw62-g8wm)
+  rollup: "^4.34.9"   # match vite's floor (>CVE-2024-47068 patch), cap major
 
 # NEVER add `dangerouslyAllowAllBuilds: true` — it re-enables the
 # run-all-scripts behavior pnpm 10 deliberately disabled.

@@ -6,7 +6,7 @@ settings:
 
 overrides:
   dompurify: ^3.4.0
-  rollup: ^4.22.4
+  rollup: ^4.34.9
 
 importers:
 
