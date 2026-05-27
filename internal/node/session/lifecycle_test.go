@@ -834,8 +834,8 @@ func TestChangeProfileRespawnFailurePersistsProfile(t *testing.T) {
 		t.Fatal("expected respawn failure for invalid provider, got nil")
 	}
 
-	// Profile is persisted before the kill/respawn, so it must reflect the new
-	// profile even though the respawn failed.
+	// Profile is persisted after the kill but before the respawn, so it must
+	// reflect the new profile even though the respawn failed.
 	got, err := database.GetSession("sess-respawn-fail")
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
