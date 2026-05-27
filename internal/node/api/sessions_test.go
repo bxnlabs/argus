@@ -41,16 +41,35 @@ func TestSetProfileHandler_InvalidName(t *testing.T) {
 	}
 }
 
-func TestSetProfileHandler_SessionNotFound(t *testing.T) {
+func TestSetProfileHandler_RequiresProfile(t *testing.T) {
 	h := newTestSessionHandler(t)
 
-	// profile=null is a valid detach request; the session itself is missing.
-	req := httptest.NewRequest("PUT", "/api/sessions/missing/profile",
-		strings.NewReader(`{"profile":null}`))
+	// PUT sets a named profile; absent, null, and "" are all rejected. Detach
+	// is a separate operation (DELETE). The handler rejects before touching the
+	// manager, so the session need not exist.
+	for _, body := range []string{`{}`, `{"profile":null}`, `{"profile":""}`} {
+		req := httptest.NewRequest("PUT", "/api/sessions/whatever/profile",
+			strings.NewReader(body))
+		req.SetPathValue("id", "whatever")
+		w := httptest.NewRecorder()
+
+		h.setProfile(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body %s: expected 400, got %d", body, w.Code)
+		}
+	}
+}
+
+func TestDetachProfileHandler_SessionNotFound(t *testing.T) {
+	h := newTestSessionHandler(t)
+
+	// DELETE detaches; the session itself is missing.
+	req := httptest.NewRequest("DELETE", "/api/sessions/missing/profile", nil)
 	req.SetPathValue("id", "missing")
 	w := httptest.NewRecorder()
 
-	h.setProfile(w, req)
+	h.detachProfile(w, req)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for missing session, got %d", w.Code)

@@ -73,19 +73,22 @@ func applyProfile(query string, profile *string) error {
 		return nil
 	}
 
-	reqBody, err := json.Marshal(map[string]any{"profile": profile})
+	if profile == nil {
+		if _, err := c.delete("/api/sessions/" + session.ID + "/profile"); err != nil {
+			return err
+		}
+		fmt.Printf("Cleared profile on session %q (session restarted)\n", session.Name)
+		return nil
+	}
+
+	reqBody, err := json.Marshal(map[string]any{"profile": *profile})
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 	if _, err := c.put("/api/sessions/"+session.ID+"/profile", bytes.NewReader(reqBody)); err != nil {
 		return err
 	}
-
-	if profile == nil {
-		fmt.Printf("Cleared profile on session %q (session restarted)\n", session.Name)
-	} else {
-		fmt.Printf("Set profile %q on session %q (session restarted)\n", *profile, session.Name)
-	}
+	fmt.Printf("Set profile %q on session %q (session restarted)\n", *profile, session.Name)
 	return nil
 }
 

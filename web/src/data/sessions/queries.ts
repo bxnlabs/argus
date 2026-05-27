@@ -126,10 +126,14 @@ export function useChangeSessionProfile() {
       sessionId: string;
       profile: string | null;
     }) =>
-      apiFetch(`/node/api/sessions/${sessionId}/profile`, {
-        method: "PUT",
-        body: JSON.stringify({ profile }),
-      }),
+      profile === null
+        ? apiFetch(`/node/api/sessions/${sessionId}/profile`, {
+            method: "DELETE",
+          })
+        : apiFetch(`/node/api/sessions/${sessionId}/profile`, {
+            method: "PUT",
+            body: JSON.stringify({ profile }),
+          }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
     },

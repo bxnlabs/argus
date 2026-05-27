@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/provider"
@@ -132,19 +133,38 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"session": session})
 }
 
-// PUT /api/sessions/{id}/profile
+// PUT /api/sessions/{id}/profile sets or changes a session to a named profile.
+// To detach a profile, use DELETE instead — a profile name is required here.
 func (h *sessionHandler) setProfile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var body struct {
-		Profile *string `json:"profile"`
+		Profile string `json:"profile"`
 	}
 	if err := parseBody(w, r, &body); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if strings.TrimSpace(body.Profile) == "" {
+		respondError(w, http.StatusBadRequest, "profile is required; use DELETE to detach")
+		return
+	}
 
-	sess, err := h.manager.ChangeProfile(id, body.Profile)
+	sess, err := h.manager.ChangeProfile(id, &body.Profile)
+	h.respondProfileChange(w, sess, err)
+}
+
+// DELETE /api/sessions/{id}/profile detaches the profile (restarts the
+// session). Detaching an already-detached session is a no-op.
+func (h *sessionHandler) detachProfile(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sess, err := h.manager.ChangeProfile(id, nil)
+	h.respondProfileChange(w, sess, err)
+}
+
+// respondProfileChange writes the result of a ChangeProfile call, mapping
+// known errors to status codes and re-arming the session watcher on success.
+func (h *sessionHandler) respondProfileChange(w http.ResponseWriter, sess *db.Session, err error) {
 	if err != nil {
 		if errors.Is(err, session.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
