@@ -480,11 +480,18 @@ func (m *Manager) Delete(id string, force, deleteBranch bool) (*DeleteResult, er
 //
 // Order: validate -> no-op if unchanged -> working-dir preflight -> new profile
 // pre_create (profile-level, abort on failure) -> old profile pre_destroy
-// (profile-level, best-effort) -> persist -> kill tmux -> respawn (re-sources
+// (profile-level, best-effort) -> kill tmux -> persist -> respawn (re-sources
 // profile + project post_create, identical to EnsureSession). pre_create runs
 // before any teardown so a failed change leaves the session untouched and still
-// alive. The profile is persisted before the kill so a respawn failure is
-// self-healing: EnsureSession revives from the new profile on next access.
+// alive. The tmux session is killed before the profile is persisted, so a
+// failed kill leaves the DB on the old profile — consistent with the still-live
+// shell and safe to retry. The profile is then persisted before the respawn, so
+// a respawn failure is self-healing: EnsureSession revives the now-dead session
+// from the new profile on next access. The pre_create/pre_destroy transition
+// hooks are skipped when the old and new profiles resolve to the same hook
+// directory (e.g. switching between the implicit default and an explicit
+// "default"), since running default's pre_create then pre_destroy would tear
+// down the setup it just ran.
 func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error) {
 	// Treat an empty string as detach.
 	if profile != nil && strings.TrimSpace(*profile) == "" {
@@ -530,23 +537,40 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		ProviderType: session.ProviderType,
 	}
 
-	// 1. New profile pre_create — profile-level only, abort on failure. Runs
-	// before any teardown so a failure leaves the session untouched and alive.
-	if p := m.hooks.ResolveProfileHookPath(HookPreCreate, resolvedProfile, true); p != "" {
-		hookEnv.Profile = resolvedProfile
-		if err := m.hooks.RunHook(p, hookEnv); err != nil {
-			return nil, fmt.Errorf("pre_create hook: %w", err)
+	// 1. Profile-level transition hooks. Skip them entirely when the old and
+	// new profiles resolve to the same hook directory (e.g. implicit default ""
+	// vs explicit "default"): running that profile's pre_create then pre_destroy
+	// would tear down the setup it just ran.
+	if effectiveProfileName(oldProfile) != effectiveProfileName(resolvedProfile) {
+		// New profile pre_create — abort on failure. Runs before any teardown
+		// so a failure leaves the session untouched and alive.
+		if p := m.hooks.ResolveProfileHookPath(HookPreCreate, resolvedProfile, true); p != "" {
+			hookEnv.Profile = resolvedProfile
+			if err := m.hooks.RunHook(p, hookEnv); err != nil {
+				return nil, fmt.Errorf("pre_create hook: %w", err)
+			}
+		}
+
+		// Old profile pre_destroy — best-effort.
+		if p := m.hooks.ResolveProfileHookPath(HookPreDestroy, oldProfile, true); p != "" {
+			hookEnv.Profile = oldProfile
+			m.hooks.RunHooksBestEffort([]string{p}, hookEnv)
 		}
 	}
 
-	// 2. Old profile pre_destroy — profile-level only, best-effort.
-	if p := m.hooks.ResolveProfileHookPath(HookPreDestroy, oldProfile, true); p != "" {
-		hookEnv.Profile = oldProfile
-		m.hooks.RunHooksBestEffort([]string{p}, hookEnv)
+	// 2. Kill the existing tmux session (if alive) before persisting, so a
+	// failed kill leaves the DB on the old profile — consistent with the
+	// still-live shell and safe to retry. Tolerate a race where the session
+	// disappeared between the check and the kill.
+	if HasSession(session.TmuxName) {
+		if err := KillSession(session.TmuxName); err != nil && HasSession(session.TmuxName) {
+			return nil, fmt.Errorf("kill tmux session %s: %w", session.TmuxName, err)
+		}
 	}
 
-	// 3. Persist the new profile (nil clears it) before the kill, so a respawn
-	// failure is self-healing: EnsureSession revives from the new profile.
+	// 3. Persist the new profile (nil clears it) after the kill but before the
+	// respawn, so a respawn failure is self-healing: EnsureSession revives the
+	// now-dead session from the new profile.
 	var profilePtr *string
 	if resolvedProfile != "" {
 		profilePtr = &resolvedProfile
@@ -555,15 +579,7 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		return nil, err
 	}
 
-	// 4. Kill the existing tmux session (if alive). Tolerate a race where the
-	// session disappeared between the check and the kill.
-	if HasSession(session.TmuxName) {
-		if err := KillSession(session.TmuxName); err != nil && HasSession(session.TmuxName) {
-			return nil, fmt.Errorf("kill tmux session %s: %w", session.TmuxName, err)
-		}
-	}
-
-	// 5. Re-fetch (now carries the new profile) and respawn. The respawn
+	// 4. Re-fetch (now carries the new profile) and respawn. The respawn
 	// re-sources post_create (profile + project), identical to EnsureSession.
 	updated, err := m.db.GetSession(id)
 	if err != nil {
