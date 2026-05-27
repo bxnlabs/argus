@@ -5,7 +5,7 @@ build: build-web
 	go build -o bin/argus ./cmd/argus
 
 build-web:
-	cd web && npm install && npm run build
+	cd web && pnpm install --frozen-lockfile && pnpm run build
 
 install: build
 	install -d $(HOME)/.local/bin
@@ -25,7 +25,7 @@ dev dev-api:         export ARGUS_HOME = $(CURDIR)/.dev
 # Ensure web deps + a placeholder embed dir exist so `go build` compiles.
 # (internal/web/dist is required by //go:embed; Vite serves the real SPA in dev.)
 dev-prereqs:
-	@test -d web/node_modules || (cd web && npm install)
+	@test -d web/node_modules || (cd web && pnpm install)
 	@mkdir -p internal/web/dist
 	@test -f internal/web/dist/index.html || \
 		printf '%s\n' '<!doctype html><title>argus dev</title>Served by Vite in dev.' \
@@ -40,8 +40,8 @@ dev-api: dev-prereqs
 	go tool air
 
 # Frontend dev server only
-dev-web:
-	cd web && npm run dev
+dev-web: dev-prereqs
+	cd web && pnpm run dev
 
 # Wipe local dev state: db, sessions, worktrees, discovery file, and any
 # personal .dev/config.toml. Separate from `clean` so a routine build cleanup

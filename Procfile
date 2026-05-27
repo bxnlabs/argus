@@ -1,2 +1,2 @@
 api: go tool air
-web: cd web && npm run dev
+web: cd web && pnpm run dev
