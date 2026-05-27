@@ -82,7 +82,7 @@ export function readMenuState(
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-muted-foreground px-2 pt-2 pb-1 text-xs font-medium">
+    <div className="text-muted-foreground px-2 pt-2 pb-1 text-xs font-bold">
       {children}
     </div>
   );
@@ -191,9 +191,6 @@ const SessionItem = memo(function SessionItem({
               <span className="truncate text-sm">
                 {session.name || "Unnamed Session"}
               </span>
-              {session.pinned && (
-                <Pin className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-              )}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <div
