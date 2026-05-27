@@ -24,8 +24,10 @@ dev dev-api:         export ARGUS_HOME = $(CURDIR)/.dev
 
 # Ensure web deps + a placeholder embed dir exist so `go build` compiles.
 # (internal/web/dist is required by //go:embed; Vite serves the real SPA in dev.)
+# Install unconditionally (frozen, like build-web): a bare existence check skips
+# repair of a stale or pre-pnpm node_modules, which then trips verifyDepsBeforeRun.
 dev-prereqs:
-	@test -d web/node_modules || (cd web && pnpm install)
+	cd web && pnpm install --frozen-lockfile
 	@mkdir -p internal/web/dist
 	@test -f internal/web/dist/index.html || \
 		printf '%s\n' '<!doctype html><title>argus dev</title>Served by Vite in dev.' \

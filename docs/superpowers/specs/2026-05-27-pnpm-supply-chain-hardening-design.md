@@ -87,9 +87,12 @@ onlyBuiltDependencies:
 # silently skipping it — forces an explicit decision.
 strictDepBuilds: true
 
-# Carried over from the npm-style package.json "overrides".
+# Advisory floors for vulnerable transitives, caret-bounded so a re-resolve
+# can't pull an unreviewed major. dompurify carried over from the old
+# package.json "overrides"; rollup added empirically (see below).
 overrides:
-  dompurify: ">=3.4.0"
+  dompurify: "^3.4.0"
+  rollup: "^4.22.4"   # DOM-clobbering XSS fix (GHSA-gcx4-mw62-g8wm)
 
 # NEVER add `dangerouslyAllowAllBuilds: true` — it re-enables the
 # run-all-scripts behavior pnpm 10 deliberately disabled.
@@ -144,7 +147,7 @@ dev-web: dev-prereqs
 	cd web && pnpm run dev
 
 dev-prereqs:
-	@test -d web/node_modules || (cd web && pnpm install)
+	cd web && pnpm install --frozen-lockfile
 	@mkdir -p internal/web/dist
 	@test -f internal/web/dist/index.html || \
 		printf '%s\n' '<!doctype html><title>argus dev</title>Served by Vite in dev.' \

@@ -5,8 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  dompurify: '>=3.4.0'
-  rollup: '>=4.22.4'
+  dompurify: ^3.4.0
+  rollup: ^4.22.4
 
 importers:
 
