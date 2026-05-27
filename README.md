@@ -3,7 +3,12 @@ Monorepo for Argus platform
 
 ## Local development
 
-Requires Go 1.25+ and Node. One command starts the full stack with hot-reload:
+Requires Go 1.25+ and Node (which ships corepack). One-time setup activates the
+repo-pinned pnpm from `web/package.json`:
+
+    corepack enable
+
+Then one command starts the full stack with hot-reload:
 
     make dev
 
