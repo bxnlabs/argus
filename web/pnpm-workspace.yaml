@@ -25,10 +25,10 @@ strictDepBuilds: true
 # Carried over from the npm-style package.json "overrides".
 overrides:
   dompurify: ">=3.4.0"
-  # rollup ships as a vite transitive dep; pin to >=4.29.1 which landed the
-  # prototype-pollution fix (GHSA-2999-6nv4-c5mr). Currently resolves to
-  # 4.60.4 (latest), so this is a floor guard against future lockfile drift.
-  rollup: ">=4.29.1"
+  # rollup ships as a vite transitive dep; pin to >=4.22.4 which fixed a
+  # DOM-clobbering XSS (GHSA-gcx4-mw62-g8wm / CVE-2024-47068). Currently
+  # resolves to 4.60.4 (latest), so this is a floor guard against drift.
+  rollup: ">=4.22.4"
 
 # NEVER add `dangerouslyAllowAllBuilds: true` — it re-enables the
 # run-all-scripts behavior pnpm 10 deliberately disabled.
