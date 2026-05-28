@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -25,7 +26,24 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("mkdir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	// SQLite pragmas are per-connection (busy_timeout, foreign_keys and
+	// synchronous are not persisted in the file). Pass them in the DSN so the
+	// modernc driver re-applies them to every connection the pool opens —
+	// including ones created lazily under concurrency. Configuring connections
+	// manually after sql.Open misses those, leaving them at busy_timeout=0,
+	// which returns SQLITE_BUSY immediately on contention instead of waiting.
+	params := url.Values{}
+	params.Add("_pragma", "busy_timeout(5000)")
+	params.Add("_pragma", "journal_mode(WAL)")
+	params.Add("_pragma", "foreign_keys(on)")
+	params.Add("_pragma", "synchronous(normal)")
+	// Build a file: URI rather than concatenating path + "?" + query: the
+	// modernc driver splits a plain path on the first '?', so a path
+	// containing one would truncate the filename and silently drop the
+	// pragmas. A file: URI percent-encodes the path, which SQLite decodes.
+	dsn := (&url.URL{Scheme: "file", OmitHost: true, Path: path, RawQuery: params.Encode()}).String()
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
@@ -36,29 +54,13 @@ func Open(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(2)
 	db.SetMaxIdleConns(2)
 
-	// SQLite pragmas are per-connection. With a connection pool, new
-	// connections won't inherit pragmas. Force-initialize both pool
-	// connections so all members have correct settings.
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA foreign_keys=ON",
-		"PRAGMA synchronous=NORMAL",
-	}
-	for i := 0; i < 2; i++ {
-		conn, err := db.Conn(context.Background())
-		if err != nil {
-			db.Close()
-			return nil, fmt.Errorf("init conn %d: %w", i, err)
-		}
-		for _, p := range pragmas {
-			if _, err := conn.ExecContext(context.Background(), p); err != nil {
-				conn.Close()
-				db.Close()
-				return nil, fmt.Errorf("pragma %q on conn %d: %w", p, i, err)
-			}
-		}
-		conn.Close() // returns to pool
+	// sql.Open is lazy and never opens a connection, so a bad path or
+	// otherwise unopenable database would surface only on first query.
+	// Force one connection to fail fast; the DSN still applies pragmas to
+	// every pool connection opened later.
+	if err := db.PingContext(context.Background()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open: %w", err)
 	}
 
 	return db, nil
