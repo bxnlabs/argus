@@ -26,7 +26,8 @@ func parseRepo(url string) string {
 	}
 
 	if path == "" {
-		if u, err := neturl.Parse(url); err == nil && len(u.Path) > 1 {
+		if u, err := neturl.Parse(url); err == nil &&
+			u.Scheme != "" && u.Host != "" && len(u.Path) > 1 {
 			path = u.Path
 		}
 	}

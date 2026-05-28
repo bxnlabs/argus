@@ -17,6 +17,9 @@ func TestParseRepo(t *testing.T) {
 		{"garbage", "not a url", ""},
 		{"ssh scheme", "ssh://git@github.com/bxnlabs/argus.git", "bxnlabs/argus"},
 		{"scp empty path", "git@github.com:", ""},
+		{"local abs path", "/srv/git/repo.git", ""},
+		{"relative path", "org/repo", ""},
+		{"scheme without host", "file:///srv/git/repo.git", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
