@@ -207,8 +207,8 @@ function HomeContent() {
       n: { label: "New session", run: () => setShowNewSessionDialog(true) },
       "=": { label: "New tab", run: () => addTab() },
       "-": { label: "Close tab", run: () => closeTab(activeTabId) },
-      a: { label: "Previous tab", run: () => switchRelative(-1) },
-      d: { label: "Next tab", run: () => switchRelative(1) },
+      ArrowLeft: { label: "Previous tab", run: () => switchRelative(-1) },
+      ArrowRight: { label: "Next tab", run: () => switchRelative(1) },
       t: { label: "Terminal", run: () => setActivePanel(null) },
       // Session-scoped shortcuts: only offered when the active tab actually has
       // a session attached, so the hint overlay never advertises a no-op (same
@@ -216,7 +216,7 @@ function HomeContent() {
       // tab-bar button; info opens the session-info dialog for the active tab.
       ...(activeTab?.sessionId
         ? {
-            x: { label: "Detach session", run: () => detachSession() },
+            d: { label: "Detach session", run: () => detachSession() },
             i: {
               label: "Session info",
               run: () => setInfoSessionId(activeTab.sessionId),
