@@ -232,6 +232,13 @@ const SessionItem = memo(function SessionItem({
                 <span className="truncate">{session.worktree_branch}</span>
               </span>
             )}
+            {/* Line 5: Profile (only when attached) */}
+            {session.profile && (
+              <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
+                <SlidersHorizontal className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate">{session.profile}</span>
+              </span>
+            )}
           </>
         )}
       </div>
