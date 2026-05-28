@@ -61,6 +61,9 @@ func TestFormatSessionDescribe_Minimal(t *testing.T) {
 	if !strings.Contains(out, "Auto-approve:") || !strings.Contains(out, "off") {
 		t.Errorf("expected auto-approve 'off', got:\n%s", out)
 	}
+	if strings.Contains(out, "Model:") {
+		t.Errorf("did not expect a Model line for a session with no model:\n%s", out)
+	}
 	if strings.Contains(out, "Branch:") {
 		t.Errorf("did not expect a Branch line for a session with no worktree:\n%s", out)
 	}
