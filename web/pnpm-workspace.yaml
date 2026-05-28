@@ -1,5 +1,5 @@
 # pnpm config + supply-chain hardening for argus/web.
-# In pnpm 10, project settings live here (not .npmrc / package.json).
+# In pnpm 11, project settings live here (not .npmrc / package.json).
 
 # Wait 5 days (7200 minutes) before installing a freshly published version.
 # Primary defense against worms (e.g. Shai-Hulud) that rely on installs
@@ -10,12 +10,14 @@ minimumReleaseAge: 7200
 # Hard error (not warn) on drift or tampering.
 verifyDepsBeforeRun: error
 
-# Only these packages may run install/build lifecycle scripts; everything
-# else is blocked (pnpm 10 default). Keep minimal and justified — expand
-# only when `pnpm install` reports a genuinely-needed build.
-onlyBuiltDependencies:
-  - esbuild                 # vite's bundler — selects its native binary
-  - "@tailwindcss/oxide"    # tailwind v4 native engine
+# Allowlist of packages permitted to run install/build lifecycle scripts.
+# In pnpm 11 this is a name->bool map (replaces pnpm 10's onlyBuiltDependencies
+# array); everything not listed is blocked. Keep minimal and justified — expand
+# only when an install reports a genuinely-needed build. strictDepBuilds (below)
+# turns an unapproved build into a hard error that names the exact package.
+allowBuilds:
+  esbuild: true              # vite's bundler — selects its native binary
+  "@tailwindcss/oxide": true # tailwind v4 native engine
   # (additional entries added only if the resolved tree requires them)
 
 # Error if a non-allowlisted dependency wants to build, rather than
