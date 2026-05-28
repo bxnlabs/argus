@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, SlidersHorizontal, Pin, MailOpen, Mail, Info } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
@@ -235,7 +235,7 @@ const SessionItem = memo(function SessionItem({
             {/* Line 5: Profile (only when attached) */}
             {session.profile && (
               <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
-                <SlidersHorizontal className="h-3 w-3 flex-shrink-0" />
+                <Settings2 className="h-3 w-3 flex-shrink-0" />
                 <span className="truncate">{session.profile}</span>
               </span>
             )}
@@ -263,16 +263,6 @@ const SessionItem = memo(function SessionItem({
             }
           }}
         >
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onViewInfo(session);
-            }}
-          >
-            <Info className="mr-2 h-3 w-3" />
-            Session info
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
@@ -323,10 +313,19 @@ const SessionItem = memo(function SessionItem({
                 onChangeProfile(session);
               }}
             >
-              <SlidersHorizontal className="mr-2 h-3 w-3" />
+              <Settings2 className="mr-2 h-3 w-3" />
               Change profile
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewInfo(session);
+            }}
+          >
+            <Info className="mr-2 h-3 w-3" />
+            Info
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();

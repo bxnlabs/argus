@@ -3,9 +3,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import type { Session } from "@/types";
 import { buildSessionInfoSections } from "./fields";
 
@@ -56,12 +54,6 @@ export function SessionInfoDialog({
             </div>
           ))}
         </div>
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
-            Close
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
