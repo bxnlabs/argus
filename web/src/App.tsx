@@ -51,6 +51,7 @@ function HomeContent() {
     closeTab,
     switchTab,
     attachSession,
+    detachSession,
     detachSessionById,
   } = useTabs();
   const { isMobile, isHydrated } = useViewport();
@@ -209,6 +210,19 @@ function HomeContent() {
       a: { label: "Previous tab", run: () => switchRelative(-1) },
       d: { label: "Next tab", run: () => switchRelative(1) },
       t: { label: "Terminal", run: () => setActivePanel(null) },
+      // Session-scoped shortcuts: only offered when the active tab actually has
+      // a session attached, so the hint overlay never advertises a no-op (same
+      // conditional-registration approach as `g`/`e` below). Detach mirrors the
+      // tab-bar button; info opens the session-info dialog for the active tab.
+      ...(activeTab?.sessionId
+        ? {
+            x: { label: "Detach session", run: () => detachSession() },
+            i: {
+              label: "Session info",
+              run: () => setInfoSessionId(activeTab.sessionId),
+            },
+          }
+        : {}),
       ...(isGitRepo
         ? {
             g: {
@@ -246,7 +260,7 @@ function HomeContent() {
         : {}),
       "?": { label: "Show all shortcuts", run: () => setShowShortcutsHelp(true) },
     };
-  }, [tabs, activeTabId, isGitRepo, activeWorkingDirectory, addTab, closeTab, switchTab, requestGitTab]);
+  }, [tabs, activeTabId, isGitRepo, activeWorkingDirectory, addTab, closeTab, switchTab, requestGitTab, activeTab, detachSession]);
 
   // Chord engine — desktop only (touch devices have no leader key).
   const { pending } = useKeyboardChords(bindings, { enabled: !isMobile });

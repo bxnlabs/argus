@@ -116,7 +116,7 @@ export function DesktopTabBar({
               <Unplug className="h-3 w-3" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Detach session</TooltipContent>
+          <TooltipContent>Detach session ({leader} x)</TooltipContent>
         </Tooltip>
       </div>
 
