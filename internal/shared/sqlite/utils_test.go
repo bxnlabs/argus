@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -57,5 +58,33 @@ func TestAllPoolConnsHaveBusyTimeout(t *testing.T) {
 		if fk != 1 {
 			t.Errorf("conn %d: foreign_keys = %d, want 1", i, fk)
 		}
+	}
+}
+
+// TestOpenPathWithQuestionMark guards DSN construction: the modernc driver
+// splits a plain path on the first '?', so a literal '?' in the path would
+// truncate the filename (opening the wrong file) and drop the pragmas. The
+// file: URI built by Open must percent-encode the path instead.
+func TestOpenPathWithQuestionMark(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "weird?name.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	var timeout int
+	if err := db.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+		t.Fatalf("query busy_timeout: %v", err)
+	}
+	if timeout != 5000 {
+		t.Errorf("busy_timeout = %d, want 5000", timeout)
+	}
+
+	// The database file must be created at the literal path, not a name
+	// truncated at the '?'.
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected db file at %q: %v", path, err)
 	}
 }
