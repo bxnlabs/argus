@@ -10,6 +10,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession } from "@/data/sessions/queries";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
+import { SessionInfoDialog } from "@/components/SessionInfoDialog";
 import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
 import { ShortcutHintOverlay } from "@/components/ShortcutHintOverlay";
 import { DesktopView } from "@/components/views/DesktopView";
@@ -28,6 +29,7 @@ function HomeContent() {
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [activePanel, setActivePanel] = useState<SidePanel>(null);
   const [changeProfileSession, setChangeProfileSession] = useState<Session | null>(null);
+  const [infoSession, setInfoSession] = useState<Session | null>(null);
   // Latest Git sub-tab intent. GitPanel re-mounts each time the panel opens, so
   // this must always reflect the most recent chord so it opens to the right tab.
   // Modeled as an event (bumping `seq`) rather than a bare value so repeating a
@@ -382,6 +384,7 @@ function HomeContent() {
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
     onChangeProfile: setChangeProfileSession,
+    onViewInfo: setInfoSession,
     onTogglePin: handleTogglePin,
     onMarkRead: handleMarkRead,
     onMarkUnread: handleMarkUnread,
@@ -396,6 +399,12 @@ function HomeContent() {
           session={changeProfileSession}
           onClose={() => setChangeProfileSession(null)}
           onApply={handleChangeProfileApply}
+        />
+        <SessionInfoDialog
+          session={infoSession}
+          status={infoSession ? sessionStatuses[infoSession.id]?.status : undefined}
+          homeDir={homeDir}
+          onClose={() => setInfoSession(null)}
         />
       </>
     );
@@ -416,6 +425,12 @@ function HomeContent() {
         session={changeProfileSession}
         onClose={() => setChangeProfileSession(null)}
         onApply={handleChangeProfileApply}
+      />
+      <SessionInfoDialog
+        session={infoSession}
+        status={infoSession ? sessionStatuses[infoSession.id]?.status : undefined}
+        homeDir={homeDir}
+        onClose={() => setInfoSession(null)}
       />
     </>
   );
