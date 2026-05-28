@@ -16,7 +16,6 @@ verifyDepsBeforeRun: error
 # only when an install reports a genuinely-needed build. strictDepBuilds (below)
 # turns an unapproved build into a hard error that names the exact package.
 allowBuilds:
-  esbuild: true              # vite's bundler — selects its native binary
   "@tailwindcss/oxide": true # tailwind v4 native engine
   # (additional entries added only if the resolved tree requires them)
 
@@ -27,14 +26,9 @@ strictDepBuilds: true
 # Advisory floors for vulnerable transitives, caret-bounded (not bare ">=") so a
 # re-resolve can't pull an unreviewed major; the committed lockfile pins the
 # exact resolved versions. dompurify carried over from the old package.json
-# "overrides"; rollup added empirically (ships as a vite transitive dep).
+# "overrides".
 overrides:
   dompurify: "^3.4.0"
-  # rollup ships as a vite transitive; vite requires ^4.34.9, already above the
-  # CVE-2024-47068 / GHSA-gcx4-mw62-g8wm patch (4.22.4). Match vite's floor (not
-  # a lower one — overrides replace, not intersect) and cap the major so a
-  # re-resolve can't drop below vite's minimum or jump to an unreviewed v5.
-  rollup: "^4.34.9"
 
 # NEVER add `dangerouslyAllowAllBuilds: true` — it re-enables the
 # run-all-scripts behavior pnpm 10 deliberately disabled.
