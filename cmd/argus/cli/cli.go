@@ -23,6 +23,7 @@ func NewSessionCmd() *cobra.Command {
 
 	cmd.AddCommand(
 		newListCmd(),
+		newDescribeCmd(),
 		newCreateCmd(),
 		newAttachCmd(),
 		newDeleteCmd(),

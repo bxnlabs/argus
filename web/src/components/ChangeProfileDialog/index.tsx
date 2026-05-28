@@ -39,10 +39,13 @@ export function ChangeProfileDialog({
   const currentValue = session?.profile ?? NONE_VALUE;
   const [selected, setSelected] = useState(currentValue);
 
-  // Reset the selection whenever a new session is targeted.
+  // Reset the selection only when a different session is targeted (by id).
+  // Keying on the whole `session` would also reset on every background refetch
+  // that touches this session, clobbering an in-progress selection.
   useEffect(() => {
     setSelected(session?.profile ?? NONE_VALUE);
-  }, [session]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
 
   const handleApply = () => {
     if (!session) return;

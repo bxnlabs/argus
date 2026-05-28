@@ -183,4 +183,8 @@ describe("parseRepoFromRemoteURL", () => {
   it("parses SSH URL with non-git username", () => {
     expect(parseRepoFromRemoteURL("alice@git.example.com:team/repo.git")).toBe("team/repo");
   });
+
+  it("parses ssh:// scheme URL with a port", () => {
+    expect(parseRepoFromRemoteURL("ssh://git@github.com:22/org/repo.git")).toBe("org/repo");
+  });
 });

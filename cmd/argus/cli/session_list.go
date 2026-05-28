@@ -78,7 +78,7 @@ func newListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "  ID\tPINNED\tNAME\tSTATUS\tPROVIDER\tDIRECTORY\tBRANCH\tUPDATED")
+			fmt.Fprintln(w, "  ID\tPINNED\tNAME\tSTATUS\tPROVIDER\tPROFILE\tDIRECTORY\tBRANCH\tUPDATED")
 			for _, s := range pinnedFirst(resp.Sessions) {
 				entry := statuses[s.ID]
 				st := entry.Status
@@ -117,8 +117,13 @@ func newListCmd() *cobra.Command {
 					pinnedMark = "✓"
 				}
 
-				fmt.Fprintf(w, "%s %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					marker, s.ID, pinnedMark, s.Name, st, s.ProviderType, dir, branch, updated)
+				profile := "-"
+				if s.Profile != nil && *s.Profile != "" {
+					profile = *s.Profile
+				}
+
+				fmt.Fprintf(w, "%s %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					marker, s.ID, pinnedMark, s.Name, st, s.ProviderType, profile, dir, branch, updated)
 			}
 			w.Flush()
 			return nil

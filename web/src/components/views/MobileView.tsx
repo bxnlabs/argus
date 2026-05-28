@@ -22,6 +22,7 @@ export function MobileView({
   onDeleteSession,
   onRenameSession,
   onChangeProfile,
+  onViewInfo,
   onTogglePin,
   onMarkRead,
   onMarkUnread,
@@ -98,6 +99,7 @@ export function MobileView({
                     onDeleteSession={onDeleteSession}
                     onRenameSession={onRenameSession}
                     onChangeProfile={onChangeProfile}
+                    onViewInfo={onViewInfo}
                     onTogglePin={onTogglePin}
                     onMarkRead={onMarkRead}
                     onMarkUnread={onMarkUnread}
