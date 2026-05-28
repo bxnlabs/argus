@@ -210,11 +210,18 @@ function HomeContent() {
       a: { label: "Previous tab", run: () => switchRelative(-1) },
       d: { label: "Next tab", run: () => switchRelative(1) },
       t: { label: "Terminal", run: () => setActivePanel(null) },
-      // Detach mirrors the tab-bar button: only offered when the active tab
-      // actually has a session attached, so the hint overlay never advertises
-      // a no-op (same conditional-registration approach as `g`/`e` below).
+      // Session-scoped shortcuts: only offered when the active tab actually has
+      // a session attached, so the hint overlay never advertises a no-op (same
+      // conditional-registration approach as `g`/`e` below). Detach mirrors the
+      // tab-bar button; info opens the session-info dialog for the active tab.
       ...(activeTab?.sessionId
-        ? { x: { label: "Detach session", run: () => detachSession() } }
+        ? {
+            x: { label: "Detach session", run: () => detachSession() },
+            i: {
+              label: "Session info",
+              run: () => setInfoSessionId(activeTab.sessionId),
+            },
+          }
         : {}),
       ...(isGitRepo
         ? {
