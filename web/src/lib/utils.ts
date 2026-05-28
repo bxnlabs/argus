@@ -114,10 +114,14 @@ export function parseRepoFromRemoteURL(url: string): string | null {
 
   let path: string | undefined;
 
-  // SSH SCP-style: user@host:path[.git]
-  const sshMatch = url.match(/^[^@]+@[^:]+:(.+)$/);
-  if (sshMatch) {
-    path = sshMatch[1];
+  // SCP-style SSH (user@host:path) has no scheme. Scheme-based URLs
+  // (https://, ssh://, git://) are handled by the URL parser below — guarding
+  // on "://" keeps an ssh://host:port/path URL from being mis-split on its port.
+  if (!url.includes("://")) {
+    const sshMatch = url.match(/^[^@]+@[^:]+:(.+)$/);
+    if (sshMatch) {
+      path = sshMatch[1];
+    }
   }
 
   // HTTPS/HTTP: https://host/path[.git]

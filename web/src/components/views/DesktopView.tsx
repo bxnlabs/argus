@@ -28,6 +28,7 @@ export function DesktopView({
   onDeleteSession,
   onRenameSession,
   onChangeProfile,
+  onViewInfo,
   onTogglePin,
   onMarkRead,
   onMarkUnread,
@@ -132,6 +133,7 @@ export function DesktopView({
                 onDeleteSession={onDeleteSession}
                 onRenameSession={onRenameSession}
                 onChangeProfile={onChangeProfile}
+                onViewInfo={onViewInfo}
                 onTogglePin={onTogglePin}
                 onMarkRead={onMarkRead}
                 onMarkUnread={onMarkUnread}

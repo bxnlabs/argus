@@ -10,6 +10,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession } from "@/data/sessions/queries";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
+import { SessionInfoDialog } from "@/components/SessionInfoDialog";
 import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
 import { ShortcutHintOverlay } from "@/components/ShortcutHintOverlay";
 import { DesktopView } from "@/components/views/DesktopView";
@@ -27,7 +28,8 @@ function HomeContent() {
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [activePanel, setActivePanel] = useState<SidePanel>(null);
-  const [changeProfileSession, setChangeProfileSession] = useState<Session | null>(null);
+  const [changeProfileSessionId, setChangeProfileSessionId] = useState<string | null>(null);
+  const [infoSessionId, setInfoSessionId] = useState<string | null>(null);
   // Latest Git sub-tab intent. GitPanel re-mounts each time the panel opens, so
   // this must always reflect the most recent chord so it opens to the right tab.
   // Modeled as an event (bumping `seq`) rather than a bare value so repeating a
@@ -74,6 +76,31 @@ function HomeContent() {
     : null;
   const activeWorkingDirectory = focusedSession?.working_directory ?? null;
   const { data: isGitRepo = false } = useGitCheckQuery(activeWorkingDirectory);
+
+  // Derive the dialog targets from the live session list (by id) rather than
+  // snapshotting the Session object, so the dialogs always reflect current data.
+  const changeProfileSession = useMemo(
+    () =>
+      changeProfileSessionId
+        ? (sessions.find((s) => s.id === changeProfileSessionId) ?? null)
+        : null,
+    [sessions, changeProfileSessionId],
+  );
+  const infoSession = useMemo(
+    () =>
+      infoSessionId
+        ? (sessions.find((s) => s.id === infoSessionId) ?? null)
+        : null,
+    [sessions, infoSessionId],
+  );
+
+  // Close a dialog whose target session disappears (deleted elsewhere, or
+  // restarted under a new id) so it never lingers on stale data.
+  useEffect(() => {
+    if (!sessionsLoaded) return;
+    if (changeProfileSessionId && !changeProfileSession) setChangeProfileSessionId(null);
+    if (infoSessionId && !infoSession) setInfoSessionId(null);
+  }, [sessionsLoaded, changeProfileSessionId, changeProfileSession, infoSessionId, infoSession]);
 
   // Detach tabs whose session no longer exists (e.g. stale localStorage after restart).
   // Runs once after the first successful sessions fetch to avoid racing with
@@ -381,7 +408,8 @@ function HomeContent() {
     onCreateSession: handleCreateSession,
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
-    onChangeProfile: setChangeProfileSession,
+    onChangeProfile: (session: Session) => setChangeProfileSessionId(session.id),
+    onViewInfo: (session: Session) => setInfoSessionId(session.id),
     onTogglePin: handleTogglePin,
     onMarkRead: handleMarkRead,
     onMarkUnread: handleMarkUnread,
@@ -394,8 +422,14 @@ function HomeContent() {
         <MobileView {...viewProps} />
         <ChangeProfileDialog
           session={changeProfileSession}
-          onClose={() => setChangeProfileSession(null)}
+          onClose={() => setChangeProfileSessionId(null)}
           onApply={handleChangeProfileApply}
+        />
+        <SessionInfoDialog
+          session={infoSession}
+          status={infoSession ? sessionStatuses[infoSession.id]?.status : undefined}
+          homeDir={homeDir}
+          onClose={() => setInfoSessionId(null)}
         />
       </>
     );
@@ -414,8 +448,14 @@ function HomeContent() {
       />
       <ChangeProfileDialog
         session={changeProfileSession}
-        onClose={() => setChangeProfileSession(null)}
+        onClose={() => setChangeProfileSessionId(null)}
         onApply={handleChangeProfileApply}
+      />
+      <SessionInfoDialog
+        session={infoSession}
+        status={infoSession ? sessionStatuses[infoSession.id]?.status : undefined}
+        homeDir={homeDir}
+        onClose={() => setInfoSessionId(null)}
       />
     </>
   );
