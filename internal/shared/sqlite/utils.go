@@ -55,9 +55,9 @@ func Open(path string) (*sql.DB, error) {
 	db.SetMaxIdleConns(2)
 
 	// sql.Open is lazy and never opens a connection, so a bad path or
-	// invalid pragma would otherwise surface on first query. Force one
-	// connection to fail fast; the DSN still applies pragmas to every
-	// pool connection opened later.
+	// otherwise unopenable database would surface only on first query.
+	// Force one connection to fail fast; the DSN still applies pragmas to
+	// every pool connection opened later.
 	if err := db.PingContext(context.Background()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open: %w", err)
