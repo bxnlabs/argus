@@ -15,6 +15,8 @@ func TestParseRepo(t *testing.T) {
 		{"subgroup", "https://gitlab.com/group/sub/proj.git", "group/sub/proj"},
 		{"empty", "", ""},
 		{"garbage", "not a url", ""},
+		{"ssh scheme", "ssh://git@github.com/bxnlabs/argus.git", "bxnlabs/argus"},
+		{"scp empty path", "git@github.com:", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

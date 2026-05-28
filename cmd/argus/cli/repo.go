@@ -15,14 +15,16 @@ func parseRepo(url string) string {
 
 	var path string
 
-	// scp-style SSH: user@host:path
-	if at := strings.Index(url, "@"); at >= 0 {
-		if colon := strings.Index(url[at:], ":"); colon >= 0 {
-			path = url[at+colon+1:]
+	// scp-style SSH (user@host:path) has no scheme. Scheme-based URLs
+	// (https://, ssh://, git://) are handled by net/url below.
+	if !strings.Contains(url, "://") {
+		if at := strings.Index(url, "@"); at >= 0 {
+			if colon := strings.Index(url[at:], ":"); colon >= 0 {
+				path = url[at+colon+1:]
+			}
 		}
 	}
 
-	// https://host/path (or ssh://host/path)
 	if path == "" {
 		if u, err := neturl.Parse(url); err == nil && len(u.Path) > 1 {
 			path = u.Path
