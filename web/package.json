@@ -39,17 +39,17 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
-    "@tailwindcss/vite": "^4.1.18",
+    "@playwright/test": "^1.60.0",
+    "@tailwindcss/vite": "^4.3.0",
     "@testing-library/react": "^16.3.2",
-    "@types/react": "^19.2.7",
+    "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.6.0",
-    "jsdom": "^29.0.2",
-    "tailwindcss": "^4.1.18",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3",
     "vite": "^6.3.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.7"
   },
   "packageManager": "pnpm@11.4.0+sha512.f0febc7e37552ab485494a914241b338e0b3580b93d54ce31f00933015880863129038a1b4ae4e414a0ee63ac35bf21197e990172c4a68256450b5636310968f"
 }
