@@ -12,7 +12,7 @@ importers:
   .:
     dependencies:
       '@fontsource/geist-mono':
-        specifier: ^5.2.7
+        specifier: ^5.2.8
         version: 5.2.8
       '@fontsource/geist-sans':
         specifier: ^5.2.5
@@ -45,7 +45,7 @@ importers:
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tanstack/react-query':
-        specifier: ^5.90.16
+        specifier: ^5.100.14
         version: 5.100.14(react@19.2.6)
       '@xterm/addon-fit':
         specifier: ^0.11.0
@@ -69,25 +69,25 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       lucide-react:
-        specifier: ^0.556.0
-        version: 0.556.0(react@19.2.6)
+        specifier: ^1.16.0
+        version: 1.16.0(react@19.2.6)
       monaco-editor:
         specifier: ^0.55.1
         version: 0.55.1
       react:
-        specifier: ^19.2.1
+        specifier: ^19.2.6
         version: 19.2.6
       react-dom:
-        specifier: ^19.2.1
+        specifier: ^19.2.6
         version: 19.2.6(react@19.2.6)
       react-error-boundary:
-        specifier: ^6.1.0
+        specifier: ^6.1.1
         version: 6.1.1(react@19.2.6)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       tailwind-merge:
-        specifier: ^3.4.0
+        specifier: ^3.6.0
         version: 3.6.0
     devDependencies:
       '@playwright/test':
@@ -1167,8 +1167,8 @@ packages:
     resolution: {integrity: sha512-5YgH9UJd7wVb9hIouI2adWpgqrrICkt070Dnj8EUY1+B4B2P9eRLPAkAAo6NICA7CEhOIeBHl46u9zSNpNu7zA==}
     engines: {node: 20 || >=22}
 
-  lucide-react@0.556.0:
-    resolution: {integrity: sha512-iOb8dRk7kLaYBZhR2VlV1CeJGxChBgUthpSP8wom9jfj79qovgG6qcSdiy6vkoREKPnbUYzJsCn4o4PtG3Iy+A==}
+  lucide-react@1.16.0:
+    resolution: {integrity: sha512-dYwyPzb4MEKpGUmNYk3WKWPnMrHs3FKM+q94kAnJrcDIqqn1hq2xY8scaS2ovsOCM5D51ey2gaRG3PBb1vgoYQ==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -2434,7 +2434,7 @@ snapshots:
 
   lru-cache@11.5.0: {}
 
-  lucide-react@0.556.0(react@19.2.6):
+  lucide-react@1.16.0(react@19.2.6):
     dependencies:
       react: 19.2.6
 
