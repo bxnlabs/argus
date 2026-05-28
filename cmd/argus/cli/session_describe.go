@@ -130,6 +130,9 @@ func newDescribeCmd() *cobra.Command {
 				if err := json.Unmarshal(detail, &wrap); err != nil {
 					return fmt.Errorf("parse response: %w", err)
 				}
+				if len(wrap.Session) == 0 || string(wrap.Session) == "null" {
+					return fmt.Errorf("server returned no session data for %s", s.ID)
+				}
 				var pretty bytes.Buffer
 				if err := json.Indent(&pretty, wrap.Session, "", "  "); err != nil {
 					return fmt.Errorf("format json: %w", err)
