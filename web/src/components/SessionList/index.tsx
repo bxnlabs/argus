@@ -11,43 +11,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
+import {
+  getStatusColor,
+  getStatusAnimation,
+  getStatusLabel,
+} from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
-
-function getStatusColor(status?: string) {
-  switch (status) {
-    case "active":
-      return "bg-green-500";
-    case "idle":
-      return "bg-muted-foreground";
-    case "dead":
-      return "bg-red-500/50";
-    default:
-      return "bg-muted-foreground/40";
-  }
-}
-
-function getStatusAnimation(status?: string) {
-  switch (status) {
-    case "active":
-      return "animate-pulse-green";
-    default:
-      return "";
-  }
-}
-
-function getStatusLabel(status?: string) {
-  switch (status) {
-    case "active":
-      return "Active";
-    case "idle":
-      return "Idle";
-    case "dead":
-      return "Dead";
-    default:
-      return "";
-  }
-}
 
 // Split sessions into pinned and the rest, each ordered by updated_at
 // descending. Returns new arrays (does not mutate the input).
