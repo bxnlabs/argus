@@ -53,19 +53,19 @@ export function SessionInfoDialog({
         {model && (
           <>
             <DialogHeader className="text-left">
+              <div className="flex items-center gap-1.5">
+                <ProviderBadge type={model.providerType} />
+                {model.autoApprove && (
+                  <Badge
+                    variant="outline"
+                    className="border-current px-1 py-0 text-[10px] font-medium text-yellow-500"
+                  >
+                    YOLO
+                  </Badge>
+                )}
+              </div>
               <DialogTitle asChild>
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate">{model.name}</span>
-                  <ProviderBadge type={model.providerType} />
-                  {model.autoApprove && (
-                    <Badge
-                      variant="outline"
-                      className="border-current px-1 py-0 text-[10px] font-medium text-yellow-500"
-                    >
-                      YOLO
-                    </Badge>
-                  )}
-                </div>
+                <div className="min-w-0 truncate">{model.name}</div>
               </DialogTitle>
               <DialogDescription asChild>
                 <div className="flex items-center gap-1.5">

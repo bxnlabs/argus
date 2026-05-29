@@ -161,7 +161,19 @@ const SessionItem = memo(function SessionItem({
           />
         ) : (
           <>
-            <div className="truncate text-sm">
+            {/* Provider + auto-approve (YOLO) chips */}
+            <div className="flex items-center gap-1.5">
+              <ProviderBadge type={session.provider_type} />
+              {session.auto_approve && (
+                <Badge
+                  variant="outline"
+                  className="border-current px-1 py-0 text-[10px] font-medium text-yellow-500"
+                >
+                  YOLO
+                </Badge>
+              )}
+            </div>
+            <div className="mt-0.5 truncate text-sm">
               {session.name || "Unnamed Session"}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
@@ -203,18 +215,6 @@ const SessionItem = memo(function SessionItem({
                 <span className="truncate">{session.worktree_branch}</span>
               </span>
             )}
-            {/* Last line: provider + auto-approve (YOLO) chips */}
-            <div className="mt-1 flex items-center gap-1.5">
-              <ProviderBadge type={session.provider_type} />
-              {session.auto_approve && (
-                <Badge
-                  variant="outline"
-                  className="border-current px-1 py-0 text-[10px] font-medium text-yellow-500"
-                >
-                  YOLO
-                </Badge>
-              )}
-            </div>
           </>
         )}
       </div>
