@@ -18,6 +18,7 @@ import {
 } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
+import { ProviderLogo } from "@/components/ProviderLogo";
 
 // Split sessions into pinned and the rest, each ordered by updated_at
 // descending. Returns new arrays (does not mutate the input).
@@ -159,10 +160,14 @@ const SessionItem = memo(function SessionItem({
           />
         ) : (
           <>
-            <div className="flex min-w-0 items-center gap-1">
-              <span className="truncate text-sm">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate text-sm">
                 {session.name || "Unnamed Session"}
               </span>
+              <ProviderLogo
+                type={session.provider_type}
+                className="h-3.5 w-3.5 flex-shrink-0"
+              />
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <div
