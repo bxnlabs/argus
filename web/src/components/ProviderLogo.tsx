@@ -30,6 +30,12 @@ const BRAND: Partial<Record<ProviderType, BrandMark>> = {
   },
 };
 
+// providerLabel returns the brand name for a provider, or "Terminal" for shell
+// and any unknown provider (matching ProviderLogo's fallback glyph).
+export function providerLabel(type: ProviderType): string {
+  return BRAND[type]?.label ?? "Terminal";
+}
+
 interface ProviderLogoProps {
   type: ProviderType;
   className?: string;

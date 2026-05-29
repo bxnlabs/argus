@@ -14,6 +14,7 @@ export interface SessionInfoModel {
   name: string;
   pinned: boolean;
   providerType: ProviderType;
+  autoApprove: boolean;
   status: string | undefined;
   updatedRelative: string;
   createdAbsolute: string;
@@ -53,6 +54,7 @@ export function buildSessionInfoModel(
     name: session.name || "Session",
     pinned: session.pinned,
     providerType: session.provider_type,
+    autoApprove: session.auto_approve,
     status,
     updatedRelative: formatRelativeTime(session.updated_at),
     createdAbsolute: session.created_at,

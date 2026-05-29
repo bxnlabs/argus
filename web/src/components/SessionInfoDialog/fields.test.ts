@@ -70,9 +70,10 @@ describe("buildSessionInfoModel", () => {
     expect(m.details.model).toBeNull();
     expect(m.status).toBeUndefined();
     expect(m.profile).toBeNull();
+    expect(m.autoApprove).toBe(false);
   });
 
-  it("includes model, repo, branch, profile, and pinned when present", () => {
+  it("includes model, repo, branch, profile, pinned, and autoApprove when present", () => {
     const m = buildSessionInfoModel(
       makeSession({
         model: "claude-opus-4-7",
@@ -80,6 +81,7 @@ describe("buildSessionInfoModel", () => {
         worktree_branch: "jeev/bxn-97",
         profile: "default",
         pinned: true,
+        auto_approve: true,
       }),
       "idle",
       "/home/u",
@@ -89,6 +91,7 @@ describe("buildSessionInfoModel", () => {
     expect(m.location.branch).toBe("jeev/bxn-97");
     expect(m.profile).toBe("default");
     expect(m.pinned).toBe(true);
+    expect(m.autoApprove).toBe(true);
   });
 
   it("exposes absolute timestamps and a relative updated time", () => {

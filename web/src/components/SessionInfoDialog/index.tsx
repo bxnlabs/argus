@@ -11,7 +11,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ProviderLogo } from "@/components/ProviderLogo";
+import { ProviderBadge } from "@/components/ProviderBadge";
+import { Badge } from "@/components/ui/badge";
 import {
   getStatusAnimation,
   getStatusColor,
@@ -55,16 +56,16 @@ export function SessionInfoDialog({
             <DialogHeader className="text-left">
               <DialogTitle asChild>
                 <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate">{model.name}</span>
                   {model.pinned && (
                     <Pin className="h-4 w-4 flex-shrink-0 fill-current" />
                   )}
-                  <span className="min-w-0 flex-1 truncate">{model.name}</span>
-                  <ProviderLogo
-                    type={model.providerType}
-                    className="h-4 w-4 flex-shrink-0"
-                  />
                 </div>
               </DialogTitle>
+              <div className="flex items-center gap-1.5">
+                <ProviderBadge type={model.providerType} />
+                {model.autoApprove && <Badge variant="warning">YOLO</Badge>}
+              </div>
               <DialogDescription asChild>
                 <div className="flex items-center gap-1.5">
                   <span

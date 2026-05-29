@@ -18,7 +18,8 @@ import {
 } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
-import { ProviderLogo } from "@/components/ProviderLogo";
+import { ProviderBadge } from "@/components/ProviderBadge";
+import { Badge } from "@/components/ui/badge";
 
 // Split sessions into pinned and the rest, each ordered by updated_at
 // descending. Returns new arrays (does not mutate the input).
@@ -160,14 +161,23 @@ const SessionItem = memo(function SessionItem({
           />
         ) : (
           <>
-            <div className="flex min-w-0 items-center gap-1.5">
-              <span className="min-w-0 flex-1 truncate text-sm">
-                {session.name || "Unnamed Session"}
-              </span>
-              <ProviderLogo
+            <div className="truncate text-sm">
+              {session.name || "Unnamed Session"}
+            </div>
+            {/* Badge line: provider + auto-approve (YOLO) */}
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <ProviderBadge
                 type={session.provider_type}
-                className="h-3.5 w-3.5 flex-shrink-0"
+                className="px-1.5 py-0 text-[10px]"
               />
+              {session.auto_approve && (
+                <Badge
+                  variant="warning"
+                  className="px-1.5 py-0 text-[10px]"
+                >
+                  YOLO
+                </Badge>
+              )}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <div
@@ -177,12 +187,13 @@ const SessionItem = memo(function SessionItem({
                   !isUnread && getStatusAnimation(statusValue)
                 )}
               />
-              <span className="text-muted-foreground text-xs">
+              <span className="text-muted-foreground min-w-0 truncate text-xs">
                 {(() => {
                   const label = isUnread ? "Unread" : getStatusLabel(statusValue);
                   return label ? `${label} · ` : "";
                 })()}
                 {formatRelativeTime(session.updated_at)}
+                {session.profile ? ` · ${session.profile}` : ""}
               </span>
             </div>
             {/* Line 3: Directory / Repo */}
@@ -205,13 +216,6 @@ const SessionItem = memo(function SessionItem({
               <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
                 <GitBranch className="h-3 w-3 flex-shrink-0" />
                 <span className="truncate">{session.worktree_branch}</span>
-              </span>
-            )}
-            {/* Line 5: Profile (only when attached) */}
-            {session.profile && (
-              <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
-                <Settings2 className="h-3 w-3 flex-shrink-0" />
-                <span className="truncate">{session.profile}</span>
               </span>
             )}
           </>
