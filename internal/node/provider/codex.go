@@ -5,7 +5,7 @@ func init() {
 		ID:               ProviderCodex,
 		Name:             "Codex",
 		CLI:              "codex",
-		AutoApproveFlag:  "--full-auto",
+		AutoApproveFlag:  "--dangerously-bypass-approvals-and-sandbox",
 		SupportsResume:   true,
 		ResumeArg:        "resume",
 		ModelFlag:        "--model",
