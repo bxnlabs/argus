@@ -10,6 +10,13 @@ describe("ProviderLogo", () => {
     expect(svg?.getAttribute("aria-label")).toBe("Claude");
   });
 
+  it("renders the codex mark with currentColor fill for dark-mode visibility", () => {
+    const { container } = render(<ProviderLogo type="codex" />);
+    const svg = container.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg?.getAttribute("fill")).toBe("currentColor");
+  });
+
   it("falls back to a terminal glyph for shell", () => {
     const { container } = render(<ProviderLogo type="shell" />);
     const svg = container.querySelector("svg");
