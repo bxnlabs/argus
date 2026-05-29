@@ -73,7 +73,7 @@ export function SessionInfoDialog({
                       <TooltipTrigger asChild>
                         <span
                           tabIndex={0}
-                          className="cursor-default underline decoration-dotted underline-offset-2"
+                          className="cursor-default rounded-sm underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]"
                         >
                           {model.updatedRelative}
                         </span>
