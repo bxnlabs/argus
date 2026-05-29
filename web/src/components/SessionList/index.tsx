@@ -11,43 +11,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
+import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
-
-function getStatusColor(status?: string) {
-  switch (status) {
-    case "active":
-      return "bg-green-500";
-    case "idle":
-      return "bg-muted-foreground";
-    case "dead":
-      return "bg-red-500/50";
-    default:
-      return "bg-muted-foreground/40";
-  }
-}
-
-function getStatusAnimation(status?: string) {
-  switch (status) {
-    case "active":
-      return "animate-pulse-green";
-    default:
-      return "";
-  }
-}
-
-function getStatusLabel(status?: string) {
-  switch (status) {
-    case "active":
-      return "Active";
-    case "idle":
-      return "Idle";
-    case "dead":
-      return "Dead";
-    default:
-      return "";
-  }
-}
 
 // Split sessions into pinned and the rest, each ordered by updated_at
 // descending. Returns new arrays (does not mutate the input).
@@ -151,6 +117,8 @@ const SessionItem = memo(function SessionItem({
     : null;
   const isUnread = !!unreadSince || !!userMarkedUnreadAt;
   const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, userMarkedUnreadAt);
+  const statusMeta = getStatusMeta(statusValue);
+  const statusLabel = isUnread ? "Unread" : statusMeta.label;
 
   return (
     <div
@@ -189,25 +157,21 @@ const SessionItem = memo(function SessionItem({
           />
         ) : (
           <>
-            <div className="flex min-w-0 items-center gap-1">
-              <span className="truncate text-sm">
-                {session.name || "Unnamed Session"}
-              </span>
+            <div className="truncate text-sm">
+              {session.name || "Unnamed Session"}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <div
                 className={cn(
                   "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                  isUnread ? "bg-blue-500" : getStatusColor(statusValue),
-                  !isUnread && getStatusAnimation(statusValue)
+                  isUnread ? "bg-blue-500" : statusMeta.color,
+                  !isUnread && statusMeta.animation
                 )}
               />
-              <span className="text-muted-foreground text-xs">
-                {(() => {
-                  const label = isUnread ? "Unread" : getStatusLabel(statusValue);
-                  return label ? `${label} · ` : "";
-                })()}
+              <span className="text-muted-foreground min-w-0 truncate text-xs">
+                {statusLabel ? `${statusLabel} · ` : ""}
                 {formatRelativeTime(session.updated_at)}
+                {session.profile ? ` · ${session.profile}` : ""}
               </span>
             </div>
             {/* Line 3: Directory / Repo */}
@@ -230,13 +194,6 @@ const SessionItem = memo(function SessionItem({
               <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
                 <GitBranch className="h-3 w-3 flex-shrink-0" />
                 <span className="truncate">{session.worktree_branch}</span>
-              </span>
-            )}
-            {/* Line 5: Profile (only when attached) */}
-            {session.profile && (
-              <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
-                <Settings2 className="h-3 w-3 flex-shrink-0" />
-                <span className="truncate">{session.profile}</span>
               </span>
             )}
           </>
