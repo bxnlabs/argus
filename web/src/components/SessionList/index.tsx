@@ -173,7 +173,7 @@ const SessionItem = memo(function SessionItem({
                 </Badge>
               )}
             </div>
-            <div className="mt-0.5 truncate text-sm">
+            <div className="mt-1 truncate text-sm">
               {session.name || "Unnamed Session"}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">

@@ -53,7 +53,7 @@ export function SessionInfoDialog({
         {model && (
           <>
             <DialogHeader className="text-left">
-              <div className="flex items-center gap-1.5">
+              <div className="mb-1.5 flex items-center gap-1.5">
                 <ProviderBadge type={model.providerType} />
                 {model.autoApprove && (
                   <Badge
