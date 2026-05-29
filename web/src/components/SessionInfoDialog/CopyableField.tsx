@@ -55,7 +55,9 @@ export function CopyableField({
   if (inline) {
     return (
       <div className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground w-20 flex-shrink-0">{label}</span>
+        <span className="text-muted-foreground w-20 flex-shrink-0">
+          {label}
+        </span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs">
           {displayValue}
         </span>

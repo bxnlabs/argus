@@ -22,8 +22,8 @@ describe("ProviderLogo", () => {
     const { container } = render(
       <ProviderLogo type="gemini" className="h-4 w-4" />,
     );
-    expect(container.querySelector("svg")?.getAttribute("class") ?? "").toContain(
-      "h-4",
-    );
+    expect(
+      container.querySelector("svg")?.getAttribute("class") ?? "",
+    ).toContain("h-4");
   });
 });

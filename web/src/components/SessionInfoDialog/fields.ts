@@ -1,5 +1,9 @@
 import type { ProviderType, Session } from "@/types";
-import { contractTilde, formatRelativeTime, parseRepoFromRemoteURL } from "@/lib/utils";
+import {
+  contractTilde,
+  formatRelativeTime,
+  parseRepoFromRemoteURL,
+} from "@/lib/utils";
 
 export interface CopyableValue {
   display: string;

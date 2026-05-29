@@ -35,7 +35,9 @@ export function SessionInfoDialog({
   homeDir,
   onClose,
 }: SessionInfoDialogProps) {
-  const model = session ? buildSessionInfoModel(session, status, homeDir) : null;
+  const model = session
+    ? buildSessionInfoModel(session, status, homeDir)
+    : null;
 
   return (
     <Dialog open={session !== null} onOpenChange={(o) => !o && onClose()}>
@@ -89,7 +91,11 @@ export function SessionInfoDialog({
                 <div className="text-muted-foreground text-xs font-bold uppercase tracking-wide">
                   Details
                 </div>
-                <CopyableField label="ID" displayValue={model.details.id} inline />
+                <CopyableField
+                  label="ID"
+                  displayValue={model.details.id}
+                  inline
+                />
                 {model.details.model && (
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-muted-foreground w-20 flex-shrink-0">
