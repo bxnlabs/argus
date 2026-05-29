@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -20,13 +20,21 @@ export function CopyableField({
   inline = false,
 }: CopyableFieldProps) {
   const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   const handleCopy = async () => {
     const ok = await copyToClipboard(copyValue ?? displayValue);
     if (ok) {
       setCopied(true);
       toast.success("Copied");
-      setTimeout(() => setCopied(false), 1200);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setCopied(false), 1200);
     } else {
       toast.error("Copy failed");
     }
