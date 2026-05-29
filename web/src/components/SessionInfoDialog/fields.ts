@@ -12,7 +12,6 @@ export interface CopyableValue {
 
 export interface SessionInfoModel {
   name: string;
-  pinned: boolean;
   providerType: ProviderType;
   autoApprove: boolean;
   status: string | undefined;
@@ -52,7 +51,6 @@ export function buildSessionInfoModel(
 
   return {
     name: session.name || "Session",
-    pinned: session.pinned,
     providerType: session.provider_type,
     autoApprove: session.auto_approve,
     status,

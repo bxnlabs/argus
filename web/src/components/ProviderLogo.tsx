@@ -36,6 +36,13 @@ export function providerLabel(type: ProviderType): string {
   return BRAND[type]?.label ?? "Terminal";
 }
 
+// providerColor returns the provider's brand color, or undefined for shell and
+// any unknown provider (whose glyph is rendered in the muted foreground color).
+// Codex resolves to "currentColor" so callers should treat it as untinted.
+export function providerColor(type: ProviderType): string | undefined {
+  return BRAND[type]?.hex;
+}
+
 interface ProviderLogoProps {
   type: ProviderType;
   className?: string;

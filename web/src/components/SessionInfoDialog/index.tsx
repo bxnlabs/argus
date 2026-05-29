@@ -1,4 +1,3 @@
-import { Pin } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -56,16 +55,18 @@ export function SessionInfoDialog({
             <DialogHeader className="text-left">
               <DialogTitle asChild>
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="min-w-0 truncate">{model.name}</span>
-                  {model.pinned && (
-                    <Pin className="h-4 w-4 flex-shrink-0 fill-current" />
+                  <span className="min-w-0 flex-1 truncate">{model.name}</span>
+                  <ProviderBadge type={model.providerType} />
+                  {model.autoApprove && (
+                    <Badge
+                      variant="outline"
+                      className="border-current px-1 py-0 text-[10px] font-medium text-yellow-500"
+                    >
+                      YOLO
+                    </Badge>
                   )}
                 </div>
               </DialogTitle>
-              <div className="flex items-center gap-1.5">
-                <ProviderBadge type={model.providerType} />
-                {model.autoApprove && <Badge variant="warning">YOLO</Badge>}
-              </div>
               <DialogDescription asChild>
                 <div className="flex items-center gap-1.5">
                   <span

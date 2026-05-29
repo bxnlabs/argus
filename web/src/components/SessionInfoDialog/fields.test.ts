@@ -73,14 +73,13 @@ describe("buildSessionInfoModel", () => {
     expect(m.autoApprove).toBe(false);
   });
 
-  it("includes model, repo, branch, profile, pinned, and autoApprove when present", () => {
+  it("includes model, repo, branch, profile, and autoApprove when present", () => {
     const m = buildSessionInfoModel(
       makeSession({
         model: "claude-opus-4-7",
         git_remote_url: "git@github.com:bxnlabs/argus.git",
         worktree_branch: "jeev/bxn-97",
         profile: "default",
-        pinned: true,
         auto_approve: true,
       }),
       "idle",
@@ -90,7 +89,6 @@ describe("buildSessionInfoModel", () => {
     expect(m.location.repo).toBe("bxnlabs/argus");
     expect(m.location.branch).toBe("jeev/bxn-97");
     expect(m.profile).toBe("default");
-    expect(m.pinned).toBe(true);
     expect(m.autoApprove).toBe(true);
   });
 
