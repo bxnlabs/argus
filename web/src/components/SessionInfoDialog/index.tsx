@@ -41,7 +41,15 @@ export function SessionInfoDialog({
 
   return (
     <Dialog open={session !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent
+        tabIndex={-1}
+        onOpenAutoFocus={(event) => {
+          // Focus the dialog, not its first focusable child (the timestamp
+          // caption), so that caption's tooltip stays closed until hover/focus.
+          event.preventDefault();
+          (event.currentTarget as HTMLElement).focus();
+        }}
+      >
         {model && (
           <>
             <DialogHeader className="text-left">
