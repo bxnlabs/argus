@@ -49,6 +49,20 @@ describe("buildSessionInfoModel", () => {
     expect(m.location.branch).toBe("jeev/bxn-104");
   });
 
+  it("omits worktreeDir when git_parent_dir equals working_directory (plain git repo)", () => {
+    const m = buildSessionInfoModel(
+      makeSession({
+        git_parent_dir: "/home/u/work",
+        working_directory: "/home/u/work",
+      }),
+      "idle",
+      "/home/u",
+    );
+    expect(m.location.directory.copy).toBe("/home/u/work");
+    expect(m.location.directory.display).toBe("~/work");
+    expect(m.location.worktreeDir).toBeNull();
+  });
+
   it("omits repo, branch, and model when absent and passes status/profile through", () => {
     const m = buildSessionInfoModel(makeSession(), undefined, "/home/u");
     expect(m.location.repo).toBeNull();
