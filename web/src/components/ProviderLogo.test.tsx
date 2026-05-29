@@ -15,6 +15,7 @@ describe("ProviderLogo", () => {
     const svg = container.querySelector("svg");
     expect(svg).not.toBeNull();
     expect(svg?.getAttribute("class") ?? "").toContain("lucide-terminal");
+    expect(svg?.getAttribute("aria-label")).toBe("Terminal");
   });
 
   it("applies the provided className for sizing", () => {
