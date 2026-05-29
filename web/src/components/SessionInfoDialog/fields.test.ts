@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSessionInfoModel } from "./fields";
+import { getSessionLocation } from "./fields";
 import type { Session } from "@/types";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -24,78 +24,58 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-describe("buildSessionInfoModel", () => {
+describe("getSessionLocation", () => {
   it("uses working_directory as the directory and omits worktreeDir for plain sessions", () => {
-    const m = buildSessionInfoModel(makeSession(), "idle", "/home/u");
-    expect(m.location.directory.copy).toBe("/home/u/work");
-    expect(m.location.directory.display).toBe("~/work");
-    expect(m.location.worktreeDir).toBeNull();
+    const loc = getSessionLocation(makeSession(), "/home/u");
+    expect(loc.directory.copy).toBe("/home/u/work");
+    expect(loc.directory.display).toBe("~/work");
+    expect(loc.worktreeDir).toBeNull();
   });
 
   it("uses git_parent_dir as directory and working_directory as worktreeDir for worktree sessions", () => {
-    const m = buildSessionInfoModel(
+    const loc = getSessionLocation(
       makeSession({
         git_parent_dir: "/home/u/work",
         working_directory: "/home/u/.wt/bxn-104",
         worktree_branch: "jeev/bxn-104",
       }),
-      "active",
       "/home/u",
     );
-    expect(m.location.directory.copy).toBe("/home/u/work");
-    expect(m.location.directory.display).toBe("~/work");
-    expect(m.location.worktreeDir?.copy).toBe("/home/u/.wt/bxn-104");
-    expect(m.location.worktreeDir?.display).toBe("~/.wt/bxn-104");
-    expect(m.location.branch).toBe("jeev/bxn-104");
+    expect(loc.directory.copy).toBe("/home/u/work");
+    expect(loc.directory.display).toBe("~/work");
+    expect(loc.worktreeDir?.copy).toBe("/home/u/.wt/bxn-104");
+    expect(loc.worktreeDir?.display).toBe("~/.wt/bxn-104");
+    expect(loc.branch).toBe("jeev/bxn-104");
   });
 
   it("omits worktreeDir when git_parent_dir equals working_directory (plain git repo)", () => {
-    const m = buildSessionInfoModel(
+    const loc = getSessionLocation(
       makeSession({
         git_parent_dir: "/home/u/work",
         working_directory: "/home/u/work",
       }),
-      "idle",
       "/home/u",
     );
-    expect(m.location.directory.copy).toBe("/home/u/work");
-    expect(m.location.directory.display).toBe("~/work");
-    expect(m.location.worktreeDir).toBeNull();
+    expect(loc.directory.copy).toBe("/home/u/work");
+    expect(loc.directory.display).toBe("~/work");
+    expect(loc.worktreeDir).toBeNull();
   });
 
-  it("omits repo, branch, and model when absent and passes status/profile through", () => {
-    const m = buildSessionInfoModel(makeSession(), undefined, "/home/u");
-    expect(m.location.repo).toBeNull();
-    expect(m.location.branch).toBeNull();
-    expect(m.details.model).toBeNull();
-    expect(m.status).toBeUndefined();
-    expect(m.profile).toBeNull();
-    expect(m.autoApprove).toBe(false);
+  it("omits repo and branch when absent", () => {
+    const loc = getSessionLocation(makeSession(), "/home/u");
+    expect(loc.repo).toBeNull();
+    expect(loc.branch).toBeNull();
   });
 
-  it("includes model, repo, branch, profile, and autoApprove when present", () => {
-    const m = buildSessionInfoModel(
+  it("includes repo and branch when present", () => {
+    const loc = getSessionLocation(
       makeSession({
-        model: "claude-opus-4-7",
         git_remote_url: "git@github.com:bxnlabs/argus.git",
         worktree_branch: "jeev/bxn-97",
-        profile: "default",
-        auto_approve: true,
       }),
-      "idle",
       "/home/u",
     );
-    expect(m.details.model).toBe("claude-opus-4-7");
-    expect(m.location.repo).toBe("bxnlabs/argus");
-    expect(m.location.branch).toBe("jeev/bxn-97");
-    expect(m.profile).toBe("default");
-    expect(m.autoApprove).toBe(true);
-  });
-
-  it("exposes absolute timestamps and a relative updated time", () => {
-    const m = buildSessionInfoModel(makeSession(), "idle", "/home/u");
-    expect(m.createdAbsolute).toBe("2026-05-20 14:32:05");
-    expect(m.updatedAbsolute).toBe("2026-05-28 09:15:00");
-    expect(typeof m.updatedRelative).toBe("string");
+    expect(loc.repo).toBe("bxnlabs/argus");
+    expect(loc.branch).toBe("jeev/bxn-97");
   });
 });

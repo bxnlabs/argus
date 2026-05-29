@@ -1,34 +1,23 @@
-export function getStatusColor(status?: string) {
-  switch (status) {
-    case "active":
-      return "bg-green-500";
-    case "idle":
-      return "bg-muted-foreground";
-    case "dead":
-      return "bg-red-500/50";
-    default:
-      return "bg-muted-foreground/40";
-  }
+export interface StatusMeta {
+  label: string;
+  color: string;
+  animation: string;
 }
 
-export function getStatusAnimation(status?: string) {
-  switch (status) {
-    case "active":
-      return "animate-pulse-green";
-    default:
-      return "";
-  }
-}
+const STATUS: Record<string, StatusMeta> = {
+  active: { label: "Active", color: "bg-green-500", animation: "animate-pulse-green" },
+  idle: { label: "Idle", color: "bg-muted-foreground", animation: "" },
+  dead: { label: "Dead", color: "bg-red-500/50", animation: "" },
+};
 
-export function getStatusLabel(status?: string) {
-  switch (status) {
-    case "active":
-      return "Active";
-    case "idle":
-      return "Idle";
-    case "dead":
-      return "Dead";
-    default:
-      return "";
-  }
+const UNKNOWN: StatusMeta = {
+  label: "",
+  color: "bg-muted-foreground/40",
+  animation: "",
+};
+
+// getStatusMeta maps a session status to its dot color, pulse animation, and
+// human label. Unknown or undefined statuses get a muted, unlabeled fallback.
+export function getStatusMeta(status?: string): StatusMeta {
+  return (status && STATUS[status]) || UNKNOWN;
 }

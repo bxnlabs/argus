@@ -12,14 +12,10 @@ import {
 } from "@/components/ui/tooltip";
 import { ProviderBadge } from "@/components/ProviderBadge";
 import { Badge } from "@/components/ui/badge";
-import {
-  getStatusAnimation,
-  getStatusColor,
-  getStatusLabel,
-} from "@/lib/sessionStatus";
-import { cn } from "@/lib/utils";
+import { getStatusMeta } from "@/lib/sessionStatus";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import type { Session } from "@/types";
-import { buildSessionInfoModel } from "./fields";
+import { getSessionLocation } from "./fields";
 import { CopyableField } from "./CopyableField";
 
 interface SessionInfoDialogProps {
@@ -35,9 +31,8 @@ export function SessionInfoDialog({
   homeDir,
   onClose,
 }: SessionInfoDialogProps) {
-  const model = session
-    ? buildSessionInfoModel(session, status, homeDir)
-    : null;
+  const location = session ? getSessionLocation(session, homeDir) : null;
+  const statusMeta = getStatusMeta(status);
 
   return (
     <Dialog open={session !== null} onOpenChange={(o) => !o && onClose()}>
@@ -50,12 +45,12 @@ export function SessionInfoDialog({
           (event.currentTarget as HTMLElement).focus();
         }}
       >
-        {model && (
+        {session && location && (
           <>
             <DialogHeader className="text-left">
               <div className="mb-1.5 flex items-center gap-1.5">
-                <ProviderBadge type={model.providerType} />
-                {model.autoApprove && (
+                <ProviderBadge type={session.provider_type} />
+                {session.auto_approve && (
                   <Badge
                     variant="outline"
                     className="border-current px-1 py-0 text-[10px] font-medium text-yellow-500"
@@ -64,20 +59,20 @@ export function SessionInfoDialog({
                   </Badge>
                 )}
               </div>
-              <DialogTitle asChild>
-                <div className="min-w-0 truncate">{model.name}</div>
+              <DialogTitle className="min-w-0 truncate">
+                {session.name || "Session"}
               </DialogTitle>
               <DialogDescription asChild>
                 <div className="flex items-center gap-1.5">
                   <span
                     className={cn(
                       "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                      getStatusColor(model.status),
-                      getStatusAnimation(model.status),
+                      statusMeta.color,
+                      statusMeta.animation,
                     )}
                   />
                   <span>
-                    {getStatusLabel(model.status) || "Unknown"}
+                    {statusMeta.label || "Unknown"}
                     {" · "}
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -85,15 +80,15 @@ export function SessionInfoDialog({
                           tabIndex={0}
                           className="cursor-default rounded-sm underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]"
                         >
-                          {model.updatedRelative}
+                          {formatRelativeTime(session.updated_at)}
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <div>Created: {model.createdAbsolute}</div>
-                        <div>Updated: {model.updatedAbsolute}</div>
+                        <div>Created: {session.created_at}</div>
+                        <div>Updated: {session.updated_at}</div>
                       </TooltipContent>
                     </Tooltip>
-                    {model.profile ? ` · ${model.profile}` : ""}
+                    {session.profile ? ` · ${session.profile}` : ""}
                   </span>
                 </div>
               </DialogDescription>
@@ -104,18 +99,14 @@ export function SessionInfoDialog({
                 <div className="text-muted-foreground text-xs font-bold uppercase tracking-wide">
                   Details
                 </div>
-                <CopyableField
-                  label="ID"
-                  displayValue={model.details.id}
-                  inline
-                />
-                {model.details.model && (
+                <CopyableField label="ID" displayValue={session.id} inline />
+                {session.model && (
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-muted-foreground w-20 flex-shrink-0">
                       Model
                     </span>
                     <span className="min-w-0 flex-1 truncate">
-                      {model.details.model}
+                      {session.model}
                     </span>
                   </div>
                 )}
@@ -127,26 +118,20 @@ export function SessionInfoDialog({
                 </div>
                 <CopyableField
                   label="Directory"
-                  displayValue={model.location.directory.display}
-                  copyValue={model.location.directory.copy}
+                  displayValue={location.directory.display}
+                  copyValue={location.directory.copy}
                 />
-                {model.location.repo && (
-                  <CopyableField
-                    label="Repo"
-                    displayValue={model.location.repo}
-                  />
+                {location.repo && (
+                  <CopyableField label="Repo" displayValue={location.repo} />
                 )}
-                {model.location.branch && (
-                  <CopyableField
-                    label="Branch"
-                    displayValue={model.location.branch}
-                  />
+                {location.branch && (
+                  <CopyableField label="Branch" displayValue={location.branch} />
                 )}
-                {model.location.worktreeDir && (
+                {location.worktreeDir && (
                   <CopyableField
                     label="Worktree dir"
-                    displayValue={model.location.worktreeDir.display}
-                    copyValue={model.location.worktreeDir.copy}
+                    displayValue={location.worktreeDir.display}
+                    copyValue={location.worktreeDir.copy}
                   />
                 )}
               </div>

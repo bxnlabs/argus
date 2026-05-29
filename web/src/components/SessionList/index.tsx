@@ -11,11 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
-import {
-  getStatusColor,
-  getStatusAnimation,
-  getStatusLabel,
-} from "@/lib/sessionStatus";
+import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
 
@@ -121,6 +117,8 @@ const SessionItem = memo(function SessionItem({
     : null;
   const isUnread = !!unreadSince || !!userMarkedUnreadAt;
   const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, userMarkedUnreadAt);
+  const statusMeta = getStatusMeta(statusValue);
+  const statusLabel = isUnread ? "Unread" : statusMeta.label;
 
   return (
     <div
@@ -166,15 +164,12 @@ const SessionItem = memo(function SessionItem({
               <div
                 className={cn(
                   "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                  isUnread ? "bg-blue-500" : getStatusColor(statusValue),
-                  !isUnread && getStatusAnimation(statusValue)
+                  isUnread ? "bg-blue-500" : statusMeta.color,
+                  !isUnread && statusMeta.animation
                 )}
               />
               <span className="text-muted-foreground min-w-0 truncate text-xs">
-                {(() => {
-                  const label = isUnread ? "Unread" : getStatusLabel(statusValue);
-                  return label ? `${label} · ` : "";
-                })()}
+                {statusLabel ? `${statusLabel} · ` : ""}
                 {formatRelativeTime(session.updated_at)}
                 {session.profile ? ` · ${session.profile}` : ""}
               </span>

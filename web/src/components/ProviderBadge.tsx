@@ -25,7 +25,7 @@ export function ProviderBadge({ type, className }: ProviderBadgeProps) {
       )}
       style={hex ? { color: hex } : undefined}
     >
-      <ProviderLogo type={type} className="h-3 w-3" />
+      <ProviderLogo type={type} className="h-3 w-3" decorative />
       {providerLabel(type)}
     </Badge>
   );

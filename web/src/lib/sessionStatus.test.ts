@@ -1,28 +1,32 @@
 import { describe, it, expect } from "vitest";
-import {
-  getStatusColor,
-  getStatusLabel,
-  getStatusAnimation,
-} from "./sessionStatus";
+import { getStatusMeta } from "./sessionStatus";
 
-describe("sessionStatus helpers", () => {
-  it("maps known statuses to colors", () => {
-    expect(getStatusColor("active")).toBe("bg-green-500");
-    expect(getStatusColor("idle")).toBe("bg-muted-foreground");
-    expect(getStatusColor("dead")).toBe("bg-red-500/50");
-    expect(getStatusColor(undefined)).toBe("bg-muted-foreground/40");
+describe("getStatusMeta", () => {
+  it("maps known statuses to color, animation, and label", () => {
+    expect(getStatusMeta("active")).toEqual({
+      label: "Active",
+      color: "bg-green-500",
+      animation: "animate-pulse-green",
+    });
+    expect(getStatusMeta("idle")).toEqual({
+      label: "Idle",
+      color: "bg-muted-foreground",
+      animation: "",
+    });
+    expect(getStatusMeta("dead")).toEqual({
+      label: "Dead",
+      color: "bg-red-500/50",
+      animation: "",
+    });
   });
 
-  it("labels known statuses and returns empty string otherwise", () => {
-    expect(getStatusLabel("active")).toBe("Active");
-    expect(getStatusLabel("idle")).toBe("Idle");
-    expect(getStatusLabel("dead")).toBe("Dead");
-    expect(getStatusLabel(undefined)).toBe("");
-  });
-
-  it("animates only the active status", () => {
-    expect(getStatusAnimation("active")).toBe("animate-pulse-green");
-    expect(getStatusAnimation("idle")).toBe("");
-    expect(getStatusAnimation(undefined)).toBe("");
+  it("falls back to a muted, unlabeled meta for unknown or undefined status", () => {
+    const fallback = {
+      label: "",
+      color: "bg-muted-foreground/40",
+      animation: "",
+    };
+    expect(getStatusMeta(undefined)).toEqual(fallback);
+    expect(getStatusMeta("bogus")).toEqual(fallback);
   });
 });

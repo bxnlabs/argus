@@ -8,11 +8,16 @@ interface BrandMark {
   path: string;
 }
 
+// Providers with a vendored brand mark; "shell" has none and renders a terminal
+// glyph instead. Typing BRAND over this exhaustive set makes adding a new
+// provider a compile error until its mark is supplied.
+type BrandedProvider = Exclude<ProviderType, "shell">;
+
 // Brand marks vendored from simple-icons (https://simpleicons.org): single-path
 // 24x24 marks. `path` is the `d` attribute and `hex` the brand color, copied
 // verbatim from each icon's source (slugs: claude, openai via jsdelivr, googlegemini).
 // Exception: codex uses "currentColor" instead of its source black for dark-mode visibility.
-const BRAND: Partial<Record<ProviderType, BrandMark>> = {
+const BRAND: Record<BrandedProvider, BrandMark> = {
   claude: {
     label: "Claude",
     hex: "#D97757",
@@ -30,44 +35,60 @@ const BRAND: Partial<Record<ProviderType, BrandMark>> = {
   },
 };
 
+// brandMark returns a provider's vendored mark, or null for shell. The `?? null`
+// is a runtime safety net: provider_type comes from the backend, so a value
+// outside the ProviderType union (e.g. a provider the UI predates) degrades to
+// the terminal glyph rather than throwing.
+function brandMark(type: ProviderType): BrandMark | null {
+  return type === "shell" ? null : (BRAND[type] ?? null);
+}
+
 // providerLabel returns the brand name for a provider, or "Terminal" for shell
 // and any unknown provider (matching ProviderLogo's fallback glyph).
 export function providerLabel(type: ProviderType): string {
-  return BRAND[type]?.label ?? "Terminal";
+  return brandMark(type)?.label ?? "Terminal";
 }
 
 // providerColor returns the provider's brand color, or undefined for shell and
 // any unknown provider (whose glyph is rendered in the muted foreground color).
 // Codex resolves to "currentColor" so callers should treat it as untinted.
 export function providerColor(type: ProviderType): string | undefined {
-  return BRAND[type]?.hex;
+  return brandMark(type)?.hex;
 }
 
 interface ProviderLogoProps {
   type: ProviderType;
   className?: string;
+  // Hide from assistive tech; use when the provider name is already shown as
+  // adjacent text (e.g. inside ProviderBadge) to avoid a double announcement.
+  decorative?: boolean;
 }
 
 // ProviderLogo renders the provider's brand mark (Claude/Codex/Gemini) or a
 // terminal glyph for shell and any unknown provider. Size via className.
-export function ProviderLogo({ type, className }: ProviderLogoProps) {
-  const mark = BRAND[type];
+export function ProviderLogo({
+  type,
+  className,
+  decorative = false,
+}: ProviderLogoProps) {
+  const mark = brandMark(type);
+  const a11yProps = decorative
+    ? { "aria-hidden": true }
+    : { role: "img", "aria-label": mark?.label ?? "Terminal" };
   if (!mark) {
     return (
       <Terminal
-        role="img"
-        aria-label="Terminal"
-        className={cn("text-muted-foreground", className)}
+        {...a11yProps}
+        className={cn("text-muted-foreground h-4 w-4 flex-shrink-0", className)}
       />
     );
   }
   return (
     <svg
-      role="img"
-      aria-label={mark.label}
+      {...a11yProps}
       viewBox="0 0 24 24"
       fill={mark.hex}
-      className={className}
+      className={cn("h-4 w-4 flex-shrink-0", className)}
     >
       <path d={mark.path} />
     </svg>
