@@ -31,4 +31,16 @@ describe("copyToClipboard", () => {
     expect(ok).toBe(true);
     expect(exec).toHaveBeenCalledWith("copy");
   });
+
+  it("falls back to execCommand when clipboard.writeText rejects", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("Permission denied"));
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const exec = vi.spyOn(document, "execCommand").mockReturnValue(true);
+    const ok = await copyToClipboard("test");
+    expect(ok).toBe(true);
+    expect(exec).toHaveBeenCalledWith("copy");
+  });
 });
