@@ -88,9 +88,14 @@ export function NewSessionDialog({
     setBranch("");
   }, [source, sourceTab, providerType]);
 
+  const restoreFocus = (ref: React.RefObject<HTMLButtonElement | null>) => {
+    requestAnimationFrame(() => ref.current?.focus());
+  };
+
   const closeBranchPicker = () => {
     childPickerClosingRef.current = true;
     setShowBranchPicker(false);
+    restoreFocus(branchTriggerRef);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -233,7 +238,10 @@ export function NewSessionDialog({
       <SourcePicker
         open={showSourcePicker}
         onOpenChange={(o) => {
-          if (!o) childPickerClosingRef.current = true;
+          if (!o) {
+            childPickerClosingRef.current = true;
+            restoreFocus(sourceTriggerRef);
+          }
           setShowSourcePicker(o);
         }}
         onSelect={(value, tab) => {
@@ -248,7 +256,10 @@ export function NewSessionDialog({
         <BranchDialog
           open={showBranchPicker}
           onOpenChange={(o) => {
-            if (!o) childPickerClosingRef.current = true;
+            if (!o) {
+              childPickerClosingRef.current = true;
+              restoreFocus(branchTriggerRef);
+            }
             setShowBranchPicker(o);
           }}
         >
