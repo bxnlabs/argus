@@ -167,6 +167,14 @@ describe("NewSessionDialog keyboard flow", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it("right-aligns the footer action buttons (consistent across mobile/desktop)", async () => {
+    renderDialog();
+    await screen.findByRole("dialog");
+    const createButton = screen.getByRole("button", { name: "Create" });
+    const buttonRow = createButton.parentElement as HTMLElement;
+    expect(buttonRow.className).toContain("justify-end");
+  });
+
   it("returns focus to the Source trigger after the picker closes", async () => {
     renderDialog();
     await screen.findByRole("dialog");

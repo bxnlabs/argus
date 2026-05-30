@@ -246,7 +246,7 @@ export function NewSessionDialog({
                   create
                 </span>
               )}
-              <div className="flex gap-2">
+              <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
                 </Button>
