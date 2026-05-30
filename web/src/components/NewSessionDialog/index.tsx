@@ -99,9 +99,7 @@ export function NewSessionDialog({
     restoreFocus(branchTriggerRef);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const createSession = () => {
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
@@ -130,6 +128,11 @@ export function NewSessionDialog({
     onClose();
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createSession();
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -148,9 +151,10 @@ export function NewSessionDialog({
             }
           }}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
-              handleSubmit(e as unknown as React.FormEvent);
+              createSession();
             }
           }}
         >
@@ -168,6 +172,7 @@ export function NewSessionDialog({
                 onKeyDown={(e) => {
                   // Enter never submits; submit is ⌘/Ctrl+Enter or the Create
                   // button. Let ⌘/Ctrl+Enter bubble to the dialog handler.
+                  if (e.nativeEvent.isComposing) return;
                   if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                   }
