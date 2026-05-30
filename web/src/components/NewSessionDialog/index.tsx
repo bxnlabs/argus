@@ -237,7 +237,7 @@ export function NewSessionDialog({
               />
             </div>
 
-            <DialogFooter className="sm:items-center sm:justify-between">
+            <DialogFooter className="sm:items-center">
               {!isMobile && (
                 <span className="text-muted-foreground hidden text-xs sm:inline-flex sm:items-center sm:gap-1">
                   <kbd className="bg-muted rounded px-1.5 py-0.5">
@@ -246,7 +246,7 @@ export function NewSessionDialog({
                   create
                 </span>
               )}
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 sm:ml-auto">
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
                 </Button>
