@@ -171,9 +171,15 @@ const SessionItem = memo(function SessionItem({
               <span className="text-muted-foreground min-w-0 truncate text-xs">
                 {statusLabel ? `${statusLabel} · ` : ""}
                 {formatRelativeTime(session.updated_at)}
-                {session.profile ? ` · ${session.profile}` : ""}
               </span>
             </div>
+            {/* Profile (when set) — its own line, right after status */}
+            {session.profile && (
+              <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
+                <Settings2 className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate">{session.profile}</span>
+              </span>
+            )}
             {/* Line 3: Directory / Repo */}
             <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
               {session.git_parent_dir || session.git_remote_url || repoPath ? (
