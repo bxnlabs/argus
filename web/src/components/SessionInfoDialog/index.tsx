@@ -88,7 +88,6 @@ export function SessionInfoDialog({
                         <div>Updated: {session.updated_at}</div>
                       </TooltipContent>
                     </Tooltip>
-                    {session.profile ? ` · ${session.profile}` : ""}
                   </span>
                 </div>
               </DialogDescription>
@@ -100,6 +99,16 @@ export function SessionInfoDialog({
                   Details
                 </div>
                 <CopyableField label="ID" displayValue={session.id} inline />
+                {session.profile && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground w-20 flex-shrink-0">
+                      Profile
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {session.profile}
+                    </span>
+                  </div>
+                )}
                 {session.model && (
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-muted-foreground w-20 flex-shrink-0">
