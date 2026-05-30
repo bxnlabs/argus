@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { BranchPicker } from "@/components/BranchPicker";
 import { cn } from "@/lib/utils";
+import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
 import type { ProviderType, CreateSessionParams } from "@/types";
 
@@ -231,13 +232,23 @@ export function NewSessionDialog({
               />
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!name.trim()}>
-                Create
-              </Button>
+            <DialogFooter className="sm:items-center sm:justify-between">
+              {!isMobile && (
+                <span className="text-muted-foreground hidden text-xs sm:inline-flex sm:items-center sm:gap-1">
+                  <kbd className="bg-muted rounded px-1.5 py-0.5">
+                    {isMac() ? "⌘↵" : "Ctrl ↵"}
+                  </kbd>
+                  create
+                </span>
+              )}
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={!name.trim()}>
+                  Create
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         </DialogContent>
