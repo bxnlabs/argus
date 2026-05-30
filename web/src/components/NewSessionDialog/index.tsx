@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { ProviderSelector } from "./ProviderSelector";
+import { PickerTriggerField } from "./PickerTriggerField";
 import { SourcePicker } from "@/components/SourcePicker";
 import { useProfilesQuery } from "@/data/sessions";
 import { useGitCheckQuery } from "@/data/git/queries";
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { BranchPicker } from "@/components/BranchPicker";
 import { cn } from "@/lib/utils";
+import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
 import type { ProviderType, CreateSessionParams } from "@/types";
 
@@ -54,6 +56,8 @@ export function NewSessionDialog({
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const childPickerClosingRef = useRef(false);
+  const sourceTriggerRef = useRef<HTMLButtonElement>(null);
+  const branchTriggerRef = useRef<HTMLButtonElement>(null);
   const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
   const { isMobile } = useViewport();
@@ -85,14 +89,17 @@ export function NewSessionDialog({
     setBranch("");
   }, [source, sourceTab, providerType]);
 
+  const restoreFocus = (ref: React.RefObject<HTMLButtonElement | null>) => {
+    requestAnimationFrame(() => ref.current?.focus());
+  };
+
   const closeBranchPicker = () => {
     childPickerClosingRef.current = true;
     setShowBranchPicker(false);
+    restoreFocus(branchTriggerRef);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const createSession = () => {
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
@@ -121,6 +128,11 @@ export function NewSessionDialog({
     onClose();
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createSession();
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -139,9 +151,10 @@ export function NewSessionDialog({
             }
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && e.shiftKey) {
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
-              handleSubmit(e as unknown as React.FormEvent);
+              createSession();
             }
           }}
         >
@@ -156,35 +169,38 @@ export function NewSessionDialog({
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter never submits; submit is ⌘/Ctrl+Enter or the Create
+                  // button. Let ⌘/Ctrl+Enter bubble to the dialog handler.
+                  if (e.nativeEvent.isComposing) return;
+                  if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                  }
+                }}
                 placeholder="my-feature"
                 autoFocus
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Source</label>
-              <Input
-                value={source}
-                readOnly
-                onClick={() => setShowSourcePicker(true)}
-                placeholder="Click to select a folder or repository..."
-                className="cursor-pointer"
-              />
-            </div>
+            <PickerTriggerField
+              ref={sourceTriggerRef}
+              label="Source"
+              value={source}
+              placeholder="Select a folder or repository..."
+              onOpen={() => setShowSourcePicker(true)}
+              open={showSourcePicker}
+            />
 
             {showBranchField && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Branch <span className="text-muted-foreground font-normal">(optional)</span>
-                </label>
-                <Input
-                  value={branch}
-                  readOnly
-                  onClick={() => setShowBranchPicker(true)}
-                  placeholder="Click to select or type a branch..."
-                  className="cursor-pointer"
-                />
-              </div>
+              <PickerTriggerField
+                ref={branchTriggerRef}
+                label="Branch"
+                optional
+                value={branch}
+                placeholder="Select or type a branch..."
+                onOpen={() => setShowBranchPicker(true)}
+                open={showBranchPicker}
+              />
             )}
 
             {profiles.length > 0 && (
@@ -221,13 +237,23 @@ export function NewSessionDialog({
               />
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!name.trim()}>
-                Create
-              </Button>
+            <DialogFooter className="sm:items-center sm:justify-between">
+              {!isMobile && (
+                <span className="text-muted-foreground hidden text-xs sm:inline-flex sm:items-center sm:gap-1">
+                  <kbd className="bg-muted rounded px-1.5 py-0.5">
+                    {isMac() ? "⌘↵" : "Ctrl ↵"}
+                  </kbd>
+                  create
+                </span>
+              )}
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={!name.trim()}>
+                  Create
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -235,7 +261,10 @@ export function NewSessionDialog({
       <SourcePicker
         open={showSourcePicker}
         onOpenChange={(o) => {
-          if (!o) childPickerClosingRef.current = true;
+          if (!o) {
+            childPickerClosingRef.current = true;
+            restoreFocus(sourceTriggerRef);
+          }
           setShowSourcePicker(o);
         }}
         onSelect={(value, tab) => {
@@ -250,7 +279,10 @@ export function NewSessionDialog({
         <BranchDialog
           open={showBranchPicker}
           onOpenChange={(o) => {
-            if (!o) childPickerClosingRef.current = true;
+            if (!o) {
+              childPickerClosingRef.current = true;
+              restoreFocus(branchTriggerRef);
+            }
             setShowBranchPicker(o);
           }}
         >
