@@ -32,6 +32,20 @@ describe("PickerTriggerField", () => {
     expect(screen.getByText("~/projects/argus")).toBeTruthy();
   });
 
+  it("includes the field label in the button's accessible name when a value is set", () => {
+    render(
+      <PickerTriggerField
+        label="Branch"
+        value="main"
+        placeholder="Select a branch..."
+        onOpen={() => {}}
+      />,
+    );
+    // Accessible name composes the label and the value so screen readers
+    // announce "Branch main" rather than a context-less "main".
+    expect(screen.getByRole("button", { name: "Branch main" })).toBeTruthy();
+  });
+
   it("renders an optional tag when optional is set", () => {
     render(
       <PickerTriggerField
