@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { ProviderSelector } from "./ProviderSelector";
+import { PickerTriggerField } from "./PickerTriggerField";
 import { SourcePicker } from "@/components/SourcePicker";
 import { useProfilesQuery } from "@/data/sessions";
 import { useGitCheckQuery } from "@/data/git/queries";
@@ -54,6 +55,8 @@ export function NewSessionDialog({
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const childPickerClosingRef = useRef(false);
+  const sourceTriggerRef = useRef<HTMLButtonElement>(null);
+  const branchTriggerRef = useRef<HTMLButtonElement>(null);
   const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
   const { isMobile } = useViewport();
@@ -161,30 +164,25 @@ export function NewSessionDialog({
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Source</label>
-              <Input
-                value={source}
-                readOnly
-                onClick={() => setShowSourcePicker(true)}
-                placeholder="Click to select a folder or repository..."
-                className="cursor-pointer"
-              />
-            </div>
+            <PickerTriggerField
+              ref={sourceTriggerRef}
+              label="Source"
+              value={source}
+              placeholder="Select a folder or repository..."
+              onOpen={() => setShowSourcePicker(true)}
+              open={showSourcePicker}
+            />
 
             {showBranchField && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Branch <span className="text-muted-foreground font-normal">(optional)</span>
-                </label>
-                <Input
-                  value={branch}
-                  readOnly
-                  onClick={() => setShowBranchPicker(true)}
-                  placeholder="Click to select or type a branch..."
-                  className="cursor-pointer"
-                />
-              </div>
+              <PickerTriggerField
+                ref={branchTriggerRef}
+                label="Branch"
+                optional
+                value={branch}
+                placeholder="Select or type a branch..."
+                onOpen={() => setShowBranchPicker(true)}
+                open={showBranchPicker}
+              />
             )}
 
             {profiles.length > 0 && (
