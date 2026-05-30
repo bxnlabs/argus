@@ -147,7 +147,7 @@ export function NewSessionDialog({
             }
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && e.shiftKey) {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               handleSubmit(e as unknown as React.FormEvent);
             }
@@ -164,6 +164,13 @@ export function NewSessionDialog({
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter never submits; submit is ⌘/Ctrl+Enter or the Create
+                  // button. Let ⌘/Ctrl+Enter bubble to the dialog handler.
+                  if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                  }
+                }}
                 placeholder="my-feature"
                 autoFocus
               />
