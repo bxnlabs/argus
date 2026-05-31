@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
@@ -46,11 +46,31 @@ export function readMenuState(
 // SectionHeader
 // ---------------------------------------------------------------------------
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
+function SectionHeader({
+  children,
+  collapsed,
+  onToggle,
+}: {
+  children: React.ReactNode;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="text-muted-foreground px-2 pt-2 pb-1 text-xs font-bold">
-      {children}
-    </div>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      className="text-muted-foreground hover:text-foreground flex w-full items-center px-2 pt-2 pb-1 text-xs font-bold transition-colors"
+    >
+      <span>{children}</span>
+      <ChevronRight
+        aria-hidden="true"
+        className={cn(
+          "ml-auto h-3.5 w-3.5 transition-transform",
+          !collapsed && "rotate-90",
+        )}
+      />
+    </button>
   );
 }
 
