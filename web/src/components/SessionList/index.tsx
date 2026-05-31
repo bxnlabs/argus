@@ -14,6 +14,12 @@ import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/
 import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
+import {
+  loadSectionCollapse,
+  saveSectionCollapse,
+  toggleSection,
+  type SidebarSectionKey,
+} from "@/lib/sidebarSections";
 
 // Split sessions into pinned and the rest, each ordered by updated_at
 // descending. Returns new arrays (does not mutate the input).
@@ -406,6 +412,16 @@ export const SessionList = memo(function SessionList({
     return () => clearInterval(id);
   }, []);
 
+  // Collapsed/expanded state for the Pinned and Recents sections, hydrated
+  // from localStorage on mount and persisted whenever it changes.
+  const [sectionCollapse, setSectionCollapse] = useState(loadSectionCollapse);
+  useEffect(() => {
+    saveSectionCollapse(sectionCollapse);
+  }, [sectionCollapse]);
+  const handleToggleSection = useCallback((key: SidebarSectionKey) => {
+    setSectionCollapse((prev) => toggleSection(prev, key));
+  }, []);
+
   // Pinned sessions in their own group; the rest below. Each updated_at DESC.
   const { pinned, rest } = useMemo(() => partitionSessions(sessions), [sessions]);
 
@@ -514,16 +530,26 @@ export const SessionList = memo(function SessionList({
           {/* Pinned section — only when at least one session is pinned */}
           {!isLoading && !isError && pinned.length > 0 && (
             <>
-              <SectionHeader>Pinned</SectionHeader>
-              {pinned.map(renderItem)}
+              <SectionHeader
+                collapsed={sectionCollapse.pinned}
+                onToggle={() => handleToggleSection("pinned")}
+              >
+                Pinned
+              </SectionHeader>
+              {!sectionCollapse.pinned && pinned.map(renderItem)}
             </>
           )}
 
           {/* Recents section — the rest */}
           {!isLoading && !isError && rest.length > 0 && (
             <>
-              <SectionHeader>Recents</SectionHeader>
-              {rest.map(renderItem)}
+              <SectionHeader
+                collapsed={sectionCollapse.recents}
+                onToggle={() => handleToggleSection("recents")}
+              >
+                Recents
+              </SectionHeader>
+              {!sectionCollapse.recents && rest.map(renderItem)}
             </>
           )}
         </div>
