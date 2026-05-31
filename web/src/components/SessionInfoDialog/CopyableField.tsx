@@ -9,15 +9,12 @@ interface CopyableFieldProps {
   displayValue: string;
   // What gets copied; defaults to displayValue (e.g. the full absolute path).
   copyValue?: string;
-  // Inline layout (label + value on one row) instead of a boxed field.
-  inline?: boolean;
 }
 
 export function CopyableField({
   label,
   displayValue,
   copyValue,
-  inline = false,
 }: CopyableFieldProps) {
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -59,20 +56,6 @@ export function CopyableField({
       <Icon className="h-3.5 w-3.5" />
     </button>
   );
-
-  if (inline) {
-    return (
-      <div ref={rootRef} className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground w-20 flex-shrink-0">
-          {label}
-        </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-xs">
-          {displayValue}
-        </span>
-        {copyButton}
-      </div>
-    );
-  }
 
   return (
     <div ref={rootRef} className="space-y-1">

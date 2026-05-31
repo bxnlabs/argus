@@ -238,20 +238,20 @@ export function NewSessionDialog({
             </div>
 
             <DialogFooter className="sm:items-center">
-              {!isMobile && (
-                <span className="text-muted-foreground hidden text-xs sm:inline-flex sm:items-center sm:gap-1">
-                  <kbd className="bg-muted rounded px-1.5 py-0.5">
-                    {isMac() ? "⌘↵" : "Ctrl ↵"}
-                  </kbd>
-                  create
-                </span>
-              )}
               <div className="flex justify-end gap-2 sm:ml-auto">
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
                 </Button>
                 <Button type="submit" disabled={!name.trim()}>
                   Create
+                  {!isMobile && (
+                    <kbd
+                      aria-hidden="true"
+                      className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
+                    >
+                      {isMac() ? "⌘↵" : "Ctrl ↵"}
+                    </kbd>
+                  )}
                 </Button>
               </div>
             </DialogFooter>
