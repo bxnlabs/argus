@@ -167,6 +167,19 @@ describe("NewSessionDialog keyboard flow", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it("right-aligns the footer action buttons (consistent across mobile/desktop)", async () => {
+    renderDialog();
+    await screen.findByRole("dialog");
+    const createButton = screen.getByRole("button", { name: "Create" });
+    const buttonRow = createButton.parentElement as HTMLElement;
+    // justify-end right-aligns the buttons in the mobile column layout;
+    // sm:ml-auto pushes the whole row right once the footer becomes a row,
+    // so the buttons stay right-aligned even when the keyboard-hint child is
+    // absent (e.g. landscape phones where the footer is a row but isMobile).
+    expect(buttonRow.className).toContain("justify-end");
+    expect(buttonRow.className).toContain("sm:ml-auto");
+  });
+
   it("returns focus to the Source trigger after the picker closes", async () => {
     renderDialog();
     await screen.findByRole("dialog");

@@ -87,3 +87,46 @@ describe("SessionInfoDialog timestamp tooltip", () => {
     expect(screen.getAllByText(/^Updated:/).length).toBeGreaterThan(0);
   });
 });
+
+describe("SessionInfoDialog profile field", () => {
+  it("renders the profile in the Details section, not in the description", async () => {
+    render(
+      <TooltipProvider>
+        <SessionInfoDialog
+          session={makeSession({ profile: "review" })}
+          status="idle"
+          homeDir="/home/user"
+          onClose={() => {}}
+        />
+      </TooltipProvider>,
+    );
+    await screen.findByRole("dialog");
+
+    // A labeled "Profile" field exists (Details fields use labels; the
+    // description does not).
+    expect(screen.getByText("Profile")).toBeTruthy();
+    expect(screen.getByText("review")).toBeTruthy();
+
+    // The profile must no longer be appended to the status/description line.
+    const description = document.querySelector(
+      '[data-slot="dialog-description"]',
+    ) as HTMLElement | null;
+    expect(description).not.toBeNull();
+    expect(description!.textContent).not.toContain("review");
+  });
+
+  it("omits the Profile field when no profile is set", async () => {
+    render(
+      <TooltipProvider>
+        <SessionInfoDialog
+          session={makeSession({ profile: null })}
+          status="idle"
+          homeDir="/home/user"
+          onClose={() => {}}
+        />
+      </TooltipProvider>,
+    );
+    await screen.findByRole("dialog");
+    expect(screen.queryByText("Profile")).toBeNull();
+  });
+});
