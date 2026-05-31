@@ -249,7 +249,7 @@ export function NewSessionDialog({
                       aria-hidden="true"
                       className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
                     >
-                      {isMac() ? "⌘↵" : "Ctrl ↵"}
+                      {isMac() ? "⌘ ↵" : "Ctrl ↵"}
                     </kbd>
                   )}
                 </Button>

@@ -51,7 +51,7 @@ export function InlineCommentForm({ onSubmit, onCancel, initialBody = "", submit
           >
             {submitLabel}
             <kbd className="text-[10px] opacity-60">
-              {isMac() ? "⌘" : "Ctrl"}-Enter
+              {isMac() ? "⌘ ↵" : "Ctrl ↵"}
             </kbd>
           </Button>
       </div>

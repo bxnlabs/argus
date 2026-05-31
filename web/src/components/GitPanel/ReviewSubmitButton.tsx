@@ -177,7 +177,7 @@ export function ReviewSubmitButton({
             >
               Submit review
               <kbd className="text-[10px] opacity-60">
-                {isMac() ? "⌘" : "Ctrl"}-Enter
+                {isMac() ? "⌘ ↵" : "Ctrl ↵"}
               </kbd>
             </Button>
           </div>
