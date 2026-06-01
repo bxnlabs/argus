@@ -52,7 +52,7 @@ export function readMenuState(
 // SectionHeader
 // ---------------------------------------------------------------------------
 
-function SectionHeader({
+export function SectionHeader({
   children,
   collapsed,
   onToggle,
