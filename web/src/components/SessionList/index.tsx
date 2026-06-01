@@ -9,11 +9,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
+import {
+  loadSectionCollapse,
+  saveSectionCollapse,
+  toggleSection,
+  type SidebarSectionKey,
+} from "@/lib/sidebarSections";
 
 // Split sessions into pinned and the rest, each ordered by updated_at
 // descending. Returns new arrays (does not mutate the input).
@@ -46,11 +52,31 @@ export function readMenuState(
 // SectionHeader
 // ---------------------------------------------------------------------------
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
+export function SectionHeader({
+  children,
+  collapsed,
+  onToggle,
+}: {
+  children: React.ReactNode;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="text-muted-foreground px-2 pt-2 pb-1 text-xs font-bold">
-      {children}
-    </div>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      className="text-muted-foreground hover:text-foreground flex w-full items-center px-2 pt-2 pb-1 text-xs font-bold transition-colors"
+    >
+      <span>{children}</span>
+      <ChevronRight
+        aria-hidden="true"
+        className={cn(
+          "ml-auto h-3.5 w-3.5 transition-transform",
+          !collapsed && "rotate-90",
+        )}
+      />
+    </button>
   );
 }
 
@@ -386,6 +412,16 @@ export const SessionList = memo(function SessionList({
     return () => clearInterval(id);
   }, []);
 
+  // Collapsed/expanded state for the Pinned and Recents sections, hydrated
+  // from localStorage on mount and persisted whenever it changes.
+  const [sectionCollapse, setSectionCollapse] = useState(loadSectionCollapse);
+  useEffect(() => {
+    saveSectionCollapse(sectionCollapse);
+  }, [sectionCollapse]);
+  const handleToggleSection = useCallback((key: SidebarSectionKey) => {
+    setSectionCollapse((prev) => toggleSection(prev, key));
+  }, []);
+
   // Pinned sessions in their own group; the rest below. Each updated_at DESC.
   const { pinned, rest } = useMemo(() => partitionSessions(sessions), [sessions]);
 
@@ -494,16 +530,26 @@ export const SessionList = memo(function SessionList({
           {/* Pinned section — only when at least one session is pinned */}
           {!isLoading && !isError && pinned.length > 0 && (
             <>
-              <SectionHeader>Pinned</SectionHeader>
-              {pinned.map(renderItem)}
+              <SectionHeader
+                collapsed={sectionCollapse.pinned}
+                onToggle={() => handleToggleSection("pinned")}
+              >
+                Pinned
+              </SectionHeader>
+              {!sectionCollapse.pinned && pinned.map(renderItem)}
             </>
           )}
 
           {/* Recents section — the rest */}
           {!isLoading && !isError && rest.length > 0 && (
             <>
-              <SectionHeader>Recents</SectionHeader>
-              {rest.map(renderItem)}
+              <SectionHeader
+                collapsed={sectionCollapse.recents}
+                onToggle={() => handleToggleSection("recents")}
+              >
+                Recents
+              </SectionHeader>
+              {!sectionCollapse.recents && rest.map(renderItem)}
             </>
           )}
         </div>

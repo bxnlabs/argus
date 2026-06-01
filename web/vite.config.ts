@@ -13,6 +13,12 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss()],
     test: {
       environment: "jsdom",
+      environmentOptions: {
+        jsdom: {
+          url: "http://localhost",
+        },
+      },
+      setupFiles: ["./src/test-setup.ts"],
     },
     resolve: {
       alias: {
