@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useProfilesQuery } from "@/data/sessions";
+import { isMac } from "@/lib/device";
+import { useViewport } from "@/hooks/useViewport";
 import type { Session } from "@/types";
 
 // Sentinel for the "no profile" option. Radix Select disallows "", and the "@"
@@ -35,6 +37,7 @@ export function ChangeProfileDialog({
 }: ChangeProfileDialogProps) {
   const { data: profilesData } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
+  const { isMobile } = useViewport();
 
   const currentValue = session?.profile ?? NONE_VALUE;
   const [selected, setSelected] = useState(currentValue);
@@ -100,6 +103,14 @@ export function ChangeProfileDialog({
           </Button>
           <Button type="button" onClick={handleApply} disabled={unchanged}>
             Apply
+            {!isMobile && (
+              <kbd
+                aria-hidden="true"
+                className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
+              >
+                {isMac() ? "⌘ ↵" : "Ctrl ↵"}
+              </kbd>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

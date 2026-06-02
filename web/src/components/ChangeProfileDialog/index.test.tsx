@@ -120,4 +120,12 @@ describe("ChangeProfileDialog keyboard submit", () => {
     expect(onApply).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("renders the Cmd/Ctrl+Enter hint on the Apply button (desktop)", async () => {
+    renderDialog({ profile: null });
+    await screen.findByRole("dialog");
+    // The kbd hint is aria-hidden, so the button's accessible name stays "Apply".
+    const apply = screen.getByRole("button", { name: "Apply" });
+    expect(apply.textContent).toMatch(/↵/);
+  });
 });
