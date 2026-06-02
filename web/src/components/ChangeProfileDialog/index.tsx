@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useProfilesQuery } from "@/data/sessions";
+import { isMac } from "@/lib/device";
+import { useViewport } from "@/hooks/useViewport";
 import type { Session } from "@/types";
 
 // Sentinel for the "no profile" option. Radix Select disallows "", and the "@"
@@ -35,6 +37,7 @@ export function ChangeProfileDialog({
 }: ChangeProfileDialogProps) {
   const { data: profilesData } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
+  const { isMobile } = useViewport();
 
   const currentValue = session?.profile ?? NONE_VALUE;
   const [selected, setSelected] = useState(currentValue);
@@ -58,7 +61,31 @@ export function ChangeProfileDialog({
 
   return (
     <Dialog open={session !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent
+        // Capture phase is load-bearing here: the Select trigger is focused on
+        // open and Radix opens the dropdown on *any* Enter (no modifier check),
+        // so a bubble-phase handler would fire too late — the trigger's own
+        // keydown runs first. Running in capture and calling preventDefault
+        // *before* the trigger's handler keeps an unchanged shortcut a true
+        // no-op (Radix composes its handler so it skips opening once the event
+        // is defaultPrevented). stopPropagation is a version-independent hard
+        // stop on top of that.
+        onKeyDownCapture={(e) => {
+          // Ignore keydowns from the portaled Select dropdown: its options
+          // render outside this DOM subtree but still traverse the React tree.
+          // Without this guard, Cmd/Ctrl+Enter while keyboard-navigating the
+          // open dropdown would apply the *previous* selection (the new one is
+          // only scheduled, not yet committed) and close. Returning early here
+          // (before stopPropagation) lets Radix commit the option normally.
+          if (!e.currentTarget.contains(e.target as Node)) return;
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!unchanged) handleApply();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Change Profile</DialogTitle>
         </DialogHeader>
@@ -92,6 +119,14 @@ export function ChangeProfileDialog({
           </Button>
           <Button type="button" onClick={handleApply} disabled={unchanged}>
             Apply
+            {!isMobile && (
+              <kbd
+                aria-hidden="true"
+                className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
+              >
+                {isMac() ? "⌘ ↵" : "Ctrl ↵"}
+              </kbd>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

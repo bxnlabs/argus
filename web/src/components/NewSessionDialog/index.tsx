@@ -150,10 +150,23 @@ export function NewSessionDialog({
               childPickerClosingRef.current = false;
             }
           }}
-          onKeyDown={(e) => {
+          // Capture phase is load-bearing: a focused Select trigger (e.g. the
+          // provider Select) opens on *any* Enter (no modifier check), and its
+          // keydown would run before a bubble-phase handler. Running in capture
+          // and calling preventDefault first keeps Cmd/Ctrl+Enter a clean submit
+          // (Radix composes its handler to skip opening once defaultPrevented);
+          // stopPropagation is a version-independent hard stop on top.
+          onKeyDownCapture={(e) => {
+            // Ignore keydowns from portaled dropdowns (e.g. the provider
+            // Select): their options render outside this DOM subtree but still
+            // traverse the React tree, so Cmd/Ctrl+Enter while navigating an
+            // open dropdown would submit with a stale value. Returning early
+            // (before stopPropagation) lets the dropdown commit normally.
+            if (!e.currentTarget.contains(e.target as Node)) return;
             if (e.nativeEvent.isComposing) return;
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
+              e.stopPropagation();
               createSession();
             }
           }}
