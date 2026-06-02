@@ -48,6 +48,24 @@ export function readMenuState(
   return { showMarkRead: isUnread, showMarkUnread: !isUnread };
 }
 
+// resolveStatusDisplay computes the sidebar status dot + label. Active wins:
+// while a session is actively running, surface the live status even if it's
+// flagged unread. The unread marker persists in the data and re-surfaces as a
+// blue "Unread" indicator once the session goes idle/dead. This keeps the
+// indicator (live activity) independent from the read-menu (persistent flag).
+export function resolveStatusDisplay(
+  statusValue: string | undefined,
+  unreadSince: string | null | undefined,
+  userMarkedUnreadAt: string | null | undefined,
+): { label: string; dotColor: string; animation: string } {
+  const statusMeta = getStatusMeta(statusValue);
+  const isUnread = !!unreadSince || !!userMarkedUnreadAt;
+  if (isUnread && statusValue !== "active") {
+    return { label: "Unread", dotColor: "bg-blue-500", animation: "" };
+  }
+  return { label: statusMeta.label, dotColor: statusMeta.color, animation: statusMeta.animation };
+}
+
 // ---------------------------------------------------------------------------
 // SectionHeader
 // ---------------------------------------------------------------------------
@@ -141,10 +159,12 @@ const SessionItem = memo(function SessionItem({
   const repoPath = session.git_remote_url
     ? parseRepoFromRemoteURL(session.git_remote_url)
     : null;
-  const isUnread = !!unreadSince || !!userMarkedUnreadAt;
   const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, userMarkedUnreadAt);
-  const statusMeta = getStatusMeta(statusValue);
-  const statusLabel = isUnread ? "Unread" : statusMeta.label;
+  const { label: statusLabel, dotColor, animation } = resolveStatusDisplay(
+    statusValue,
+    unreadSince,
+    userMarkedUnreadAt,
+  );
 
   return (
     <div
@@ -190,8 +210,8 @@ const SessionItem = memo(function SessionItem({
               <div
                 className={cn(
                   "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                  isUnread ? "bg-blue-500" : statusMeta.color,
-                  !isUnread && statusMeta.animation
+                  dotColor,
+                  animation
                 )}
               />
               <span className="text-muted-foreground min-w-0 truncate text-xs">
