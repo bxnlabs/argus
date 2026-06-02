@@ -58,7 +58,15 @@ export function ChangeProfileDialog({
 
   return (
     <Dialog open={session !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            if (!unchanged) handleApply();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Change Profile</DialogTitle>
         </DialogHeader>
