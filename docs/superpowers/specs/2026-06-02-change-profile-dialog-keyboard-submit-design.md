@@ -33,33 +33,46 @@ The repo has a consistent two-branch convention:
   rename.
 - **All dialogs** close on **Escape** (Radix built-in).
 - Platform handling is always `e.metaKey || e.ctrlKey` (no per-OS branching in
-  the handler). No keyboard library — all native `onKeyDown`.
+  the handler). No keyboard library — all native React keydown handling.
 
 ### Why Cmd/Ctrl+Enter (not plain Enter)
 
 The "plain Enter" precedent applies to custom pickers built on a free text
 input. `ChangeProfileDialog` instead uses a Radix `Select`, where plain Enter
 already opens the dropdown and selects the highlighted option. A dialog-level
-plain-Enter handler would collide with that. **Cmd/Ctrl+Enter is unused by the
-Select**, so it cleanly maps to "Apply & close" and matches the established
+plain-Enter handler would collide with that. Radix `Select` does **not** treat
+Cmd/Ctrl+Enter specially — it folds any modifier into a bare `Enter` (opening the
+trigger or selecting the highlighted option) — so the dialog-level handler must
+run in the capture phase and stop the shortcut from reaching the Select (see
+"Keyboard handler" and "Behavior & edge cases"). With that guard in place,
+Cmd/Ctrl+Enter cleanly maps to "Apply & close" and matches the established
 dialog-confirm precedent (`NewSessionDialog`).
 
 ## Design
 
-Only `web/src/components/ChangeProfileDialog/index.tsx` changes.
+`web/src/components/ChangeProfileDialog/index.tsx` is the primary change. The
+same capture-phase guard was also applied to
+`web/src/components/NewSessionDialog/index.tsx`, which shares the
+`DialogContent` Cmd/Ctrl+Enter pattern with a Radix `Select` (the provider
+selector) inside it and was latently affected by the same dropdown interactions.
 
 ### 1. Keyboard handler
 
-Add an `onKeyDown` to `<DialogContent>`, following
-`NewSessionDialog/index.tsx:153-159`:
+Add an `onKeyDownCapture` to `<DialogContent>` (`NewSessionDialog` uses the same
+capture-phase guard):
 
 ```tsx
 <DialogContent
-  onKeyDown={(e) => {
-    if (e.nativeEvent.isComposing) return;        // IME guard, matches precedent
+  onKeyDownCapture={(e) => {
+    // Skip events from the portaled Select dropdown (its options bubble through
+    // the React tree but live outside this DOM subtree). Returning early — before
+    // stopPropagation — lets Radix commit the highlighted option normally.
+    if (!e.currentTarget.contains(e.target as Node)) return;
+    if (e.nativeEvent.isComposing) return;          // IME guard
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (!unchanged) handleApply();              // mirror the button's disabled state
+      e.stopPropagation();                          // keep the focused trigger from opening
+      if (!unchanged) handleApply();                // mirror the button's disabled state
     }
   }}
 >
@@ -69,6 +82,13 @@ Add an `onKeyDown` to `<DialogContent>`, following
   handler in the repo.
 - The `!unchanged` guard makes Cmd/Ctrl+Enter a no-op when the selection has not
   changed — identical to the disabled `Apply` button.
+- **Capture phase + `stopPropagation`** are required because the Select trigger
+  is focused on open and Radix opens the dropdown on *any* `Enter` (it does not
+  exclude modifier keys). Running in capture and stopping propagation prevents an
+  unchanged Cmd/Ctrl+Enter from popping the dropdown open instead of no-op'ing.
+- The `contains(e.target)` guard prevents a different failure: portaled option
+  keydowns bubble to `DialogContent`, where the still-stale `selected` closure
+  would otherwise apply the *previous* value. See "Behavior & edge cases".
 - `handleApply` already calls `onApply` then `onClose`, so "Apply & close" needs
   no extra wiring.
 
@@ -106,28 +126,44 @@ pill style for visual consistency between the two dialogs.
 ## Behavior & edge cases
 
 - **Escape to close** is unchanged (Radix built-in).
-- **While the Select dropdown is open**, its options render in a portal, so the
-  keydown does not reach `DialogContent` and Cmd/Ctrl+Enter does not fire there.
-  Acceptable: the Select's own Enter (pick highlighted option) keeps working, and
-  the user can press Cmd/Ctrl+Enter again once the dropdown closes.
+- **While the Select dropdown is open**, its options render in a portal but
+  React synthetic events still bubble through the React tree, so the keydown
+  *does* reach `DialogContent`. The handler guards against this with
+  `if (!e.currentTarget.contains(e.target as Node)) return;`, which ignores
+  keydowns originating in the portaled dropdown. Without the guard, Radix only
+  *schedules* the new selection, so Cmd/Ctrl+Enter would apply the previous
+  value and close. With the guard, the Select's own Enter (pick highlighted
+  option) keeps working, and the user presses Cmd/Ctrl+Enter again once the
+  dropdown closes.
 - **Unchanged selection**: Cmd/Ctrl+Enter is a no-op, consistent with the
-  disabled button.
-- **No conflict** with the Radix `Select`, which does not use Cmd/Ctrl+Enter.
+  disabled button. The Select trigger is focused on open and Radix opens the
+  dropdown on *any* `Enter` (including with a modifier), so the handler runs in
+  the **capture phase** — a bubble handler would fire after the trigger has
+  already opened. In capture, calling `preventDefault()` before the trigger's
+  own handler is enough to suppress the open (Radix composes its handler to skip
+  opening once the event is `defaultPrevented`); `stopPropagation()` is kept as a
+  version-independent hard stop.
+- **Radix `Select` does respond to `Enter`** — it treats Cmd/Ctrl+Enter the same
+  as a bare `Enter` (no modifier exclusion), opening the trigger or selecting the
+  highlighted option. The capture-phase handler is what keeps that from
+  conflicting with the dialog's Apply shortcut.
 
 ## Testing
 
-This is a contained, convention-following UI change. Verify manually in the
-running app:
+Automated tests cover the keyboard behavior (`ChangeProfileDialog/index.test.tsx`,
+`NewSessionDialog/index.test.tsx`), including the apply/no-op/plain-Enter cases
+and two regressions that fail without the capture-phase guard: applying a stale
+profile via an open dropdown, and an unchanged Cmd/Ctrl+Enter popping the
+dropdown open. Also verify manually in the running app:
 
 1. Open the Change Profile dialog, change the selection, press Cmd/Ctrl+Enter →
    profile applies and the dialog closes.
-2. With the selection unchanged, Cmd/Ctrl+Enter does nothing.
+2. With the selection unchanged, Cmd/Ctrl+Enter does nothing (no dropdown).
 3. Escape still closes the dialog.
 4. The `⌘ ↵` / `Ctrl ↵` hint renders on desktop and is hidden on mobile.
-
-No new automated test unless desired.
 
 ## Out of scope
 
 - Plain-Enter submission (rejected to avoid the Radix `Select` conflict).
-- Changes to any other dialog or to shared UI components.
+- Changes to dialogs other than Change Profile and New Session, or to shared UI
+  components.

@@ -4,7 +4,7 @@
 
 **Goal:** Let users apply-and-close the Change Profile dialog with Cmd/Ctrl+Enter, with a discoverable keyboard hint on the Apply button.
 
-**Architecture:** Add a single `onKeyDown` handler to the dialog's `DialogContent` that runs the existing `handleApply()` on Cmd/Ctrl+Enter (no-op when the selection is unchanged), plus a `<kbd>` hint on the Apply button. One source file changes; one new test file is added. No new dependencies.
+**Architecture:** Add an `onKeyDownCapture` handler to the dialog's `DialogContent` that runs the existing `handleApply()` on Cmd/Ctrl+Enter (no-op when the selection is unchanged), plus a `<kbd>` hint on the Apply button. The handler runs in the capture phase and guards against the portaled Radix `Select` (see the spec) so an open dropdown can't apply a stale value or pop open on an unchanged shortcut. The same guard is applied to `NewSessionDialog`, which shares the pattern. No new dependencies.
 
 **Tech Stack:** React + TypeScript, Radix UI Dialog/Select, Vitest + @testing-library/react (`fireEvent`, no `user-event`), Tailwind.
 
@@ -25,7 +25,7 @@ All commands run from the `web/` directory (the front-end package). The repo use
 
 **Files:**
 - Create: `web/src/components/ChangeProfileDialog/index.test.tsx`
-- Modify: `web/src/components/ChangeProfileDialog/index.tsx` (add `onKeyDown` to `<DialogContent>`, currently at `index.tsx:61`)
+- Modify: `web/src/components/ChangeProfileDialog/index.tsx` (add `onKeyDownCapture` to `<DialogContent>`, currently at `index.tsx:61`)
 
 - [ ] **Step 1: Write the failing test file**
 
@@ -174,22 +174,27 @@ to:
 
 ```tsx
       <DialogContent
-        onKeyDown={(e) => {
+        onKeyDownCapture={(e) => {
+          // Skip portaled Select-dropdown keydowns (they bubble through the
+          // React tree but live outside this DOM subtree); early-return before
+          // stopPropagation so Radix commits the highlighted option normally.
+          if (!e.currentTarget.contains(e.target as Node)) return;
           if (e.nativeEvent.isComposing) return;
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
+            e.stopPropagation(); // focused trigger opens on any Enter; suppress it
             if (!unchanged) handleApply();
           }
         }}
       >
 ```
 
-`unchanged` (`index.tsx:57`) and `handleApply` (`index.tsx:50`) are already defined in the component scope, so the handler closes over them directly. `handleApply` already calls `onApply(...)` then `onClose()`.
+`unchanged` (`index.tsx:57`) and `handleApply` (`index.tsx:50`) are already defined in the component scope, so the handler closes over them directly. `handleApply` already calls `onApply(...)` then `onClose()`. The handler runs in the **capture phase** with `stopPropagation` because the Select trigger is focused on open and Radix opens the dropdown on any `Enter` (no modifier exclusion); the `contains(e.target)` guard separately prevents portaled option keydowns from applying a stale selection.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm exec vitest run src/components/ChangeProfileDialog/index.test.tsx`
-Expected: PASS (4 passed).
+Expected: PASS (4 passed at this step). Note: two further regression tests (stale-profile-via-open-dropdown and unchanged-Cmd/Ctrl+Enter no-op) were added later during code review, bringing the file to 7 tests; see the spec's Testing section.
 
 - [ ] **Step 5: Commit**
 
@@ -271,7 +276,7 @@ This matches `NewSessionDialog/index.tsx:245-255` exactly (the dialog-footer pil
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `pnpm exec vitest run src/components/ChangeProfileDialog/index.test.tsx`
-Expected: PASS (5 passed).
+Expected: PASS (5 passed at this step; 7 after the review-added regression tests — see Task 1, Step 4).
 
 - [ ] **Step 6: Lint/typecheck the changed file**
 
@@ -300,6 +305,6 @@ Per the spec, confirm in the running app:
 
 ## Self-Review Notes
 
-- **Spec coverage:** keydown handler (Task 1) covers the Cmd/Ctrl+Enter apply-and-close + unchanged no-op + plain-Enter-ignored requirements; the button hint (Task 2) covers the discoverability requirement matching `NewSessionDialog`. Escape-to-close is unchanged (Radix built-in) — no task needed. The "dropdown-open portal" edge case requires no code (documented behavior).
+- **Spec coverage:** keydown handler (Task 1) covers the Cmd/Ctrl+Enter apply-and-close + unchanged no-op + plain-Enter-ignored requirements; the button hint (Task 2) covers the discoverability requirement matching `NewSessionDialog`. Escape-to-close is unchanged (Radix built-in) — no task needed. The "dropdown-open portal" edge case *does* require a guard: portaled Select keydowns bubble through the React tree to `DialogContent`, so the handler must ignore events whose target is outside its own DOM subtree (`!e.currentTarget.contains(e.target)`), else Cmd/Ctrl+Enter applies the previously-committed selection.
 - **Type consistency:** `handleApply` and `unchanged` are referenced exactly as defined in `index.tsx`. `isMac` is a function (called), `useViewport()` returns `{ isMobile }` — both used as in `NewSessionDialog`.
 - **No placeholders:** every step shows the exact code and command.

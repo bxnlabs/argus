@@ -60,8 +60,8 @@ beforeAll(() => {
     globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
       setTimeout(() => cb(0), 0)) as typeof requestAnimationFrame;
   }
-  // The Profile <Select> renders real Radix internals that depend on
-  // ResizeObserver, which jsdom does not provide.
+  // The Provider/Profile <Select>s render real Radix internals that depend on
+  // jsdom-missing APIs (ResizeObserver, pointer-capture, scrollIntoView).
   if (!("ResizeObserver" in globalThis)) {
     globalThis.ResizeObserver = class {
       observe() {}
@@ -69,7 +69,23 @@ beforeAll(() => {
       disconnect() {}
     } as unknown as typeof ResizeObserver;
   }
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
 });
+
+// The provider <Select> trigger displays the current provider's label; the
+// profile <Select> shows a placeholder. Disambiguate by visible text.
+function providerTrigger(): HTMLElement {
+  const trigger = screen
+    .getAllByRole("combobox")
+    .find((c) => c.textContent?.includes("Claude Code"));
+  if (!trigger) throw new Error("provider combobox not found");
+  return trigger;
+}
 
 afterEach(cleanup);
 
@@ -178,6 +194,28 @@ describe("NewSessionDialog keyboard flow", () => {
     // absent (e.g. landscape phones where the footer is a row but isMobile).
     expect(buttonRow.className).toContain("justify-end");
     expect(buttonRow.className).toContain("sm:ml-auto");
+  });
+
+  it("does not submit a stale provider on Cmd+Enter while the provider dropdown is open", async () => {
+    const { onCreateSession } = renderDialog();
+    await screen.findByRole("dialog");
+    fireEvent.change(nameInput(), { target: { value: "feat" } });
+
+    // Open the provider dropdown and keyboard-submit while the "Codex" option
+    // is focused. Radix only schedules the new provider, so without the guard
+    // this bubbled to the dialog and submitted the stale "claude".
+    fireEvent.click(providerTrigger());
+    const codex = await screen.findByRole("option", { name: /Codex/ });
+    codex.focus();
+    fireEvent.keyDown(codex, { key: "Enter", metaKey: true });
+    expect(onCreateSession).not.toHaveBeenCalled();
+
+    // A follow-up Cmd+Enter submits with the newly-selected "codex" provider.
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter", metaKey: true });
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    expect(onCreateSession).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "feat", provider_type: "codex" }),
+    );
   });
 
   it("returns focus to the Source trigger after the picker closes", async () => {

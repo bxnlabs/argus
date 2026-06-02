@@ -112,6 +112,50 @@ describe("ChangeProfileDialog keyboard submit", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("does not apply a stale profile on Cmd+Enter while the dropdown is open", async () => {
+    const { onApply, onClose } = renderDialog({ id: "sess-1", profile: null });
+    await screen.findByRole("dialog");
+
+    // Commit an initial change so `selected` differs from the session profile.
+    await selectProfile("default");
+
+    // Reopen the dropdown and keyboard-submit while a *different* option is
+    // focused. The new "review" selection is only scheduled, not yet committed,
+    // so pre-guard this bubbled to the dialog and applied the stale "default".
+    // The containment guard must ignore this portaled keydown instead.
+    fireEvent.click(screen.getByRole("combobox"));
+    const option = await screen.findByRole("option", { name: "review" });
+    option.focus(); // model the real keyboard path (option has focus)
+    fireEvent.keyDown(option, { key: "Enter", metaKey: true });
+
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // A follow-up Cmd+Enter from the (now-focused) trigger applies "review".
+    const trigger = screen.getByRole("combobox");
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter", metaKey: true });
+    expect(onApply).toHaveBeenCalledWith("sess-1", "review");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("is a no-op (does not open the dropdown) on unchanged Cmd+Enter from the focused trigger", async () => {
+    const { onApply, onClose } = renderDialog({ id: "sess-1", profile: null });
+    await screen.findByRole("dialog");
+
+    // The Select trigger is focused on open. Radix opens the dropdown on any
+    // Enter, so without the capture-phase stopPropagation guard this shortcut
+    // would pop the dropdown open instead of being a true no-op.
+    const trigger = screen.getByRole("combobox");
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter", metaKey: true });
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("ignores plain Enter (no modifier)", async () => {
     const { onApply, onClose } = renderDialog({ id: "sess-1", profile: null });
     await screen.findByRole("dialog");
