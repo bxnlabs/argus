@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { partitionSessions, readMenuState } from "./index";
+import { partitionSessions, readMenuState, resolveStatusDisplay } from "./index";
 import type { Session } from "@/types";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -63,5 +63,40 @@ describe("readMenuState", () => {
     expect(readMenuState(null, null).showMarkUnread).toBe(true);
     expect(readMenuState("2026-01-01 00:00:00", null).showMarkUnread).toBe(false);
     expect(readMenuState(null, "2026-01-01 00:00:00").showMarkUnread).toBe(false);
+  });
+});
+
+describe("resolveStatusDisplay", () => {
+  it("shows the live Active status even when the session is marked unread", () => {
+    // A running session flagged unread must still surface as Active — the unread
+    // marker persists in the data but is masked while activity is live.
+    const display = resolveStatusDisplay("active", null, "2026-01-01 00:00:00");
+    expect(display.label).toBe("Active");
+    expect(display.dotColor).toBe("bg-green-500");
+    expect(display.animation).toBe("animate-pulse-green");
+  });
+
+  it("masks the automatic unread_since while active too", () => {
+    const display = resolveStatusDisplay("active", "2026-01-01 00:00:00", null);
+    expect(display.label).toBe("Active");
+    expect(display.dotColor).toBe("bg-green-500");
+  });
+
+  it("shows Unread when idle and marked unread", () => {
+    const display = resolveStatusDisplay("idle", null, "2026-01-01 00:00:00");
+    expect(display.label).toBe("Unread");
+    expect(display.dotColor).toBe("bg-blue-500");
+    expect(display.animation).toBe("");
+  });
+
+  it("shows Unread when dead and marked unread", () => {
+    const display = resolveStatusDisplay("dead", "2026-01-01 00:00:00", null);
+    expect(display.label).toBe("Unread");
+    expect(display.dotColor).toBe("bg-blue-500");
+  });
+
+  it("falls back to the plain status meta when not unread", () => {
+    expect(resolveStatusDisplay("idle", null, null).label).toBe("Idle");
+    expect(resolveStatusDisplay("active", null, null).dotColor).toBe("bg-green-500");
   });
 });
