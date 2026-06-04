@@ -72,6 +72,31 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, map[string]any{"session": sess})
 }
 
+// POST /api/sessions/{id}/clone
+func (h *sessionHandler) clone(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	sess, err := h.manager.Clone(id)
+	if err != nil {
+		if errors.Is(err, session.ErrNotFound) {
+			respondError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		if errors.Is(err, session.ErrInvalidInput) {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondInternalError(w, err)
+		return
+	}
+
+	if h.watcherManager != nil {
+		h.watcherManager.EnsureWatching(sess.ID, sess.TmuxName, sess.ProviderType)
+	}
+
+	respondJSON(w, http.StatusCreated, map[string]any{"session": sess})
+}
+
 // GET /api/sessions/{id}
 func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
