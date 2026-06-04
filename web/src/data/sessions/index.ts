@@ -2,6 +2,7 @@ export { sessionKeys, statusKeys, profileKeys } from "./keys";
 export {
   useSessionsQuery,
   useCreateSession,
+  useCloneSession,
   useDeleteSession,
   useRenameSession,
   useChangeSessionProfile,

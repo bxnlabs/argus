@@ -46,6 +46,21 @@ export function useCreateSession() {
   });
 }
 
+export function useCloneSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      apiFetch<CreateSessionResponse>(
+        `/node/api/sessions/${sessionId}/clone`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    },
+  });
+}
+
 interface DeleteSessionResponse {
   success: boolean;
   branch_deleted: boolean;
