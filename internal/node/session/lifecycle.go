@@ -254,6 +254,34 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	return created, nil
 }
 
+// Clone creates a new session that shares the source session's context — the
+// same working directory (and therefore the same worktree and branch for
+// worktree-backed sessions), provider, model, system prompt, auto-approve, and
+// profile. The clone starts a fresh CLI conversation: provider_session_id is
+// not copied. Because the source's working directory is passed as the new
+// session's Source, resolveSourceToCWD reuses the existing worktree (no new
+// branch; the clone does not own the branch). Returns ErrNotFound if the source
+// session does not exist.
+func (m *Manager) Clone(id string) (*db.Session, error) {
+	src, err := m.db.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if src == nil {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+
+	return m.Create(CreateOptions{
+		Name:         src.Name + " (copy)",
+		ProviderType: src.ProviderType,
+		Source:       src.WorkingDirectory,
+		Model:        src.Model,
+		SystemPrompt: src.SystemPrompt,
+		AutoApprove:  src.AutoApprove,
+		Profile:      src.Profile,
+	})
+}
+
 // resolveSourceToCWD resolves a source string to a working directory path.
 // If the source is a git repo, it creates an isolated worktree and returns
 // the worktree path, branch name, and a cleanup function that removes the
