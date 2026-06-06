@@ -968,11 +968,13 @@ func TestCloneSession(t *testing.T) {
 
 	model := "opus"
 	profile := "work"
+	systemPrompt := "stay focused"
 	providerSessionID := "prov-123"
 	src := &db.Session{
 		ID: "sess-src", Name: "My Work", TmuxName: "claude-sess-src",
 		WorkingDirectory: wtPath, ProviderType: "claude",
 		Model: &model, AutoApprove: true, Profile: &profile,
+		SystemPrompt:      &systemPrompt,
 		ProviderSessionID: &providerSessionID,
 		WorktreeBranch:    &branch, BranchCreated: true, GitParentDir: &gitRoot,
 	}
@@ -1015,6 +1017,9 @@ func TestCloneSession(t *testing.T) {
 	}
 	if clone.Profile == nil || *clone.Profile != "work" {
 		t.Errorf("clone profile = %v, want %q", clone.Profile, "work")
+	}
+	if clone.SystemPrompt == nil || *clone.SystemPrompt != systemPrompt {
+		t.Errorf("clone system_prompt = %v, want %q", clone.SystemPrompt, systemPrompt)
 	}
 }
 
