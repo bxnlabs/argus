@@ -36,8 +36,10 @@ type Manager struct {
 }
 
 // sessionLock returns a per-session mutex, creating it if needed.
-// This serializes EnsureSession and Delete for the same session ID,
-// preventing races where a delete removes the DB row mid-ensure.
+// This serializes mutating operations on the same session ID — EnsureSession,
+// Delete, ChangeProfile, and Clone (on the source ID) — preventing races such
+// as a delete removing the DB row mid-ensure, or a delete tearing down a shared
+// worktree while a clone of the same source is mid-creation.
 func (m *Manager) sessionLock(id string) *sync.Mutex {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -262,7 +264,16 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 // session's Source, resolveSourceToCWD reuses the existing worktree (no new
 // branch; the clone does not own the branch). Returns ErrNotFound if the source
 // session does not exist.
+//
+// The source session lock is held across the read and Create so this cannot race
+// with a concurrent Delete of the source: without it, Delete could count the
+// source as the last user of the shared worktree (the clone's DB row not yet
+// inserted) and remove the worktree/branch out from under the in-progress clone.
 func (m *Manager) Clone(id string) (*db.Session, error) {
+	l := m.sessionLock(id)
+	l.Lock()
+	defer l.Unlock()
+
 	src, err := m.db.GetSession(id)
 	if err != nil {
 		return nil, err
