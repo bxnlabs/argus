@@ -9,7 +9,7 @@ import (
 
 func TestSearchHandler_MissingQuery(t *testing.T) {
 	handler := &searchHandler{}
-	req := httptest.NewRequest("GET", "/api/code-search?path=/tmp", nil)
+	req := httptest.NewRequest("GET", "/code-search?path=/tmp", nil)
 	w := httptest.NewRecorder()
 	handler.search(w, req)
 
@@ -23,7 +23,7 @@ func TestSearchHandler_MissingQuery(t *testing.T) {
 
 func TestSearchHandler_MissingPath(t *testing.T) {
 	handler := &searchHandler{}
-	req := httptest.NewRequest("GET", "/api/code-search?query=test", nil)
+	req := httptest.NewRequest("GET", "/code-search?query=test", nil)
 	w := httptest.NewRecorder()
 	handler.search(w, req)
 
@@ -37,7 +37,7 @@ func TestSearchHandler_MissingPath(t *testing.T) {
 
 func TestSearchHandler_WhitespaceQuery(t *testing.T) {
 	handler := &searchHandler{}
-	req := httptest.NewRequest("GET", "/api/code-search?query=%20%20&path=/tmp", nil)
+	req := httptest.NewRequest("GET", "/code-search?query=%20%20&path=/tmp", nil)
 	w := httptest.NewRecorder()
 	handler.search(w, req)
 
@@ -48,7 +48,7 @@ func TestSearchHandler_WhitespaceQuery(t *testing.T) {
 
 func TestSearchHandler_NonExistentPath(t *testing.T) {
 	handler := &searchHandler{}
-	req := httptest.NewRequest("GET", "/api/code-search?query=test&path=/nonexistent/path/xyz", nil)
+	req := httptest.NewRequest("GET", "/code-search?query=test&path=/nonexistent/path/xyz", nil)
 	w := httptest.NewRecorder()
 	handler.search(w, req)
 
@@ -59,7 +59,7 @@ func TestSearchHandler_NonExistentPath(t *testing.T) {
 
 func TestSearchHandler_Available(t *testing.T) {
 	handler := &searchHandler{}
-	req := httptest.NewRequest("GET", "/api/code-search/available", nil)
+	req := httptest.NewRequest("GET", "/code-search/available", nil)
 	w := httptest.NewRecorder()
 	handler.available(w, req)
 
@@ -75,8 +75,8 @@ func TestSearchHandler_Available(t *testing.T) {
 func TestSearchHandlerViaRouter(t *testing.T) {
 	router := NewRouter(Deps{})
 
-	t.Run("GET /api/code-search missing query", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/code-search?path=/tmp", nil)
+	t.Run("GET /code-search missing query", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/code-search?path=/tmp", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
@@ -84,8 +84,8 @@ func TestSearchHandlerViaRouter(t *testing.T) {
 		}
 	})
 
-	t.Run("GET /api/code-search/available", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/code-search/available", nil)
+	t.Run("GET /code-search/available", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/code-search/available", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {

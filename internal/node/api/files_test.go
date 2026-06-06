@@ -33,7 +33,7 @@ func TestFilesHandlerList(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "subdir"), 0755)
 
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files?path="+dir, nil)
+	req := httptest.NewRequest("GET", "/files?path="+dir, nil)
 	w := httptest.NewRecorder()
 	handler.list(w, req)
 
@@ -51,7 +51,7 @@ func TestFilesHandlerList(t *testing.T) {
 
 func TestFilesHandlerList_MissingPath(t *testing.T) {
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files", nil)
+	req := httptest.NewRequest("GET", "/files", nil)
 	w := httptest.NewRecorder()
 	handler.list(w, req)
 
@@ -66,7 +66,7 @@ func TestFilesHandlerMeta(t *testing.T) {
 	os.WriteFile(p, []byte("hello world"), 0644)
 
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files/meta?path="+p, nil)
+	req := httptest.NewRequest("GET", "/files/meta?path="+p, nil)
 	w := httptest.NewRecorder()
 	handler.meta(w, req)
 
@@ -87,7 +87,7 @@ func TestFilesHandlerMeta_NotFound(t *testing.T) {
 	missingPath := filepath.Join(dir, "nonexistent.txt")
 
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files/meta?path="+missingPath, nil)
+	req := httptest.NewRequest("GET", "/files/meta?path="+missingPath, nil)
 	w := httptest.NewRecorder()
 	handler.meta(w, req)
 
@@ -99,7 +99,7 @@ func TestFilesHandlerMeta_NotFound(t *testing.T) {
 func TestFilesHandlerMeta_Directory(t *testing.T) {
 	dir := homeTempDir(t)
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files/meta?path="+dir, nil)
+	req := httptest.NewRequest("GET", "/files/meta?path="+dir, nil)
 	w := httptest.NewRecorder()
 	handler.meta(w, req)
 
@@ -114,7 +114,7 @@ func TestFilesHandlerReadContent(t *testing.T) {
 	os.WriteFile(p, []byte("stream me"), 0644)
 
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files/content?path="+p, nil)
+	req := httptest.NewRequest("GET", "/files/content?path="+p, nil)
 	w := httptest.NewRecorder()
 	handler.readContent(w, req)
 
@@ -138,7 +138,7 @@ func TestFilesHandlerReadContent_NotFound(t *testing.T) {
 	missingPath := filepath.Join(dir, "nonexistent.txt")
 
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files/content?path="+missingPath, nil)
+	req := httptest.NewRequest("GET", "/files/content?path="+missingPath, nil)
 	w := httptest.NewRecorder()
 	handler.readContent(w, req)
 
@@ -150,7 +150,7 @@ func TestFilesHandlerReadContent_NotFound(t *testing.T) {
 func TestFilesHandlerReadContent_Directory(t *testing.T) {
 	dir := homeTempDir(t)
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files/content?path="+dir, nil)
+	req := httptest.NewRequest("GET", "/files/content?path="+dir, nil)
 	w := httptest.NewRecorder()
 	handler.readContent(w, req)
 
@@ -165,7 +165,7 @@ func TestFilesHandlerWriteContent(t *testing.T) {
 
 	handler := &filesHandler{}
 	body := strings.NewReader("written via PUT")
-	req := httptest.NewRequest("PUT", "/api/files/content?path="+p, body)
+	req := httptest.NewRequest("PUT", "/files/content?path="+p, body)
 	w := httptest.NewRecorder()
 	handler.writeContent(w, req)
 
@@ -194,7 +194,7 @@ func TestFilesHandlerWriteContent_CreatesParentDirs(t *testing.T) {
 
 	handler := &filesHandler{}
 	body := strings.NewReader("deep write")
-	req := httptest.NewRequest("PUT", "/api/files/content?path="+p, body)
+	req := httptest.NewRequest("PUT", "/files/content?path="+p, body)
 	w := httptest.NewRecorder()
 	handler.writeContent(w, req)
 
@@ -209,7 +209,7 @@ func TestFilesHandlerWriteContent_CreatesParentDirs(t *testing.T) {
 
 func TestFilesHandlerWriteContent_MissingPath(t *testing.T) {
 	handler := &filesHandler{}
-	req := httptest.NewRequest("PUT", "/api/files/content", strings.NewReader("data"))
+	req := httptest.NewRequest("PUT", "/files/content", strings.NewReader("data"))
 	w := httptest.NewRecorder()
 	handler.writeContent(w, req)
 
@@ -231,7 +231,7 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 	handler := &filesHandler{}
 
 	t.Run("list outside-home directory succeeds", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/files?path="+outsideHome, nil)
+		req := httptest.NewRequest("GET", "/files?path="+outsideHome, nil)
 		w := httptest.NewRecorder()
 		handler.list(w, req)
 		if w.Code != http.StatusOK {
@@ -244,7 +244,7 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 	})
 
 	t.Run("list root succeeds", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/files?path=/", nil)
+		req := httptest.NewRequest("GET", "/files?path=/", nil)
 		w := httptest.NewRecorder()
 		handler.list(w, req)
 		if w.Code != http.StatusOK {
@@ -254,7 +254,7 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 
 	t.Run("meta outside-home file succeeds", func(t *testing.T) {
 		p := filepath.Join(outsideHome, "readable.txt")
-		req := httptest.NewRequest("GET", "/api/files/meta?path="+p, nil)
+		req := httptest.NewRequest("GET", "/files/meta?path="+p, nil)
 		w := httptest.NewRecorder()
 		handler.meta(w, req)
 		if w.Code != http.StatusOK {
@@ -264,7 +264,7 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 
 	t.Run("read outside-home file succeeds", func(t *testing.T) {
 		p := filepath.Join(outsideHome, "readable.txt")
-		req := httptest.NewRequest("GET", "/api/files/content?path="+p, nil)
+		req := httptest.NewRequest("GET", "/files/content?path="+p, nil)
 		w := httptest.NewRecorder()
 		handler.readContent(w, req)
 		if w.Code != http.StatusOK {
@@ -277,7 +277,7 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 
 	t.Run("write outside-home file succeeds", func(t *testing.T) {
 		p := filepath.Join(outsideHome, "written.txt")
-		req := httptest.NewRequest("PUT", "/api/files/content?path="+p, strings.NewReader("data"))
+		req := httptest.NewRequest("PUT", "/files/content?path="+p, strings.NewReader("data"))
 		w := httptest.NewRecorder()
 		handler.writeContent(w, req)
 		if w.Code != http.StatusOK {
@@ -286,7 +286,7 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 	})
 
 	t.Run("dotdot traversal is cleaned and allowed", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/files?path="+outsideHome+"/subdir/..", nil)
+		req := httptest.NewRequest("GET", "/files?path="+outsideHome+"/subdir/..", nil)
 		w := httptest.NewRecorder()
 		handler.list(w, req)
 		if w.Code != http.StatusOK {
@@ -302,7 +302,7 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 		if strings.HasPrefix(outsideHome, filepath.Clean(home)+string(filepath.Separator)) || outsideHome == filepath.Clean(home) {
 			t.Skip("temp dir is inside $HOME on this host; cannot test outside-home search restriction")
 		}
-		req := httptest.NewRequest("GET", "/api/files/search?q=test&path="+outsideHome, nil)
+		req := httptest.NewRequest("GET", "/files/search?q=test&path="+outsideHome, nil)
 		w := httptest.NewRecorder()
 		handler.search(w, req)
 		if w.Code != http.StatusBadRequest {
@@ -330,7 +330,7 @@ func TestFilesHandlerPermissionDenied(t *testing.T) {
 	handler := &filesHandler{}
 
 	t.Run("list permission denied returns 403", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/files?path="+forbidden, nil)
+		req := httptest.NewRequest("GET", "/files?path="+forbidden, nil)
 		w := httptest.NewRecorder()
 		handler.list(w, req)
 		if w.Code != http.StatusForbidden {
@@ -340,7 +340,7 @@ func TestFilesHandlerPermissionDenied(t *testing.T) {
 
 	t.Run("meta permission denied returns 403", func(t *testing.T) {
 		p := filepath.Join(forbidden, "file.txt")
-		req := httptest.NewRequest("GET", "/api/files/meta?path="+p, nil)
+		req := httptest.NewRequest("GET", "/files/meta?path="+p, nil)
 		w := httptest.NewRecorder()
 		handler.meta(w, req)
 		if w.Code != http.StatusForbidden {
@@ -350,7 +350,7 @@ func TestFilesHandlerPermissionDenied(t *testing.T) {
 
 	t.Run("read permission denied returns 403", func(t *testing.T) {
 		p := filepath.Join(forbidden, "file.txt")
-		req := httptest.NewRequest("GET", "/api/files/content?path="+p, nil)
+		req := httptest.NewRequest("GET", "/files/content?path="+p, nil)
 		w := httptest.NewRecorder()
 		handler.readContent(w, req)
 		if w.Code != http.StatusForbidden {
@@ -360,7 +360,7 @@ func TestFilesHandlerPermissionDenied(t *testing.T) {
 
 	t.Run("write permission denied returns 403", func(t *testing.T) {
 		p := filepath.Join(forbidden, "file.txt")
-		req := httptest.NewRequest("PUT", "/api/files/content?path="+p, strings.NewReader("data"))
+		req := httptest.NewRequest("PUT", "/files/content?path="+p, strings.NewReader("data"))
 		w := httptest.NewRecorder()
 		handler.writeContent(w, req)
 		if w.Code != http.StatusForbidden {
@@ -376,8 +376,8 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 	uploadDir := t.TempDir()
 	router := NewRouter(Deps{UploadDirOverride: uploadDir})
 
-	t.Run("GET /api/files", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/files?path="+dir, nil)
+	t.Run("GET /files", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/files?path="+dir, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -385,9 +385,9 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		}
 	})
 
-	t.Run("GET /api/files/meta", func(t *testing.T) {
+	t.Run("GET /files/meta", func(t *testing.T) {
 		p := filepath.Join(dir, "routed.txt")
-		req := httptest.NewRequest("GET", "/api/files/meta?path="+p, nil)
+		req := httptest.NewRequest("GET", "/files/meta?path="+p, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -395,9 +395,9 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		}
 	})
 
-	t.Run("GET /api/files/content", func(t *testing.T) {
+	t.Run("GET /files/content", func(t *testing.T) {
 		p := filepath.Join(dir, "routed.txt")
-		req := httptest.NewRequest("GET", "/api/files/content?path="+p, nil)
+		req := httptest.NewRequest("GET", "/files/content?path="+p, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -408,9 +408,9 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		}
 	})
 
-	t.Run("PUT /api/files/content", func(t *testing.T) {
+	t.Run("PUT /files/content", func(t *testing.T) {
 		p := filepath.Join(dir, "new-via-router.txt")
-		req := httptest.NewRequest("PUT", "/api/files/content?path="+p, strings.NewReader("put data"))
+		req := httptest.NewRequest("PUT", "/files/content?path="+p, strings.NewReader("put data"))
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -422,9 +422,9 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		}
 	})
 
-	t.Run("old POST /api/files/content returns 405", func(t *testing.T) {
+	t.Run("old POST /files/content returns 405", func(t *testing.T) {
 		p := filepath.Join(dir, "old.txt")
-		req := httptest.NewRequest("POST", "/api/files/content?path="+p, strings.NewReader("post data"))
+		req := httptest.NewRequest("POST", "/files/content?path="+p, strings.NewReader("post data"))
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusMethodNotAllowed {
@@ -432,7 +432,7 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		}
 	})
 
-	t.Run("POST /api/files/upload", func(t *testing.T) {
+	t.Run("POST /files/upload", func(t *testing.T) {
 		var buf bytes.Buffer
 		writer := multipart.NewWriter(&buf)
 		part, err := writer.CreateFormFile("files", "routed-upload.txt")
@@ -442,7 +442,7 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		part.Write([]byte("routed content"))
 		writer.Close()
 
-		req := httptest.NewRequest("POST", "/api/files/upload", &buf)
+		req := httptest.NewRequest("POST", "/files/upload", &buf)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -464,7 +464,7 @@ func TestFilesHandlerUpload(t *testing.T) {
 	writer.Close()
 
 	handler := &filesHandler{uploadDirOverride: t.TempDir()}
-	req := httptest.NewRequest("POST", "/api/files/upload", &buf)
+	req := httptest.NewRequest("POST", "/files/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	handler.upload(w, req)
@@ -487,7 +487,7 @@ func TestFilesHandlerUpload_NoFiles(t *testing.T) {
 	writer.Close()
 
 	handler := &filesHandler{uploadDirOverride: t.TempDir()}
-	req := httptest.NewRequest("POST", "/api/files/upload", &buf)
+	req := httptest.NewRequest("POST", "/files/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	handler.upload(w, req)
@@ -511,7 +511,7 @@ func TestFilesHandlerUpload_MultipleFiles(t *testing.T) {
 	writer.Close()
 
 	handler := &filesHandler{uploadDirOverride: t.TempDir()}
-	req := httptest.NewRequest("POST", "/api/files/upload", &buf)
+	req := httptest.NewRequest("POST", "/files/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
 	handler.upload(w, req)

@@ -29,7 +29,7 @@ func newTestSessionHandler(t *testing.T) (*sessionHandler, *db.DB) {
 func TestSetProfileHandler_InvalidName(t *testing.T) {
 	h, _ := newTestSessionHandler(t)
 
-	req := httptest.NewRequest("PUT", "/api/sessions/whatever/profile",
+	req := httptest.NewRequest("PUT", "/sessions/whatever/profile",
 		strings.NewReader(`{"profile":"../evil"}`))
 	req.SetPathValue("id", "whatever")
 	w := httptest.NewRecorder()
@@ -48,7 +48,7 @@ func TestSetProfileHandler_RequiresProfile(t *testing.T) {
 	// is a separate operation (DELETE). The handler rejects before touching the
 	// manager, so the session need not exist.
 	for _, body := range []string{`{}`, `{"profile":null}`, `{"profile":""}`} {
-		req := httptest.NewRequest("PUT", "/api/sessions/whatever/profile",
+		req := httptest.NewRequest("PUT", "/sessions/whatever/profile",
 			strings.NewReader(body))
 		req.SetPathValue("id", "whatever")
 		w := httptest.NewRecorder()
@@ -65,7 +65,7 @@ func TestDetachProfileHandler_SessionNotFound(t *testing.T) {
 	h, _ := newTestSessionHandler(t)
 
 	// DELETE detaches; the session itself is missing.
-	req := httptest.NewRequest("DELETE", "/api/sessions/missing/profile", nil)
+	req := httptest.NewRequest("DELETE", "/sessions/missing/profile", nil)
 	req.SetPathValue("id", "missing")
 	w := httptest.NewRecorder()
 
@@ -89,7 +89,7 @@ func TestDetachProfileHandler_AlreadyDetachedIsNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("DELETE", "/api/sessions/sess-detached/profile", nil)
+	req := httptest.NewRequest("DELETE", "/sessions/sess-detached/profile", nil)
 	req.SetPathValue("id", "sess-detached")
 	w := httptest.NewRecorder()
 
