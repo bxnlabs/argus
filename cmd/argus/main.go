@@ -213,9 +213,9 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 
 	// Secure the state root before creating Tailscale state under it. This is
 	// the one serving path that bypasses config.Load's auto-discovery securing
-	// (explicit --config) and node.Setup (server mode). Tailscale already needs
+	// (explicit --config) and node.Setup's own securing. Tailscale already needs
 	// a resolvable home here, so this adds no new requirement for the
-	// Tailscale-disabled server, which returns above.
+	// Tailscale-disabled instance, which returns above.
 	argusHome, err := shared.EnsureStateDir()
 	if err != nil {
 		return nil, "", "", nil, fmt.Errorf("prepare state dir: %w", err)
