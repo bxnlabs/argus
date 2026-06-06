@@ -14,8 +14,7 @@ import (
 func clearArgusEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
-		"ARGUS_SERVER_PORT", "ARGUS_SERVER_BIND_ADDRESS",
-		"ARGUS_NODE_PORT", "ARGUS_NODE_BIND_ADDRESS",
+		"ARGUS_PORT", "ARGUS_BIND_ADDRESS",
 		"ARGUS_DATABASE_PATH", "ARGUS_GIT_BRANCH_PREFIX",
 		"ARGUS_HOME",
 		"ARGUS_TAILSCALE_ENABLED",
@@ -43,17 +42,11 @@ func TestDefaults(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.Server.Port != 3000 {
-		t.Errorf("Server.Port = %d, want 3000", cfg.Server.Port)
+	if cfg.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", cfg.Port)
 	}
-	if cfg.Server.BindAddress != "127.0.0.1" {
-		t.Errorf("Server.BindAddress = %q, want 127.0.0.1", cfg.Server.BindAddress)
-	}
-	if cfg.Node.Port != 3011 {
-		t.Errorf("Node.Port = %d, want 3011", cfg.Node.Port)
-	}
-	if cfg.Node.BindAddress != "127.0.0.1" {
-		t.Errorf("Node.BindAddress = %q, want 127.0.0.1", cfg.Node.BindAddress)
+	if cfg.BindAddress != "127.0.0.1" {
+		t.Errorf("BindAddress = %q, want 127.0.0.1", cfg.BindAddress)
 	}
 	if cfg.Git.BranchPrefix != "" {
 		t.Errorf("Git.BranchPrefix = %q, want empty", cfg.Git.BranchPrefix)
@@ -64,13 +57,8 @@ func TestLoadFromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
-[server]
 port = 4000
 bind_address = "0.0.0.0"
-
-[node]
-port = 5000
-bind_address = "192.168.1.1"
 
 [git]
 branch_prefix = "jeev"
@@ -84,17 +72,11 @@ branch_prefix = "jeev"
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.Server.Port != 4000 {
-		t.Errorf("Server.Port = %d, want 4000", cfg.Server.Port)
+	if cfg.Port != 4000 {
+		t.Errorf("Port = %d, want 4000", cfg.Port)
 	}
-	if cfg.Server.BindAddress != "0.0.0.0" {
-		t.Errorf("Server.BindAddress = %q, want 0.0.0.0", cfg.Server.BindAddress)
-	}
-	if cfg.Node.Port != 5000 {
-		t.Errorf("Node.Port = %d, want 5000", cfg.Node.Port)
-	}
-	if cfg.Node.BindAddress != "192.168.1.1" {
-		t.Errorf("Node.BindAddress = %q, want 192.168.1.1", cfg.Node.BindAddress)
+	if cfg.BindAddress != "0.0.0.0" {
+		t.Errorf("BindAddress = %q, want 0.0.0.0", cfg.BindAddress)
 	}
 	if cfg.Git.BranchPrefix != "jeev" {
 		t.Errorf("Git.BranchPrefix = %q, want jeev", cfg.Git.BranchPrefix)
@@ -105,14 +87,13 @@ func TestEnvVarOverrides(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
-[server]
 port = 4000
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Setenv("ARGUS_SERVER_PORT", "9999")
+	t.Setenv("ARGUS_PORT", "9999")
 	t.Setenv("ARGUS_GIT_BRANCH_PREFIX", "env-prefix")
 
 	cfg, err := config.Load(config.Options{ConfigFile: path})
@@ -120,8 +101,8 @@ port = 4000
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.Server.Port != 9999 {
-		t.Errorf("Server.Port = %d, want 9999 (env override)", cfg.Server.Port)
+	if cfg.Port != 9999 {
+		t.Errorf("Port = %d, want 9999 (env override)", cfg.Port)
 	}
 	if cfg.Git.BranchPrefix != "env-prefix" {
 		t.Errorf("Git.BranchPrefix = %q, want env-prefix", cfg.Git.BranchPrefix)
@@ -145,11 +126,11 @@ func TestAutoDiscoveryMissingFileUsesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for auto-discovery missing file: %v", err)
 	}
-	if cfg.Server.Port != 3000 {
-		t.Errorf("Server.Port = %d, want 3000", cfg.Server.Port)
+	if cfg.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", cfg.Port)
 	}
-	if cfg.Server.BindAddress != "127.0.0.1" {
-		t.Errorf("Server.BindAddress = %q, want 127.0.0.1", cfg.Server.BindAddress)
+	if cfg.BindAddress != "127.0.0.1" {
+		t.Errorf("BindAddress = %q, want 127.0.0.1", cfg.BindAddress)
 	}
 }
 
@@ -165,11 +146,11 @@ func TestEmptyFileUsesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Server.BindAddress != "127.0.0.1" {
-		t.Errorf("Server.BindAddress = %q, want 127.0.0.1", cfg.Server.BindAddress)
+	if cfg.BindAddress != "127.0.0.1" {
+		t.Errorf("BindAddress = %q, want 127.0.0.1", cfg.BindAddress)
 	}
-	if cfg.Node.BindAddress != "127.0.0.1" {
-		t.Errorf("Node.BindAddress = %q, want 127.0.0.1", cfg.Node.BindAddress)
+	if cfg.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", cfg.Port)
 	}
 }
 
@@ -193,11 +174,11 @@ branch_prefix = "jeev"
 		t.Errorf("Git.BranchPrefix = %q, want jeev", cfg.Git.BranchPrefix)
 	}
 	// Unset fields should have defaults
-	if cfg.Server.Port != 3000 {
-		t.Errorf("Server.Port = %d, want 3000", cfg.Server.Port)
+	if cfg.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", cfg.Port)
 	}
-	if cfg.Server.BindAddress != "127.0.0.1" {
-		t.Errorf("Server.BindAddress = %q, want 127.0.0.1", cfg.Server.BindAddress)
+	if cfg.BindAddress != "127.0.0.1" {
+		t.Errorf("BindAddress = %q, want 127.0.0.1", cfg.BindAddress)
 	}
 }
 
@@ -217,7 +198,6 @@ func TestValidation_InvalidPort(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
-[server]
 port = 99999
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
@@ -233,7 +213,6 @@ func TestValidation_InvalidBindAddress(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
-[server]
 bind_address = "not-an-ip"
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
@@ -254,8 +233,8 @@ func TestDefaultConfigFileSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error with default search: %v", err)
 	}
-	if cfg.Server.Port != 3000 {
-		t.Errorf("Server.Port = %d, want 3000", cfg.Server.Port)
+	if cfg.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", cfg.Port)
 	}
 }
 
@@ -263,10 +242,6 @@ func TestIPv6BindAddress(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
-[server]
-bind_address = "::1"
-
-[node]
 bind_address = "::1"
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
@@ -277,11 +252,8 @@ bind_address = "::1"
 	if err != nil {
 		t.Fatalf("unexpected error for IPv6 bind address: %v", err)
 	}
-	if cfg.Server.BindAddress != "::1" {
-		t.Errorf("Server.BindAddress = %q, want ::1", cfg.Server.BindAddress)
-	}
-	if cfg.Node.BindAddress != "::1" {
-		t.Errorf("Node.BindAddress = %q, want ::1", cfg.Node.BindAddress)
+	if cfg.BindAddress != "::1" {
+		t.Errorf("BindAddress = %q, want ::1", cfg.BindAddress)
 	}
 }
 
@@ -676,7 +648,6 @@ func TestExplicitConfigLoadsWithoutResolvableHome(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	content := []byte(`
-[server]
 port = 4567
 `)
 	if err := os.WriteFile(path, content, 0644); err != nil {
@@ -687,7 +658,7 @@ port = 4567
 	if err != nil {
 		t.Fatalf("unexpected error loading explicit config without HOME: %v", err)
 	}
-	if cfg.Server.Port != 4567 {
-		t.Errorf("Server.Port = %d, want 4567", cfg.Server.Port)
+	if cfg.Port != 4567 {
+		t.Errorf("Port = %d, want 4567", cfg.Port)
 	}
 }

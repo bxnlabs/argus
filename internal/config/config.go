@@ -13,21 +13,11 @@ import (
 
 // Config holds all Argus configuration.
 type Config struct {
-	Server        ServerConfig        `mapstructure:"server"`
-	Node          NodeConfig          `mapstructure:"node"`
+	Port          int                 `mapstructure:"port"`
+	BindAddress   string              `mapstructure:"bind_address"`
 	Git           GitConfig           `mapstructure:"git"`
 	Tailscale     TailscaleConfig     `mapstructure:"tailscale"`
 	Notifications NotificationsConfig `mapstructure:"notifications"`
-}
-
-type ServerConfig struct {
-	Port        int    `mapstructure:"port"`
-	BindAddress string `mapstructure:"bind_address"`
-}
-
-type NodeConfig struct {
-	Port        int    `mapstructure:"port"`
-	BindAddress string `mapstructure:"bind_address"`
 }
 
 type GitConfig struct {
@@ -73,10 +63,8 @@ func Load(opts Options) (*Config, error) {
 	stateDir, stateDirErr := shared.StateDir()
 
 	// Defaults
-	v.SetDefault("server.port", 3000)
-	v.SetDefault("server.bind_address", "127.0.0.1")
-	v.SetDefault("node.port", 3011)
-	v.SetDefault("node.bind_address", "127.0.0.1")
+	v.SetDefault("port", 3000)
+	v.SetDefault("bind_address", "127.0.0.1")
 	v.SetDefault("git.branch_prefix", "")
 	v.SetDefault("tailscale.enabled", false)
 	v.SetDefault("tailscale.hostname_prefix", "")
@@ -85,7 +73,7 @@ func Load(opts Options) (*Config, error) {
 	v.SetDefault("notifications.channel", "")
 	v.SetDefault("notifications.notify_after_unread_for", "5m")
 
-	// Environment variables: ARGUS_SERVER_PORT, etc.
+	// Environment variables: ARGUS_PORT, etc.
 	v.SetEnvPrefix("ARGUS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
@@ -137,16 +125,10 @@ func Load(opts Options) (*Config, error) {
 }
 
 func validate(cfg *Config) error {
-	if err := validatePort("server.port", cfg.Server.Port); err != nil {
+	if err := validatePort("port", cfg.Port); err != nil {
 		return err
 	}
-	if err := validatePort("node.port", cfg.Node.Port); err != nil {
-		return err
-	}
-	if err := validateIP("server.bind_address", cfg.Server.BindAddress); err != nil {
-		return err
-	}
-	if err := validateIP("node.bind_address", cfg.Node.BindAddress); err != nil {
+	if err := validateIP("bind_address", cfg.BindAddress); err != nil {
 		return err
 	}
 	if cfg.Tailscale.Port < 0 || cfg.Tailscale.Port > 65535 {
