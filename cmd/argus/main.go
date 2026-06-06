@@ -39,14 +39,14 @@ func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "argus",
 		Short: "Argus — node session manager",
-		Long:  "Argus runs a combined web server and node API, or individual components.",
+		Long:  "Argus runs a unified instance serving the web UI and node API.",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			cfg, err = config.Load(config.Options{ConfigFile: configFile})
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCombined(cmd.Context())
+			return runInstance(cmd.Context())
 		},
 		SilenceUsage: true,
 	}
@@ -54,8 +54,6 @@ func newRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "path to config file (default ~/.argus/config.toml)")
 
 	rootCmd.AddCommand(
-		newServerCmd(),
-		newNodeCmd(),
 		newMigrateCmd(),
 		cli.NewSessionCmd(),
 		cli.NewInternalCmd(),
@@ -63,72 +61,6 @@ func newRootCmd() *cobra.Command {
 	)
 
 	return rootCmd
-}
-
-func newServerCmd() *cobra.Command {
-	var webDir string
-
-	cmd := &cobra.Command{
-		Use:          "server",
-		Short:        "Start only the SPA frontend server",
-		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			mux := http.NewServeMux()
-			mux.Handle("/", web.NewSPAHandler(webDir))
-
-			listeners, _, _, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port, "server")
-			if err != nil {
-				return err
-			}
-			if tsCloser != nil {
-				defer func() {
-					if err := tsCloser(); err != nil {
-						log.Printf("warning: tailscale shutdown: %v", err)
-					}
-				}()
-			}
-
-			return serve(listeners, "", mux, "argus server")
-		},
-	}
-
-	cmd.Flags().StringVar(&webDir, "web", "", "Override embedded SPA with local directory")
-
-	return cmd
-}
-
-func newNodeCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:          "node",
-		Short:        "Start only the node API",
-		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			listeners, discoveryAddr, _, tsCloser, err := makeListeners(cmd.Context(), cfg.Tailscale, cfg.Node.BindAddress, cfg.Node.Port, "node")
-			if err != nil {
-				return err
-			}
-			if tsCloser != nil {
-				defer func() {
-					if err := tsCloser(); err != nil {
-						log.Printf("warning: tailscale shutdown: %v", err)
-					}
-				}()
-			}
-
-			nodeHandler, cleanup, err := node.Setup(cfg, "")
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-
-			mux := http.NewServeMux()
-			mux.Handle("/node/", http.StripPrefix("/node", nodeHandler))
-
-			return serve(listeners, discoveryAddr, mux, "argus node")
-		},
-	}
-
-	return cmd
 }
 
 func writeDiscovery(addr string) {
@@ -150,9 +82,9 @@ func removeDiscovery() {
 	node.RemoveDiscoveryFile(dp)
 }
 
-// runCombined starts the node and SPA on a single port.
-func runCombined(ctx context.Context) error {
-	listeners, discoveryAddr, tsFQDN, tsCloser, err := makeListeners(ctx, cfg.Tailscale, cfg.Server.BindAddress, cfg.Server.Port, "combined")
+// runInstance starts the node API and SPA as a single unified instance.
+func runInstance(ctx context.Context) error {
+	listeners, discoveryAddr, tsFQDN, tsCloser, err := makeListeners(ctx, cfg.Tailscale, cfg.BindAddress, cfg.Port)
 	if err != nil {
 		return err
 	}
@@ -166,7 +98,7 @@ func runCombined(ctx context.Context) error {
 
 	var baseURL string
 	if tsFQDN != "" {
-		baseURL = fmt.Sprintf("http://%s:%d", tsFQDN, cfg.Server.Port)
+		baseURL = "http://" + tsFQDN
 	}
 
 	nodeHandler, cleanup, err := node.Setup(cfg, baseURL)
@@ -176,7 +108,7 @@ func runCombined(ctx context.Context) error {
 	defer cleanup()
 
 	mux := http.NewServeMux()
-	mux.Handle("/node/", http.StripPrefix("/node", nodeHandler))
+	mux.Handle("/api/node/", http.StripPrefix("/api/node", nodeHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
 
 	return serve(listeners, discoveryAddr, mux, "argus")
@@ -227,11 +159,10 @@ func sanitizeDNSCompliantHostname(s string) string {
 	return s
 }
 
-// deriveHostname builds the Tailscale node hostname from prefix and mode.
-// In split mode (server/node), a mode suffix is appended.
+// deriveHostname builds the Tailscale node hostname from prefix.
 // If prefix is empty, defaults to "argus-<os.Hostname()>".
 // The result is sanitised to a DNS-compliant label.
-func deriveHostname(prefix, mode string) string {
+func deriveHostname(prefix string) string {
 	hostname := prefix
 	if hostname == "" {
 		h, err := os.Hostname()
@@ -240,13 +171,10 @@ func deriveHostname(prefix, mode string) string {
 		}
 		hostname = "argus-" + sanitizeDNSCompliantHostname(h)
 	}
-	if mode == "server" || mode == "node" {
-		hostname = hostname + "-" + mode
-	}
 	return sanitizeDNSCompliantHostname(hostname)
 }
 
-func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddress string, port int, mode string) (listeners []net.Listener, discoveryAddr string, tsFQDN string, tsCloser func() error, err error) {
+func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddress string, port int) (listeners []net.Listener, discoveryAddr string, tsFQDN string, tsCloser func() error, err error) {
 	if !tsCfg.Enabled {
 		ip := net.ParseIP(bindAddress)
 
@@ -278,7 +206,7 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 	}
 
 	// Tailscale enabled: loopback + tsnet listeners
-	hostname := deriveHostname(tsCfg.HostnamePrefix, mode)
+	hostname := deriveHostname(tsCfg.HostnamePrefix)
 	if hostname == "" {
 		return nil, "", "", nil, fmt.Errorf("determine hostname: failed to resolve OS hostname")
 	}
@@ -316,8 +244,11 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 		return nil, "", "", nil, fmt.Errorf("listen on %s: %w", loopbackAddr, err)
 	}
 
-	// tsnet listener for tailnet access
-	tsLn, err := tsServer.Listen("tcp", ":"+strconv.Itoa(port))
+	// tsnet listener for tailnet access.
+	const tailnetHTTPPort = 80
+	// tsnet listeners are userspace on this node's own tailnet IP, so binding
+	// :80 needs no privilege and cannot collide with the host's port 80.
+	tsLn, err := tsServer.Listen("tcp", ":"+strconv.Itoa(tailnetHTTPPort))
 	if err != nil {
 		loopbackLn.Close()
 		tsServer.Close()
