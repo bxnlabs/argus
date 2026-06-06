@@ -18,7 +18,7 @@ clean:
 # Dev env, declared once per target. `make dev` runs hivemind, which inherits
 # this env and passes it to the Procfile's api/web processes, so the ports live
 # here only -- not duplicated in the Procfile or the recipes below.
-dev dev-api dev-web: export ARGUS_SERVER_PORT = 3100
+dev dev-api dev-web: export ARGUS_PORT = 3100
 dev dev-web:         export ARGUS_WEB_PORT = 5273
 dev dev-api:         export ARGUS_HOME = $(CURDIR)/.dev
 
