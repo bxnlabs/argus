@@ -74,7 +74,7 @@ func applyProfile(query string, profile *string) error {
 	}
 
 	if profile == nil {
-		if _, err := c.delete("/api/sessions/" + session.ID + "/profile"); err != nil {
+		if _, err := c.delete("/sessions/" + session.ID + "/profile"); err != nil {
 			return err
 		}
 		fmt.Printf("Cleared profile on session %q (session restarted)\n", session.Name)
@@ -85,7 +85,7 @@ func applyProfile(query string, profile *string) error {
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	if _, err := c.put("/api/sessions/"+session.ID+"/profile", bytes.NewReader(reqBody)); err != nil {
+	if _, err := c.put("/sessions/"+session.ID+"/profile", bytes.NewReader(reqBody)); err != nil {
 		return err
 	}
 	fmt.Printf("Set profile %q on session %q (session restarted)\n", *profile, session.Name)

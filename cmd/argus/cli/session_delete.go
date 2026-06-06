@@ -42,7 +42,7 @@ func newDeleteCmd() *cobra.Command {
 				params.Set("delete_branch", "true")
 			}
 
-			endpoint := "/api/sessions/" + session.ID
+			endpoint := "/sessions/" + session.ID
 			if len(params) > 0 {
 				endpoint += "?" + params.Encode()
 			}

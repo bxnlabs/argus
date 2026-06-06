@@ -43,7 +43,7 @@ func newListCmd() *cobra.Command {
 				return err
 			}
 
-			body, err := c.get("/api/sessions")
+			body, err := c.get("/sessions")
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,7 @@ func newListCmd() *cobra.Command {
 				UserMarkedUnreadAt *string `json:"userMarkedUnreadAt"`
 			}
 			statuses := make(map[string]statusEntry)
-			if statusBody, err := c.get("/api/sessions/status"); err == nil {
+			if statusBody, err := c.get("/sessions/status"); err == nil {
 				var statusResp struct {
 					Statuses map[string]statusEntry `json:"statuses"`
 				}

@@ -55,7 +55,7 @@ func discover(path string) (*discoveryInfo, error) {
 
 // apiClient makes HTTP requests to the Argus node API.
 type apiClient struct {
-	baseURL string // e.g. "http://127.0.0.1:3000/node"
+	baseURL string // e.g. "http://127.0.0.1:3000/api/node"
 	http    http.Client
 }
 
@@ -67,7 +67,7 @@ func newClient(discoveryPath string) (*apiClient, error) {
 	}
 
 	c := &apiClient{
-		baseURL: "http://" + info.Address + "/node",
+		baseURL: "http://" + info.Address + "/api/node",
 		http: http.Client{
 			// Lifecycle mutations (create, delete, change-profile) run user
 			// hooks that can each take up to 30s, so the client must wait well
