@@ -29,7 +29,7 @@ export function useSessionStatusesQuery({
 }: UseSessionStatusesOptions) {
   const query = useQuery({
     queryKey: statusKeys.all,
-    queryFn: () => apiFetch<StatusResponse>("/node/api/sessions/status"),
+    queryFn: () => apiFetch<StatusResponse>("/api/node/sessions/status"),
     enabled: sessions.length > 0,
     staleTime: 2000,
     refetchInterval: sessions.length > 0 ? 2000 : false,
@@ -43,7 +43,7 @@ export function useSessionStatusesQuery({
     if (document.hidden) return;
 
     // Fire-and-forget heartbeat — errors are silently ignored.
-    fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(activeSessionId)}/heartbeat`, {
+    fetch(`${import.meta.env.VITE_NODE_URL || ""}/api/node/sessions/${encodeURIComponent(activeSessionId)}/heartbeat`, {
       method: "POST",
     }).catch(() => {});
   }, [query.data, activeSessionId]);
@@ -59,7 +59,7 @@ export function useSessionStatusesQuery({
 
     const status = query.data.statuses?.[activeSessionId];
     if (status?.unreadSince) {
-      fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(activeSessionId)}/acknowledge`, {
+      fetch(`${import.meta.env.VITE_NODE_URL || ""}/api/node/sessions/${encodeURIComponent(activeSessionId)}/acknowledge`, {
         method: "POST",
       }).catch(() => {});
     }
@@ -92,7 +92,7 @@ export function useMarkRead() {
 
   return useMutation({
     mutationFn: (sessionId: string) =>
-      apiTextFetch(`/node/api/sessions/${encodeURIComponent(sessionId)}/read`, {
+      apiTextFetch(`/api/node/sessions/${encodeURIComponent(sessionId)}/read`, {
         method: "POST",
       }),
     onMutate: async (sessionId: string) => {
@@ -129,7 +129,7 @@ export function useMarkUnread() {
 
   return useMutation({
     mutationFn: (sessionId: string) =>
-      apiTextFetch(`/node/api/sessions/${encodeURIComponent(sessionId)}/unread`, {
+      apiTextFetch(`/api/node/sessions/${encodeURIComponent(sessionId)}/unread`, {
         method: "POST",
       }),
     onMutate: async (sessionId: string) => {

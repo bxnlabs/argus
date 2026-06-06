@@ -32,13 +32,13 @@ export default defineConfig(() => {
     server: {
       port: webPort,
       proxy: {
-        "/node/api": {
-          target: apiTarget,
-          changeOrigin: true,
-        },
-        "/node/ws": {
+        "/api/node/ws": {
           target: wsTarget,
           ws: true,
+        },
+        "/api/node": {
+          target: apiTarget,
+          changeOrigin: true,
         },
       },
     },

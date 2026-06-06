@@ -20,7 +20,7 @@ export function useReviewQuery(
       });
       if (headRef) params.set("headRef", headRef);
       if (baseRef) params.set("baseRef", baseRef);
-      return apiFetch<Review>(`/node/api/git/review?${params}`);
+      return apiFetch<Review>(`/api/node/git/review?${params}`);
     },
     staleTime: 30_000,
     enabled: path.trim().length > 0 && !!head && !!base,
@@ -33,7 +33,7 @@ export function useSaveReviewMutation(path: string) {
   return useMutation({
     mutationFn: async (data: Review) => {
       const params = new URLSearchParams({ path });
-      return apiFetch<{ status: string }>(`/node/api/git/review?${params}`, {
+      return apiFetch<{ status: string }>(`/api/node/git/review?${params}`, {
         method: "POST",
         body: JSON.stringify(data),
       });
@@ -65,7 +65,7 @@ export function useDeleteReviewMutation(path: string) {
         base,
       });
       return apiFetch<{ status: string }>(
-        `/node/api/git/review?${params}`,
+        `/api/node/git/review?${params}`,
         { method: "DELETE" },
       );
     },

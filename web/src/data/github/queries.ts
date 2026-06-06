@@ -17,7 +17,7 @@ export function useGitHubReposQuery(
       if (query) params.set("q", query);
       const qs = params.toString();
       return apiFetch<GitHubReposResponse>(
-        `/node/api/github/repos${qs ? `?${qs}` : ""}`,
+        `/api/node/github/repos${qs ? `?${qs}` : ""}`,
       );
     },
     enabled: options?.enabled ?? true,

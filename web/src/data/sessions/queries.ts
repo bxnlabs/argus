@@ -11,7 +11,7 @@ interface SessionsResponse {
 export function useSessionsQuery() {
   return useQuery({
     queryKey: sessionKeys.list(),
-    queryFn: () => apiFetch<SessionsResponse>("/node/api/sessions"),
+    queryFn: () => apiFetch<SessionsResponse>("/api/node/sessions"),
     staleTime: 5000,
     refetchInterval: 10000,
   });
@@ -36,7 +36,7 @@ export function useCreateSession() {
 
   return useMutation({
     mutationFn: (input: CreateSessionInput) =>
-      apiFetch<CreateSessionResponse>("/node/api/sessions", {
+      apiFetch<CreateSessionResponse>("/api/node/sessions", {
         method: "POST",
         body: JSON.stringify(input),
       }),
@@ -63,7 +63,7 @@ export function useDeleteSession() {
       deleteBranch?: boolean;
     }) =>
       apiFetch<DeleteSessionResponse>(
-        `/node/api/sessions/${sessionId}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
+        `/api/node/sessions/${sessionId}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
         { method: "DELETE" },
       ),
     onSuccess: () => {
@@ -83,7 +83,7 @@ export function useRenameSession() {
       sessionId: string;
       newName: string;
     }) =>
-      apiFetch(`/node/api/sessions/${sessionId}`, {
+      apiFetch(`/api/node/sessions/${sessionId}`, {
         method: "PATCH",
         body: JSON.stringify({ name: newName }),
       }),
@@ -127,10 +127,10 @@ export function useChangeSessionProfile() {
       profile: string | null;
     }) =>
       profile === null
-        ? apiFetch(`/node/api/sessions/${sessionId}/profile`, {
+        ? apiFetch(`/api/node/sessions/${sessionId}/profile`, {
             method: "DELETE",
           })
-        : apiFetch(`/node/api/sessions/${sessionId}/profile`, {
+        : apiFetch(`/api/node/sessions/${sessionId}/profile`, {
             method: "PUT",
             body: JSON.stringify({ profile }),
           }),
@@ -150,7 +150,7 @@ export function useUpdateSession() {
 
   return useMutation({
     mutationFn: ({ sessionId, pinned }: UpdateSessionInput) =>
-      apiFetch(`/node/api/sessions/${sessionId}`, {
+      apiFetch(`/api/node/sessions/${sessionId}`, {
         method: "PATCH",
         body: JSON.stringify({ pinned }),
       }),
@@ -191,7 +191,7 @@ interface ProfilesResponse {
 export function useProfilesQuery() {
   return useQuery({
     queryKey: profileKeys.list(),
-    queryFn: () => apiFetch<ProfilesResponse>("/node/api/profiles"),
+    queryFn: () => apiFetch<ProfilesResponse>("/api/node/profiles"),
     staleTime: 30000,
   });
 }

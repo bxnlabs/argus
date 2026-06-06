@@ -42,7 +42,7 @@ export function useGitFetchMutation() {
         params.set("base", base);
       }
       return apiFetch<{ status: string }>(
-        `/node/api/git/fetch?${params.toString()}`,
+        `/api/node/git/fetch?${params.toString()}`,
         { method: "POST" },
       );
     },

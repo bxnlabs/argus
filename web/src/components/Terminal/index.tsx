@@ -25,7 +25,7 @@ export interface TerminalHandle {
 }
 
 interface TerminalProps {
-  /** Session ID — WebSocket connects to /node/ws/sessions/{id} */
+  /** Session ID — WebSocket connects to /api/node/ws/sessions/{id} */
   sessionName: string | null;
   onConnected?: () => void;
   onDisconnected?: () => void;

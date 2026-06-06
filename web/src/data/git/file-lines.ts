@@ -28,7 +28,7 @@ export async function fetchFileLines(params: FileLinesParams): Promise<FileLines
   }
 
   return apiFetch<FileLinesResult>(
-    `/node/api/git/file-lines?${searchParams.toString()}`,
+    `/api/node/git/file-lines?${searchParams.toString()}`,
     { signal: params.signal },
   );
 }

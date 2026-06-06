@@ -142,7 +142,7 @@ function HomeContent() {
       // "Mark as unread" survives selection.
       const status = sessionStatuses[session.id];
       if (status?.unreadSince) {
-        fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
+        fetch(`${import.meta.env.VITE_NODE_URL || ""}/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
           method: "POST",
         }).catch(() => {});
       }
@@ -297,7 +297,7 @@ function HomeContent() {
 
         if (result.session) {
           // Attach to the newly created session — Terminal will auto-connect
-          // via WebSocket to /node/ws/sessions/{id}. Session list refreshes
+          // via WebSocket to /api/node/ws/sessions/{id}. Session list refreshes
           // automatically via TanStack Query's onSuccess invalidation.
           attachToSession(result.session);
         }

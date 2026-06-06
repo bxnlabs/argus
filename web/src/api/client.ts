@@ -19,14 +19,14 @@ export function getNodeBaseUrl(): string {
 
 /**
  * Returns the WebSocket URL for a terminal connection.
- * With sessionId: /node/ws/sessions/{id} (attaches to session's tmux)
- * Without: /node/ws/terminal (raw shell)
+ * With sessionId: /api/node/ws/sessions/{id} (attaches to session's tmux)
+ * Without: /api/node/ws/terminal (raw shell)
  */
 export function getNodeWsUrl(sessionId?: string | null): string {
   const base = getNodeBaseUrl();
   const path = sessionId
-    ? `/node/ws/sessions/${encodeURIComponent(sessionId)}`
-    : "/node/ws/terminal";
+    ? `/api/node/ws/sessions/${encodeURIComponent(sessionId)}`
+    : "/api/node/ws/terminal";
   if (base) {
     return base.replace(/^http/, "ws") + path;
   }

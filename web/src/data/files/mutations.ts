@@ -10,7 +10,7 @@ export function useWriteFileMutation() {
   return useMutation({
     mutationFn: async ({ path, content }: { path: string; content: string }) => {
       return apiFetch<{ path: string; size: number }>(
-        `/node/api/files/content?path=${encodeURIComponent(path)}`,
+        `/api/node/files/content?path=${encodeURIComponent(path)}`,
         {
           method: "PUT",
           headers: { "Content-Type": "text/plain" },
@@ -44,7 +44,7 @@ export function useFileUpload() {
       }
 
       const base = getNodeBaseUrl();
-      const res = await fetch(`${base}/node/api/files/upload`, {
+      const res = await fetch(`${base}/api/node/files/upload`, {
         method: "POST",
         body: formData,
       });

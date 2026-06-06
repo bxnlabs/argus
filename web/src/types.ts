@@ -58,7 +58,7 @@ export interface FilesResponse {
   path: string; // expanded absolute path
 }
 
-// File metadata (matches GET /node/api/files/meta response)
+// File metadata (matches GET /api/node/files/meta response)
 export interface FileMetaResponse {
   size: number;
   isBinary: boolean;
@@ -79,7 +79,7 @@ export interface FileSearchResponse {
   count: number;
 }
 
-// File upload types (matches POST /node/api/files/upload response)
+// File upload types (matches POST /api/node/files/upload response)
 export interface UploadedFile {
   path: string;
   name: string;

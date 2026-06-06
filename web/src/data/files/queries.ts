@@ -10,7 +10,7 @@ export function useFilesQuery(
   return useQuery({
     queryKey: filesKeys.list(path),
     queryFn: () =>
-      apiFetch<FilesResponse>(`/node/api/files?path=${encodeURIComponent(path)}`),
+      apiFetch<FilesResponse>(`/api/node/files?path=${encodeURIComponent(path)}`),
     enabled: (options?.enabled ?? true) && path.trim().length > 0,
     staleTime: 10_000,
   });
@@ -35,7 +35,7 @@ export function useFileSearchQuery(
       if (searchPath) {
         params.set("path", searchPath);
       }
-      return apiFetch<FileSearchResponse>(`/node/api/files/search?${params}`);
+      return apiFetch<FileSearchResponse>(`/api/node/files/search?${params}`);
     },
     enabled: (options?.enabled ?? true) && query.trim().length > 0,
     staleTime: 30_000,
@@ -50,7 +50,7 @@ export function useFileMetaQuery(
     queryKey: filesKeys.meta(path),
     queryFn: () =>
       apiFetch<FileMetaResponse>(
-        `/node/api/files/meta?path=${encodeURIComponent(path)}`,
+        `/api/node/files/meta?path=${encodeURIComponent(path)}`,
       ),
     enabled: (options?.enabled ?? true) && path.trim().length > 0,
     staleTime: 30_000,

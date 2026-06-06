@@ -121,7 +121,7 @@ export function useFileEditor(): UseFileEditorReturn {
     try {
       // 1. Fetch metadata
       const meta = await apiFetch<FileMetaResponse>(
-        `/node/api/files/meta?path=${encodeURIComponent(path)}`,
+        `/api/node/files/meta?path=${encodeURIComponent(path)}`,
       );
 
       const isLarge = meta.size > LARGE_FILE_THRESHOLD;
@@ -131,7 +131,7 @@ export function useFileEditor(): UseFileEditorReturn {
       if (!isBinary && !isLarge) {
         // 2. Fetch content as raw text
         const res = await apiTextFetch(
-          `/node/api/files/content?path=${encodeURIComponent(path)}`,
+          `/api/node/files/content?path=${encodeURIComponent(path)}`,
         );
         content = await res.text();
       }
@@ -189,7 +189,7 @@ export function useFileEditor(): UseFileEditorReturn {
     setSaving(true);
     try {
       await apiTextFetch(
-        `/node/api/files/content?path=${encodeURIComponent(path)}`,
+        `/api/node/files/content?path=${encodeURIComponent(path)}`,
         {
           method: "PUT",
           headers: { "Content-Type": "text/plain" },
