@@ -46,6 +46,21 @@ export function useCreateSession() {
   });
 }
 
+export function useCloneSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      apiFetch<CreateSessionResponse>(
+        `/node/api/sessions/${encodeURIComponent(sessionId)}/clone`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    },
+  });
+}
+
 interface DeleteSessionResponse {
   success: boolean;
   branch_deleted: boolean;
@@ -63,7 +78,7 @@ export function useDeleteSession() {
       deleteBranch?: boolean;
     }) =>
       apiFetch<DeleteSessionResponse>(
-        `/node/api/sessions/${sessionId}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
+        `/node/api/sessions/${encodeURIComponent(sessionId)}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
         { method: "DELETE" },
       ),
     onSuccess: () => {
@@ -83,7 +98,7 @@ export function useRenameSession() {
       sessionId: string;
       newName: string;
     }) =>
-      apiFetch(`/node/api/sessions/${sessionId}`, {
+      apiFetch(`/node/api/sessions/${encodeURIComponent(sessionId)}`, {
         method: "PATCH",
         body: JSON.stringify({ name: newName }),
       }),
@@ -127,10 +142,10 @@ export function useChangeSessionProfile() {
       profile: string | null;
     }) =>
       profile === null
-        ? apiFetch(`/node/api/sessions/${sessionId}/profile`, {
+        ? apiFetch(`/node/api/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "DELETE",
           })
-        : apiFetch(`/node/api/sessions/${sessionId}/profile`, {
+        : apiFetch(`/node/api/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "PUT",
             body: JSON.stringify({ profile }),
           }),
@@ -150,7 +165,7 @@ export function useUpdateSession() {
 
   return useMutation({
     mutationFn: ({ sessionId, pinned }: UpdateSessionInput) =>
-      apiFetch(`/node/api/sessions/${sessionId}`, {
+      apiFetch(`/node/api/sessions/${encodeURIComponent(sessionId)}`, {
         method: "PATCH",
         body: JSON.stringify({ pinned }),
       }),

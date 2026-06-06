@@ -36,8 +36,10 @@ type Manager struct {
 }
 
 // sessionLock returns a per-session mutex, creating it if needed.
-// This serializes EnsureSession and Delete for the same session ID,
-// preventing races where a delete removes the DB row mid-ensure.
+// This serializes mutating operations on the same session ID — EnsureSession,
+// Delete, ChangeProfile, and Clone (on the source ID) — preventing races such
+// as a delete removing the DB row mid-ensure, or a delete tearing down a shared
+// worktree while a clone of the same source is mid-creation.
 func (m *Manager) sessionLock(id string) *sync.Mutex {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -252,6 +254,43 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, err
 	}
 	return created, nil
+}
+
+// Clone creates a new session that shares the source session's context — the
+// same working directory (and therefore the same worktree and branch for
+// worktree-backed sessions), provider, model, system prompt, auto-approve, and
+// profile. The clone starts a fresh CLI conversation: provider_session_id is
+// not copied. Because the source's working directory is passed as the new
+// session's Source, resolveSourceToCWD reuses the existing worktree (no new
+// branch; the clone does not own the branch). Returns ErrNotFound if the source
+// session does not exist.
+//
+// The source session lock is held across the read and Create so this cannot race
+// with a concurrent Delete of the source: without it, Delete could count the
+// source as the last user of the shared worktree (the clone's DB row not yet
+// inserted) and remove the worktree/branch out from under the in-progress clone.
+func (m *Manager) Clone(id string) (*db.Session, error) {
+	l := m.sessionLock(id)
+	l.Lock()
+	defer l.Unlock()
+
+	src, err := m.db.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if src == nil {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+
+	return m.Create(CreateOptions{
+		Name:         src.Name + " (copy)",
+		ProviderType: src.ProviderType,
+		Source:       src.WorkingDirectory,
+		Model:        src.Model,
+		SystemPrompt: src.SystemPrompt,
+		AutoApprove:  src.AutoApprove,
+		Profile:      src.Profile,
+	})
 }
 
 // resolveSourceToCWD resolves a source string to a working directory path.

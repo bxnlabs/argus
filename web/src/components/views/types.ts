@@ -28,6 +28,7 @@ export interface ViewProps {
   onCreateSession: (params: CreateSessionParams) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
+  onCloneSession: (sessionId: string) => void;
   onChangeProfile: (session: Session) => void;
   onViewInfo: (session: Session) => void;
   onTogglePin: (sessionId: string, pinned: boolean) => void;

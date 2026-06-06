@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight, Copy } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
@@ -122,6 +122,7 @@ interface SessionItemProps {
   onStartRename: (session: Session) => void;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
+  onCloneSession: (sessionId: string) => void;
   onChangeProfile: (session: Session) => void;
   onViewInfo: (session: Session) => void;
   canChangeProfile: boolean;
@@ -148,6 +149,7 @@ const SessionItem = memo(function SessionItem({
   onStartRename,
   onAttachSession,
   onDeleteSession,
+  onCloneSession,
   onChangeProfile,
   onViewInfo,
   canChangeProfile,
@@ -329,6 +331,15 @@ const SessionItem = memo(function SessionItem({
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
+              onCloneSession(session.id);
+            }}
+          >
+            <Copy className="mr-2 h-3 w-3" />
+            Clone
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
               onViewInfo(session);
             }}
           >
@@ -377,6 +388,7 @@ interface SessionListProps {
   errorMessage?: string;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
+  onCloneSession: (sessionId: string) => void;
   onTogglePin: (sessionId: string, pinned: boolean) => void;
   onMarkRead: (sessionId: string) => void;
   onMarkUnread: (sessionId: string) => void;
@@ -397,6 +409,7 @@ export const SessionList = memo(function SessionList({
   errorMessage,
   onAttachSession,
   onDeleteSession,
+  onCloneSession,
   onTogglePin,
   onMarkRead,
   onMarkUnread,
@@ -491,6 +504,7 @@ export const SessionList = memo(function SessionList({
         onStartRename={handleStartRename}
         onAttachSession={onAttachSession}
         onDeleteSession={onDeleteSession}
+        onCloneSession={onCloneSession}
         onChangeProfile={onChangeProfile}
         onViewInfo={onViewInfo}
         canChangeProfile={hasProfiles || session.profile !== null}

@@ -909,6 +909,120 @@ func TestChangeProfileDefaultEquivalenceSkipsTransitionHooks(t *testing.T) {
 	}
 }
 
+func TestCloneNotFound(t *testing.T) {
+	stateDir := t.TempDir()
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	if _, err := mgr.Clone("does-not-exist"); err == nil {
+		t.Fatal("expected error cloning missing session, got nil")
+	} else if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestCloneSession(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	gitRoot := resolveSymlinks(t, initTestGitRepo(t))
+	stateDir := resolveSymlinks(t, t.TempDir())
+
+	// Create spawns tmux for the clone via the dedicated server, which is booted
+	// with the seeded config (-f). Point ARGUS_HOME at stateDir, force the
+	// dedicated socket, and seed the config exactly as the node does at startup.
+	t.Setenv("ARGUS_HOME", stateDir)
+	requireDedicatedSocketUnder(t, stateDir)
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
+	}
+
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Profile "work" must exist on disk so Create's profile validation passes.
+	if err := os.MkdirAll(filepath.Join(stateDir, "profiles", "work", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "test"}})
+	mgr := NewManager(database, wt, stateDir)
+
+	// A real worktree the clone can reuse via its path.
+	wtPath, branch, _, _, err := wt.CreateForLocalRepo(gitRoot, "src-work", "")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	model := "opus"
+	profile := "work"
+	systemPrompt := "stay focused"
+	providerSessionID := "prov-123"
+	src := &db.Session{
+		ID: "sess-src", Name: "My Work", TmuxName: "claude-sess-src",
+		WorkingDirectory: wtPath, ProviderType: "claude",
+		Model: &model, AutoApprove: true, Profile: &profile,
+		SystemPrompt:      &systemPrompt,
+		ProviderSessionID: &providerSessionID,
+		WorktreeBranch:    &branch, BranchCreated: true, GitParentDir: &gitRoot,
+	}
+	if err := database.CreateSession(src); err != nil {
+		t.Fatal(err)
+	}
+
+	clone, err := mgr.Clone("sess-src")
+	if err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+	t.Cleanup(func() { KillSession(clone.TmuxName) })
+
+	if clone.ID == src.ID {
+		t.Error("clone must have a new ID")
+	}
+	if clone.Name != "My Work (copy)" {
+		t.Errorf("clone name = %q, want %q", clone.Name, "My Work (copy)")
+	}
+	if clone.WorkingDirectory != wtPath {
+		t.Errorf("clone working_directory = %q, want %q (shared worktree)", clone.WorkingDirectory, wtPath)
+	}
+	if clone.WorktreeBranch == nil || *clone.WorktreeBranch != branch {
+		t.Errorf("clone worktree_branch = %v, want %q", clone.WorktreeBranch, branch)
+	}
+	if clone.BranchCreated {
+		t.Error("clone branch_created must be false (reused worktree, does not own branch)")
+	}
+	if clone.ProviderSessionID != nil {
+		t.Errorf("clone provider_session_id = %v, want nil (fresh conversation)", clone.ProviderSessionID)
+	}
+	if clone.ProviderType != "claude" {
+		t.Errorf("clone provider_type = %q, want %q", clone.ProviderType, "claude")
+	}
+	if clone.Model == nil || *clone.Model != "opus" {
+		t.Errorf("clone model = %v, want %q", clone.Model, "opus")
+	}
+	if !clone.AutoApprove {
+		t.Error("clone auto_approve = false, want true")
+	}
+	if clone.Profile == nil || *clone.Profile != "work" {
+		t.Errorf("clone profile = %v, want %q", clone.Profile, "work")
+	}
+	if clone.SystemPrompt == nil || *clone.SystemPrompt != systemPrompt {
+		t.Errorf("clone system_prompt = %v, want %q", clone.SystemPrompt, systemPrompt)
+	}
+}
+
 func TestDeleteSharedWorktreeBranchOwnershipSurvives(t *testing.T) {
 	// Regression test: session A creates branch (BranchCreated=true),
 	// session B reuses the worktree (BranchCreated=false). Deleting A
