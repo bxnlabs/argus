@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/tooltip";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
 import { cn } from "@/lib/utils";
+import { NodeRail } from "@/components/NodeRail";
 import type { ViewProps } from "./types";
 
 export function DesktopView({
@@ -44,6 +45,7 @@ export function DesktopView({
 
   return (
     <div className="bg-background flex h-app overflow-hidden">
+      <NodeRail />
       {/* Sidebar — always visible, toggles between expanded (w-72) and collapsed (w-14) */}
       <div
         className={cn(

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabProvider, useTabs } from "@/contexts/TabContext";
+import { NodeProvider, useNodeContext } from "@/contexts/NodeContext";
 import { Workspace } from "@/components/Workspace";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useViewport } from "@/hooks/useViewport";
@@ -479,17 +480,24 @@ function HomeContent() {
 export function App() {
   return (
     <TooltipProvider>
-      <TabProvider>
-        <HomeContent />
-        <Toaster
-          theme="dark"
-          position="bottom-right"
-          richColors
-          toastOptions={{
-            className: "argus-toast",
-          }}
-        />
-      </TabProvider>
+      <NodeProvider>
+        <AppInner />
+      </NodeProvider>
     </TooltipProvider>
+  );
+}
+
+function AppInner() {
+  const { activeNodeId } = useNodeContext();
+  return (
+    <TabProvider key={activeNodeId ?? "none"}>
+      <HomeContent />
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        richColors
+        toastOptions={{ className: "argus-toast" }}
+      />
+    </TabProvider>
   );
 }

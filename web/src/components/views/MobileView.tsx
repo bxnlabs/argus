@@ -4,6 +4,7 @@ import { NewSessionDialog } from "@/components/NewSessionDialog";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
 import { Button } from "@/components/ui/button";
 import { PanelLeftClose, SquarePen, Search } from "lucide-react";
+import { NodeRail } from "@/components/NodeRail";
 import type { ViewProps } from "./types";
 
 export function MobileView({
@@ -48,6 +49,7 @@ export function MobileView({
           />
           <div className="bg-sidebar-background fixed inset-y-0 left-0 z-50 w-72 shadow-2xl">
             <div className="flex h-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+              <NodeRail orientation="horizontal" />
               {/* Header */}
               <div className="flex items-center justify-between px-3 py-3">
                 <h2 className="pl-1 text-2xl font-bold tracking-wide">
