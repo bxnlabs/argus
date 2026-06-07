@@ -86,6 +86,13 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url must be an absolute http(s) URL"})
 		return
 	}
+	// The URL is used as a node origin/base; a path, query, fragment, or userinfo
+	// would corrupt later requests (e.g. http://gpu/api/api/node/summary). The
+	// trailing slash was already trimmed above, so a lone "/" path is allowed.
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url must be a node origin, e.g. http://host:port"})
+		return
+	}
 	// Persist the normalized form so the DB UNIQUE constraint and the dedup key
 	// agree: case/port variants (e.g. http://GPU:80 vs http://gpu) map to the
 	// same stored value and correctly trigger a 409 on re-add.

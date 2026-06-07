@@ -42,8 +42,9 @@ export function useSessionStatusesQuery({
     if (!activeSessionId) return;
     if (document.hidden) return;
 
-    // Fire-and-forget heartbeat — errors are silently ignored.
-    fetch(`${import.meta.env.VITE_NODE_URL || ""}/api/node/sessions/${encodeURIComponent(activeSessionId)}/heartbeat`, {
+    // Fire-and-forget heartbeat — errors are silently ignored. Routed through
+    // the API client so it targets the active node's base URL.
+    apiTextFetch(`/api/node/sessions/${encodeURIComponent(activeSessionId)}/heartbeat`, {
       method: "POST",
     }).catch(() => {});
   }, [query.data, activeSessionId]);
@@ -59,7 +60,7 @@ export function useSessionStatusesQuery({
 
     const status = query.data.statuses?.[activeSessionId];
     if (status?.unreadSince) {
-      fetch(`${import.meta.env.VITE_NODE_URL || ""}/api/node/sessions/${encodeURIComponent(activeSessionId)}/acknowledge`, {
+      apiTextFetch(`/api/node/sessions/${encodeURIComponent(activeSessionId)}/acknowledge`, {
         method: "POST",
       }).catch(() => {});
     }

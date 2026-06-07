@@ -114,6 +114,40 @@ func TestAddRejectsBadURL(t *testing.T) {
 	}
 }
 
+func TestAddRejectsNonOriginURL(t *testing.T) {
+	// A node URL is used as an origin/base; path, query, fragment, and userinfo
+	// would corrupt later requests (e.g. http://gpu/api/api/node/summary).
+	cases := []string{
+		`{"name":"x","url":"http://gpu/api"}`,
+		`{"name":"x","url":"http://gpu/?q=1"}`,
+		`{"name":"x","url":"http://gpu/#frag"}`,
+		`{"name":"x","url":"http://user:pass@gpu"}`,
+	}
+	for _, body := range cases {
+		h, _ := newTestHandlers()
+		mux := http.NewServeMux()
+		h.Register(mux)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes", strings.NewReader(body)))
+		if rec.Code != 400 {
+			t.Errorf("body %s: status = %d, want 400", body, rec.Code)
+		}
+	}
+}
+
+func TestAddAcceptsBareOriginWithTrailingSlash(t *testing.T) {
+	// A trailing slash is the only path component allowed; it is trimmed.
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://gpu/"}`)))
+	if rec.Code != 201 {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAddDuplicateReturns409(t *testing.T) {
 	h, _ := newTestHandlers()
 	mux := http.NewServeMux()

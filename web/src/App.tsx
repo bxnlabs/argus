@@ -9,6 +9,7 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession } from "@/data/sessions/queries";
+import { apiTextFetch } from "@/api/client";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
 import { SessionInfoDialog } from "@/components/SessionInfoDialog";
 import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
@@ -142,7 +143,7 @@ function HomeContent() {
       // "Mark as unread" survives selection.
       const status = sessionStatuses[session.id];
       if (status?.unreadSince) {
-        fetch(`${import.meta.env.VITE_NODE_URL || ""}/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
+        apiTextFetch(`/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
           method: "POST",
         }).catch(() => {});
       }
