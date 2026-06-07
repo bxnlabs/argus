@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"log"
 	"net/url"
 	"strings"
 )
@@ -65,6 +66,7 @@ func normalize(raw string) string {
 	if err != nil || u.Host == "" {
 		return strings.ToLower(raw)
 	}
+	u.Scheme = strings.ToLower(u.Scheme)
 	u.Host = strings.ToLower(u.Host)
 	return u.String()
 }
@@ -99,7 +101,9 @@ func (s *Service) List(ctx context.Context) ([]Node, error) {
 	// 3. Discovered (best-effort).
 	if s.discover != nil {
 		discovered, derr := s.discover(ctx)
-		if derr == nil {
+		if derr != nil {
+			log.Printf("registry: discovery degraded: %v", derr)
+		} else {
 			for _, d := range discovered {
 				key := d.dedupKey
 				if key == "" {
