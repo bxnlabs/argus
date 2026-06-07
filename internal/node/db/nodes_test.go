@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -26,6 +27,52 @@ func TestNodesTablePresentOnFreshDB(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("nodes table count = %d, want 1", count)
+	}
+}
+
+func TestManualNodeCRUD(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer d.Close()
+	ctx := context.Background()
+
+	if err := d.AddManualNode(ctx, "n1", "gpu-box", "http://gpu-box:80"); err != nil {
+		t.Fatalf("AddManualNode: %v", err)
+	}
+	nodes, err := d.ListManualNodes(ctx)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("ListManualNodes = %v, %v; want 1 node", nodes, err)
+	}
+	if nodes[0].Name != "gpu-box" || nodes[0].URL != "http://gpu-box:80" {
+		t.Errorf("node = %+v", nodes[0])
+	}
+
+	if err := d.RenameManualNode(ctx, "n1", "gpu-1"); err != nil {
+		t.Fatalf("RenameManualNode: %v", err)
+	}
+	nodes, _ = d.ListManualNodes(ctx)
+	if nodes[0].Name != "gpu-1" {
+		t.Errorf("after rename name = %q, want gpu-1", nodes[0].Name)
+	}
+
+	if err := d.DeleteManualNode(ctx, "n1"); err != nil {
+		t.Fatalf("DeleteManualNode: %v", err)
+	}
+	nodes, _ = d.ListManualNodes(ctx)
+	if len(nodes) != 0 {
+		t.Errorf("after delete len = %d, want 0", len(nodes))
+	}
+}
+
+func TestAddManualNodeRejectsDuplicateURL(t *testing.T) {
+	d, _ := Open(filepath.Join(t.TempDir(), "test.db"))
+	defer d.Close()
+	ctx := context.Background()
+	_ = d.AddManualNode(ctx, "n1", "a", "http://dup:80")
+	if err := d.AddManualNode(ctx, "n2", "b", "http://dup:80"); err == nil {
+		t.Error("expected duplicate-URL insert to fail")
 	}
 }
 
