@@ -86,9 +86,7 @@ func (s *Server) Peers(ctx context.Context) ([]Peer, error) {
 	for _, ps := range st.Peer {
 		var tags []string
 		if ps.Tags != nil {
-			for i := range ps.Tags.Len() {
-				tags = append(tags, ps.Tags.At(i))
-			}
+			tags = ps.Tags.AsSlice()
 		}
 		peers = append(peers, Peer{
 			DNSName: ps.DNSName,

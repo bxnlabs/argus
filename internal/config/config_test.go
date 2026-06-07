@@ -21,6 +21,7 @@ func clearArgusEnv(t *testing.T) {
 		"ARGUS_TAILSCALE_HOSTNAME_PREFIX",
 		"ARGUS_TAILSCALE_AUTH_KEY",
 		"ARGUS_TAILSCALE_PORT",
+		"ARGUS_TAILSCALE_DISCOVERY_TAG",
 		"ARGUS_NOTIFICATIONS_CHANNEL",
 		"ARGUS_NOTIFICATIONS_NOTIFY_AFTER_UNREAD_FOR",
 		"ARGUS_NOTIFICATIONS_SLACK_BOT_TOKEN",
@@ -275,6 +276,9 @@ func TestTailscaleDefaults(t *testing.T) {
 	}
 	if cfg.Tailscale.Port != 0 {
 		t.Errorf("Tailscale.Port = %d, want 0", cfg.Tailscale.Port)
+	}
+	if cfg.Tailscale.DiscoveryTag != "tag:argus-node" {
+		t.Errorf("Tailscale.DiscoveryTag = %q, want %q", cfg.Tailscale.DiscoveryTag, "tag:argus-node")
 	}
 }
 
