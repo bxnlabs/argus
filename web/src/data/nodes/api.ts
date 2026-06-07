@@ -1,0 +1,37 @@
+import type { NodeInfo, NodeSummary } from "@/types";
+
+// Registry is served by the instance that served the SPA (same-origin),
+// regardless of which node is active — so these bypass the node base URL.
+export async function fetchNodes(): Promise<NodeInfo[]> {
+  const res = await fetch("/api/nodes");
+  if (!res.ok) throw new Error(`fetch nodes: ${res.status}`);
+  const body = (await res.json()) as { nodes?: NodeInfo[] };
+  return body.nodes ?? [];
+}
+
+async function mutate(method: string, path: string, body?: unknown): Promise<void> {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(detail.error ?? `${method} ${path}: ${res.status}`);
+  }
+}
+
+export const addNode = (name: string, url: string) =>
+  mutate("POST", "/api/nodes", { name, url });
+export const renameNode = (id: string, name: string) =>
+  mutate("PATCH", `/api/nodes/${encodeURIComponent(id)}`, { name });
+export const deleteNode = (id: string) =>
+  mutate("DELETE", `/api/nodes/${encodeURIComponent(id)}`);
+
+// Summary is fetched against each node's own origin (cross-origin for remote
+// nodes; "" == same-origin for the local node).
+export async function fetchSummary(baseUrl: string): Promise<NodeSummary> {
+  const res = await fetch(`${baseUrl}/api/node/summary`);
+  if (!res.ok) throw new Error(`summary: ${res.status}`);
+  return (await res.json()) as NodeSummary;
+}

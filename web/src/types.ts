@@ -182,3 +182,24 @@ export type {
   ReviewBody,
   Review,
 } from "./types/review";
+
+export type NodeSource = "local" | "manual" | "discovered";
+
+export interface NodeInfo {
+  id: string;
+  name: string;
+  url: string; // "" == same-origin (the local node)
+  source: NodeSource;
+  self: boolean;
+}
+
+export interface NodeSummary {
+  attention: number;
+  busy: number;
+  total: number;
+}
+
+export interface NodeWithStatus extends NodeInfo {
+  summary: NodeSummary | null;
+  online: boolean;
+}
