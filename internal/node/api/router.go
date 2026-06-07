@@ -80,11 +80,9 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /github/repos", ghub.listRepos)
 
 	// Status route
-	if deps.WatcherManager != nil {
+	if deps.WatcherManager != nil && deps.Database != nil {
 		mux.HandleFunc("GET /sessions/status", handleStatus(deps.WatcherManager, deps.Database))
-		if deps.Database != nil {
-			mux.HandleFunc("GET /summary", handleSummary(deps.WatcherManager, deps.Database))
-		}
+		mux.HandleFunc("GET /summary", handleSummary(deps.WatcherManager, deps.Database))
 	}
 
 	// Heartbeat/acknowledge routes
