@@ -82,6 +82,9 @@ func NewRouter(deps Deps) http.Handler {
 	// Status route
 	if deps.WatcherManager != nil {
 		mux.HandleFunc("GET /sessions/status", handleStatus(deps.WatcherManager, deps.Database))
+		if deps.Database != nil {
+			mux.HandleFunc("GET /summary", handleSummary(deps.WatcherManager, deps.Database))
+		}
 	}
 
 	// Heartbeat/acknowledge routes
