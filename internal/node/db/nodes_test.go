@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -45,7 +46,7 @@ func TestManualNodeCRUD(t *testing.T) {
 	if err != nil || len(nodes) != 1 {
 		t.Fatalf("ListManualNodes = %v, %v; want 1 node", nodes, err)
 	}
-	if nodes[0].Name != "gpu-box" || nodes[0].URL != "http://gpu-box:80" {
+	if nodes[0].ID != "n1" || nodes[0].Name != "gpu-box" || nodes[0].URL != "http://gpu-box:80" {
 		t.Errorf("node = %+v", nodes[0])
 	}
 
@@ -67,12 +68,39 @@ func TestManualNodeCRUD(t *testing.T) {
 }
 
 func TestAddManualNodeRejectsDuplicateURL(t *testing.T) {
-	d, _ := Open(filepath.Join(t.TempDir(), "test.db"))
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
 	defer d.Close()
 	ctx := context.Background()
 	_ = d.AddManualNode(ctx, "n1", "a", "http://dup:80")
 	if err := d.AddManualNode(ctx, "n2", "b", "http://dup:80"); err == nil {
 		t.Error("expected duplicate-URL insert to fail")
+	}
+}
+
+func TestManualNodeMutationsMissingNode(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer d.Close()
+	ctx := context.Background()
+
+	cases := []struct {
+		name string
+		fn   func() error
+	}{
+		{"RenameManualNode", func() error { return d.RenameManualNode(ctx, "missing", "new-name") }},
+		{"DeleteManualNode", func() error { return d.DeleteManualNode(ctx, "missing") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.fn(); !errors.Is(err, ErrNotFound) {
+				t.Errorf("expected ErrNotFound for missing node, got %v", err)
+			}
+		})
 	}
 }
 

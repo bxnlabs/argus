@@ -1,6 +1,9 @@
 package db
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // ManualNode is a user-added peer node persisted in the registry.
 type ManualNode struct {
@@ -40,13 +43,25 @@ func (d *DB) AddManualNode(ctx context.Context, id, name, url string) error {
 
 // RenameManualNode updates a node's display name.
 func (d *DB) RenameManualNode(ctx context.Context, id, name string) error {
-	_, err := d.sql.ExecContext(ctx,
+	res, err := d.sql.ExecContext(ctx,
 		`UPDATE nodes SET name = ? WHERE id = ?`, name, id)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	return nil
 }
 
 // DeleteManualNode removes a node by id.
 func (d *DB) DeleteManualNode(ctx context.Context, id string) error {
-	_, err := d.sql.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id)
-	return err
+	res, err := d.sql.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	return nil
 }
