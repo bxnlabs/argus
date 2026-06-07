@@ -180,6 +180,9 @@ func runInstance(ctx context.Context) error {
 				if !hasTag(p.Tags, tag) {
 					continue
 				}
+				if !p.Online {
+					continue
+				}
 				host := strings.TrimSuffix(p.DNSName, ".")
 				if host == "" {
 					continue

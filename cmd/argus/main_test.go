@@ -60,7 +60,7 @@ func TestBuildListeners_InvalidAddr(t *testing.T) {
 
 func TestMakeListeners_Disabled(t *testing.T) {
 	tsCfg := config.TailscaleConfig{Enabled: false}
-	lns, disc, _, closer, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0)
+	lns, disc, _, tsServer, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0)
 	if err != nil {
 		t.Fatalf("makeListeners (disabled): %v", err)
 	}
@@ -75,8 +75,8 @@ func TestMakeListeners_Disabled(t *testing.T) {
 	if disc == "" {
 		t.Error("discoveryAddr is empty")
 	}
-	if closer != nil {
-		t.Error("tsCloser should be nil when Tailscale is disabled")
+	if tsServer != nil {
+		t.Error("tsServer should be nil when Tailscale is disabled")
 	}
 }
 

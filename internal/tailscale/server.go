@@ -3,6 +3,7 @@ package tailscale
 import (
 	"context"
 	"net"
+	"sort"
 
 	"tailscale.com/tsnet"
 
@@ -94,6 +95,7 @@ func (s *Server) Peers(ctx context.Context) ([]Peer, error) {
 			Online:  ps.Online,
 		})
 	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].DNSName < peers[j].DNSName })
 	return peers, nil
 }
 
