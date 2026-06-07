@@ -29,6 +29,7 @@ type TailscaleConfig struct {
 	HostnamePrefix string `mapstructure:"hostname_prefix"`
 	AuthKey        string `mapstructure:"auth_key"`
 	Port           int    `mapstructure:"port"`
+	DiscoveryTag   string `mapstructure:"discovery_tag"`
 }
 
 type NotificationsConfig struct {
@@ -70,6 +71,7 @@ func Load(opts Options) (*Config, error) {
 	v.SetDefault("tailscale.hostname_prefix", "")
 	v.SetDefault("tailscale.auth_key", "")
 	v.SetDefault("tailscale.port", 0)
+	v.SetDefault("tailscale.discovery_tag", "tag:argus-node")
 	v.SetDefault("notifications.channel", "")
 	v.SetDefault("notifications.notify_after_unread_for", "5m")
 
