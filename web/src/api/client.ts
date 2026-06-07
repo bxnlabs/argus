@@ -8,13 +8,19 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * Returns the base URL for the node API.
- * - In dev mode: empty string (Vite proxy handles forwarding)
- * - In production: reads VITE_NODE_URL, defaults to same origin
- */
+// The active node's origin. Empty string == same-origin (the local node).
+// Mutated by NodeProvider when the user switches nodes; read by every
+// node-scoped fetch/WebSocket helper below.
+let activeNodeBaseUrl = "";
+
+/** Sets the origin all node API/WS calls target. "" means same-origin. */
+export function setActiveNodeBaseUrl(url: string): void {
+  activeNodeBaseUrl = url;
+}
+
+/** Returns the base URL for the active node's API ("" == same-origin). */
 export function getNodeBaseUrl(): string {
-  return import.meta.env.VITE_NODE_URL || "";
+  return activeNodeBaseUrl;
 }
 
 /**
