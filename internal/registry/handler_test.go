@@ -1,0 +1,164 @@
+package registry
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/bxnlabs/argus/internal/node/db"
+)
+
+type memDB struct{ nodes []ManualNode }
+
+func (m *memDB) ListManualNodes(context.Context) ([]ManualNode, error) { return m.nodes, nil }
+func (m *memDB) AddManualNode(_ context.Context, id, name, url string) error {
+	m.nodes = append(m.nodes, ManualNode{ID: id, Name: name, URL: url})
+	return nil
+}
+func (m *memDB) RenameManualNode(_ context.Context, id, name string) error {
+	for i := range m.nodes {
+		if m.nodes[i].ID == id {
+			m.nodes[i].Name = name
+			return nil
+		}
+	}
+	return db.ErrNotFound
+}
+func (m *memDB) DeleteManualNode(_ context.Context, id string) error {
+	out := m.nodes[:0]
+	found := false
+	for _, n := range m.nodes {
+		if n.ID != id {
+			out = append(out, n)
+		} else {
+			found = true
+		}
+	}
+	m.nodes = out
+	if !found {
+		return db.ErrNotFound
+	}
+	return nil
+}
+
+func newTestHandlers() (*Handlers, *memDB) {
+	db := &memDB{}
+	svc := New(db, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
+	return NewHandlers(svc, db, func() string { return "id-1" }), db
+}
+
+func TestList_ReturnsSelf(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/nodes", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var body struct{ Nodes []Node }
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if len(body.Nodes) != 1 || !body.Nodes[0].Self {
+		t.Errorf("nodes = %+v", body.Nodes)
+	}
+}
+
+func TestAddThenList(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://gpu:80"}`)))
+	if rec.Code != 201 {
+		t.Fatalf("add status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/nodes", nil))
+	var body struct{ Nodes []Node }
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if len(body.Nodes) != 2 {
+		t.Errorf("len = %d, want 2 (self+gpu)", len(body.Nodes))
+	}
+}
+
+func TestAddRejectsBadURL(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"x","url":"not-a-url"}`)))
+	if rec.Code != 400 {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestRenameMissingReturns404(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/nodes/nonexistent",
+		strings.NewReader(`{"name":"new-name"}`)))
+	if rec.Code != 404 {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestDeleteMissingReturns404(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("DELETE", "/api/nodes/nonexistent", nil))
+	if rec.Code != 404 {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestRenameAndDeleteSucceed(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// Add a node — newID always returns "id-1".
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://gpu:80"}`)))
+	if rec.Code != 201 {
+		t.Fatalf("add status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Rename it.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/nodes/id-1",
+		strings.NewReader(`{"name":"gpu-renamed"}`)))
+	if rec.Code != 204 {
+		t.Fatalf("rename status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Delete it.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("DELETE", "/api/nodes/id-1", nil))
+	if rec.Code != 204 {
+		t.Fatalf("delete status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Final GET: only self remains.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/nodes", nil))
+	var body struct{ Nodes []Node }
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if len(body.Nodes) != 1 || !body.Nodes[0].Self {
+		t.Errorf("after delete: nodes = %+v, want only self", body.Nodes)
+	}
+}
