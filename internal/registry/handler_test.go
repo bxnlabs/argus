@@ -136,6 +136,28 @@ func TestAddDuplicateReturns409(t *testing.T) {
 	}
 }
 
+func TestAddNormalizesAndRejectsVariantDuplicate(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// First add: uppercase host + explicit default port → normalized to http://gpu-box
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://GPU-BOX:80"}`)))
+	if rec.Code != 201 {
+		t.Fatalf("first add status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Second add: lowercase host, no port — also normalizes to http://gpu-box → 409.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu-copy","url":"http://gpu-box"}`)))
+	if rec.Code != 409 {
+		t.Errorf("variant duplicate status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRenameMissingReturns404(t *testing.T) {
 	h, _ := newTestHandlers()
 	mux := http.NewServeMux()

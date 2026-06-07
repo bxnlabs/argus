@@ -58,8 +58,9 @@ func New(db DB, self Node, discover DiscoverFunc) *Service {
 	return &Service{db: db, self: self, discover: discover}
 }
 
-// normalize lowercases the host and strips a trailing slash so that
-// "http://Gpu-Box:80/" and "http://gpu-box:80" collapse.
+// normalize lowercases scheme+host, strips a trailing slash, and drops the
+// scheme's default port (:80 for http, :443 for https) so that variants like
+// "http://Gpu-Box:80/" and "http://gpu-box" collapse to the same key.
 func normalize(raw string) string {
 	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
 	u, err := url.Parse(raw)
@@ -67,7 +68,16 @@ func normalize(raw string) string {
 		return strings.ToLower(raw)
 	}
 	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if (u.Scheme == "http" && port == "80") || (u.Scheme == "https" && port == "443") {
+		port = ""
+	}
+	if port != "" {
+		u.Host = host + ":" + port
+	} else {
+		u.Host = host
+	}
 	return u.String()
 }
 

@@ -180,6 +180,9 @@ func runInstance(ctx context.Context) error {
 				if !hasTag(p.Tags, tag) {
 					continue
 				}
+				// Plan 2 lists only currently-reachable peers; offline tagged
+				// nodes are omitted rather than shown as down. (A future plan may
+				// surface offline state in the UI instead of hiding them.)
 				if !p.Online {
 					continue
 				}

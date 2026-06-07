@@ -45,11 +45,18 @@ func TestNormalize(t *testing.T) {
 			comment: "scheme should be lowercased (Fix A)",
 		},
 		{
-			name:    "explicit port vs default port differ",
+			name:    "explicit default port collapses (http:80)",
 			a:       "http://host:80",
 			b:       "http://host",
-			wantEq:  false,
-			comment: "explicit-port vs default-port are intentionally NOT collapsed",
+			wantEq:  true,
+			comment: "http:80 is the default and must be stripped so variants collapse",
+		},
+		{
+			name:    "explicit default port collapses (https:443)",
+			a:       "https://host:443",
+			b:       "https://host",
+			wantEq:  true,
+			comment: "https:443 is the default and must be stripped so variants collapse",
 		},
 	}
 

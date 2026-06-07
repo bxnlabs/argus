@@ -86,8 +86,12 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url must be an absolute http(s) URL"})
 		return
 	}
+	// Persist the normalized form so the DB UNIQUE constraint and the dedup key
+	// agree: case/port variants (e.g. http://GPU:80 vs http://gpu) map to the
+	// same stored value and correctly trigger a 409 on re-add.
+	normalizedURL := normalize(body.URL)
 	id := h.newID()
-	if err := h.db.AddManualNode(r.Context(), id, body.Name, body.URL); err != nil {
+	if err := h.db.AddManualNode(r.Context(), id, body.Name, normalizedURL); err != nil {
 		if errors.Is(err, db.ErrDuplicateURL) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "a node with that url already exists"})
 			return
