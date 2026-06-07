@@ -59,7 +59,7 @@ func (p *prodWatcherDB) GetSession(id string) (unreadSince, lastViewedAt *string
 
 // Setup initializes the node: opens the database, verifies migrations are
 // current, and returns an HTTP handler with all node API routes.
-func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
+func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(), error) {
 	// Resolve Argus's state root once (ARGUS_HOME, else ~/.argus), secure it to
 	// 0700, and share it with every component below. The database lives directly
 	// in the root, so it must be private before db.Open. config.Load already
@@ -68,7 +68,7 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 	// EnsureSecureDir calls only tighten their own leaves.
 	stateDir, err := shared.EnsureStateDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("prepare state dir: %w", err)
+		return nil, nil, nil, fmt.Errorf("prepare state dir: %w", err)
 	}
 
 	// Bootstrap the dedicated tmux server state before anything else: the
@@ -76,24 +76,24 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 	// first server start. Both are required, so a failure here is fatal rather
 	// than leaving the server permanently misconfigured.
 	if _, err := shared.EnsureTmuxStateDir(); err != nil {
-		return nil, nil, fmt.Errorf("ensure tmux dir: %w", err)
+		return nil, nil, nil, fmt.Errorf("ensure tmux dir: %w", err)
 	}
 	if _, err := shared.SeedTmuxConfig(); err != nil {
-		return nil, nil, fmt.Errorf("seed tmux config: %w", err)
+		return nil, nil, nil, fmt.Errorf("seed tmux config: %w", err)
 	}
 
 	dbPath, err := shared.DBPath()
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve db path: %w", err)
+		return nil, nil, nil, fmt.Errorf("resolve db path: %w", err)
 	}
 	database, err := db.Open(dbPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open db: %w", err)
+		return nil, nil, nil, fmt.Errorf("open db: %w", err)
 	}
 
 	if err := database.CheckMigrations(); err != nil {
 		database.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	wtMgr := worktree.NewManager(stateDir, cfg)
@@ -116,7 +116,7 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 			watcherMgr.Close()
 			repoIndexer.Close()
 			database.Close()
-			return nil, nil, fmt.Errorf("parse notification threshold: %w", err)
+			return nil, nil, nil, fmt.Errorf("parse notification threshold: %w", err)
 		}
 
 		var sender notifications.Sender
@@ -131,7 +131,7 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 			watcherMgr.Close()
 			repoIndexer.Close()
 			database.Close()
-			return nil, nil, fmt.Errorf("notification channel %q is not implemented", cfg.Notifications.Channel)
+			return nil, nil, nil, fmt.Errorf("notification channel %q is not implemented", cfg.Notifications.Channel)
 		}
 
 		notifService = notifications.NewService(sender, database, threshold)
@@ -156,5 +156,5 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, func(), error) {
 		repoIndexer.Close()
 		database.Close()
 	}
-	return handler, cleanup, nil
+	return handler, database, cleanup, nil
 }

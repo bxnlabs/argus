@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -18,6 +20,8 @@ import (
 	"github.com/bxnlabs/argus/cmd/argus/cli"
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/node"
+	nodedb "github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/registry"
 	"github.com/bxnlabs/argus/internal/shared"
 	ts "github.com/bxnlabs/argus/internal/tailscale"
 	"github.com/bxnlabs/argus/internal/web"
@@ -63,6 +67,39 @@ func newRootCmd() *cobra.Command {
 	return rootCmd
 }
 
+// registryDB adapts *nodedb.DB to registry.WriteDB. The Add/Rename/Delete methods
+// are promoted from the embedded *nodedb.DB unchanged; only ListManualNodes needs a
+// conversion because nodedb.ManualNode and registry.ManualNode are distinct types.
+type registryDB struct{ *nodedb.DB }
+
+func (a registryDB) ListManualNodes(ctx context.Context) ([]registry.ManualNode, error) {
+	dbNodes, err := a.DB.ListManualNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]registry.ManualNode, len(dbNodes))
+	for i, n := range dbNodes {
+		out[i] = registry.ManualNode{ID: n.ID, Name: n.Name, URL: n.URL}
+	}
+	return out, nil
+}
+
+func hasTag(tags []string, want string) bool {
+	for _, t := range tags {
+		if t == want {
+			return true
+		}
+	}
+	return false
+}
+
+// newNodeID returns a random hex id for a manual node.
+func newNodeID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
 func writeDiscovery(addr string) {
 	dp, err := node.DefaultDiscoveryPath()
 	if err != nil {
@@ -84,13 +121,13 @@ func removeDiscovery() {
 
 // runInstance starts the node API and SPA as a single unified instance.
 func runInstance(ctx context.Context) error {
-	listeners, discoveryAddr, tsFQDN, tsCloser, err := makeListeners(ctx, cfg.Tailscale, cfg.BindAddress, cfg.Port)
+	listeners, discoveryAddr, tsFQDN, tsServer, err := makeListeners(ctx, cfg.Tailscale, cfg.BindAddress, cfg.Port)
 	if err != nil {
 		return err
 	}
-	if tsCloser != nil {
+	if tsServer != nil {
 		defer func() {
-			if err := tsCloser(); err != nil {
+			if err := tsServer.Close(); err != nil {
 				log.Printf("warning: tailscale shutdown: %v", err)
 			}
 		}()
@@ -101,7 +138,7 @@ func runInstance(ctx context.Context) error {
 		baseURL = "http://" + tsFQDN
 	}
 
-	nodeHandler, cleanup, err := node.Setup(cfg, baseURL)
+	nodeHandler, database, cleanup, err := node.Setup(cfg, baseURL)
 	if err != nil {
 		return err
 	}
@@ -110,6 +147,54 @@ func runInstance(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.Handle("/api/node/", http.StripPrefix("/api/node", nodeHandler))
 	mux.Handle("/", web.NewSPAHandler(""))
+
+	// Self entry: same-origin from the browser (URL empty). Its dedup key is
+	// the tailnet URL (if any) so a discovered copy of self is collapsed.
+	selfName := cfg.Tailscale.HostnamePrefix
+	if selfName == "" {
+		if h, err := os.Hostname(); err == nil {
+			selfName = h
+		} else {
+			selfName = "this node"
+		}
+	}
+	self := registry.Node{
+		ID:     "local",
+		Name:   selfName,
+		URL:    "",
+		Source: registry.SourceLocal,
+		Self:   true,
+	}
+	self.SetDedupKey(baseURL) // baseURL is "http://<fqdn>" or "" when no Tailscale
+
+	var discover registry.DiscoverFunc
+	if tsServer != nil {
+		tag := cfg.Tailscale.DiscoveryTag
+		discover = func(ctx context.Context) ([]registry.Node, error) {
+			peers, err := tsServer.Peers(ctx)
+			if err != nil {
+				return nil, err
+			}
+			var nodes []registry.Node
+			for _, p := range peers {
+				if !hasTag(p.Tags, tag) {
+					continue
+				}
+				host := strings.TrimSuffix(p.DNSName, ".")
+				if host == "" {
+					continue
+				}
+				peerURL := "http://" + host // :80 implicit
+				nodes = append(nodes, registry.NodeFromDiscovery(host, peerURL))
+			}
+			return nodes, nil
+		}
+	}
+
+	regDB := registryDB{database}
+	regSvc := registry.New(regDB, self, discover)
+	regHandlers := registry.NewHandlers(regSvc, regDB, newNodeID)
+	regHandlers.Register(mux)
 
 	return serve(listeners, discoveryAddr, mux, "argus")
 }
@@ -174,7 +259,7 @@ func deriveHostname(prefix string) string {
 	return sanitizeDNSCompliantHostname(hostname)
 }
 
-func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddress string, port int) (listeners []net.Listener, discoveryAddr string, tsFQDN string, tsCloser func() error, err error) {
+func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddress string, port int) (listeners []net.Listener, discoveryAddr string, tsFQDN string, tsServer *ts.Server, err error) {
 	if !tsCfg.Enabled {
 		ip := net.ParseIP(bindAddress)
 
@@ -222,25 +307,25 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 	}
 	stateDir := filepath.Join(argusHome, "tailscale", hostname)
 
-	tsServer := ts.New(hostname, tsCfg.AuthKey, stateDir, uint16(tsCfg.Port))
+	srv := ts.New(hostname, tsCfg.AuthKey, stateDir, uint16(tsCfg.Port))
 
 	upCtx, upCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer upCancel()
 
-	if err := tsServer.Up(upCtx); err != nil {
+	if err := srv.Up(upCtx); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, "", "", nil, fmt.Errorf("tailscale: timed out waiting for node to start (30s). If this is a first run, set ARGUS_TAILSCALE_AUTH_KEY or tailscale.auth_key. Hostname: %s, state dir: %s", hostname, stateDir)
 		}
 		return nil, "", "", nil, fmt.Errorf("tailscale: %w", err)
 	}
 
-	fqdn := tsServer.FQDN()
+	fqdn := srv.FQDN()
 
 	// Loopback listener for CLI access
 	loopbackAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	loopbackLn, err := net.Listen("tcp", loopbackAddr)
 	if err != nil {
-		tsServer.Close()
+		srv.Close()
 		return nil, "", "", nil, fmt.Errorf("listen on %s: %w", loopbackAddr, err)
 	}
 
@@ -248,15 +333,15 @@ func makeListeners(ctx context.Context, tsCfg config.TailscaleConfig, bindAddres
 	const tailnetHTTPPort = 80
 	// tsnet listeners are userspace on this node's own tailnet IP, so binding
 	// :80 needs no privilege and cannot collide with the host's port 80.
-	tsLn, err := tsServer.Listen("tcp", ":"+strconv.Itoa(tailnetHTTPPort))
+	tsLn, err := srv.Listen("tcp", ":"+strconv.Itoa(tailnetHTTPPort))
 	if err != nil {
 		loopbackLn.Close()
-		tsServer.Close()
+		srv.Close()
 		return nil, "", "", nil, fmt.Errorf("tailscale listen: %w", err)
 	}
 
 	discoveryAddr = loopbackLn.Addr().String()
-	return []net.Listener{loopbackLn, tsLn}, discoveryAddr, fqdn, tsServer.Close, nil
+	return []net.Listener{loopbackLn, tsLn}, discoveryAddr, fqdn, srv, nil
 }
 
 // serve starts an HTTP server on the given listeners with graceful shutdown.

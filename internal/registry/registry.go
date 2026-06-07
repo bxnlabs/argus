@@ -71,6 +71,24 @@ func normalize(raw string) string {
 	return u.String()
 }
 
+// SetDedupKey sets the local node's dedup key from its canonical (tailnet) URL.
+func (n *Node) SetDedupKey(canonicalURL string) {
+	if canonicalURL != "" {
+		n.dedupKey = normalize(canonicalURL)
+	}
+}
+
+// NodeFromDiscovery builds a discovered node with its dedup key set.
+func NodeFromDiscovery(name, rawURL string) Node {
+	return Node{
+		ID:       "discovered:" + normalize(rawURL),
+		Name:     name,
+		URL:      rawURL,
+		Source:   SourceDiscovered,
+		dedupKey: normalize(rawURL),
+	}
+}
+
 // List returns local + manual + discovered, deduped by normalized URL with
 // precedence local > manual > discovered.
 func (s *Service) List(ctx context.Context) ([]Node, error) {
