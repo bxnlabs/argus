@@ -75,8 +75,8 @@ func TestAddManualNodeRejectsDuplicateURL(t *testing.T) {
 	defer d.Close()
 	ctx := context.Background()
 	_ = d.AddManualNode(ctx, "n1", "a", "http://dup:80")
-	if err := d.AddManualNode(ctx, "n2", "b", "http://dup:80"); err == nil {
-		t.Error("expected duplicate-URL insert to fail")
+	if err := d.AddManualNode(ctx, "n2", "b", "http://dup:80"); !errors.Is(err, ErrDuplicateURL) {
+		t.Errorf("expected ErrDuplicateURL for duplicate URL, got %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,11 @@ type memDB struct{ nodes []ManualNode }
 
 func (m *memDB) ListManualNodes(context.Context) ([]ManualNode, error) { return m.nodes, nil }
 func (m *memDB) AddManualNode(_ context.Context, id, name, url string) error {
+	for _, n := range m.nodes {
+		if n.URL == url {
+			return fmt.Errorf("%w: %s", db.ErrDuplicateURL, url)
+		}
+	}
 	m.nodes = append(m.nodes, ManualNode{ID: id, Name: name, URL: url})
 	return nil
 }
@@ -44,10 +50,18 @@ func (m *memDB) DeleteManualNode(_ context.Context, id string) error {
 	return nil
 }
 
+func newCounter() func() string {
+	n := 0
+	return func() string {
+		n++
+		return fmt.Sprintf("id-%d", n)
+	}
+}
+
 func newTestHandlers() (*Handlers, *memDB) {
-	db := &memDB{}
-	svc := New(db, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
-	return NewHandlers(svc, db, func() string { return "id-1" }), db
+	mdb := &memDB{}
+	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
+	return NewHandlers(svc, mdb, newCounter()), mdb
 }
 
 func TestList_ReturnsSelf(t *testing.T) {
@@ -100,6 +114,28 @@ func TestAddRejectsBadURL(t *testing.T) {
 	}
 }
 
+func TestAddDuplicateReturns409(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// First add succeeds.
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://gpu:80"}`)))
+	if rec.Code != 201 {
+		t.Fatalf("first add status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Second add with the same URL returns 409.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu-copy","url":"http://gpu:80"}`)))
+	if rec.Code != 409 {
+		t.Errorf("duplicate add status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRenameMissingReturns404(t *testing.T) {
 	h, _ := newTestHandlers()
 	mux := http.NewServeMux()
@@ -130,7 +166,7 @@ func TestRenameAndDeleteSucceed(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	// Add a node — newID always returns "id-1".
+	// Add a node — counter returns "id-1" on first call.
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
 		strings.NewReader(`{"name":"gpu","url":"http://gpu:80"}`)))

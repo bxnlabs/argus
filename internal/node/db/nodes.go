@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // ManualNode is a user-added peer node persisted in the registry.
@@ -34,11 +35,17 @@ func (d *DB) ListManualNodes(ctx context.Context) ([]ManualNode, error) {
 }
 
 // AddManualNode inserts a node. The UNIQUE(url) constraint surfaces duplicates
-// as an error.
+// as ErrDuplicateURL.
 func (d *DB) AddManualNode(ctx context.Context, id, name, url string) error {
 	_, err := d.sql.ExecContext(ctx,
 		`INSERT INTO nodes (id, name, url) VALUES (?, ?, ?)`, id, name, url)
-	return err
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return fmt.Errorf("%w: %s", ErrDuplicateURL, url)
+		}
+		return err
+	}
+	return nil
 }
 
 // RenameManualNode updates a node's display name.

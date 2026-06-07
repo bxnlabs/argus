@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/bxnlabs/argus/internal/node/db"
 )
+
+const maxBodySize = 1 << 20 // 1 MB
 
 // WriteDB is the persistence dependency for mutations (satisfied by *db.DB).
 type WriteDB interface {
@@ -46,10 +49,17 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeInternalError logs the raw error server-side and sends a generic
+// message to the client so internal details are not exposed.
+func writeInternalError(w http.ResponseWriter, err error) {
+	log.Printf("registry: internal error: %v", err)
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+}
+
 func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 	nodes, err := h.svc.List(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes})
@@ -60,6 +70,7 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 		URL  string `json:"url"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
@@ -77,7 +88,11 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 	}
 	id := h.newID()
 	if err := h.db.AddManualNode(r.Context(), id, body.Name, body.URL); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		if errors.Is(err, db.ErrDuplicateURL) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "a node with that url already exists"})
+			return
+		}
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
@@ -88,7 +103,12 @@ func (h *Handlers) rename(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
@@ -97,7 +117,7 @@ func (h *Handlers) rename(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeInternalError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -109,7 +129,7 @@ func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeInternalError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
