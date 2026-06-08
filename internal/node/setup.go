@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/bxnlabs/argus/internal/config"
@@ -58,8 +60,11 @@ func (p *prodWatcherDB) GetSession(id string) (unreadSince, lastViewedAt *string
 }
 
 // Setup initializes the node: opens the database, verifies migrations are
-// current, and returns an HTTP handler with all node API routes.
-func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(), error) {
+// current, and returns an HTTP handler with all node API routes. It also returns
+// the cross-origin allow-predicate so the caller can guard sibling routes (e.g.
+// the registry's /api/nodes endpoints) with the exact same policy as the node
+// API, instead of rebuilding and risking drift.
+func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(string) bool, func(), error) {
 	// Resolve Argus's state root once (ARGUS_HOME, else ~/.argus), secure it to
 	// 0700, and share it with every component below. The database lives directly
 	// in the root, so it must be private before db.Open. config.Load already
@@ -68,7 +73,7 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(), er
 	// EnsureSecureDir calls only tighten their own leaves.
 	stateDir, err := shared.EnsureStateDir()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("prepare state dir: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("prepare state dir: %w", err)
 	}
 
 	// Bootstrap the dedicated tmux server state before anything else: the
@@ -76,24 +81,24 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(), er
 	// first server start. Both are required, so a failure here is fatal rather
 	// than leaving the server permanently misconfigured.
 	if _, err := shared.EnsureTmuxStateDir(); err != nil {
-		return nil, nil, nil, fmt.Errorf("ensure tmux dir: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("ensure tmux dir: %w", err)
 	}
 	if _, err := shared.SeedTmuxConfig(); err != nil {
-		return nil, nil, nil, fmt.Errorf("seed tmux config: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("seed tmux config: %w", err)
 	}
 
 	dbPath, err := shared.DBPath()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("resolve db path: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("resolve db path: %w", err)
 	}
 	database, err := db.Open(dbPath)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("open db: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("open db: %w", err)
 	}
 
 	if err := database.CheckMigrations(); err != nil {
 		database.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	wtMgr := worktree.NewManager(stateDir, cfg)
@@ -116,7 +121,7 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(), er
 			watcherMgr.Close()
 			repoIndexer.Close()
 			database.Close()
-			return nil, nil, nil, fmt.Errorf("parse notification threshold: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("parse notification threshold: %w", err)
 		}
 
 		var sender notifications.Sender
@@ -131,7 +136,7 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(), er
 			watcherMgr.Close()
 			repoIndexer.Close()
 			database.Close()
-			return nil, nil, nil, fmt.Errorf("notification channel %q is not implemented", cfg.Notifications.Channel)
+			return nil, nil, nil, nil, fmt.Errorf("notification channel %q is not implemented", cfg.Notifications.Channel)
 		}
 
 		notifService = notifications.NewService(sender, database, threshold)
@@ -140,12 +145,25 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(), er
 			cfg.Notifications.Channel, cfg.Notifications.NotifyAfterUnreadFor)
 	}
 
+	// Derive the MagicDNS suffix from baseURL ("http://<fqdn>" when Tailscale is
+	// on, "" otherwise) so CORS can recognize tailnet peers by origin shape.
+	// e.g. "my-node.tail1234.ts.net" → ".tail1234.ts.net". Empty when Tailscale
+	// is off, which keeps CORS loopback-only.
+	var tailnetSuffix string
+	if u, err := url.Parse(baseURL); err == nil {
+		if host := u.Hostname(); strings.Contains(host, ".") {
+			tailnetSuffix = host[strings.IndexByte(host, '.'):]
+		}
+	}
+
+	allowOrigin := api.NewCORSPolicy(tailnetSuffix)
 	handler := api.NewRouter(api.Deps{
 		SessionManager: mgr,
 		WatcherManager: watcherMgr,
 		Database:       database,
 		RepoIndexer:    repoIndexer,
 		StateDir:       stateDir,
+		AllowOrigin:    allowOrigin,
 	})
 
 	cleanup := func() {
@@ -156,5 +174,5 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(), er
 		repoIndexer.Close()
 		database.Close()
 	}
-	return handler, database, cleanup, nil
+	return handler, database, allowOrigin, cleanup, nil
 }

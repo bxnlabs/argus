@@ -27,20 +27,30 @@ type Handlers struct {
 	svc   *Service
 	db    WriteDB
 	newID func() string
+	cors  func(http.Handler) http.Handler
 }
 
 // NewHandlers builds the registry handlers. newID generates manual-node IDs
-// (inject a deterministic one in tests; use a UUID in production).
-func NewHandlers(svc *Service, db WriteDB, newID func() string) *Handlers {
-	return &Handlers{svc: svc, db: db, newID: newID}
+// (inject a deterministic one in tests; use a UUID in production). cors wraps
+// every route with the same cross-origin guard the node API uses — these
+// endpoints have no app auth and decode JSON regardless of Content-Type, so an
+// unguarded route would let any page CSRF a node add/rename/delete. A nil cors
+// means no wrapping (test convenience).
+func NewHandlers(svc *Service, db WriteDB, newID func() string, cors func(http.Handler) http.Handler) *Handlers {
+	if cors == nil {
+		cors = func(next http.Handler) http.Handler { return next }
+	}
+	return &Handlers{svc: svc, db: db, newID: newID, cors: cors}
 }
 
-// Register wires the routes onto the given mux.
+// Register wires the routes onto the given mux. Each route is wrapped in the
+// CORS guard; the mux still matches method+path natively (and sets {id}) before
+// the guard runs, so path values reach the handler unchanged.
 func (h *Handlers) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/nodes", h.list)
-	mux.HandleFunc("POST /api/nodes", h.add)
-	mux.HandleFunc("PATCH /api/nodes/{id}", h.rename)
-	mux.HandleFunc("DELETE /api/nodes/{id}", h.delete)
+	mux.Handle("GET /api/nodes", h.cors(http.HandlerFunc(h.list)))
+	mux.Handle("POST /api/nodes", h.cors(http.HandlerFunc(h.add)))
+	mux.Handle("PATCH /api/nodes/{id}", h.cors(http.HandlerFunc(h.rename)))
+	mux.Handle("DELETE /api/nodes/{id}", h.cors(http.HandlerFunc(h.delete)))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

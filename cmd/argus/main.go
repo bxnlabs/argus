@@ -20,6 +20,7 @@ import (
 	"github.com/bxnlabs/argus/cmd/argus/cli"
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/node"
+	"github.com/bxnlabs/argus/internal/node/api"
 	nodedb "github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/registry"
 	"github.com/bxnlabs/argus/internal/shared"
@@ -138,7 +139,7 @@ func runInstance(ctx context.Context) error {
 		baseURL = "http://" + tsFQDN
 	}
 
-	nodeHandler, database, cleanup, err := node.Setup(cfg, baseURL)
+	nodeHandler, database, allowOrigin, cleanup, err := node.Setup(cfg, baseURL)
 	if err != nil {
 		return err
 	}
@@ -199,7 +200,12 @@ func runInstance(ctx context.Context) error {
 
 	regDB := registryDB{database}
 	regSvc := registry.New(regDB, self, discover)
-	regHandlers := registry.NewHandlers(regSvc, regDB, newNodeID)
+	// Guard the registry routes with the SAME origin policy as the node API:
+	// they're served on the top-level mux (not behind node.Setup's CORS) and
+	// mutate state from JSON without a Content-Type check, so an unguarded route
+	// is a CSRF surface for any page the user visits.
+	cors := func(next http.Handler) http.Handler { return api.CORS(allowOrigin, next) }
+	regHandlers := registry.NewHandlers(regSvc, regDB, newNodeID, cors)
 	regHandlers.Register(mux)
 
 	return serve(listeners, discoveryAddr, mux, "argus")

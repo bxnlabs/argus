@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bxnlabs/argus/internal/node/api"
 	"github.com/bxnlabs/argus/internal/node/db"
 )
 
@@ -61,7 +62,33 @@ func newCounter() func() string {
 func newTestHandlers() (*Handlers, *memDB) {
 	mdb := &memDB{}
 	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
-	return NewHandlers(svc, mdb, newCounter()), mdb
+	return NewHandlers(svc, mdb, newCounter(), nil), mdb
+}
+
+// TestRegisterAppliesCORS asserts the registry routes are wrapped in the
+// supplied origin guard: a disallowed cross-origin request is rejected with 403
+// before reaching the handler, so it cannot mutate the registry (CSRF defense).
+func TestRegisterAppliesCORS(t *testing.T) {
+	mdb := &memDB{}
+	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
+	// Empty tailnet suffix → loopback-only policy, so http://evil.com is denied.
+	cors := func(next http.Handler) http.Handler { return api.CORS(api.NewCORSPolicy(""), next) }
+	h := NewHandlers(svc, mdb, newCounter(), cors)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://gpu:80"}`))
+	req.Header.Set("Origin", "http://evil.com")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+	if len(mdb.nodes) != 0 {
+		t.Errorf("registry mutated despite forbidden origin: %+v", mdb.nodes)
+	}
 }
 
 func TestList_ReturnsSelf(t *testing.T) {
