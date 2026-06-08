@@ -26,6 +26,7 @@ import type { GitTab, GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
 function HomeContent() {
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -415,6 +416,8 @@ function HomeContent() {
     sessionStatuses,
     sidebarOpen,
     setSidebarOpen,
+    railOpen,
+    setRailOpen,
     activeTab,
     showNewSessionDialog,
     setShowNewSessionDialog,
