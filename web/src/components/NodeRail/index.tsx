@@ -16,10 +16,14 @@ function NodeTile({
   node: NodeWithStatus;
   active: boolean;
   onSelect: () => void;
-  tooltipSide: "right" | "bottom";
+  tooltipSide: "right" | "left";
 }) {
   const attention = node.summary?.attention ?? 0;
   const busy = node.summary?.busy ?? 0;
+  // The selected node conveys its state purely through the border colour, so it
+  // never shows the unread badge or the working ring (you're already looking at
+  // it). Working takes effect only on the *other* tiles.
+  const working = !active && node.online && busy > 0;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -29,29 +33,25 @@ function NodeTile({
           data-online={node.online}
           onClick={onSelect}
           className={cn(
-            "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-sm font-semibold transition-colors",
-            active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50",
-            !node.online && "opacity-50 ring-1 ring-red-500/50",
+            "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg border-[3px] font-mono text-lg font-bold leading-none transition-colors",
+            active
+              ? "border-primary bg-accent text-accent-foreground"
+              : "border-transparent text-foreground hover:bg-accent/50",
+            // Offline recedes rather than alarms: no border (an idle online node
+            // has none either), just a dimmed, desaturated letter so a down node
+            // is the quietest tile in the rail, never the loudest.
+            !node.online && !active && "text-muted-foreground opacity-40",
+            working && "node-working",
           )}
         >
-          {active && (
-            <span aria-hidden className="bg-primary absolute left-[-6px] top-1 h-8 w-1 rounded-full" />
-          )}
           {initial(node.name)}
-          {node.online && attention > 0 && (
+          {!active && node.online && attention > 0 && (
             <span
               data-testid={`node-attention-${node.id}`}
-              className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-white"
+              className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-white"
             >
               {attention}
             </span>
-          )}
-          {node.online && attention === 0 && busy > 0 && (
-            <span
-              aria-hidden
-              data-testid={`node-busy-${node.id}`}
-              className="bg-green-500 animate-pulse-green absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full"
-            />
           )}
         </button>
       </TooltipTrigger>
@@ -67,24 +67,22 @@ function NodeTile({
  * Always-visible rail carrying the manage-nodes entry point. Node tiles only
  * appear once there's more than the local node to switch between; with a single
  * node the rail collapses to just the manage button, so a manual (non-Tailscale)
- * user can still add their first node from the UI. `orientation="horizontal"` is
- * used by the mobile drawer.
+ * user can still add their first node from the UI. The rail is always a vertical
+ * strip; `side` only flips which edge carries the divider and which way tooltips
+ * open — the mobile drawer puts it on the right.
  */
-export function NodeRail({ orientation = "vertical" }: { orientation?: "vertical" | "horizontal" }) {
+export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
   const { nodes, activeNodeId, setActiveNode } = useNodeContext();
   const [manageOpen, setManageOpen] = useState(false);
 
-  const horizontal = orientation === "horizontal";
   const showTiles = nodes.length >= 2;
   return (
     <>
       <div
         data-testid="node-rail"
         className={cn(
-          "bg-sidebar-background flex gap-2",
-          horizontal
-            ? "w-full flex-row items-center overflow-x-auto border-b px-2 py-2"
-            : "h-full w-12 flex-shrink-0 flex-col items-stretch border-r py-3",
+          "bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3",
+          side === "right" ? "border-l" : "border-r",
         )}
       >
         {showTiles &&
@@ -94,14 +92,14 @@ export function NodeRail({ orientation = "vertical" }: { orientation?: "vertical
               node={n}
               active={n.id === activeNodeId}
               onSelect={() => setActiveNode(n.id)}
-              tooltipSide={horizontal ? "bottom" : "right"}
+              tooltipSide={side === "right" ? "left" : "right"}
             />
           ))}
         <button
           type="button"
           aria-label="Manage nodes"
           onClick={() => setManageOpen(true)}
-          className="text-muted-foreground hover:bg-accent/50 mx-auto flex h-10 w-10 items-center justify-center rounded-lg"
+          className="text-muted-foreground border-muted-foreground hover:border-green-500 hover:text-green-500 mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
         >
           <Plus className="h-4 w-4" />
         </button>

@@ -239,6 +239,45 @@ body {
   animation: pulse-glow-yellow 2s ease-in-out infinite;
 }
 
+/* Rotating green glow for a node that's actively working. A conic-gradient arc
+   is masked into a ring, blurred, and tucked just behind/outside the tile so it
+   reads as a rotating shadow haloing the border rather than sitting inside it.
+   The center stays clear, so the unread badge and initial render crisply. */
+@property --border-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes spin-border {
+  to {
+    --border-angle: 360deg;
+  }
+}
+
+.node-working::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 3px;
+  background: conic-gradient(
+    from var(--border-angle),
+    transparent 0deg 210deg,
+    rgb(34, 197, 94) 300deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(2.5px);
+  animation: spin-border 2.5s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
 /* Toast prominence */
 [data-sonner-toaster] {
   --offset: 16px !important;

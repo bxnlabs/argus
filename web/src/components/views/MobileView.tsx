@@ -48,68 +48,70 @@ export function MobileView({
             onClick={() => setSidebarOpen(false)}
           />
           <div className="bg-sidebar-background fixed inset-y-0 left-0 z-50 w-72 shadow-2xl">
-            <div className="flex h-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-              <NodeRail orientation="horizontal" />
-              {/* Header */}
-              <div className="flex items-center justify-between px-3 py-3">
-                <h2 className="pl-1 text-2xl font-bold tracking-wide">
-                  argus
-                </h2>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  <PanelLeftClose className="h-4 w-4" />
-                </Button>
-              </div>
+            <div className="flex h-full flex-row pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+              <NodeRail side="left" />
+              <div className="flex min-w-0 flex-1 flex-col">
+                {/* Header */}
+                <div className="flex items-center justify-between px-3 py-3">
+                  <h2 className="pl-1 text-2xl font-bold tracking-wide">
+                    argus
+                  </h2>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <PanelLeftClose className="h-4 w-4" />
+                  </Button>
+                </div>
 
-              {/* Nav items */}
-              <nav className="mt-4 flex flex-col gap-0.5 px-2">
-                <button
-                  onClick={() => {
-                    setSidebarOpen(false);
-                    setShowNewSessionDialog(true);
-                  }}
-                  className="hover:bg-accent/50 flex items-center gap-3 rounded-md px-2 py-2 text-base transition-colors"
-                >
-                  <SquarePen className="h-5 w-5 flex-shrink-0" />
-                  <span>New Session</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setSidebarOpen(false);
-                    setShowQuickSwitcher(true);
-                  }}
-                  className="hover:bg-accent/50 flex items-center gap-3 rounded-md px-2 py-2 text-base transition-colors"
-                >
-                  <Search className="h-5 w-5 flex-shrink-0" />
-                  <span>Search</span>
-                </button>
-              </nav>
-
-              {/* Sessions */}
-              <div className="mt-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <SessionList
-                    sessions={sessions}
-                    homeDir={homeDir}
-                    activeSessionId={activeTab?.sessionId || undefined}
-                    sessionStatuses={sessionStatuses}
-                    onAttachSession={handleAttachSession}
-                    onDeleteSession={onDeleteSession}
-                    onRenameSession={onRenameSession}
-                    onChangeProfile={onChangeProfile}
-                    onViewInfo={onViewInfo}
-                    onTogglePin={onTogglePin}
-                    onMarkRead={onMarkRead}
-                    onMarkUnread={onMarkUnread}
-                    onNewSession={() => {
-                      setShowNewSessionDialog(true);
+                {/* Nav items */}
+                <nav className="mt-4 flex flex-col gap-0.5 px-2">
+                  <button
+                    onClick={() => {
                       setSidebarOpen(false);
+                      setShowNewSessionDialog(true);
                     }}
-                  />
+                    className="hover:bg-accent/50 flex items-center gap-3 rounded-md px-2 py-2 text-base transition-colors"
+                  >
+                    <SquarePen className="h-5 w-5 flex-shrink-0" />
+                    <span>New Session</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSidebarOpen(false);
+                      setShowQuickSwitcher(true);
+                    }}
+                    className="hover:bg-accent/50 flex items-center gap-3 rounded-md px-2 py-2 text-base transition-colors"
+                  >
+                    <Search className="h-5 w-5 flex-shrink-0" />
+                    <span>Search</span>
+                  </button>
+                </nav>
+
+                {/* Sessions */}
+                <div className="mt-10 flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <div className="min-h-0 flex-1 overflow-hidden">
+                    <SessionList
+                      sessions={sessions}
+                      homeDir={homeDir}
+                      activeSessionId={activeTab?.sessionId || undefined}
+                      sessionStatuses={sessionStatuses}
+                      onAttachSession={handleAttachSession}
+                      onDeleteSession={onDeleteSession}
+                      onRenameSession={onRenameSession}
+                      onChangeProfile={onChangeProfile}
+                      onViewInfo={onViewInfo}
+                      onTogglePin={onTogglePin}
+                      onMarkRead={onMarkRead}
+                      onMarkUnread={onMarkUnread}
+                      onNewSession={() => {
+                        setShowNewSessionDialog(true);
+                        setSidebarOpen(false);
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

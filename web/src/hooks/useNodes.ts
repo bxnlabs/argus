@@ -26,7 +26,13 @@ export function useNodes(): { nodes: NodeWithStatus[]; isLoaded: boolean } {
 
   const nodes: NodeWithStatus[] = list.map((n, i) => {
     const q = summaries[i];
-    const online = !!q && !q.isError;
+    // Online means the *last settled* poll succeeded — not merely "not currently
+    // erroring". A blackholed node keeps retrying, and React Query clears isError
+    // while each (doomed) retry is in flight; gating on !isError would flash the
+    // node online for the ~5s the retry hangs before it times out. isSuccess only
+    // holds once a poll actually returned, so a downed node stays steadily offline
+    // and a healthy node stays online across background refetches.
+    const online = !!q && q.isSuccess;
     return { ...n, summary: online && q?.data ? q.data : null, online };
   });
 
