@@ -68,7 +68,7 @@ export function MobileView({
                       <PanelLeftClose className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="mt-1">
+                  <div className="mt-0.5">
                     <NodeStatus
                       railOpen={railOpen}
                       onToggleRail={() => setRailOpen(!railOpen)}

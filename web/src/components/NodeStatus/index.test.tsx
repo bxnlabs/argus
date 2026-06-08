@@ -36,20 +36,24 @@ function renderStatus(
 }
 
 describe("NodeStatus", () => {
-  it("renders the active node name and an Online status", () => {
+  it("renders the active node name with a green dot and matching border when online", () => {
     renderStatus(base);
     expect(screen.getByText("my-laptop")).toBeTruthy();
-    expect(screen.getByText("Online")).toBeTruthy();
+    expect(screen.getByTestId("node-status-dot").className).toContain("bg-green-500");
+    // The pill border tracks the status colour.
+    expect(screen.getByTestId("node-status").className).toContain("border-green-500");
   });
 
-  it("renders Offline for a settled, unreachable node", () => {
+  it("shows a muted dot for a settled, unreachable node", () => {
     renderStatus({ ...base, online: false, pending: false });
-    expect(screen.getByText("Offline")).toBeTruthy();
+    expect(screen.getByTestId("node-status-dot").className).toContain("bg-muted-foreground");
+    expect(screen.getByTestId("node-status").className).toContain("border-muted-foreground");
   });
 
-  it("renders Connecting… while the first poll is in flight", () => {
+  it("shows an amber dot while the first poll is in flight", () => {
     renderStatus({ ...base, online: false, pending: true });
-    expect(screen.getByText("Connecting…")).toBeTruthy();
+    expect(screen.getByTestId("node-status-dot").className).toContain("bg-amber-500");
+    expect(screen.getByTestId("node-status").className).toContain("border-amber-500");
   });
 
   it("calls onToggleRail when clicked", () => {
