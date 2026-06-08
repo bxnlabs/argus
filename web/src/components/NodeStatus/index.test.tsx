@@ -54,17 +54,22 @@ describe("NodeStatus", () => {
     expect(onToggleRail).toHaveBeenCalledTimes(1);
   });
 
-  it("renders nothing when there is no active node", () => {
-    const { container } = render(
+  it("falls back to a Manage nodes toggle when there is no active node", () => {
+    const onToggleRail = vi.fn();
+    render(
       <TooltipProvider>
         <NodeContext.Provider
           value={{ nodes: [], isLoaded: true, activeNodeId: null, activeNode: null, setActiveNode: vi.fn() }}
         >
-          <NodeStatus onToggleRail={vi.fn()} />
+          <NodeStatus onToggleRail={onToggleRail} />
         </NodeContext.Provider>
       </TooltipProvider>,
     );
-    expect(container.querySelector("[data-testid='node-status']")).toBeNull();
+    // The rail stays reachable: the snippet renders a toggle even with no node,
+    // so the add-node entry point inside the rail isn't orphaned.
+    expect(screen.getByText("Manage nodes")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("node-status"));
+    expect(onToggleRail).toHaveBeenCalledTimes(1);
   });
 
   it("button has an accessible label that includes the node name, status, and action", () => {

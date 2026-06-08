@@ -18,13 +18,28 @@ function statusOf(node: NodeWithStatus): Status {
 }
 
 /**
- * Compact `name · Status` line under the `argus` wordmark. Renders only when a
- * node is active (the caller already hides it when the sidebar is collapsed).
- * Clicking it toggles the node rail via `onToggleRail`.
+ * Compact `name · Status` line under the `argus` wordmark. Clicking it toggles
+ * the node rail via `onToggleRail` (the caller already hides it when the sidebar
+ * is collapsed). With no active node — an empty or errored registry — it falls
+ * back to a plain "Manage nodes" toggle so the rail (and the add-node entry
+ * point inside it) stays reachable instead of being orphaned.
  */
 export function NodeStatus({ onToggleRail }: { onToggleRail: () => void }) {
   const { activeNode } = useNodeContext();
-  if (!activeNode) return null;
+
+  if (!activeNode) {
+    return (
+      <button
+        type="button"
+        aria-label="Manage nodes — toggle node rail"
+        data-testid="node-status"
+        onClick={onToggleRail}
+        className="hover:bg-accent/50 flex w-full items-center rounded-md px-2 py-1 text-sm transition-colors"
+      >
+        <span className="text-muted-foreground">Manage nodes</span>
+      </button>
+    );
+  }
 
   const status = statusOf(activeNode);
   return (
