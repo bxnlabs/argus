@@ -64,8 +64,9 @@ function NodeTile({
 }
 
 /**
- * Always-visible rail carrying the manage-nodes entry point. Node tiles only
- * appear once there's more than the local node to switch between; with a single
+ * Rail carrying the manage-nodes entry point. Visibility is controlled by the
+ * caller (gated on `railOpen`, toggled from the NodeStatus snippet). Node tiles
+ * only appear once there's more than the local node to switch between; with a single
  * node the rail collapses to just the manage button, so a manual (non-Tailscale)
  * user can still add their first node from the UI. The rail is always a vertical
  * strip; `side` only flips which edge carries the divider and which way tooltips
