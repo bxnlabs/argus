@@ -13,8 +13,9 @@ import { cn } from "@/lib/utils";
  * completely overlays the sidebar drawer — Slack's workspace-switcher pattern.
  * Full rows give real touch targets and room for each node's name and status.
  *
- * Picking a node switches and closes (revealing the sidebar); the back chevron
- * or tapping the dimmed area also closes. The desktop rail is untouched.
+ * Picking a node switches the active node but keeps the panel open (switch
+ * freely; the check moves); the back chevron or tapping the dimmed area closes
+ * it. The desktop rail is untouched.
  */
 export function MobileNodePanel({
   open,
@@ -58,10 +59,7 @@ export function MobileNodePanel({
                 type="button"
                 data-testid={`node-row-${n.id}`}
                 aria-current={active}
-                onClick={() => {
-                  setActiveNode(n.id);
-                  onClose();
-                }}
+                onClick={() => setActiveNode(n.id)}
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
                   active ? "bg-accent" : "hover:bg-accent/50",

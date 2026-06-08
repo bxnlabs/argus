@@ -75,7 +75,7 @@ export function MobileView({
                       <PanelLeftClose className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="mt-7">
+                  <div className="mt-3.5">
                     <NodeStatus
                       railOpen={railOpen}
                       onToggleRail={() => setRailOpen(!railOpen)}
@@ -142,8 +142,13 @@ export function MobileView({
         {renderWorkspace()}
       </div>
 
-      {/* Node switcher — slides over the drawer (Slack-style) */}
-      <MobileNodePanel open={railOpen} onClose={() => setRailOpen(false)} />
+      {/* Node switcher — slides over the drawer (Slack-style). Gated on the
+          drawer being open so it never floats alone (e.g. after a node switch
+          remounts the view with the drawer closed). */}
+      <MobileNodePanel
+        open={sidebarOpen && railOpen}
+        onClose={() => setRailOpen(false)}
+      />
 
       {/* Dialogs */}
       <NewSessionDialog

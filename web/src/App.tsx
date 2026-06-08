@@ -23,10 +23,18 @@ import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
 import type { GitTab, GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
 
-function HomeContent() {
+// `railOpen` lives in AppInner (above the node-keyed TabProvider) so switching
+// nodes resets the workspace without collapsing the node rail — it stays open
+// until toggled from the switcher.
+function HomeContent({
+  railOpen,
+  setRailOpen,
+}: {
+  railOpen: boolean;
+  setRailOpen: (open: boolean) => void;
+}) {
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [railOpen, setRailOpen] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -492,6 +500,9 @@ export function App() {
 
 function AppInner() {
   const { activeNodeId, isLoaded } = useNodeContext();
+  // Node-rail visibility lives here, above the node-keyed TabProvider, so it
+  // survives the workspace remount on node switch.
+  const [railOpen, setRailOpen] = useState(false);
   // Wait for the registry to settle before mounting the workspace. Otherwise,
   // when a remote node is the persisted selection, HomeContent would mount with
   // the default (local) origin and fire node-scoped fetches against the wrong
@@ -501,7 +512,7 @@ function AppInner() {
   if (!isLoaded) return <div className="bg-background h-app" />;
   return (
     <TabProvider key={activeNodeId ?? "none"}>
-      <HomeContent />
+      <HomeContent railOpen={railOpen} setRailOpen={setRailOpen} />
       <Toaster
         theme="dark"
         position="bottom-right"

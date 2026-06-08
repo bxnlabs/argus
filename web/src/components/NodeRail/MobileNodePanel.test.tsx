@@ -55,11 +55,12 @@ describe("MobileNodePanel", () => {
     expect(screen.getByTestId("node-row-m1").getAttribute("aria-current")).toBe("false");
   });
 
-  it("switches to a node and closes when its row is tapped", () => {
+  it("switches to a node without closing the panel when its row is tapped", () => {
     const { setActiveNode, onClose } = renderPanel();
     fireEvent.click(screen.getByTestId("node-row-m1"));
     expect(setActiveNode).toHaveBeenCalledWith("m1");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Stays open so you can switch freely; closed only via back / dimmed area.
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("offers a Manage nodes entry point", () => {
