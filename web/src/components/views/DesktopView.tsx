@@ -87,7 +87,7 @@ export function DesktopView({
             </Tooltip>
           </div>
           {sidebarOpen && (
-            <div className="mt-0.5">
+            <div className="-mt-1">
               <NodeStatus
                 railOpen={railOpen}
                 onToggleRail={() => setRailOpen(!railOpen)}
