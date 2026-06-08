@@ -5,6 +5,7 @@ import { QuickSwitcher } from "@/components/QuickSwitcher";
 import { Button } from "@/components/ui/button";
 import { PanelLeftClose, SquarePen, Search } from "lucide-react";
 import { NodeRail } from "@/components/NodeRail";
+import { NodeStatus } from "@/components/NodeStatus";
 import type { ViewProps } from "./types";
 
 export function MobileView({
@@ -13,6 +14,8 @@ export function MobileView({
   sessionStatuses,
   sidebarOpen,
   setSidebarOpen,
+  railOpen,
+  setRailOpen,
   activeTab,
   showNewSessionDialog,
   setShowNewSessionDialog,
@@ -49,20 +52,25 @@ export function MobileView({
           />
           <div className="bg-sidebar-background fixed inset-y-0 left-0 z-50 w-72 shadow-2xl">
             <div className="flex h-full flex-row pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-              <NodeRail side="left" />
+              {railOpen && <NodeRail side="left" />}
               <div className="flex min-w-0 flex-1 flex-col">
-                {/* Header */}
-                <div className="flex items-center justify-between px-3 py-3">
-                  <h2 className="pl-1 text-2xl font-bold tracking-wide">
-                    argus
-                  </h2>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setSidebarOpen(false)}
-                  >
-                    <PanelLeftClose className="h-4 w-4" />
-                  </Button>
+                {/* Header: branding + close, then the node status snippet */}
+                <div className="px-3 py-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="pl-1 text-2xl font-bold tracking-wide">
+                      argus
+                    </h2>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <PanelLeftClose className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="mt-1">
+                    <NodeStatus onToggleRail={() => setRailOpen(!railOpen)} />
+                  </div>
                 </div>
 
                 {/* Nav items */}
