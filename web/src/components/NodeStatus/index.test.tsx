@@ -81,11 +81,16 @@ describe("NodeStatus", () => {
     expect(screen.getByRole("button", { name: /toggle node rail/i })).toBeTruthy();
   });
 
-  it("reflects the rail's open/closed state via aria-expanded", () => {
+  it("reflects the rail's open/closed state via aria-expanded and aria-controls", () => {
     renderStatus(base, vi.fn(), false);
-    expect(screen.getByTestId("node-status").getAttribute("aria-expanded")).toBe("false");
+    const closed = screen.getByTestId("node-status");
+    expect(closed.getAttribute("aria-expanded")).toBe("false");
+    // Rail is unmounted while closed, so don't dangle an IDREF at an absent element.
+    expect(closed.getAttribute("aria-controls")).toBeNull();
     cleanup();
     renderStatus(base, vi.fn(), true);
-    expect(screen.getByTestId("node-status").getAttribute("aria-expanded")).toBe("true");
+    const open = screen.getByTestId("node-status");
+    expect(open.getAttribute("aria-expanded")).toBe("true");
+    expect(open.getAttribute("aria-controls")).toBe("node-rail");
   });
 });

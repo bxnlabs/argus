@@ -39,7 +39,7 @@ export function NodeStatus({
         type="button"
         aria-label="Manage nodes — toggle node rail"
         aria-expanded={railOpen}
-        aria-controls="node-rail"
+        aria-controls={railOpen ? "node-rail" : undefined}
         data-testid="node-status"
         onClick={onToggleRail}
         className="hover:bg-accent/50 flex w-full items-center rounded-md px-2 py-1 text-sm transition-colors"
@@ -57,7 +57,7 @@ export function NodeStatus({
           type="button"
           aria-label={`${activeNode.name} · ${status.label} — toggle node rail`}
           aria-expanded={railOpen}
-          aria-controls="node-rail"
+          aria-controls={railOpen ? "node-rail" : undefined}
           data-testid="node-status"
           onClick={onToggleRail}
           className="hover:bg-accent/50 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors"
