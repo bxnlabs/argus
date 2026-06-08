@@ -101,7 +101,7 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
           type="button"
           aria-label="Manage nodes"
           onClick={() => setManageOpen(true)}
-          className="text-muted-foreground border-muted-foreground hover:border-green-500 hover:text-green-500 mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
+          className="text-muted-foreground border-muted-foreground hover:border-white hover:text-white mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
         >
           <Plus className="h-4 w-4" />
         </button>
