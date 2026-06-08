@@ -91,6 +91,39 @@ func TestRegisterAppliesCORS(t *testing.T) {
 	}
 }
 
+// TestRegisterHandlesPreflight asserts a CORS preflight reaches the guard
+// (rather than falling through to a SPA catch-all): a disallowed origin gets
+// 403, an allowed loopback origin gets 204 with the reflected ACAO header.
+func TestRegisterHandlesPreflight(t *testing.T) {
+	mdb := &memDB{}
+	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
+	cors := func(next http.Handler) http.Handler { return api.CORS(api.NewCORSPolicy(""), next) }
+	h := NewHandlers(svc, mdb, newCounter(), cors)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	preflight := func(path, origin string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("OPTIONS", path, nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := preflight("/api/nodes", "http://evil.com"); rec.Code != http.StatusForbidden {
+		t.Errorf("disallowed preflight on /api/nodes: status = %d, want 403", rec.Code)
+	}
+	if rec := preflight("/api/nodes/id-1", "http://evil.com"); rec.Code != http.StatusForbidden {
+		t.Errorf("disallowed preflight on /api/nodes/{id}: status = %d, want 403", rec.Code)
+	}
+	if rec := preflight("/api/nodes", "http://localhost:5273"); rec.Code != http.StatusNoContent {
+		t.Errorf("allowed preflight: status = %d, want 204", rec.Code)
+	} else if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5273" {
+		t.Errorf("allowed preflight ACAO = %q, want %q", got, "http://localhost:5273")
+	}
+}
+
 func TestList_ReturnsSelf(t *testing.T) {
 	h, _ := newTestHandlers()
 	mux := http.NewServeMux()

@@ -51,6 +51,18 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/nodes", h.cors(http.HandlerFunc(h.add)))
 	mux.Handle("PATCH /api/nodes/{id}", h.cors(http.HandlerFunc(h.rename)))
 	mux.Handle("DELETE /api/nodes/{id}", h.cors(http.HandlerFunc(h.delete)))
+
+	// Wrap OPTIONS explicitly so a CORS preflight hits the guard (allowed →
+	// 204 + ACAO, disallowed → 403) instead of falling through to the SPA
+	// catch-all. The method-specific routes above don't match OPTIONS, so
+	// without these a preflight would reach the "/" handler. The inner 204 only
+	// runs for an OPTIONS with no Origin, since api.CORS answers a real
+	// preflight itself.
+	preflight := h.cors(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	mux.Handle("OPTIONS /api/nodes", preflight)
+	mux.Handle("OPTIONS /api/nodes/{id}", preflight)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
