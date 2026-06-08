@@ -1,35 +1,38 @@
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNodeContext } from "@/contexts/NodeContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { NodeWithStatus } from "@/types";
-
-interface Status {
-  label: string;
-  dotClassName: string;
-}
-
-// Connection status, conveyed by the dot's color. Online wins; an unsettled
-// first poll reads as Connecting; a settled failure reads as Offline. Offline is
-// muted rather than red — it recedes, matching the rail's "offline never alarms"
-// treatment.
-function statusOf(node: NodeWithStatus): Status {
-  if (node.online) return { label: "Online", dotClassName: "bg-green-500" };
-  if (node.pending) return { label: "Connecting…", dotClassName: "bg-amber-500" };
-  return { label: "Offline", dotClassName: "bg-muted-foreground" };
-}
+import { nodeStatus } from "./status";
 
 // The name reads as a hyperlink so it's obvious the row opens the rail. Matches
 // the `link` button variant (text-primary + hover underline); group-hover keeps
 // the underline in sync when the pointer is anywhere on the row.
 const nameLinkClass = "text-primary underline-offset-4 group-hover:underline";
 
+// Disclosure chevron — the persistent "this opens the node rail" affordance.
+// Mobile has no hover, so the cue can't rely on hover styling; the chevron
+// carries it on both platforms and rotates to reflect the open state.
+function DisclosureChevron({ open }: { open: boolean }) {
+  return (
+    <ChevronRight
+      aria-hidden
+      data-testid="node-status-chevron"
+      className={cn(
+        "text-muted-foreground ml-auto h-4 w-4 flex-shrink-0 transition-transform",
+        open && "rotate-90",
+      )}
+    />
+  );
+}
+
 /**
  * Compact `‹dot› ‹node name›` line under the `argus` wordmark: a colored status
- * dot (Online green, Connecting amber, Offline muted) and the active node's name
- * styled as a hyperlink. Clicking the row toggles the node rail via
- * `onToggleRail` (the caller hides it when the sidebar is collapsed). With no
- * active node — an empty or errored registry — it falls back to a "Manage nodes"
- * link so the rail (and the add-node entry point inside it) stays reachable.
+ * dot (Online green, Connecting amber, Offline muted), the active node's name
+ * styled as a hyperlink, and a disclosure chevron. Clicking the row toggles the
+ * node rail via `onToggleRail` (the caller hides it when the sidebar is
+ * collapsed). With no active node — an empty or errored registry — it falls back
+ * to a "Manage nodes" link so the rail (and the add-node entry point inside it)
+ * stays reachable.
  */
 export function NodeStatus({
   railOpen,
@@ -49,14 +52,15 @@ export function NodeStatus({
         aria-controls={railOpen ? "node-rail" : undefined}
         data-testid="node-status"
         onClick={onToggleRail}
-        className="group flex w-full items-center rounded-md px-2 py-1 text-sm"
+        className="group flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm"
       >
         <span className={nameLinkClass}>Manage nodes</span>
+        <DisclosureChevron open={railOpen} />
       </button>
     );
   }
 
-  const status = statusOf(activeNode);
+  const status = nodeStatus(activeNode);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -77,6 +81,7 @@ export function NodeStatus({
           <span className={cn("min-w-0 truncate", nameLinkClass)}>
             {activeNode.name}
           </span>
+          <DisclosureChevron open={railOpen} />
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">

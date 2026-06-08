@@ -96,4 +96,14 @@ describe("NodeStatus", () => {
     expect(open.getAttribute("aria-expanded")).toBe("true");
     expect(open.getAttribute("aria-controls")).toBe("node-rail");
   });
+
+  it("shows a disclosure chevron that rotates when the rail is open", () => {
+    renderStatus(base, vi.fn(), false);
+    // Persistent affordance (no hover on touch); rotates to reflect open state.
+    // (SVG className is an SVGAnimatedString, so read the attribute directly.)
+    expect(screen.getByTestId("node-status-chevron").getAttribute("class")).not.toContain("rotate-90");
+    cleanup();
+    renderStatus(base, vi.fn(), true);
+    expect(screen.getByTestId("node-status-chevron").getAttribute("class")).toContain("rotate-90");
+  });
 });

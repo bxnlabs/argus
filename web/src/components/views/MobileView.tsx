@@ -1,10 +1,10 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { SessionList } from "@/components/SessionList";
 import { NewSessionDialog } from "@/components/NewSessionDialog";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
 import { Button } from "@/components/ui/button";
 import { PanelLeftClose, SquarePen, Search } from "lucide-react";
-import { NodeRail } from "@/components/NodeRail";
+import { MobileNodePanel } from "@/components/NodeRail/MobileNodePanel";
 import { NodeStatus } from "@/components/NodeStatus";
 import type { ViewProps } from "./types";
 
@@ -41,6 +41,14 @@ export function MobileView({
     [sessions, attachToSession, setSidebarOpen],
   );
 
+  // The node panel overlays the drawer, so it should never outlive it: reset
+  // railOpen when the drawer closes, otherwise reopening the drawer would pop
+  // the panel straight back over it (and a desktop→mobile switch could surface
+  // it over a closed drawer).
+  useEffect(() => {
+    if (!sidebarOpen && railOpen) setRailOpen(false);
+  }, [sidebarOpen, railOpen, setRailOpen]);
+
   return (
     <main className="bg-background flex h-app flex-col overflow-hidden">
       {/* Sidebar overlay */}
@@ -52,7 +60,6 @@ export function MobileView({
           />
           <div className="bg-sidebar-background fixed inset-y-0 left-0 z-50 w-72 shadow-2xl">
             <div className="flex h-full flex-row pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-              {railOpen && <NodeRail side="left" />}
               <div className="flex min-w-0 flex-1 flex-col">
                 {/* Header: branding + close, then the node status snippet */}
                 <div className="px-3 py-3">
@@ -134,6 +141,9 @@ export function MobileView({
       <div className="isolate min-h-0 w-full flex-1">
         {renderWorkspace()}
       </div>
+
+      {/* Node switcher — slides over the drawer (Slack-style) */}
+      <MobileNodePanel open={railOpen} onClose={() => setRailOpen(false)} />
 
       {/* Dialogs */}
       <NewSessionDialog
