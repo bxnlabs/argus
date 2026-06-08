@@ -38,9 +38,14 @@ describe("useNodes", () => {
     await waitFor(() =>
       expect(result.current.nodes.find((n) => n.id === "local")!.summary?.attention).toBe(2),
     );
-    await waitFor(() =>
-      expect(result.current.nodes.find((n) => n.id === "m1")!.online).toBe(false),
-    );
+    // Wait for the *settled* error, not just online===false — online is also
+    // false while the first poll is still pending, so gating on it alone would
+    // let the pending assertion below race the 502.
+    await waitFor(() => {
+      const gpu = result.current.nodes.find((n) => n.id === "m1")!;
+      expect(gpu.online).toBe(false);
+      expect(gpu.pending).toBe(false);
+    });
 
     // Re-read a fresh snapshot after both polls have settled.
     const local = result.current.nodes.find((n) => n.id === "local")!;
