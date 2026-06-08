@@ -71,6 +71,23 @@ func TestNormalize(t *testing.T) {
 		})
 	}
 
+	// IPv6 literals must stay bracketed: Hostname() strips the brackets, so a
+	// naive host+":"+port would yield the invalid "::1:3000". Assert the exact
+	// output rather than a collapse (the old bug produced a consistent-but-
+	// invalid string, which a collapse check would miss).
+	t.Run("ipv6 literal stays bracketed", func(t *testing.T) {
+		cases := map[string]string{
+			"http://[::1]:3000": "http://[::1]:3000",
+			"http://[::1]":      "http://[::1]",
+			"http://[::1]:80":   "http://[::1]", // default port stripped, re-bracketed
+		}
+		for in, want := range cases {
+			if got := normalize(in); got != want {
+				t.Errorf("normalize(%q) = %q, want %q", in, got, want)
+			}
+		}
+	})
+
 	// Unparseable input must not panic and must return a lowercased string.
 	t.Run("unparseable falls back to lowercased raw", func(t *testing.T) {
 		raw := "://INVALID HOST"

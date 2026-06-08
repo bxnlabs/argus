@@ -64,17 +64,18 @@ function NodeTile({
 }
 
 /**
- * Always-visible rail of node tiles. Renders nothing when there is only the
- * local node (single-node users see the unchanged UI). `orientation="horizontal"`
- * is used by the mobile drawer.
+ * Always-visible rail carrying the manage-nodes entry point. Node tiles only
+ * appear once there's more than the local node to switch between; with a single
+ * node the rail collapses to just the manage button, so a manual (non-Tailscale)
+ * user can still add their first node from the UI. `orientation="horizontal"` is
+ * used by the mobile drawer.
  */
 export function NodeRail({ orientation = "vertical" }: { orientation?: "vertical" | "horizontal" }) {
   const { nodes, activeNodeId, setActiveNode } = useNodeContext();
   const [manageOpen, setManageOpen] = useState(false);
 
-  if (nodes.length < 2) return null;
-
   const horizontal = orientation === "horizontal";
+  const showTiles = nodes.length >= 2;
   return (
     <>
       <div
@@ -86,15 +87,16 @@ export function NodeRail({ orientation = "vertical" }: { orientation?: "vertical
             : "h-full w-12 flex-shrink-0 flex-col items-stretch border-r py-3",
         )}
       >
-        {nodes.map((n) => (
-          <NodeTile
-            key={n.id}
-            node={n}
-            active={n.id === activeNodeId}
-            onSelect={() => setActiveNode(n.id)}
-            tooltipSide={horizontal ? "bottom" : "right"}
-          />
-        ))}
+        {showTiles &&
+          nodes.map((n) => (
+            <NodeTile
+              key={n.id}
+              node={n}
+              active={n.id === activeNodeId}
+              onSelect={() => setActiveNode(n.id)}
+              tooltipSide={horizontal ? "bottom" : "right"}
+            />
+          ))}
         <button
           type="button"
           aria-label="Manage nodes"

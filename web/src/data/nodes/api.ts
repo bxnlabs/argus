@@ -28,10 +28,20 @@ export const renameNode = (id: string, name: string) =>
 export const deleteNode = (id: string) =>
   mutate("DELETE", `/api/nodes/${encodeURIComponent(id)}`);
 
+// A summary fetch must fail fast: a blackholed node (dropped packets, not a
+// refused connection) leaves fetch pending until the OS TCP timeout (tens of
+// seconds), during which the node wrongly shows online. Cap it so the poll
+// errors and the rail flips the node offline promptly.
+const SUMMARY_TIMEOUT_MS = 5_000;
+
 // Summary is fetched against each node's own origin (cross-origin for remote
-// nodes; "" == same-origin for the local node).
-export async function fetchSummary(baseUrl: string): Promise<NodeSummary> {
-  const res = await fetch(`${baseUrl}/api/node/summary`);
+// nodes; "" == same-origin for the local node). Aborts on the caller's signal
+// (React Query cancellation) or the timeout, whichever fires first.
+export async function fetchSummary(baseUrl: string, signal?: AbortSignal): Promise<NodeSummary> {
+  const timeout = AbortSignal.timeout(SUMMARY_TIMEOUT_MS);
+  const res = await fetch(`${baseUrl}/api/node/summary`, {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
   if (!res.ok) throw new Error(`summary: ${res.status}`);
   return (await res.json()) as NodeSummary;
 }

@@ -11,12 +11,12 @@ import type { NodeWithStatus } from "@/types";
  * retrying so it recovers automatically.
  */
 export function useNodes(): { nodes: NodeWithStatus[]; isLoaded: boolean } {
-  const { data: list = [], isSuccess } = useNodesQuery();
+  const { data: list = [], isSuccess, isError } = useNodesQuery();
 
   const summaries = useQueries({
     queries: list.map((n) => ({
       queryKey: nodeKeys.summary(n.id),
-      queryFn: () => fetchSummary(n.url),
+      queryFn: ({ signal }) => fetchSummary(n.url, signal),
       refetchInterval: 5_000,
       retry: false,
       // Keep polling a downed node so it recovers without a manual refresh.
@@ -30,5 +30,7 @@ export function useNodes(): { nodes: NodeWithStatus[]; isLoaded: boolean } {
     return { ...n, summary: online && q?.data ? q.data : null, online };
   });
 
-  return { nodes, isLoaded: isSuccess };
+  // "Settled", not merely "succeeded": on a registry error we fall back to the
+  // local (same-origin) node, so callers gating on isLoaded must not hang.
+  return { nodes, isLoaded: isSuccess || isError };
 }

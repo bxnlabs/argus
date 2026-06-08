@@ -27,9 +27,13 @@ function renderRail(nodes: NodeWithStatus[], activeId: string) {
 const base: NodeWithStatus = { id: "x", name: "x", url: "", source: "manual", self: false, summary: null, online: true };
 
 describe("NodeRail", () => {
-  it("renders nothing with a single node", () => {
+  it("shows only the manage button (no tiles) with a single node", () => {
     const { container } = renderRail([{ ...base, id: "local", self: true }], "local");
-    expect(container.querySelector("[data-testid='node-rail']")).toBeNull();
+    // The rail is present so the manage entry stays reachable...
+    expect(container.querySelector("[data-testid='node-rail']")).not.toBeNull();
+    expect(screen.getByLabelText("Manage nodes")).toBeTruthy();
+    // ...but with nothing to switch to, no node tiles render.
+    expect(container.querySelector("[data-testid='node-tile-local']")).toBeNull();
   });
 
   it("shows an attention badge with the count", () => {

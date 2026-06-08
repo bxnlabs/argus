@@ -18,6 +18,10 @@ type Deps struct {
 	RepoIndexer       *ghservice.RepoIndexer
 	UploadDirOverride string // override upload directory (for testing)
 	StateDir          string
+	// AllowOrigin reports whether a cross-origin request's Origin is permitted.
+	// If nil, only loopback origins are allowed (the safe default — e.g. an
+	// instance with Tailscale disabled has no remote peers anyway).
+	AllowOrigin func(string) bool
 }
 
 // NewRouter creates the HTTP router with all node API routes.
@@ -110,7 +114,11 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("/ws/sessions/{id}", terminal.HandleSessionWebSocket(deps.SessionManager, onSessionReady))
 	mux.HandleFunc("/ws/terminal", terminal.HandleTerminalWebSocket)
 
-	return CORS(mux)
+	allowOrigin := deps.AllowOrigin
+	if allowOrigin == nil {
+		allowOrigin = NewCORSPolicy("") // loopback-only
+	}
+	return CORS(allowOrigin, mux)
 }
 
 func handleInfo(w http.ResponseWriter, r *http.Request) {

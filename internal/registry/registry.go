@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"log"
+	"net"
 	"net/url"
 	"strings"
 )
@@ -74,7 +75,11 @@ func normalize(raw string) string {
 		port = ""
 	}
 	if port != "" {
-		u.Host = host + ":" + port
+		// JoinHostPort re-brackets IPv6 literals (host "::1" → "[::1]:3000")
+		// that Hostname() unbracketed; "host:port" alone would be invalid.
+		u.Host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		u.Host = "[" + host + "]"
 	} else {
 		u.Host = host
 	}

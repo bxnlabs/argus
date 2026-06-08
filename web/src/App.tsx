@@ -488,7 +488,14 @@ export function App() {
 }
 
 function AppInner() {
-  const { activeNodeId } = useNodeContext();
+  const { activeNodeId, isLoaded } = useNodeContext();
+  // Wait for the registry to settle before mounting the workspace. Otherwise,
+  // when a remote node is the persisted selection, HomeContent would mount with
+  // the default (local) origin and fire node-scoped fetches against the wrong
+  // node before the active origin is applied. The registry is same-origin and
+  // fast, so this is a brief gate; on a registry error isLoaded still settles
+  // and the selection falls back to the local node.
+  if (!isLoaded) return <div className="bg-background h-app" />;
   return (
     <TabProvider key={activeNodeId ?? "none"}>
       <HomeContent />
