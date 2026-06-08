@@ -5,7 +5,7 @@ import type { NodeWithStatus } from "@/types";
 // Each node gets a stable accent color derived from its id, so a node keeps the
 // same identity color everywhere it appears (switcher, rail, panel). Mid
 // saturation / lightness keeps white monograms legible on the dark sidebar.
-function accentColor(id: string): string {
+export function nodeAccentColor(id: string): string {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   return `hsl(${hash % 360} 52% 45%)`;
@@ -43,7 +43,7 @@ export function NodeAvatar({
       style={{
         width: size,
         height: size,
-        backgroundColor: accentColor(node.id),
+        backgroundColor: nodeAccentColor(node.id),
         fontSize: Math.round(size * 0.44),
       }}
     >

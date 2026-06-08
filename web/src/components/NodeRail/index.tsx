@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Plus } from "lucide-react";
 import type { NodeWithStatus } from "@/types";
 import { ManageNodesDialog } from "@/components/ManageNodesDialog";
+import { nodeAccentColor } from "@/components/NodeAvatar";
 
 function initial(name: string): string {
   return (name.trim()[0] ?? "?").toUpperCase();
@@ -32,15 +33,16 @@ function NodeTile({
           data-testid={`node-tile-${node.id}`}
           data-online={node.online}
           onClick={onSelect}
+          style={{ backgroundColor: nodeAccentColor(node.id) }}
           className={cn(
-            "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg border-[3px] font-mono text-lg font-bold leading-none transition-colors",
-            active
-              ? "border-primary bg-accent text-accent-foreground"
-              : "border-transparent text-foreground hover:bg-accent/50",
-            // Offline recedes rather than alarms: no border (an idle online node
-            // has none either), just a dimmed, desaturated letter so a down node
-            // is the quietest tile in the rail, never the loudest.
-            !node.online && !active && "text-muted-foreground opacity-40",
+            "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg border-[3px] font-mono text-lg font-bold leading-none text-white transition-[border-color,opacity,filter]",
+            // The node's derived accent color is its identity (same tile as the
+            // switcher avatar). Active is called out by the ring; inactive tiles
+            // brighten on hover.
+            active ? "border-primary" : "border-transparent hover:brightness-110",
+            // Offline recedes rather than alarms: the colored tile simply dims so
+            // a down node is the quietest tile in the rail, never the loudest.
+            !node.online && !active && "opacity-40",
             working && "node-working",
           )}
         >

@@ -1,4 +1,4 @@
-import { ChevronsUpDown, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNodeContext } from "@/contexts/NodeContext";
 import { NodeAvatar } from "@/components/NodeAvatar";
@@ -6,13 +6,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { nodeStatus, sourceLabel } from "./status";
 
 // Shared card chrome: a sidebar header control (shadcn TeamSwitcher pattern).
-// Borderless at rest, raised/outlined while the rail is open. The ChevronsUpDown
-// glyph reads as "switch" — the persistent affordance that also works on touch
-// (no hover dependence).
+// A prominent outline (lighter than the default border on this near-black
+// sidebar) makes it read as a distinct, tappable control without a chevron — the
+// affordance that also holds up on touch where there's no hover.
 function cardClass(open: boolean): string {
   return cn(
     "group flex w-full items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition-colors",
-    open ? "border-border bg-accent" : "border-transparent hover:bg-accent/60",
+    open
+      ? "border-[hsl(0_0%_34%)] bg-accent"
+      : "border-[hsl(0_0%_26%)] bg-accent/30 hover:bg-accent/60",
   );
 }
 
@@ -56,7 +58,6 @@ export function NodeStatus({
             No active node
           </span>
         </span>
-        <ChevronsUpDown className="text-muted-foreground ml-auto h-4 w-4 flex-shrink-0" />
       </button>
     );
   }
@@ -84,7 +85,6 @@ export function NodeStatus({
               {sourceLabel(activeNode)} · {status.label}
             </span>
           </span>
-          <ChevronsUpDown className="text-muted-foreground ml-auto h-4 w-4 flex-shrink-0" />
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
