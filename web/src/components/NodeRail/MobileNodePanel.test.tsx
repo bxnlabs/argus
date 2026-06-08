@@ -40,13 +40,13 @@ function renderPanel(
 }
 
 describe("MobileNodePanel", () => {
-  it("renders a row per node with name and status label", () => {
+  it("renders a row per node with name and 'source · status' subtitle", () => {
     renderPanel();
     expect(screen.getByText("prime")).toBeTruthy();
     expect(screen.getByText("argus-bumblebee")).toBeTruthy();
-    // Status label doubles as the row subtitle.
-    expect(screen.getByText("Online")).toBeTruthy();
-    expect(screen.getByText("Offline")).toBeTruthy();
+    // Subtitle pairs the node's origin with its connection status.
+    expect(screen.getByText("this machine · Online")).toBeTruthy();
+    expect(screen.getByText("Tailscale · Offline")).toBeTruthy();
   });
 
   it("marks the active node row with aria-current", () => {

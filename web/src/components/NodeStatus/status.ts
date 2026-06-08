@@ -1,9 +1,24 @@
-import type { NodeWithStatus } from "@/types";
+import type { NodeInfo, NodeWithStatus } from "@/types";
 
 export interface NodeStatusInfo {
   label: string;
   // Tailwind background-color class for the status dot.
   dotClassName: string;
+}
+
+// Where the node came from, for the switcher subtitle. The local node is "this
+// machine"; discovered nodes are surfaced over Tailscale; everything else falls
+// back to its raw source.
+export function sourceLabel(node: NodeInfo): string {
+  if (node.self) return "this machine";
+  switch (node.source) {
+    case "discovered":
+      return "Tailscale";
+    case "manual":
+      return "manual";
+    default:
+      return node.source;
+  }
 }
 
 // Connection status, conveyed by the dot's color. Online wins; an unsettled

@@ -36,23 +36,24 @@ function renderStatus(
 }
 
 describe("NodeStatus", () => {
-  it("renders the active node name as a link with a green Online dot", () => {
+  it("renders the active node name with a 'source · Online' subtitle", () => {
     renderStatus(base);
-    const name = screen.getByText("my-laptop");
-    expect(name).toBeTruthy();
-    // Name reads as a hyperlink so the row's clickability is obvious.
-    expect(name.className).toContain("text-primary");
-    expect(screen.getByTestId("node-status-dot").className).toContain("bg-green-500");
+    expect(screen.getByText("my-laptop")).toBeTruthy();
+    // self/local node → "this machine"; subtitle carries the status word.
+    expect(screen.getByText("this machine · Online")).toBeTruthy();
+    expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-green-500");
   });
 
-  it("shows a muted dot for a settled, unreachable (Offline) node", () => {
+  it("reads Offline for a settled, unreachable node", () => {
     renderStatus({ ...base, online: false, pending: false });
-    expect(screen.getByTestId("node-status-dot").className).toContain("bg-muted-foreground");
+    expect(screen.getByText("this machine · Offline")).toBeTruthy();
+    expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-muted-foreground");
   });
 
-  it("shows an amber dot while the first poll is in flight (Connecting)", () => {
+  it("reads Connecting… while the first poll is in flight", () => {
     renderStatus({ ...base, online: false, pending: true });
-    expect(screen.getByTestId("node-status-dot").className).toContain("bg-amber-500");
+    expect(screen.getByText("this machine · Connecting…")).toBeTruthy();
+    expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-amber-500");
   });
 
   it("calls onToggleRail when clicked", () => {
@@ -97,13 +98,11 @@ describe("NodeStatus", () => {
     expect(open.getAttribute("aria-controls")).toBe("node-rail");
   });
 
-  it("shows a disclosure chevron that rotates when the rail is open", () => {
+  it("reflects the open state on the card via data-state", () => {
     renderStatus(base, vi.fn(), false);
-    // Persistent affordance (no hover on touch); rotates to reflect open state.
-    // (SVG className is an SVGAnimatedString, so read the attribute directly.)
-    expect(screen.getByTestId("node-status-chevron").getAttribute("class")).not.toContain("rotate-90");
+    expect(screen.getByTestId("node-status").getAttribute("data-state")).toBe("closed");
     cleanup();
     renderStatus(base, vi.fn(), true);
-    expect(screen.getByTestId("node-status-chevron").getAttribute("class")).toContain("rotate-90");
+    expect(screen.getByTestId("node-status").getAttribute("data-state")).toBe("open");
   });
 });

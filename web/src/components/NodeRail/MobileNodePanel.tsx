@@ -3,7 +3,8 @@ import { Check, ChevronLeft, Plus } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useNodeContext } from "@/contexts/NodeContext";
 import { ManageNodesDialog } from "@/components/ManageNodesDialog";
-import { nodeStatus } from "@/components/NodeStatus/status";
+import { NodeAvatar } from "@/components/NodeAvatar";
+import { nodeStatus, sourceLabel } from "@/components/NodeStatus/status";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,17 +63,11 @@ export function MobileNodePanel({
                   onClose();
                 }}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
+                  "flex items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
                   active ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "h-2.5 w-2.5 flex-shrink-0 rounded-full",
-                    status.dotClassName,
-                  )}
-                />
+                <NodeAvatar node={n} size={36} />
                 <div className="min-w-0 flex-1">
                   <div
                     className={cn(
@@ -83,7 +78,7 @@ export function MobileNodePanel({
                     {n.name}
                   </div>
                   <div className="text-muted-foreground truncate text-xs">
-                    {status.label}
+                    {sourceLabel(n)} · {status.label}
                   </div>
                 </div>
                 {active && (

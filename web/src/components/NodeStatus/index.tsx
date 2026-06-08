@@ -1,38 +1,28 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronsUpDown, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNodeContext } from "@/contexts/NodeContext";
+import { NodeAvatar } from "@/components/NodeAvatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { nodeStatus } from "./status";
+import { nodeStatus, sourceLabel } from "./status";
 
-// The name reads as a hyperlink so it's obvious the row opens the rail. Matches
-// the `link` button variant (text-primary + hover underline); group-hover keeps
-// the underline in sync when the pointer is anywhere on the row.
-const nameLinkClass = "text-primary underline-offset-4 group-hover:underline";
-
-// Disclosure chevron — the persistent "this opens the node rail" affordance.
-// Mobile has no hover, so the cue can't rely on hover styling; the chevron
-// carries it on both platforms and rotates to reflect the open state.
-function DisclosureChevron({ open }: { open: boolean }) {
-  return (
-    <ChevronRight
-      aria-hidden
-      data-testid="node-status-chevron"
-      className={cn(
-        "text-muted-foreground ml-auto h-4 w-4 flex-shrink-0 transition-transform",
-        open && "rotate-90",
-      )}
-    />
+// Shared card chrome: a sidebar header control (shadcn TeamSwitcher pattern).
+// Borderless at rest, raised/outlined while the rail is open. The ChevronsUpDown
+// glyph reads as "switch" — the persistent affordance that also works on touch
+// (no hover dependence).
+function cardClass(open: boolean): string {
+  return cn(
+    "group flex w-full items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition-colors",
+    open ? "border-border bg-accent" : "border-transparent hover:bg-accent/60",
   );
 }
 
 /**
- * Compact `‹dot› ‹node name›` line under the `argus` wordmark: a colored status
- * dot (Online green, Connecting amber, Offline muted), the active node's name
- * styled as a hyperlink, and a disclosure chevron. Clicking the row toggles the
- * node rail via `onToggleRail` (the caller hides it when the sidebar is
- * collapsed). With no active node — an empty or errored registry — it falls back
- * to a "Manage nodes" link so the rail (and the add-node entry point inside it)
- * stays reachable.
+ * Node switcher under the `argus` wordmark, styled after shadcn's sidebar
+ * TeamSwitcher: the active node's accent-colored monogram tile (with a status
+ * presence dot), its name and `source · status`, and a ChevronsUpDown glyph.
+ * Clicking toggles the node rail via `onToggleRail` (the caller hides it when
+ * the sidebar is collapsed). With no active node — an empty or errored registry
+ * — it falls back to a "Manage nodes" control so the rail stays reachable.
  */
 export function NodeStatus({
   railOpen,
@@ -51,11 +41,22 @@ export function NodeStatus({
         aria-expanded={railOpen}
         aria-controls={railOpen ? "node-rail" : undefined}
         data-testid="node-status"
+        data-state={railOpen ? "open" : "closed"}
         onClick={onToggleRail}
-        className="group flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm"
+        className={cardClass(railOpen)}
       >
-        <span className={nameLinkClass}>Manage nodes</span>
-        <DisclosureChevron open={railOpen} />
+        <span className="border-border bg-accent flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border">
+          <Plus className="text-muted-foreground h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="text-foreground block truncate text-sm font-medium leading-tight">
+            Manage nodes
+          </span>
+          <span className="text-muted-foreground block truncate text-xs leading-tight">
+            No active node
+          </span>
+        </span>
+        <ChevronsUpDown className="text-muted-foreground ml-auto h-4 w-4 flex-shrink-0" />
       </button>
     );
   }
@@ -70,18 +71,20 @@ export function NodeStatus({
           aria-expanded={railOpen}
           aria-controls={railOpen ? "node-rail" : undefined}
           data-testid="node-status"
+          data-state={railOpen ? "open" : "closed"}
           onClick={onToggleRail}
-          className="group flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm"
+          className={cardClass(railOpen)}
         >
-          <span
-            data-testid="node-status-dot"
-            aria-hidden
-            className={cn("h-2 w-2 flex-shrink-0 rounded-full", status.dotClassName)}
-          />
-          <span className={cn("min-w-0 truncate", nameLinkClass)}>
-            {activeNode.name}
+          <NodeAvatar node={activeNode} size={32} />
+          <span className="min-w-0 flex-1">
+            <span className="text-foreground block truncate text-sm font-semibold leading-tight">
+              {activeNode.name}
+            </span>
+            <span className="text-muted-foreground block truncate text-xs leading-tight">
+              {sourceLabel(activeNode)} · {status.label}
+            </span>
           </span>
-          <DisclosureChevron open={railOpen} />
+          <ChevronsUpDown className="text-muted-foreground ml-auto h-4 w-4 flex-shrink-0" />
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
