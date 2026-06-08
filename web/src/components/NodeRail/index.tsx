@@ -80,6 +80,7 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
   return (
     <>
       <div
+        id="node-rail"
         data-testid="node-rail"
         className={cn(
           "bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3",

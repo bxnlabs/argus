@@ -12,7 +12,11 @@ const base: NodeWithStatus = {
   self: true, summary: null, online: true, pending: false,
 };
 
-function renderStatus(active: NodeWithStatus | null, onToggleRail = vi.fn()) {
+function renderStatus(
+  active: NodeWithStatus | null,
+  onToggleRail = vi.fn(),
+  railOpen = false,
+) {
   render(
     <TooltipProvider>
       <NodeContext.Provider
@@ -24,7 +28,7 @@ function renderStatus(active: NodeWithStatus | null, onToggleRail = vi.fn()) {
           setActiveNode: vi.fn(),
         }}
       >
-        <NodeStatus onToggleRail={onToggleRail} />
+        <NodeStatus railOpen={railOpen} onToggleRail={onToggleRail} />
       </NodeContext.Provider>
     </TooltipProvider>,
   );
@@ -61,7 +65,7 @@ describe("NodeStatus", () => {
         <NodeContext.Provider
           value={{ nodes: [], isLoaded: true, activeNodeId: null, activeNode: null, setActiveNode: vi.fn() }}
         >
-          <NodeStatus onToggleRail={onToggleRail} />
+          <NodeStatus railOpen={false} onToggleRail={onToggleRail} />
         </NodeContext.Provider>
       </TooltipProvider>,
     );
@@ -75,5 +79,13 @@ describe("NodeStatus", () => {
   it("button has an accessible label that includes the node name, status, and action", () => {
     renderStatus(base);
     expect(screen.getByRole("button", { name: /toggle node rail/i })).toBeTruthy();
+  });
+
+  it("reflects the rail's open/closed state via aria-expanded", () => {
+    renderStatus(base, vi.fn(), false);
+    expect(screen.getByTestId("node-status").getAttribute("aria-expanded")).toBe("false");
+    cleanup();
+    renderStatus(base, vi.fn(), true);
+    expect(screen.getByTestId("node-status").getAttribute("aria-expanded")).toBe("true");
   });
 });

@@ -69,7 +69,10 @@ export function MobileView({
                     </Button>
                   </div>
                   <div className="mt-1">
-                    <NodeStatus onToggleRail={() => setRailOpen(!railOpen)} />
+                    <NodeStatus
+                      railOpen={railOpen}
+                      onToggleRail={() => setRailOpen(!railOpen)}
+                    />
                   </div>
                 </div>
 

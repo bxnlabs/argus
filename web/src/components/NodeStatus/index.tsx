@@ -24,7 +24,13 @@ function statusOf(node: NodeWithStatus): Status {
  * back to a plain "Manage nodes" toggle so the rail (and the add-node entry
  * point inside it) stays reachable instead of being orphaned.
  */
-export function NodeStatus({ onToggleRail }: { onToggleRail: () => void }) {
+export function NodeStatus({
+  railOpen,
+  onToggleRail,
+}: {
+  railOpen: boolean;
+  onToggleRail: () => void;
+}) {
   const { activeNode } = useNodeContext();
 
   if (!activeNode) {
@@ -32,6 +38,8 @@ export function NodeStatus({ onToggleRail }: { onToggleRail: () => void }) {
       <button
         type="button"
         aria-label="Manage nodes — toggle node rail"
+        aria-expanded={railOpen}
+        aria-controls="node-rail"
         data-testid="node-status"
         onClick={onToggleRail}
         className="hover:bg-accent/50 flex w-full items-center rounded-md px-2 py-1 text-sm transition-colors"
@@ -48,6 +56,8 @@ export function NodeStatus({ onToggleRail }: { onToggleRail: () => void }) {
         <button
           type="button"
           aria-label={`${activeNode.name} · ${status.label} — toggle node rail`}
+          aria-expanded={railOpen}
+          aria-controls="node-rail"
           data-testid="node-status"
           onClick={onToggleRail}
           className="hover:bg-accent/50 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors"
