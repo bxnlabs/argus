@@ -34,13 +34,23 @@ describe("useNodes", () => {
     const { result } = renderHook(() => useNodes(), { wrapper: wrapper(qc) });
 
     await waitFor(() => expect(result.current.nodes).toHaveLength(2));
+
+    await waitFor(() =>
+      expect(result.current.nodes.find((n) => n.id === "local")!.summary?.attention).toBe(2),
+    );
+    await waitFor(() =>
+      expect(result.current.nodes.find((n) => n.id === "m1")!.online).toBe(false),
+    );
+
+    // Re-read a fresh snapshot after both polls have settled.
     const local = result.current.nodes.find((n) => n.id === "local")!;
     const gpu = result.current.nodes.find((n) => n.id === "m1")!;
 
-    await waitFor(() => expect(local.summary?.attention).toBe(2));
     expect(local.online).toBe(true);
-    await waitFor(() => expect(gpu.online).toBe(false));
     expect(gpu.summary).toBeNull();
+    // A settled (errored) poll is Offline, not Connecting.
+    expect(local.pending).toBe(false);
+    expect(gpu.pending).toBe(false);
   });
 
   it("keeps a node offline while its poll is in flight (no online flash)", async () => {
@@ -76,5 +86,7 @@ describe("useNodes", () => {
     const gpu = result.current.nodes.find((n) => n.id === "m1")!;
     expect(gpu.online).toBe(false);
     expect(gpu.summary).toBeNull();
+    // Its first poll has never settled, so it reads as Connecting, not Offline.
+    expect(gpu.pending).toBe(true);
   });
 });

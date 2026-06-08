@@ -202,4 +202,5 @@ export interface NodeSummary {
 export interface NodeWithStatus extends NodeInfo {
   summary: NodeSummary | null;
   online: boolean;
+  pending: boolean;
 }

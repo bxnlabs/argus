@@ -24,7 +24,7 @@ function renderRail(nodes: NodeWithStatus[], activeId: string) {
   );
 }
 
-const base: NodeWithStatus = { id: "x", name: "x", url: "", source: "manual", self: false, summary: null, online: true };
+const base: NodeWithStatus = { id: "x", name: "x", url: "", source: "manual", self: false, summary: null, online: true, pending: false };
 
 describe("NodeRail", () => {
   it("shows only the manage button (no tiles) with a single node", () => {

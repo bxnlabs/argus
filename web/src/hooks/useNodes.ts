@@ -33,7 +33,11 @@ export function useNodes(): { nodes: NodeWithStatus[]; isLoaded: boolean } {
     // holds once a poll actually returned, so a downed node stays steadily offline
     // and a healthy node stays online across background refetches.
     const online = !!q && q.isSuccess;
-    return { ...n, summary: online && q?.data ? q.data : null, online };
+    // Pending = the first poll is still in flight (never settled). retry:false
+    // means isPending flips false the moment a poll settles and stays false on
+    // background refetches, so it marks "Connecting…" without flashing.
+    const pending = !!q && q.isPending;
+    return { ...n, summary: online && q?.data ? q.data : null, online, pending };
   });
 
   // "Settled", not merely "succeeded": on a registry error we fall back to the
