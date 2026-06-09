@@ -9,11 +9,8 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import type { NodeWithStatus } from "@/types";
 import { ManageNodesDialog } from "@/components/ManageNodesDialog";
 import { useDeleteNode } from "@/data/nodes/queries";
-import { nodeAccentColor } from "@/components/NodeAvatar";
-
-function initial(name: string): string {
-  return (name.trim()[0] ?? "?").toUpperCase();
-}
+import { nodeAccentColor, nodeInitials } from "@/components/NodeAvatar";
+import { UnreadBadge } from "./UnreadBadge";
 
 function NodeTile({
   node, active, onSelect, tooltipSide, onEdit, onDelete,
@@ -57,7 +54,7 @@ function NodeTile({
         working && "node-working",
       )}
     >
-      {initial(node.name)}
+      {nodeInitials(node.name)}
       {/* Folded-corner (dog-ear) cue: marks a Custom tile as carrying a
           right-click menu. The wrapper extends over the 3px border and clips to
           the tile's rounded corner so the fold sits flush in the bottom-right.
@@ -75,12 +72,7 @@ function NodeTile({
         </span>
       )}
       {!active && node.online && attention > 0 && (
-        <span
-          data-testid={`node-attention-${node.id}`}
-          className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-white"
-        >
-          {attention}
-        </span>
+        <UnreadBadge count={attention} data-testid={`node-attention-${node.id}`} />
       )}
     </button>
   );

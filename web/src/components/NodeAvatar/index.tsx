@@ -11,8 +11,13 @@ export function nodeAccentColor(id: string): string {
   return `hsl(${hash % 360} 52% 45%)`;
 }
 
-function monogram(name: string): string {
-  return (name.trim()[0] ?? "?").toUpperCase();
+// The compact node monogram: the first two characters of the name, with only
+// the first capitalized (Slack style — "Gp", not "GP"). Shared by the NodeAvatar
+// tile and the rail's NodeTile so both read the same.
+export function nodeInitials(name: string): string {
+  const s = name.trim().slice(0, 2);
+  if (!s) return "?";
+  return s[0].toUpperCase() + s.slice(1).toLowerCase();
 }
 
 /**
@@ -47,7 +52,7 @@ export function NodeAvatar({
         fontSize: Math.round(size * 0.44),
       }}
     >
-      {monogram(node.name)}
+      {nodeInitials(node.name)}
       {showStatus && (
         <span
           aria-hidden

@@ -36,24 +36,25 @@ function renderStatus(
 }
 
 describe("NodeStatus", () => {
-  it("renders the active node name with a 'source · Online' subtitle", () => {
+  it("renders the active node's avatar tile with an online status dot", () => {
     renderStatus(base);
-    expect(screen.getByText("my-laptop")).toBeTruthy();
-    // self/local node → "This machine"; subtitle carries the status word.
-    expect(screen.getByText("This machine · Online")).toBeTruthy();
     expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-green-500");
+    // The tile is just the avatar now; name + status ride on the label/tooltip.
+    const label = screen.getByTestId("node-status").getAttribute("aria-label") ?? "";
+    expect(label).toContain("my-laptop");
+    expect(label).toContain("Online");
   });
 
   it("reads Offline for a settled, unreachable node", () => {
     renderStatus({ ...base, online: false, pending: false });
-    expect(screen.getByText("This machine · Offline")).toBeTruthy();
     expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-muted-foreground");
+    expect(screen.getByTestId("node-status").getAttribute("aria-label")).toContain("Offline");
   });
 
   it("reads Connecting… while the first poll is in flight", () => {
     renderStatus({ ...base, online: false, pending: true });
-    expect(screen.getByText("This machine · Connecting…")).toBeTruthy();
     expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-amber-500");
+    expect(screen.getByTestId("node-status").getAttribute("aria-label")).toContain("Connecting…");
   });
 
   it("calls onToggleRail when clicked", () => {
@@ -75,7 +76,7 @@ describe("NodeStatus", () => {
     );
     // The rail stays reachable: the snippet renders a toggle even with no node,
     // so the add-node entry point inside the rail isn't orphaned.
-    expect(screen.getByText("Add node")).toBeTruthy();
+    expect(screen.getByTestId("node-status").getAttribute("aria-label")).toContain("Add node");
     fireEvent.click(screen.getByTestId("node-status"));
     expect(onToggleRail).toHaveBeenCalledTimes(1);
   });
@@ -96,6 +97,66 @@ describe("NodeStatus", () => {
     const open = screen.getByTestId("node-status");
     expect(open.getAttribute("aria-expanded")).toBe("true");
     expect(open.getAttribute("aria-controls")).toBe("node-rail");
+  });
+
+  function renderWithNodes(nodes: NodeWithStatus[], activeId: string, railOpen: boolean) {
+    render(
+      <TooltipProvider>
+        <NodeContext.Provider
+          value={{
+            nodes,
+            isLoaded: true,
+            activeNodeId: activeId,
+            activeNode: nodes.find((n) => n.id === activeId) ?? null,
+            setActiveNode: vi.fn(),
+          }}
+        >
+          <NodeStatus railOpen={railOpen} onToggleRail={vi.fn()} />
+        </NodeContext.Provider>
+      </TooltipProvider>,
+    );
+  }
+
+  const peer = (over: Partial<NodeWithStatus>): NodeWithStatus => ({
+    ...base, self: false, source: "manual", ...over,
+  });
+
+  it("sums unread across the other online nodes while the rail is collapsed", () => {
+    renderWithNodes(
+      [
+        { ...base, summary: { attention: 1, busy: 0, total: 1 } }, // active — excluded
+        peer({ id: "m1", summary: { attention: 2, busy: 0, total: 2 } }),
+        peer({ id: "m2", summary: { attention: 3, busy: 0, total: 3 } }),
+      ],
+      "local",
+      false,
+    );
+    // 2 + 3 from the peers; the active node's own 1 is not counted.
+    expect(screen.getByTestId("node-status-attention").textContent).toBe("5");
+  });
+
+  it("omits offline nodes from the aggregate and hides the badge at zero", () => {
+    renderWithNodes(
+      [
+        { ...base },
+        peer({ id: "m1", online: false, summary: { attention: 4, busy: 0, total: 4 } }),
+      ],
+      "local",
+      false,
+    );
+    expect(screen.queryByTestId("node-status-attention")).toBeNull();
+  });
+
+  it("drops the aggregate badge once the rail is open (counts move to the tiles)", () => {
+    renderWithNodes(
+      [
+        { ...base },
+        peer({ id: "m1", summary: { attention: 2, busy: 0, total: 2 } }),
+      ],
+      "local",
+      true,
+    );
+    expect(screen.queryByTestId("node-status-attention")).toBeNull();
   });
 
   it("reflects the open state on the card via data-state", () => {

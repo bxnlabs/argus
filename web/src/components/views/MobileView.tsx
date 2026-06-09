@@ -64,9 +64,13 @@ export function MobileView({
                 {/* Header: branding + close, then the node status snippet */}
                 <div className="px-3 py-3">
                   <div className="flex items-center justify-between">
-                    <h2 className="pl-1 text-2xl font-bold tracking-wide">
-                      argus
-                    </h2>
+                    <div className="flex items-center gap-2">
+                      <NodeStatus
+                        railOpen={railOpen}
+                        onToggleRail={() => setRailOpen(!railOpen)}
+                      />
+                      <h2 className="text-2xl font-bold tracking-wide">argus</h2>
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -74,12 +78,6 @@ export function MobileView({
                     >
                       <PanelLeftClose className="h-4 w-4" />
                     </Button>
-                  </div>
-                  <div className="mt-1.5">
-                    <NodeStatus
-                      railOpen={railOpen}
-                      onToggleRail={() => setRailOpen(!railOpen)}
-                    />
                   </div>
                 </div>
 

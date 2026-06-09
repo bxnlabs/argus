@@ -11,9 +11,9 @@ const node = (over: Partial<NodeWithStatus>): NodeWithStatus => ({
 });
 
 describe("NodeAvatar", () => {
-  it("shows the uppercased first letter of the name", () => {
+  it("shows the first two letters with only the first capitalized (Slack style)", () => {
     render(<NodeAvatar node={node({ name: "argus-bumblebee" })} />);
-    expect(screen.getByText("A")).toBeTruthy();
+    expect(screen.getByText("Ar")).toBeTruthy();
   });
 
   it("derives a stable per-node color that differs between nodes", () => {

@@ -239,10 +239,11 @@ body {
   animation: pulse-glow-yellow 2s ease-in-out infinite;
 }
 
-/* Rotating green glow for a node that's actively working. A conic-gradient arc
-   is masked into a ring, blurred, and tucked just behind/outside the tile so it
-   reads as a rotating shadow haloing the border rather than sitting inside it.
-   The center stays clear, so the unread badge and initial render crisply. */
+/* A node that's actively working announces itself prominently and at rest (no
+   hover needed): a steady green halo so a busy peer stands out in the rail, plus
+   a brighter arc sweeping around it for the sense of motion. Both live in a thin
+   ring just outside the tile — the mask keeps the centre clear, so the initials
+   and unread badge stay crisp. */
 @property --border-angle {
   syntax: "<angle>";
   initial-value: 0deg;
@@ -255,27 +256,33 @@ body {
   }
 }
 
+.node-working {
+  box-shadow:
+    0 0 0 2px rgba(34, 197, 94, 0.9),
+    0 0 12px 2px rgba(34, 197, 94, 0.5);
+}
+
 .node-working::before {
   content: "";
   position: absolute;
-  inset: -2px;
+  inset: -3px;
   border-radius: inherit;
   padding: 3px;
   background: conic-gradient(
     from var(--border-angle),
-    transparent 0deg 210deg,
-    rgb(34, 197, 94) 300deg,
-    transparent 360deg
+    rgba(34, 197, 94, 0) 0deg 120deg,
+    rgba(134, 239, 172, 0.95) 230deg,
+    rgb(220, 252, 231) 300deg,
+    rgba(34, 197, 94, 0) 360deg
   );
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  filter: blur(2.5px);
-  animation: spin-border 2.5s linear infinite;
+  filter: blur(1px);
+  animation: spin-border 2s linear infinite;
   pointer-events: none;
-  z-index: -1;
 }
 
 /* Toast prominence */

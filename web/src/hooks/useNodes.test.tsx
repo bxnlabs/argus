@@ -58,6 +58,27 @@ describe("useNodes", () => {
     expect(gpu.pending).toBe(false);
   });
 
+  it("formats a discovered node's tailnet hostname like a manual name", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (input === "/api/nodes") {
+        return new Response(JSON.stringify({ nodes: [
+          { id: "local", name: "this", url: "", source: "local", self: true },
+          { id: "d1", name: "argus-bumblebee.tail06de7.ts.net", url: "http://argus-bumblebee.tail06de7.ts.net", source: "discovered", self: false },
+        ] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ attention: 0, busy: 0, total: 0 }), { status: 200 });
+    }));
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useNodes(), { wrapper: wrapper(qc) });
+
+    await waitFor(() => expect(result.current.nodes).toHaveLength(2));
+    // Discovered hostname collapses to the same friendly name a manual node gets.
+    expect(result.current.nodes.find((n) => n.id === "d1")!.name).toBe("bumblebee");
+    // Non-discovered names are left exactly as-is.
+    expect(result.current.nodes.find((n) => n.id === "local")!.name).toBe("this");
+  });
+
   it("keeps a node offline while its poll is in flight (no online flash)", async () => {
     // Reproduces the rail flicker: a blackholed node's summary fetch hangs until
     // it times out, and React Query reports the in-flight retry with isError

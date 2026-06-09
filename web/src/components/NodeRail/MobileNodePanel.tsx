@@ -8,6 +8,7 @@ import { useNodeContext } from "@/contexts/NodeContext";
 import { ManageNodesDialog } from "@/components/ManageNodesDialog";
 import { useDeleteNode } from "@/data/nodes/queries";
 import { NodeAvatar } from "@/components/NodeAvatar";
+import { UnreadBadge } from "./UnreadBadge";
 import { nodeStatus, sourceLabel } from "@/components/NodeStatus/status";
 import type { NodeWithStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -64,6 +65,7 @@ export function MobileNodePanel({
           {nodes.map((n) => {
             const status = nodeStatus(n);
             const active = n.id === activeNodeId;
+            const attention = n.summary?.attention ?? 0;
             // Only Custom (manual) nodes can be renamed/removed.
             const editable = n.source === "manual";
             return (
@@ -85,7 +87,12 @@ export function MobileNodePanel({
                   active ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
-                <NodeAvatar node={n} size={36} />
+                <span className="relative flex-shrink-0">
+                  <NodeAvatar node={n} size={36} />
+                  {!active && n.online && attention > 0 && (
+                    <UnreadBadge count={attention} data-testid={`node-row-attention-${n.id}`} />
+                  )}
+                </span>
                 <div className="min-w-0 flex-1">
                   <div
                     className={cn(

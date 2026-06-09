@@ -2,6 +2,7 @@ import { useQueries } from "@tanstack/react-query";
 import { useNodesQuery } from "@/data/nodes/queries";
 import { fetchSummary } from "@/data/nodes/api";
 import { nodeKeys } from "@/data/nodes/keys";
+import { deriveNodeName } from "@/data/nodes/deriveName";
 import type { NodeWithStatus } from "@/types";
 
 /**
@@ -37,7 +38,13 @@ export function useNodes(): { nodes: NodeWithStatus[]; isLoaded: boolean } {
     // means isPending flips false the moment a poll settles and stays false on
     // background refetches, so it marks "Connecting…" without flashing.
     const pending = !!q && q.isPending;
-    return { ...n, summary: online && q?.data ? q.data : null, online, pending };
+    // Discovered nodes arrive with their raw tailnet hostname (e.g.
+    // "argus-bumblebee.tail06de7.ts.net"); run it through the same helper that
+    // names manual nodes so the rail, switcher, and panel read consistently.
+    // Manual names are user-chosen and local is the machine's own name — leave
+    // both untouched.
+    const name = n.source === "discovered" ? deriveNodeName(n.name) : n.name;
+    return { ...n, name, summary: online && q?.data ? q.data : null, online, pending };
   });
 
   // "Settled", not merely "succeeded": on a registry error we fall back to the

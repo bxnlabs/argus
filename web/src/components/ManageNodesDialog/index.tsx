@@ -8,7 +8,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAddNode, useUpdateNode } from "@/data/nodes/queries";
-import { deriveNodeName } from "./deriveName";
+import { deriveNodeName } from "@/data/nodes/deriveName";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
 import type { NodeWithStatus } from "@/types";
@@ -150,21 +150,23 @@ export function ManageNodesDialog({
 
           {error && <p className="text-destructive text-sm">{error}</p>}
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!canSubmit}>
-              Save
-              {!isMobile && (
-                <kbd
-                  aria-hidden="true"
-                  className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
-                >
-                  {isMac() ? "⌘ ↵" : "Ctrl ↵"}
-                </kbd>
-              )}
-            </Button>
+          <DialogFooter className="sm:items-center">
+            <div className="flex justify-end gap-2 sm:ml-auto">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!canSubmit}>
+                Save
+                {!isMobile && (
+                  <kbd
+                    aria-hidden="true"
+                    className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
+                  >
+                    {isMac() ? "⌘ ↵" : "Ctrl ↵"}
+                  </kbd>
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

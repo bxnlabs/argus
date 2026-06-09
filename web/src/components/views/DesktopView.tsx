@@ -65,7 +65,13 @@ export function DesktopView({
             )}
           >
             {sidebarOpen && (
-              <h2 className="pl-1 text-2xl font-bold tracking-wide">argus</h2>
+              <div className="flex items-center gap-2">
+                <NodeStatus
+                  railOpen={railOpen}
+                  onToggleRail={() => setRailOpen(!railOpen)}
+                />
+                <h2 className="text-2xl font-bold tracking-wide">argus</h2>
+              </div>
             )}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -86,14 +92,6 @@ export function DesktopView({
               )}
             </Tooltip>
           </div>
-          {sidebarOpen && (
-            <div className="mt-1.5">
-              <NodeStatus
-                railOpen={railOpen}
-                onToggleRail={() => setRailOpen(!railOpen)}
-              />
-            </div>
-          )}
         </div>
 
         {/* Nav items */}
