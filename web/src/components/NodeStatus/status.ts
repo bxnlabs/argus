@@ -15,7 +15,7 @@ export function sourceLabel(node: NodeInfo): string {
     case "discovered":
       return "Tailscale";
     case "manual":
-      return "Manual";
+      return "Custom";
     default:
       return node.source;
   }
