@@ -39,20 +39,20 @@ describe("NodeStatus", () => {
   it("renders the active node name with a 'source · Online' subtitle", () => {
     renderStatus(base);
     expect(screen.getByText("my-laptop")).toBeTruthy();
-    // self/local node → "this machine"; subtitle carries the status word.
-    expect(screen.getByText("this machine · Online")).toBeTruthy();
+    // self/local node → "This machine"; subtitle carries the status word.
+    expect(screen.getByText("This machine · Online")).toBeTruthy();
     expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-green-500");
   });
 
   it("reads Offline for a settled, unreachable node", () => {
     renderStatus({ ...base, online: false, pending: false });
-    expect(screen.getByText("this machine · Offline")).toBeTruthy();
+    expect(screen.getByText("This machine · Offline")).toBeTruthy();
     expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-muted-foreground");
   });
 
   it("reads Connecting… while the first poll is in flight", () => {
     renderStatus({ ...base, online: false, pending: true });
-    expect(screen.getByText("this machine · Connecting…")).toBeTruthy();
+    expect(screen.getByText("This machine · Connecting…")).toBeTruthy();
     expect(screen.getByTestId("node-avatar-dot").className).toContain("bg-amber-500");
   });
 

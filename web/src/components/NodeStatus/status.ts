@@ -10,12 +10,12 @@ export interface NodeStatusInfo {
 // machine"; discovered nodes are surfaced over Tailscale; everything else falls
 // back to its raw source.
 export function sourceLabel(node: NodeInfo): string {
-  if (node.self) return "this machine";
+  if (node.self) return "This machine";
   switch (node.source) {
     case "discovered":
       return "Tailscale";
     case "manual":
-      return "manual";
+      return "Manual";
     default:
       return node.source;
   }

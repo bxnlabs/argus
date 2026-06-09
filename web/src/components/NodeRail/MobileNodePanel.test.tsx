@@ -45,7 +45,7 @@ describe("MobileNodePanel", () => {
     expect(screen.getByText("prime")).toBeTruthy();
     expect(screen.getByText("argus-bumblebee")).toBeTruthy();
     // Subtitle pairs the node's origin with its connection status.
-    expect(screen.getByText("this machine · Online")).toBeTruthy();
+    expect(screen.getByText("This machine · Online")).toBeTruthy();
     expect(screen.getByText("Tailscale · Offline")).toBeTruthy();
   });
 
