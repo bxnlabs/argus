@@ -23,8 +23,8 @@ async function mutate(method: string, path: string, body?: unknown): Promise<voi
 
 export const addNode = (name: string, url: string) =>
   mutate("POST", "/api/nodes", { name, url });
-export const renameNode = (id: string, name: string) =>
-  mutate("PATCH", `/api/nodes/${encodeURIComponent(id)}`, { name });
+export const updateNode = (id: string, name: string, url: string) =>
+  mutate("PATCH", `/api/nodes/${encodeURIComponent(id)}`, { name, url });
 export const deleteNode = (id: string) =>
   mutate("DELETE", `/api/nodes/${encodeURIComponent(id)}`);
 

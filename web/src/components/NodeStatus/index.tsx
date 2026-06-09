@@ -2,7 +2,6 @@ import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNodeContext } from "@/contexts/NodeContext";
 import { NodeAvatar } from "@/components/NodeAvatar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { nodeStatus, sourceLabel } from "./status";
 
 // Shared card chrome: a sidebar header control (shadcn TeamSwitcher pattern).
@@ -39,7 +38,7 @@ export function NodeStatus({
     return (
       <button
         type="button"
-        aria-label="Manage nodes — toggle node rail"
+        aria-label="Add node — toggle node rail"
         aria-expanded={railOpen}
         aria-controls={railOpen ? "node-rail" : undefined}
         data-testid="node-status"
@@ -52,7 +51,7 @@ export function NodeStatus({
         </span>
         <span className="min-w-0 flex-1">
           <span className="text-foreground block truncate text-sm font-medium leading-tight">
-            Manage nodes
+            Add node
           </span>
           <span className="text-muted-foreground block truncate text-xs leading-tight">
             No active node
@@ -64,32 +63,25 @@ export function NodeStatus({
 
   const status = nodeStatus(activeNode);
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={`${activeNode.name} · ${status.label} — toggle node rail`}
-          aria-expanded={railOpen}
-          aria-controls={railOpen ? "node-rail" : undefined}
-          data-testid="node-status"
-          data-state={railOpen ? "open" : "closed"}
-          onClick={onToggleRail}
-          className={cardClass(railOpen)}
-        >
-          <NodeAvatar node={activeNode} size={32} />
-          <span className="min-w-0 flex-1">
-            <span className="text-foreground block truncate text-sm font-semibold leading-tight">
-              {activeNode.name}
-            </span>
-            <span className="text-muted-foreground block truncate text-xs leading-tight">
-              {sourceLabel(activeNode)} · {status.label}
-            </span>
-          </span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">
-        {activeNode.name} · {status.label}
-      </TooltipContent>
-    </Tooltip>
+    <button
+      type="button"
+      aria-label={`${activeNode.name} · ${status.label} — toggle node rail`}
+      aria-expanded={railOpen}
+      aria-controls={railOpen ? "node-rail" : undefined}
+      data-testid="node-status"
+      data-state={railOpen ? "open" : "closed"}
+      onClick={onToggleRail}
+      className={cardClass(railOpen)}
+    >
+      <NodeAvatar node={activeNode} size={32} />
+      <span className="min-w-0 flex-1">
+        <span className="text-foreground block truncate text-sm font-semibold leading-tight">
+          {activeNode.name}
+        </span>
+        <span className="text-muted-foreground block truncate text-xs leading-tight">
+          {sourceLabel(activeNode)} · {status.label}
+        </span>
+      </span>
+    </button>
   );
 }

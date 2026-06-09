@@ -1,10 +1,15 @@
 import { useState } from "react";
-import { Check, ChevronLeft, Plus } from "lucide-react";
+import { Check, ChevronLeft, Plus, Ellipsis, Pencil, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useNodeContext } from "@/contexts/NodeContext";
 import { ManageNodesDialog } from "@/components/ManageNodesDialog";
+import { useDeleteNode } from "@/data/nodes/queries";
 import { NodeAvatar } from "@/components/NodeAvatar";
 import { nodeStatus, sourceLabel } from "@/components/NodeStatus/status";
+import type { NodeWithStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,7 +20,8 @@ import { cn } from "@/lib/utils";
  *
  * Picking a node switches the active node but keeps the panel open (switch
  * freely; the check moves); the back chevron or tapping the dimmed area closes
- * it. The desktop rail is untouched.
+ * it. The desktop rail is untouched. Custom rows carry a ⋯ menu to rename or
+ * remove the node.
  */
 export function MobileNodePanel({
   open,
@@ -25,7 +31,12 @@ export function MobileNodePanel({
   onClose: () => void;
 }) {
   const { nodes, activeNodeId, setActiveNode } = useNodeContext();
-  const [manageOpen, setManageOpen] = useState(false);
+  // Shared Configure Node dialog: add (node: null) or edit a Custom node.
+  const [dialog, setDialog] = useState<{ open: boolean; node: NodeWithStatus | null }>({
+    open: false,
+    node: null,
+  });
+  const deleteNode = useDeleteNode();
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
@@ -53,15 +64,24 @@ export function MobileNodePanel({
           {nodes.map((n) => {
             const status = nodeStatus(n);
             const active = n.id === activeNodeId;
+            // Only Custom (manual) nodes can be renamed/removed.
+            const editable = n.source === "manual";
             return (
-              <button
+              <div
                 key={n.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 data-testid={`node-row-${n.id}`}
                 aria-current={active}
                 onClick={() => setActiveNode(n.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setActiveNode(n.id);
+                  }
+                }}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                  "flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
                   active ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
@@ -82,24 +102,63 @@ export function MobileNodePanel({
                 {active && (
                   <Check className="text-primary h-[18px] w-[18px] flex-shrink-0" />
                 )}
-              </button>
+                {editable && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Actions for ${n.name}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-muted-foreground hover:text-foreground flex-shrink-0 rounded-md p-1.5"
+                      >
+                        <Ellipsis className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDialog({ open: true, node: n });
+                        }}
+                      >
+                        <Pencil className="mr-2 h-3.5 w-3.5" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteNode.mutate(n.id);
+                        }}
+                      >
+                        <Trash2 className="mr-2 h-3.5 w-3.5" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
             );
           })}
         </div>
 
-        {/* Manage entry point */}
+        {/* Add entry point */}
         <div className="border-border mt-auto border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
-            onClick={() => setManageOpen(true)}
+            onClick={() => setDialog({ open: true, node: null })}
             className="hover:bg-accent/50 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 transition-colors"
           >
             <Plus className="text-muted-foreground h-[18px] w-[18px] flex-shrink-0" />
-            <span className="text-muted-foreground text-[15px]">Manage nodes…</span>
+            <span className="text-muted-foreground text-[15px]">Add node</span>
           </button>
         </div>
 
-        <ManageNodesDialog open={manageOpen} onClose={() => setManageOpen(false)} />
+        <ManageNodesDialog
+          open={dialog.open}
+          node={dialog.node}
+          onClose={() => setDialog((d) => ({ ...d, open: false }))}
+        />
       </SheetContent>
     </Sheet>
   );

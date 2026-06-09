@@ -75,7 +75,7 @@ describe("NodeStatus", () => {
     );
     // The rail stays reachable: the snippet renders a toggle even with no node,
     // so the add-node entry point inside the rail isn't orphaned.
-    expect(screen.getByText("Manage nodes")).toBeTruthy();
+    expect(screen.getByText("Add node")).toBeTruthy();
     fireEvent.click(screen.getByTestId("node-status"));
     expect(onToggleRail).toHaveBeenCalledTimes(1);
   });

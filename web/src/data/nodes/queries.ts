@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addNode, deleteNode, fetchNodes, renameNode } from "./api";
+import { addNode, deleteNode, fetchNodes, updateNode } from "./api";
 import { nodeKeys } from "./keys";
 
 export function useNodesQuery() {
@@ -19,10 +19,11 @@ export function useAddNode() {
   });
 }
 
-export function useRenameNode() {
+export function useUpdateNode() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => renameNode(id, name),
+    mutationFn: ({ id, name, url }: { id: string; name: string; url: string }) =>
+      updateNode(id, name, url),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: nodeKeys.list() }),
   });
 }
