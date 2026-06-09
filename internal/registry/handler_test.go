@@ -34,6 +34,21 @@ func (m *memDB) RenameManualNode(_ context.Context, id, name string) error {
 	}
 	return db.ErrNotFound
 }
+func (m *memDB) UpdateManualNode(_ context.Context, id, name, url string) error {
+	for _, n := range m.nodes {
+		if n.URL == url && n.ID != id {
+			return fmt.Errorf("%w: %s", db.ErrDuplicateURL, url)
+		}
+	}
+	for i := range m.nodes {
+		if m.nodes[i].ID == id {
+			m.nodes[i].Name = name
+			m.nodes[i].URL = url
+			return nil
+		}
+	}
+	return db.ErrNotFound
+}
 func (m *memDB) DeleteManualNode(_ context.Context, id string) error {
 	out := m.nodes[:0]
 	found := false
@@ -312,5 +327,70 @@ func TestRenameAndDeleteSucceed(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 	if len(body.Nodes) != 1 || !body.Nodes[0].Self {
 		t.Errorf("after delete: nodes = %+v, want only self", body.Nodes)
+	}
+}
+
+// TestUpdateEditsNameAndURL covers the edit path: a PATCH carrying a url updates
+// the node's origin in place (normalized), keeping the same id.
+func TestUpdateEditsNameAndURL(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://gpu:80"}`)))
+	if rec.Code != 201 {
+		t.Fatalf("add status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Edit both name and host. The trailing slash and default port normalize away.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/nodes/id-1",
+		strings.NewReader(`{"name":"workstation","url":"http://workstation/"}`)))
+	if rec.Code != 204 {
+		t.Fatalf("update status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/nodes", nil))
+	var body struct{ Nodes []Node }
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	var gpu *Node
+	for i := range body.Nodes {
+		if body.Nodes[i].ID == "id-1" {
+			gpu = &body.Nodes[i]
+		}
+	}
+	if gpu == nil {
+		t.Fatalf("edited node id-1 missing from %+v", body.Nodes)
+	}
+	if gpu.Name != "workstation" || gpu.URL != "http://workstation" {
+		t.Errorf("after edit: name=%q url=%q, want workstation / http://workstation", gpu.Name, gpu.URL)
+	}
+}
+
+// TestUpdateToExistingURLConflicts asserts that re-pointing a node at another
+// node's url is rejected with 409 (the UNIQUE(url) constraint).
+func TestUpdateToExistingURLConflicts(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	for _, u := range []string{"http://gpu:80", "http://tpu:80"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+			strings.NewReader(`{"name":"n","url":"`+u+`"}`)))
+		if rec.Code != 201 {
+			t.Fatalf("add %s status = %d", u, rec.Code)
+		}
+	}
+
+	// id-2 (tpu) → gpu's url collides.
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/nodes/id-2",
+		strings.NewReader(`{"name":"tpu","url":"http://gpu"}`)))
+	if rec.Code != 409 {
+		t.Errorf("conflicting update status = %d, want 409", rec.Code)
 	}
 }

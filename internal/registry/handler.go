@@ -19,6 +19,7 @@ type WriteDB interface {
 	DB
 	AddManualNode(ctx context.Context, id, name, url string) error
 	RenameManualNode(ctx context.Context, id, name string) error
+	UpdateManualNode(ctx context.Context, id, name, url string) error
 	DeleteManualNode(ctx context.Context, id string) error
 }
 
@@ -49,7 +50,7 @@ func NewHandlers(svc *Service, db WriteDB, newID func() string, cors func(http.H
 func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/nodes", h.cors(http.HandlerFunc(h.list)))
 	mux.Handle("POST /api/nodes", h.cors(http.HandlerFunc(h.add)))
-	mux.Handle("PATCH /api/nodes/{id}", h.cors(http.HandlerFunc(h.rename)))
+	mux.Handle("PATCH /api/nodes/{id}", h.cors(http.HandlerFunc(h.update)))
 	mux.Handle("DELETE /api/nodes/{id}", h.cors(http.HandlerFunc(h.delete)))
 
 	// Wrap OPTIONS explicitly so a CORS preflight hits the guard (allowed →
@@ -98,27 +99,18 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Name = strings.TrimSpace(body.Name)
-	body.URL = strings.TrimRight(strings.TrimSpace(body.URL), "/")
 	if body.Name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
-		return
-	}
-	u, err := url.Parse(body.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url must be an absolute http(s) URL"})
-		return
-	}
-	// The URL is used as a node origin/base; a path, query, fragment, or userinfo
-	// would corrupt later requests (e.g. http://gpu/api/api/node/summary). The
-	// trailing slash was already trimmed above, so a lone "/" path is allowed.
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url must be a node origin, e.g. http://host:port"})
 		return
 	}
 	// Persist the normalized form so the DB UNIQUE constraint and the dedup key
 	// agree: case/port variants (e.g. http://GPU:80 vs http://gpu) map to the
 	// same stored value and correctly trigger a 409 on re-add.
-	normalizedURL := normalize(body.URL)
+	normalizedURL, errMsg := validNodeOrigin(body.URL)
+	if errMsg != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsg})
+		return
+	}
 	id := h.newID()
 	if err := h.db.AddManualNode(r.Context(), id, body.Name, normalizedURL); err != nil {
 		if errors.Is(err, db.ErrDuplicateURL) {
@@ -131,23 +123,62 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
 
-func (h *Handlers) rename(w http.ResponseWriter, r *http.Request) {
+// validNodeOrigin trims, validates, and normalizes a node origin URL. On success
+// it returns the normalized URL and an empty message; on failure it returns ""
+// and a client-facing error message. The URL is used as a node origin/base, so a
+// path, query, fragment, or userinfo would corrupt later requests (e.g.
+// http://gpu/api/api/node/summary); only a bare scheme://host[:port] (optionally
+// a lone "/") is accepted.
+func validNodeOrigin(raw string) (normalized, errMsg string) {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", "url must be an absolute http(s) URL"
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return "", "url must be a node origin, e.g. http://host:port"
+	}
+	return normalize(raw), ""
+}
+
+// update edits a manual node's name and, when a url is supplied, its origin. A
+// request with no url (name only) keeps the older rename-only behavior, so a
+// client that only wants to relabel a node need not resend the url.
+func (h *Handlers) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
 		Name string `json:"name"`
+		URL  string `json:"url"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	if strings.TrimSpace(body.Name) == "" {
+	body.Name = strings.TrimSpace(body.Name)
+	if body.Name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
-	if err := h.db.RenameManualNode(r.Context(), id, strings.TrimSpace(body.Name)); err != nil {
+
+	var err error
+	if strings.TrimSpace(body.URL) == "" {
+		err = h.db.RenameManualNode(r.Context(), id, body.Name)
+	} else {
+		normalizedURL, errMsg := validNodeOrigin(body.URL)
+		if errMsg != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsg})
+			return
+		}
+		err = h.db.UpdateManualNode(r.Context(), id, body.Name, normalizedURL)
+	}
+	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
+			return
+		}
+		if errors.Is(err, db.ErrDuplicateURL) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "a node with that url already exists"})
 			return
 		}
 		writeInternalError(w, err)
