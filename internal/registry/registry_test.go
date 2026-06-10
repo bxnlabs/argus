@@ -58,6 +58,13 @@ func TestNormalize(t *testing.T) {
 			wantEq:  true,
 			comment: "https:443 is the default and must be stripped so variants collapse",
 		},
+		{
+			name:    "FQDN trailing dot collapses",
+			a:       "http://gpu.tail1234.ts.net.",
+			b:       "http://gpu.tail1234.ts.net",
+			wantEq:  true,
+			comment: "a manually-added FQDN with a trailing dot must dedup against the discovered name",
+		},
 	}
 
 	for _, tt := range tests {

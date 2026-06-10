@@ -50,12 +50,12 @@ func TestManualNodeCRUD(t *testing.T) {
 		t.Errorf("node = %+v", nodes[0])
 	}
 
-	if err := d.RenameManualNode(ctx, "n1", "gpu-1"); err != nil {
-		t.Fatalf("RenameManualNode: %v", err)
+	if err := d.UpdateManualNode(ctx, "n1", "gpu-1", "http://gpu-box:80"); err != nil {
+		t.Fatalf("UpdateManualNode: %v", err)
 	}
 	nodes, _ = d.ListManualNodes(ctx)
 	if nodes[0].Name != "gpu-1" {
-		t.Errorf("after rename name = %q, want gpu-1", nodes[0].Name)
+		t.Errorf("after update name = %q, want gpu-1", nodes[0].Name)
 	}
 
 	if err := d.DeleteManualNode(ctx, "n1"); err != nil {
@@ -92,7 +92,7 @@ func TestManualNodeMutationsMissingNode(t *testing.T) {
 		name string
 		fn   func() error
 	}{
-		{"RenameManualNode", func() error { return d.RenameManualNode(ctx, "missing", "new-name") }},
+		{"UpdateManualNode", func() error { return d.UpdateManualNode(ctx, "missing", "new-name", "http://x:80") }},
 		{"DeleteManualNode", func() error { return d.DeleteManualNode(ctx, "missing") }},
 	}
 	for _, tc := range cases {

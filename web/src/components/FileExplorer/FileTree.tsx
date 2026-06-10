@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import type { FileNode, FilesResponse } from "@/types";
 
 interface FileTreeProps {
@@ -24,6 +25,7 @@ export function FileTree({
   selectedPath,
   depth = 0,
 }: FileTreeProps) {
+  const { baseUrl } = useActiveNode();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loadedChildren, setLoadedChildren] = useState<
     Map<string, FileNode[]>
@@ -37,6 +39,7 @@ export function FileTree({
       setLoadingDirs((prev) => new Set(prev).add(dirPath));
       try {
         const data = await apiFetch<FilesResponse>(
+          baseUrl,
           `/api/node/files?path=${encodeURIComponent(dirPath)}`,
         );
         if (data.files) {
@@ -52,7 +55,7 @@ export function FileTree({
         });
       }
     },
-    [loadedChildren],
+    [loadedChildren, baseUrl],
   );
 
   const toggleExpand = useCallback(

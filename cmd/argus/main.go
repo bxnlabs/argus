@@ -21,7 +21,6 @@ import (
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/node"
 	"github.com/bxnlabs/argus/internal/node/api"
-	nodedb "github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/registry"
 	"github.com/bxnlabs/argus/internal/shared"
 	ts "github.com/bxnlabs/argus/internal/tailscale"
@@ -66,23 +65,6 @@ func newRootCmd() *cobra.Command {
 	)
 
 	return rootCmd
-}
-
-// registryDB adapts *nodedb.DB to registry.WriteDB. The Add/Rename/Delete methods
-// are promoted from the embedded *nodedb.DB unchanged; only ListManualNodes needs a
-// conversion because nodedb.ManualNode and registry.ManualNode are distinct types.
-type registryDB struct{ *nodedb.DB }
-
-func (a registryDB) ListManualNodes(ctx context.Context) ([]registry.ManualNode, error) {
-	dbNodes, err := a.DB.ListManualNodes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]registry.ManualNode, len(dbNodes))
-	for i, n := range dbNodes {
-		out[i] = registry.ManualNode{ID: n.ID, Name: n.Name, URL: n.URL}
-	}
-	return out, nil
 }
 
 func hasTag(tags []string, want string) bool {
@@ -172,6 +154,11 @@ func runInstance(ctx context.Context) error {
 	if tsServer != nil {
 		tag := cfg.Tailscale.DiscoveryTag
 		discover = func(ctx context.Context) ([]registry.Node, error) {
+			// Discovery is best-effort and feeds the initial UI load; bound it so
+			// a stalled Tailscale LocalClient can't hang /api/nodes. On timeout
+			// Peers returns an error and List degrades to local+manual.
+			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
 			peers, err := tsServer.Peers(ctx)
 			if err != nil {
 				return nil, err
@@ -198,14 +185,13 @@ func runInstance(ctx context.Context) error {
 		}
 	}
 
-	regDB := registryDB{database}
-	regSvc := registry.New(regDB, self, discover)
+	regSvc := registry.New(database, self, discover)
 	// Guard the registry routes with the SAME origin policy as the node API:
 	// they're served on the top-level mux (not behind node.Setup's CORS) and
 	// mutate state from JSON without a Content-Type check, so an unguarded route
 	// is a CSRF surface for any page the user visits.
 	cors := func(next http.Handler) http.Handler { return api.CORS(allowOrigin, next) }
-	regHandlers := registry.NewHandlers(regSvc, regDB, newNodeID, cors)
+	regHandlers := registry.NewHandlers(regSvc, database, newNodeID, cors)
 	regHandlers.Register(mux)
 
 	return serve(listeners, discoveryAddr, mux, "argus")

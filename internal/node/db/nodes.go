@@ -48,19 +48,6 @@ func (d *DB) AddManualNode(ctx context.Context, id, name, url string) error {
 	return nil
 }
 
-// RenameManualNode updates a node's display name.
-func (d *DB) RenameManualNode(ctx context.Context, id, name string) error {
-	res, err := d.sql.ExecContext(ctx,
-		`UPDATE nodes SET name = ? WHERE id = ?`, name, id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("%w: %s", ErrNotFound, id)
-	}
-	return nil
-}
-
 // UpdateManualNode updates a node's display name and url. As with AddManualNode,
 // the UNIQUE(url) constraint surfaces a collision with another node as
 // ErrDuplicateURL (re-pointing a node at its own url is a no-op update, not a

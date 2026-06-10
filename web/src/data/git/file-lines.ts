@@ -1,6 +1,9 @@
 import { apiFetch } from "@/api/client";
 
 export interface FileLinesParams {
+  // Active node origin ("" == same-origin). Passed explicitly because this is a
+  // plain function, not a hook, so it can't read useActiveNode itself.
+  baseUrl: string;
   path: string;
   file: string;
   start: number;
@@ -28,6 +31,7 @@ export async function fetchFileLines(params: FileLinesParams): Promise<FileLines
   }
 
   return apiFetch<FileLinesResult>(
+    params.baseUrl,
     `/api/node/git/file-lines?${searchParams.toString()}`,
     { signal: params.signal },
   );

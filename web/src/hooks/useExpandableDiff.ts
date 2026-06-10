@@ -3,6 +3,7 @@ import type { DiffHunk, DiffLine } from "@/lib/diff-parser";
 import type { AutoExpandAnchor } from "@/lib/compare-comments";
 import { fetchFileLines } from "@/data/git/file-lines";
 import { ApiError } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 
 // --- Types ---
 
@@ -288,6 +289,12 @@ export function useExpandableDiff(
     failedAnchors: new Map<string, number>(),
   });
 
+  // Active node origin, held in a ref so the expand callbacks below read the
+  // current value without threading it through their dependency arrays.
+  const { baseUrl } = useActiveNode();
+  const baseUrlRef = useRef(baseUrl);
+  baseUrlRef.current = baseUrl;
+
   const generationRef = useRef(state.generation);
   generationRef.current = state.generation;
 
@@ -427,6 +434,7 @@ export function useExpandableDiff(
 
       try {
         const result = await fetchFileLines({
+          baseUrl: baseUrlRef.current,
           path: ctx.repoPath,
           file: ctx.filePath,
           start,
@@ -554,6 +562,7 @@ export function useExpandableDiff(
 
       try {
         const result = await fetchFileLines({
+          baseUrl: baseUrlRef.current,
           path: ctx.repoPath,
           file: ctx.filePath,
           start,

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { expandableDiffReducer, useExpandableDiff } from "./useExpandableDiff";
+import { StubNodeProvider } from "@/test/node-context";
 import type { DiffHunk, DiffLine } from "@/lib/diff-parser";
 
 vi.mock("@/data/git/file-lines", () => ({
@@ -197,7 +198,9 @@ describe("useExpandableDiff expandToLine vs concurrent manual expand", () => {
     // by identity, so a fresh array per render would loop forever.
     const initialHunks = [hunk(10, 1)];
     // One hunk covering new line 10 only; caseB anchor at 21 → clamps to [18..24].
-    const { result } = renderHook(() => useExpandableDiff(initialHunks, 1000, ctx));
+    const { result } = renderHook(() => useExpandableDiff(initialHunks, 1000, ctx), {
+      wrapper: StubNodeProvider,
+    });
 
     act(() => {
       void result.current.expandToLine(21, 3, [{ commentId: "c1", line: 21 }]);
@@ -238,7 +241,9 @@ describe("useExpandableDiff expandToLine vs concurrent manual expand", () => {
 
     const ctx = { repoPath: "/repo", filePath: "a.txt" };
     const initialHunks = [hunk(10, 1)]; // covers new line 10 only
-    const { result } = renderHook(() => useExpandableDiff(initialHunks, 1000, ctx));
+    const { result } = renderHook(() => useExpandableDiff(initialHunks, 1000, ctx), {
+      wrapper: StubNodeProvider,
+    });
 
     act(() => {
       void result.current.expandToLine(21, 3, [{ commentId: "c1", line: 21 }]); // anchor 21 → range [18..24]
@@ -273,7 +278,9 @@ describe("useExpandableDiff expandToLine vs concurrent manual expand", () => {
 
     const ctx = { repoPath: "/repo", filePath: "a.txt" };
     const initialHunks = [hunk(10, 1)];
-    const { result } = renderHook(() => useExpandableDiff(initialHunks, 1000, ctx));
+    const { result } = renderHook(() => useExpandableDiff(initialHunks, 1000, ctx), {
+      wrapper: StubNodeProvider,
+    });
 
     act(() => {
       void result.current.expandToLine(21, 3, [{ commentId: "c1", line: 21 }]);
@@ -304,7 +311,9 @@ describe("useExpandableDiff expandToLine vs concurrent manual expand", () => {
 
     const ctx = { repoPath: "/repo", filePath: "a.txt" };
     const initialHunks = [hunk(10, 1)];
-    const { result } = renderHook(() => useExpandableDiff(initialHunks, 1000, ctx));
+    const { result } = renderHook(() => useExpandableDiff(initialHunks, 1000, ctx), {
+      wrapper: StubNodeProvider,
+    });
 
     act(() => {
       void result.current.expandToLine(21, 3, [{ commentId: "c1", line: 21 }]);

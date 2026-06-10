@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import type { Session, ProviderType } from "@/types";
 import { sessionKeys, profileKeys } from "./keys";
 
@@ -9,9 +10,10 @@ interface SessionsResponse {
 }
 
 export function useSessionsQuery() {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: sessionKeys.list(),
-    queryFn: () => apiFetch<SessionsResponse>("/api/node/sessions"),
+    queryKey: sessionKeys.list(scope),
+    queryFn: () => apiFetch<SessionsResponse>(baseUrl, "/api/node/sessions"),
     staleTime: 5000,
     refetchInterval: 10000,
   });
@@ -33,15 +35,16 @@ interface CreateSessionResponse {
 
 export function useCreateSession() {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: (input: CreateSessionInput) =>
-      apiFetch<CreateSessionResponse>("/api/node/sessions", {
+      apiFetch<CreateSessionResponse>(baseUrl, "/api/node/sessions", {
         method: "POST",
         body: JSON.stringify(input),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
     },
   });
 }
@@ -53,6 +56,7 @@ interface DeleteSessionResponse {
 
 export function useDeleteSession() {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: ({
@@ -63,17 +67,19 @@ export function useDeleteSession() {
       deleteBranch?: boolean;
     }) =>
       apiFetch<DeleteSessionResponse>(
+        baseUrl,
         `/api/node/sessions/${sessionId}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
         { method: "DELETE" },
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
     },
   });
 }
 
 export function useRenameSession() {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: ({
@@ -83,16 +89,16 @@ export function useRenameSession() {
       sessionId: string;
       newName: string;
     }) =>
-      apiFetch(`/api/node/sessions/${sessionId}`, {
+      apiFetch(baseUrl, `/api/node/sessions/${sessionId}`, {
         method: "PATCH",
         body: JSON.stringify({ name: newName }),
       }),
     onMutate: async ({ sessionId, newName }) => {
-      await queryClient.cancelQueries({ queryKey: sessionKeys.list() });
+      await queryClient.cancelQueries({ queryKey: sessionKeys.list(scope) });
       const previous = queryClient.getQueryData<SessionsResponse>(
-        sessionKeys.list(),
+        sessionKeys.list(scope),
       );
-      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(), (old) =>
+      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(scope), (old) =>
         old
           ? {
               ...old,
@@ -106,17 +112,18 @@ export function useRenameSession() {
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(sessionKeys.list(), context.previous);
+        queryClient.setQueryData(sessionKeys.list(scope), context.previous);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
     },
   });
 }
 
 export function useChangeSessionProfile() {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: ({
@@ -127,15 +134,15 @@ export function useChangeSessionProfile() {
       profile: string | null;
     }) =>
       profile === null
-        ? apiFetch(`/api/node/sessions/${sessionId}/profile`, {
+        ? apiFetch(baseUrl, `/api/node/sessions/${sessionId}/profile`, {
             method: "DELETE",
           })
-        : apiFetch(`/api/node/sessions/${sessionId}/profile`, {
+        : apiFetch(baseUrl, `/api/node/sessions/${sessionId}/profile`, {
             method: "PUT",
             body: JSON.stringify({ profile }),
           }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
     },
   });
 }
@@ -147,19 +154,20 @@ export interface UpdateSessionInput {
 
 export function useUpdateSession() {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: ({ sessionId, pinned }: UpdateSessionInput) =>
-      apiFetch(`/api/node/sessions/${sessionId}`, {
+      apiFetch(baseUrl, `/api/node/sessions/${sessionId}`, {
         method: "PATCH",
         body: JSON.stringify({ pinned }),
       }),
     onMutate: async ({ sessionId, pinned }) => {
-      await queryClient.cancelQueries({ queryKey: sessionKeys.list() });
+      await queryClient.cancelQueries({ queryKey: sessionKeys.list(scope) });
       const previous = queryClient.getQueryData<SessionsResponse>(
-        sessionKeys.list(),
+        sessionKeys.list(scope),
       );
-      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(), (old) =>
+      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(scope), (old) =>
         old
           ? {
               ...old,
@@ -175,11 +183,11 @@ export function useUpdateSession() {
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(sessionKeys.list(), context.previous);
+        queryClient.setQueryData(sessionKeys.list(scope), context.previous);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
     },
   });
 }
@@ -189,10 +197,10 @@ interface ProfilesResponse {
 }
 
 export function useProfilesQuery() {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: profileKeys.list(),
-    queryFn: () => apiFetch<ProfilesResponse>("/api/node/profiles"),
+    queryKey: profileKeys.list(scope),
+    queryFn: () => apiFetch<ProfilesResponse>(baseUrl, "/api/node/profiles"),
     staleTime: 30000,
   });
 }
-

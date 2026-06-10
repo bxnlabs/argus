@@ -41,6 +41,7 @@ import { CommentNav } from "./CommentNav";
 import { MobileCommentSheet } from "./MobileCommentSheet";
 import { UnanchoredCommentSection } from "./UnanchoredCommentSection";
 import { useViewport } from "@/hooks/useViewport";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import { useScrollToFileCorrection } from "@/hooks/useScrollToFileCorrection";
 import { type ExpansionContext } from "@/hooks/useExpandableDiff";
 import type { CommitFile, FileStatus, ReviewComment, Review, DiffPosition } from "@/types";
@@ -67,6 +68,7 @@ interface CompareViewProps {
 export function CompareView({ workingDirectory, header, listWidth, onResizeMouseDown, onBaseChange }: CompareViewProps) {
   const { isMobile } = useViewport();
   const queryClient = useQueryClient();
+  const { scope } = useActiveNode();
 
   // Own branch subscription — excludes isRefetching
   const { data: currentBranch } = useGitCurrentBranchQuery(workingDirectory);
@@ -341,11 +343,11 @@ export function CompareView({ workingDirectory, header, listWidth, onResizeMouse
   // entry the component renders from.
   const reviewQueryKey = useMemo(
     () => [
-      ...reviewKeys.forComparison(workingDirectory, currentBranch ?? "", baseBranch ?? ""),
+      ...reviewKeys.forComparison(scope, workingDirectory, currentBranch ?? "", baseBranch ?? ""),
       compareData?.headRef ?? "",
       compareData?.baseRef ?? "",
     ],
-    [workingDirectory, currentBranch, baseBranch, compareData?.headRef, compareData?.baseRef],
+    [scope, workingDirectory, currentBranch, baseBranch, compareData?.headRef, compareData?.baseRef],
   );
 
   // Compute a new Review payload, optimistically write it to the query cache,

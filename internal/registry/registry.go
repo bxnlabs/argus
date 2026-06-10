@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	"github.com/bxnlabs/argus/internal/node/db"
 )
 
 // Source identifies how a node entered the registry.
@@ -31,12 +33,9 @@ type Node struct {
 	dedupKey string `json:"-"`
 }
 
-// ManualNode mirrors db.ManualNode without importing the db package.
-type ManualNode struct {
-	ID   string
-	Name string
-	URL  string
-}
+// ManualNode is db.ManualNode; aliased so callers keep using
+// registry.ManualNode while the registry shares the db's row type directly.
+type ManualNode = db.ManualNode
 
 // DB is the persistence dependency (satisfied by *db.DB).
 type DB interface {
@@ -69,7 +68,10 @@ func normalize(raw string) string {
 		return strings.ToLower(raw)
 	}
 	u.Scheme = strings.ToLower(u.Scheme)
-	host := strings.ToLower(u.Hostname())
+	// Trim the FQDN's trailing dot so a manually-added "gpu.ts.net." dedups
+	// against the discovered "gpu.ts.net" (discovery trims it too, but this is
+	// the single chokepoint every source's URL passes through).
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 	port := u.Port()
 	if (u.Scheme == "http" && port == "80") || (u.Scheme == "https" && port == "443") {
 		port = ""
@@ -84,6 +86,16 @@ func normalize(raw string) string {
 		u.Host = host
 	}
 	return u.String()
+}
+
+// IsSelfOrigin reports whether raw normalizes to the local node's dedup key,
+// i.e. a manual add/update pointing at this same node. List gives the local
+// node precedence and dedups on this key, so such a row would be silently
+// dropped from the listing ("I added it and it vanished"); the handler rejects
+// it up front instead. False when self has no dedup key (no tailnet identity),
+// since then nothing can collide with self.
+func (s *Service) IsSelfOrigin(raw string) bool {
+	return s.self.dedupKey != "" && normalize(raw) == s.self.dedupKey
 }
 
 // SetDedupKey sets the local node's dedup key from its canonical (tailnet) URL.

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { apiFetch, apiTextFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import type { Session, SessionStatusInfo } from "@/types";
 import { statusKeys } from "../sessions/keys";
 
@@ -27,9 +28,10 @@ export function useSessionStatusesQuery({
   activeSessionId,
   checkStateChanges,
 }: UseSessionStatusesOptions) {
+  const { scope, baseUrl } = useActiveNode();
   const query = useQuery({
-    queryKey: statusKeys.all,
-    queryFn: () => apiFetch<StatusResponse>("/api/node/sessions/status"),
+    queryKey: statusKeys.all(scope),
+    queryFn: () => apiFetch<StatusResponse>(baseUrl, "/api/node/sessions/status"),
     enabled: sessions.length > 0,
     staleTime: 2000,
     refetchInterval: sessions.length > 0 ? 2000 : false,
@@ -44,10 +46,10 @@ export function useSessionStatusesQuery({
 
     // Fire-and-forget heartbeat — errors are silently ignored. Routed through
     // the API client so it targets the active node's base URL.
-    apiTextFetch(`/api/node/sessions/${encodeURIComponent(activeSessionId)}/heartbeat`, {
+    apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(activeSessionId)}/heartbeat`, {
       method: "POST",
     }).catch(() => {});
-  }, [query.data, activeSessionId]);
+  }, [query.data, activeSessionId, baseUrl]);
 
   // Auto-acknowledge the automatic unread_since for the actively viewed session.
   // Covers the case where the app opens with a session already selected
@@ -60,11 +62,11 @@ export function useSessionStatusesQuery({
 
     const status = query.data.statuses?.[activeSessionId];
     if (status?.unreadSince) {
-      apiTextFetch(`/api/node/sessions/${encodeURIComponent(activeSessionId)}/acknowledge`, {
+      apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(activeSessionId)}/acknowledge`, {
         method: "POST",
       }).catch(() => {});
     }
-  }, [query.data, activeSessionId]);
+  }, [query.data, activeSessionId, baseUrl]);
 
   useEffect(() => {
     if (!query.data?.statuses) return;
@@ -90,16 +92,17 @@ export function useSessionStatusesQuery({
 // user_marked_unread_at, optimistically updating the status cache.
 export function useMarkRead() {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: (sessionId: string) =>
-      apiTextFetch(`/api/node/sessions/${encodeURIComponent(sessionId)}/read`, {
+      apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/read`, {
         method: "POST",
       }),
     onMutate: async (sessionId: string) => {
-      await queryClient.cancelQueries({ queryKey: statusKeys.all });
-      const previous = queryClient.getQueryData<StatusResponse>(statusKeys.all);
-      queryClient.setQueryData<StatusResponse>(statusKeys.all, (old) => {
+      await queryClient.cancelQueries({ queryKey: statusKeys.all(scope) });
+      const previous = queryClient.getQueryData<StatusResponse>(statusKeys.all(scope));
+      queryClient.setQueryData<StatusResponse>(statusKeys.all(scope), (old) => {
         const status = old?.statuses?.[sessionId];
         if (!old || !status) return old;
         return {
@@ -114,11 +117,11 @@ export function useMarkRead() {
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(statusKeys.all, context.previous);
+        queryClient.setQueryData(statusKeys.all(scope), context.previous);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: statusKeys.all });
+      queryClient.invalidateQueries({ queryKey: statusKeys.all(scope) });
     },
   });
 }
@@ -127,16 +130,17 @@ export function useMarkRead() {
 // optimistically updating the status cache.
 export function useMarkUnread() {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: (sessionId: string) =>
-      apiTextFetch(`/api/node/sessions/${encodeURIComponent(sessionId)}/unread`, {
+      apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/unread`, {
         method: "POST",
       }),
     onMutate: async (sessionId: string) => {
-      await queryClient.cancelQueries({ queryKey: statusKeys.all });
-      const previous = queryClient.getQueryData<StatusResponse>(statusKeys.all);
-      queryClient.setQueryData<StatusResponse>(statusKeys.all, (old) => {
+      await queryClient.cancelQueries({ queryKey: statusKeys.all(scope) });
+      const previous = queryClient.getQueryData<StatusResponse>(statusKeys.all(scope));
+      queryClient.setQueryData<StatusResponse>(statusKeys.all(scope), (old) => {
         const status = old?.statuses?.[sessionId];
         if (!old || !status) return old;
         return {
@@ -151,11 +155,11 @@ export function useMarkUnread() {
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(statusKeys.all, context.previous);
+        queryClient.setQueryData(statusKeys.all(scope), context.previous);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: statusKeys.all });
+      queryClient.invalidateQueries({ queryKey: statusKeys.all(scope) });
     },
   });
 }

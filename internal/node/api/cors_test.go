@@ -151,6 +151,49 @@ func TestCORS_AllowedOrigin_Preflight(t *testing.T) {
 	}
 }
 
+func TestCORS_SameOrigin_NonLoopbackBind(t *testing.T) {
+	// A LAN/0.0.0.0 bind serves the SPA from a non-loopback, non-tailnet Origin.
+	// Those same-origin requests (Origin host == Host) must pass even though the
+	// allow-list would reject the origin as cross-origin.
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		called := false
+		h := CORS(NewCORSPolicy(""), okHandler(&called))
+
+		req := httptest.NewRequest(method, "/sessions", nil)
+		req.Host = "192.168.1.10:3000"
+		req.Header.Set("Origin", "http://192.168.1.10:3000")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s same-origin status = %d, want 200", method, rec.Code)
+		}
+		if !called {
+			t.Errorf("%s same-origin request must reach the handler", method)
+		}
+	}
+}
+
+func TestCORS_CrossOrigin_NonLoopbackBind_StillDenied(t *testing.T) {
+	// Same non-loopback bind, but the Origin's host differs from Host: a real
+	// cross-origin request that must still be rejected by the allow-list.
+	called := false
+	h := CORS(NewCORSPolicy(""), okHandler(&called))
+
+	req := httptest.NewRequest(http.MethodPost, "/sessions", nil)
+	req.Host = "192.168.1.10:3000"
+	req.Header.Set("Origin", "http://192.168.1.99:3000")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-origin status = %d, want 403", rec.Code)
+	}
+	if called {
+		t.Error("cross-origin request from a denied origin must not reach the handler")
+	}
+}
+
 func TestCORS_NoOrigin(t *testing.T) {
 	called := false
 	h := CORS(NewCORSPolicy(""), okHandler(&called))

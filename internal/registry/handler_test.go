@@ -25,15 +25,6 @@ func (m *memDB) AddManualNode(_ context.Context, id, name, url string) error {
 	m.nodes = append(m.nodes, ManualNode{ID: id, Name: name, URL: url})
 	return nil
 }
-func (m *memDB) RenameManualNode(_ context.Context, id, name string) error {
-	for i := range m.nodes {
-		if m.nodes[i].ID == id {
-			m.nodes[i].Name = name
-			return nil
-		}
-	}
-	return db.ErrNotFound
-}
 func (m *memDB) UpdateManualNode(_ context.Context, id, name, url string) error {
 	for _, n := range m.nodes {
 		if n.URL == url && n.ID != id {
@@ -267,16 +258,109 @@ func TestAddNormalizesAndRejectsVariantDuplicate(t *testing.T) {
 	}
 }
 
-func TestRenameMissingReturns404(t *testing.T) {
+// TestAddRejectsOutOfRangePort asserts ports outside 1–65535 are rejected.
+// url.Parse already rejects non-numeric/negative ports; these numeric-but-
+// invalid ports would otherwise be saved and never connect.
+func TestAddRejectsOutOfRangePort(t *testing.T) {
+	for _, u := range []string{"http://gpu:0", "http://gpu:65536", "http://gpu:99999"} {
+		h, _ := newTestHandlers()
+		mux := http.NewServeMux()
+		h.Register(mux)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+			strings.NewReader(`{"name":"x","url":"`+u+`"}`)))
+		if rec.Code != 400 {
+			t.Errorf("url %s: status = %d, want 400", u, rec.Code)
+		}
+	}
+}
+
+// TestAddRejectsSelfURL asserts a manual add whose url normalizes to the local
+// node's dedup key is rejected with 409 rather than silently dropped by List's
+// local-precedence dedup (the "I added it and it vanished" bug).
+func TestAddRejectsSelfURL(t *testing.T) {
+	mdb := &memDB{}
+	self := Node{ID: "local", Name: "this", Source: SourceLocal, Self: true}
+	self.SetDedupKey("http://self-host:80") // normalizes to http://self-host
+	svc := New(mdb, self, nil)
+	h := NewHandlers(svc, mdb, newCounter(), nil)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// A bare and a port/case variant of the self origin both collapse to the
+	// dedup key, so both must be rejected up front.
+	for _, u := range []string{"http://self-host", "http://SELF-HOST:80"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+			strings.NewReader(`{"name":"me","url":"`+u+`"}`)))
+		if rec.Code != 409 {
+			t.Errorf("self-url %s: status = %d, want 409; body=%s", u, rec.Code, rec.Body.String())
+		}
+	}
+	if len(mdb.nodes) != 0 {
+		t.Errorf("self-url persisted despite 409: %+v", mdb.nodes)
+	}
+}
+
+// TestUpdateRejectsSelfURL asserts the update path also rejects re-pointing a
+// node at this node's own origin with 409 (the same IsSelfOrigin guard as add).
+func TestUpdateRejectsSelfURL(t *testing.T) {
+	mdb := &memDB{}
+	self := Node{ID: "local", Name: "this", Source: SourceLocal, Self: true}
+	self.SetDedupKey("http://self-host:80")
+	svc := New(mdb, self, nil)
+	h := NewHandlers(svc, mdb, newCounter(), nil)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// Add a normal node, then try to PATCH it onto the self origin.
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://gpu:80"}`)))
+	if rec.Code != 201 {
+		t.Fatalf("add status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/nodes/id-1",
+		strings.NewReader(`{"name":"me","url":"http://self-host"}`)))
+	if rec.Code != 409 {
+		t.Errorf("update to self-url status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateMissingReturns404(t *testing.T) {
 	h, _ := newTestHandlers()
 	mux := http.NewServeMux()
 	h.Register(mux)
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/nodes/nonexistent",
-		strings.NewReader(`{"name":"new-name"}`)))
+		strings.NewReader(`{"name":"new-name","url":"http://gpu:80"}`)))
 	if rec.Code != 404 {
 		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+// TestUpdateRequiresURL asserts the collapsed update path rejects a name-only
+// PATCH (the rename-only branch was removed): both name and url are required.
+func TestUpdateRequiresURL(t *testing.T) {
+	h, _ := newTestHandlers()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/nodes",
+		strings.NewReader(`{"name":"gpu","url":"http://gpu:80"}`)))
+	if rec.Code != 201 {
+		t.Fatalf("add status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/nodes/id-1",
+		strings.NewReader(`{"name":"gpu-renamed"}`)))
+	if rec.Code != 400 {
+		t.Errorf("name-only update status = %d, want 400", rec.Code)
 	}
 }
 
@@ -305,10 +389,10 @@ func TestRenameAndDeleteSucceed(t *testing.T) {
 		t.Fatalf("add status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 
-	// Rename it.
+	// Rename it (url required, kept the same).
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/nodes/id-1",
-		strings.NewReader(`{"name":"gpu-renamed"}`)))
+		strings.NewReader(`{"name":"gpu-renamed","url":"http://gpu:80"}`)))
 	if rec.Code != 204 {
 		t.Fatalf("rename status = %d, body=%s", rec.Code, rec.Body.String())
 	}

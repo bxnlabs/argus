@@ -8,44 +8,32 @@ export class ApiError extends Error {
   }
 }
 
-// The active node's origin. Empty string == same-origin (the local node).
-// Mutated by NodeProvider when the user switches nodes; read by every
-// node-scoped fetch/WebSocket helper below.
-let activeNodeBaseUrl = "";
-
-/** Sets the origin all node API/WS calls target. "" means same-origin. */
-export function setActiveNodeBaseUrl(url: string): void {
-  activeNodeBaseUrl = url;
-}
-
-/** Returns the base URL for the active node's API ("" == same-origin). */
-export function getNodeBaseUrl(): string {
-  return activeNodeBaseUrl;
-}
+// Node identity is explicit: every fetch/WS helper takes the target node's
+// origin (baseUrl) as its first argument. "" == same-origin (the local node).
+// Callers obtain it from useActiveNode(); there is no module-level active node.
 
 /**
- * Returns the WebSocket URL for a terminal connection.
+ * Returns the WebSocket URL for a terminal connection on the node at baseUrl.
  * With sessionId: /api/node/ws/sessions/{id} (attaches to session's tmux)
  * Without: /api/node/ws/terminal (raw shell)
  */
-export function getNodeWsUrl(sessionId?: string | null): string {
-  const base = getNodeBaseUrl();
+export function nodeWsUrl(baseUrl: string, sessionId?: string | null): string {
   const path = sessionId
     ? `/api/node/ws/sessions/${encodeURIComponent(sessionId)}`
     : "/api/node/ws/terminal";
-  if (base) {
-    return base.replace(/^http/, "ws") + path;
+  if (baseUrl) {
+    return baseUrl.replace(/^http/, "ws") + path;
   }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}${path}`;
 }
 
 async function baseFetch(
+  baseUrl: string,
   url: string,
   options?: RequestInit,
 ): Promise<Response> {
-  const base = getNodeBaseUrl();
-  const res = await fetch(`${base}${url}`, options);
+  const res = await fetch(`${baseUrl}${url}`, options);
 
   if (!res.ok) {
     let message = `Request failed: ${res.status}`;
@@ -62,10 +50,11 @@ async function baseFetch(
 }
 
 export async function apiFetch<T>(
+  baseUrl: string,
   url: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await baseFetch(url, {
+  const res = await baseFetch(baseUrl, url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -80,8 +69,9 @@ export async function apiFetch<T>(
  * send/receive raw text instead of JSON (e.g., file content).
  */
 export async function apiTextFetch(
+  baseUrl: string,
   url: string,
   options?: RequestInit,
 ): Promise<Response> {
-  return baseFetch(url, options);
+  return baseFetch(baseUrl, url, options);
 }

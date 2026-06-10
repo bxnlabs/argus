@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/bxnlabs/argus/internal/node/db"
@@ -18,7 +19,6 @@ const maxBodySize = 1 << 20 // 1 MB
 type WriteDB interface {
 	DB
 	AddManualNode(ctx context.Context, id, name, url string) error
-	RenameManualNode(ctx context.Context, id, name string) error
 	UpdateManualNode(ctx context.Context, id, name, url string) error
 	DeleteManualNode(ctx context.Context, id string) error
 }
@@ -111,6 +111,10 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 		return
 	}
+	if h.svc.IsSelfOrigin(normalizedURL) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "that url is this node"})
+		return
+	}
 	id := h.newID()
 	if err := h.db.AddManualNode(r.Context(), id, body.Name, normalizedURL); err != nil {
 		if errors.Is(err, db.ErrDuplicateURL) {
@@ -129,6 +133,15 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 // path, query, fragment, or userinfo would corrupt later requests (e.g.
 // http://gpu/api/api/node/summary); only a bare scheme://host[:port] (optionally
 // a lone "/") is accepted.
+//
+// Origin *reachability* is intentionally not validated here. The supported
+// trust boundary is loopback/tailnet (see the multi-node design spec), but that
+// is enforced at request time by the target node's own CORS policy, and a node
+// the browser can't reach simply reads as offline in the rail. Allow-listing
+// origins at add time would add no real safety (the runtime CORS is the gate)
+// while falsely rejecting legitimate tailnet short-names (e.g. "http://gpu",
+// which resolves via the tailnet search domain but has no ".ts.net" suffix to
+// match against).
 func validNodeOrigin(raw string) (normalized, errMsg string) {
 	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
 	u, err := url.Parse(raw)
@@ -138,12 +151,22 @@ func validNodeOrigin(raw string) (normalized, errMsg string) {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return "", "url must be a node origin, e.g. http://host:port"
 	}
+	// url.Parse already rejects a non-numeric or negative port ("http://h:abc",
+	// "http://h:-1"), but it accepts out-of-range numbers ("http://h:0",
+	// ":99999", ":65536"); reject those so a node can't be saved with a port it
+	// could never listen on.
+	if p := u.Port(); p != "" {
+		n, perr := strconv.Atoi(p)
+		if perr != nil || n < 1 || n > 65535 {
+			return "", "url port must be between 1 and 65535"
+		}
+	}
 	return normalize(raw), ""
 }
 
-// update edits a manual node's name and, when a url is supplied, its origin. A
-// request with no url (name only) keeps the older rename-only behavior, so a
-// client that only wants to relabel a node need not resend the url.
+// update edits a manual node's name and origin. Both name and url are required:
+// the only client (the Configure Node dialog) always sends both, so there is a
+// single update path rather than a separate name-only rename.
 func (h *Handlers) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
@@ -160,18 +183,20 @@ func (h *Handlers) update(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
-
-	var err error
 	if strings.TrimSpace(body.URL) == "" {
-		err = h.db.RenameManualNode(r.Context(), id, body.Name)
-	} else {
-		normalizedURL, errMsg := validNodeOrigin(body.URL)
-		if errMsg != "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsg})
-			return
-		}
-		err = h.db.UpdateManualNode(r.Context(), id, body.Name, normalizedURL)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url is required"})
+		return
 	}
+	normalizedURL, errMsg := validNodeOrigin(body.URL)
+	if errMsg != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsg})
+		return
+	}
+	if h.svc.IsSelfOrigin(normalizedURL) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "that url is this node"})
+		return
+	}
+	err := h.db.UpdateManualNode(r.Context(), id, body.Name, normalizedURL)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})

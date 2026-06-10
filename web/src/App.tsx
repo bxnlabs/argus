@@ -11,6 +11,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession } from "@/data/sessions/queries";
 import { apiTextFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
 import { SessionInfoDialog } from "@/components/SessionInfoDialog";
 import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
@@ -33,6 +34,7 @@ function HomeContent({
   railOpen: boolean;
   setRailOpen: (open: boolean) => void;
 }) {
+  const { baseUrl } = useActiveNode();
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
@@ -153,12 +155,12 @@ function HomeContent({
       // "Mark as unread" survives selection.
       const status = sessionStatuses[session.id];
       if (status?.unreadSince) {
-        apiTextFetch(`/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
+        apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
           method: "POST",
         }).catch(() => {});
       }
     },
-    [attachSession, sessionStatuses]
+    [attachSession, sessionStatuses, baseUrl]
   );
 
   // Deep-link: auto-attach session from ?session= query param (e.g. from Slack notification)
@@ -499,7 +501,7 @@ export function App() {
 }
 
 function AppInner() {
-  const { activeNodeId, isLoaded } = useNodeContext();
+  const { activeNodeId, activeNode, isLoaded } = useNodeContext();
   // Node-rail visibility lives here, above the node-keyed TabProvider, so it
   // survives the workspace remount on node switch.
   const [railOpen, setRailOpen] = useState(false);
@@ -510,8 +512,11 @@ function AppInner() {
   // fast, so this is a brief gate; on a registry error isLoaded still settles
   // and the selection falls back to the local node.
   if (!isLoaded) return <div className="bg-background h-app" />;
+  // Scope tabs by id+origin so the workspace remounts AND persists under the
+  // same key — editing a manual node's URL (same id) yields fresh tabs.
+  const nodeScope = `${activeNodeId ?? "none"}:${activeNode?.url ?? ""}`;
   return (
-    <TabProvider key={activeNodeId ?? "none"}>
+    <TabProvider key={nodeScope} nodeScope={nodeScope}>
       <HomeContent railOpen={railOpen} setRailOpen={setRailOpen} />
       <Toaster
         theme="dark"

@@ -25,6 +25,20 @@ func originHost(origin string) (host string, ok bool) {
 	return strings.ToLower(u.Hostname()), true
 }
 
+// sameOrigin reports whether origin's host:port matches the request's Host —
+// i.e. the request is same-origin (the SPA calling its own node). Same-origin
+// requests are not cross-origin at all and must pass regardless of the
+// allow-list: a non-loopback bind (a LAN IP or 0.0.0.0) serves the SPA from an
+// Origin that is neither loopback nor tailnet, so the allow-list alone would
+// 403 the node talking to itself.
+func sameOrigin(r *http.Request, origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
+}
+
 // isLoopbackOrigin reports whether origin points at this machine (localhost /
 // 127.0.0.1 / ::1, any port). This is the local SPA and the Vite dev proxy.
 // The check is on the Origin header's host, not the request's socket, so a DNS
@@ -73,8 +87,9 @@ func NewCORSPolicy(tailnetSuffix string) func(string) bool {
 }
 
 // CORS authorizes cross-origin browser requests using allow. Requests without
-// an Origin (CLI, server-to-server, same-origin GET) pass through untouched. A
-// request whose Origin is disallowed is rejected outright with 403 for EVERY
+// an Origin (CLI, server-to-server, same-origin GET) and same-origin requests
+// (Origin host == request Host) pass through untouched. A request whose Origin
+// is cross-origin and disallowed is rejected outright with 403 for EVERY
 // method — not just preflight. CORS only stops a page from reading a response;
 // it does not stop the browser from sending a "simple" request (a bodyless
 // POST, or a POST with a text/plain JSON body), and the node API has no app
@@ -83,7 +98,7 @@ func NewCORSPolicy(tailnetSuffix string) func(string) bool {
 func CORS(allow func(string) bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin == "" {
+		if origin == "" || sameOrigin(r, origin) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import type {
   GitStatus,
   CommitSummary,
@@ -18,10 +19,12 @@ interface GitCheckResponse {
 }
 
 export function useGitCheckQuery(path: string | null) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: gitKeys.check(path ?? ""),
+    queryKey: gitKeys.check(scope, path ?? ""),
     queryFn: async () => {
       const data = await apiFetch<GitCheckResponse>(
+        baseUrl,
         `/api/node/git/check?path=${encodeURIComponent(path!)}`,
       );
       return data.isGitRepo;
@@ -46,10 +49,12 @@ export function useGitStatusQuery<TData = GitStatus>(
     notifyOnChangeProps?: Array<"data" | "error" | "isPending" | "isError" | "isRefetching">;
   },
 ) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery<GitStatus, Error, TData>({
-    queryKey: gitKeys.status(path),
+    queryKey: gitKeys.status(scope, path),
     queryFn: async () => {
       const data = await apiFetch<GitStatusResponse>(
+        baseUrl,
         `/api/node/git/status?path=${encodeURIComponent(path)}`,
       );
       return data.status;
@@ -73,16 +78,18 @@ export function useFileDiffQuery(
   file: string,
   options?: { staged?: boolean; untracked?: boolean; enabled?: boolean },
 ) {
+  const { scope, baseUrl } = useActiveNode();
   const staged = options?.staged ?? false;
   const untracked = options?.untracked ?? false;
 
   return useQuery({
-    queryKey: gitKeys.fileDiff(path, file, staged, untracked),
+    queryKey: gitKeys.fileDiff(scope, path, file, staged, untracked),
     queryFn: async () => {
       const params = new URLSearchParams({ path, file });
       if (staged) params.set("staged", "true");
       if (untracked) params.set("untracked", "true");
       const data = await apiFetch<DiffResponse>(
+        baseUrl,
         `/api/node/git/diff?${params}`,
       );
       return data.diff;
@@ -105,12 +112,14 @@ export function useGitHistoryQuery(
   path: string,
   options?: { limit?: number; enabled?: boolean },
 ) {
+  const { scope, baseUrl } = useActiveNode();
   const limit = options?.limit ?? 30;
 
   return useQuery({
-    queryKey: gitKeys.history(path),
+    queryKey: gitKeys.history(scope, path),
     queryFn: async () => {
       const data = await apiFetch<HistoryResponse>(
+        baseUrl,
         `/api/node/git/history?path=${encodeURIComponent(path)}&limit=${limit}`,
       );
       return data.commits ?? [];
@@ -130,10 +139,12 @@ export function useCommitDetailQuery(
   path: string,
   hash: string | null,
 ) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: gitKeys.commitDetail(path, hash ?? ""),
+    queryKey: gitKeys.commitDetail(scope, path, hash ?? ""),
     queryFn: async () => {
       const data = await apiFetch<CommitDetailResponse>(
+        baseUrl,
         `/api/node/git/history/${hash}?path=${encodeURIComponent(path)}`,
       );
       return data.commit;
@@ -146,10 +157,12 @@ export function useCommitDetailQuery(
 // --- Compare Branches ---
 
 export function useCompareBranchesQuery(path: string) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: gitKeys.compareBranches(path),
+    queryKey: gitKeys.compareBranches(scope, path),
     queryFn: async () => {
       const data = await apiFetch<BranchList>(
+        baseUrl,
         `/api/node/git/compare/branches?path=${encodeURIComponent(path)}`,
       );
       return data;
@@ -162,14 +175,15 @@ export function useCompareBranchesQuery(path: string) {
 // --- Compare ---
 
 export function useCompareQuery(path: string, base: string | null) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: gitKeys.compare(path, base ?? ""),
+    queryKey: gitKeys.compare(scope, path, base ?? ""),
     queryFn: async () => {
       const params = new URLSearchParams({
         path,
         base: base!,
       });
-      return apiFetch<CompareResult>(`/api/node/git/compare?${params}`);
+      return apiFetch<CompareResult>(baseUrl, `/api/node/git/compare?${params}`);
     },
     staleTime: 30_000,
     enabled: path.trim().length > 0 && !!base,
@@ -179,10 +193,12 @@ export function useCompareQuery(path: string, base: string | null) {
 // --- Commit Full Diff ---
 
 export function useCommitFullDiffQuery(path: string, hash: string | null) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: gitKeys.commitFullDiff(path, hash ?? ""),
+    queryKey: gitKeys.commitFullDiff(scope, path, hash ?? ""),
     queryFn: async () => {
       return apiFetch<CommitFullDiffResult>(
+        baseUrl,
         `/api/node/git/history/${hash}/full-diff?path=${encodeURIComponent(path)}`,
       );
     },
@@ -201,10 +217,12 @@ export function useBranchesQuery(
   source: string,
   options?: { enabled?: boolean },
 ) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: gitKeys.branches(source),
+    queryKey: gitKeys.branches(scope, source),
     queryFn: async () => {
       const data = await apiFetch<BranchesResponse>(
+        baseUrl,
         `/api/node/git/branches?source=${encodeURIComponent(source)}`,
       );
       return data.branches ?? [];
@@ -221,10 +239,12 @@ export function useWorkingDiffQuery(
   path: string,
   options?: { enabled?: boolean },
 ) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: gitKeys.workingDiff(path),
+    queryKey: gitKeys.workingDiff(scope, path),
     queryFn: async () => {
       const data = await apiFetch<WorkingDiffResult>(
+        baseUrl,
         `/api/node/git/working-diff?path=${encodeURIComponent(path)}`,
       );
       return data;

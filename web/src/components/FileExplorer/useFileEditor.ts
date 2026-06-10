@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiFetch, apiTextFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import { filesKeys } from "@/data/files/keys";
 import type { FileMetaResponse } from "@/types";
 
@@ -77,6 +78,13 @@ function getLanguageFromPath(filePath: string): string {
 
 export function useFileEditor(): UseFileEditorReturn {
   const queryClient = useQueryClient();
+  // Active node scope/origin held in refs so the stable callbacks below read
+  // the current node without being recreated on every node change.
+  const { scope, baseUrl } = useActiveNode();
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const baseUrlRef = useRef(baseUrl);
+  baseUrlRef.current = baseUrl;
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -121,6 +129,7 @@ export function useFileEditor(): UseFileEditorReturn {
     try {
       // 1. Fetch metadata
       const meta = await apiFetch<FileMetaResponse>(
+        baseUrlRef.current,
         `/api/node/files/meta?path=${encodeURIComponent(path)}`,
       );
 
@@ -131,6 +140,7 @@ export function useFileEditor(): UseFileEditorReturn {
       if (!isBinary && !isLarge) {
         // 2. Fetch content as raw text
         const res = await apiTextFetch(
+          baseUrlRef.current,
           `/api/node/files/content?path=${encodeURIComponent(path)}`,
         );
         content = await res.text();
@@ -189,6 +199,7 @@ export function useFileEditor(): UseFileEditorReturn {
     setSaving(true);
     try {
       await apiTextFetch(
+        baseUrlRef.current,
         `/api/node/files/content?path=${encodeURIComponent(path)}`,
         {
           method: "PUT",
@@ -211,7 +222,7 @@ export function useFileEditor(): UseFileEditorReturn {
       // Invalidate parent directory listing so file sizes update
       const parentDir = path.substring(0, path.lastIndexOf("/"));
       if (parentDir) {
-        queryClient.invalidateQueries({ queryKey: filesKeys.list(parentDir) });
+        queryClient.invalidateQueries({ queryKey: filesKeys.list(scopeRef.current, parentDir) });
       }
 
       return true;

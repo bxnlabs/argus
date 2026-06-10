@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import { gitKeys } from "./keys";
 
 interface FetchVars {
@@ -34,6 +35,7 @@ interface FetchVars {
  */
 export function useGitFetchMutation() {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: async ({ path, base }: FetchVars) => {
@@ -42,6 +44,7 @@ export function useGitFetchMutation() {
         params.set("base", base);
       }
       return apiFetch<{ status: string }>(
+        baseUrl,
         `/api/node/git/fetch?${params.toString()}`,
         { method: "POST" },
       );
@@ -49,10 +52,10 @@ export function useGitFetchMutation() {
     onSettled: (_data, _error, vars) => {
       if (!vars) return;
       const { path } = vars;
-      queryClient.invalidateQueries({ queryKey: gitKeys.status(path) });
-      queryClient.invalidateQueries({ queryKey: gitKeys.compareBranches(path) });
-      queryClient.invalidateQueries({ queryKey: gitKeys.comparesByPath(path) });
-      queryClient.invalidateQueries({ queryKey: gitKeys.branchesAll() });
+      queryClient.invalidateQueries({ queryKey: gitKeys.status(scope, path) });
+      queryClient.invalidateQueries({ queryKey: gitKeys.compareBranches(scope, path) });
+      queryClient.invalidateQueries({ queryKey: gitKeys.comparesByPath(scope, path) });
+      queryClient.invalidateQueries({ queryKey: gitKeys.branchesAll(scope) });
     },
     onError: (error) => {
       toast.error(
