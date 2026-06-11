@@ -36,6 +36,13 @@ export default defineConfig(() => {
           target: wsTarget,
           ws: true,
         },
+        // Explicit registry entry. Without it, "/api/nodes" only reaches the
+        // backend by prefix-matching the "/api/node" rule below — fragile if
+        // that rule ever becomes an exact/regex match. Listed first so it wins.
+        "/api/nodes": {
+          target: apiTarget,
+          changeOrigin: true,
+        },
         "/api/node": {
           target: apiTarget,
           changeOrigin: true,

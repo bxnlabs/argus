@@ -10,7 +10,7 @@ type githubHandler struct {
 	repoIndexer *ghservice.RepoIndexer
 }
 
-// GET /api/github/repos?q=...
+// GET /github/repos?q=...
 func (h *githubHandler) listRepos(w http.ResponseWriter, r *http.Request) {
 	if h.repoIndexer == nil {
 		respondJSON(w, http.StatusOK, map[string]any{"repos": []string{}})

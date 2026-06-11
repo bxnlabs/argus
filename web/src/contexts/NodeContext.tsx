@@ -1,7 +1,6 @@
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  createContext, useCallback, useContext, useMemo, useState,
 } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useNodes } from "@/hooks/useNodes";
 import type { NodeWithStatus } from "@/types";
 
@@ -18,7 +17,6 @@ interface NodeContextValue {
 const NodeContext = createContext<NodeContextValue | null>(null);
 
 export function NodeProvider({ children }: { children: React.ReactNode }) {
-  const queryClient = useQueryClient();
   const { nodes, isLoaded } = useNodes();
   const [activeNodeId, setActiveNodeId] = useState<string | null>(
     () => localStorage.getItem(STORAGE_KEY),
@@ -34,26 +32,10 @@ export function NodeProvider({ children }: { children: React.ReactNode }) {
     );
   }, [nodes, activeNodeId]);
 
-  // The active node's cache scope ("<id>:<url>"), identical to useActiveNode and
-  // the TabProvider remount key. Node-scoped query keys embed this, so each
-  // node's data is a separate cache entry and switching is correct *without* any
-  // eviction — the new node's queries simply address different keys. We still GC
-  // the previous node's entries here purely to bound memory and preserve the
-  // fresh-load-on-switch UX; correctness does not depend on it. Drop to instant-
-  // switch-with-cache later by removing this effect.
-  const scope = `${activeNode?.id ?? "none"}:${activeNode?.url ?? ""}`;
-  useEffect(() => {
-    queryClient.removeQueries({
-      predicate: (q) => {
-        const tag = q.queryKey[0];
-        // The rail's registry + per-node summaries are global; keep them.
-        if (tag === "nodes" || tag === "node-summary") return false;
-        // Any other-node scoped entry (different scope at index 1) is dropped.
-        return q.queryKey[1] !== scope;
-      },
-    });
-  }, [scope, queryClient]);
-
+  // No cache eviction on switch: node-scoped query keys embed the active node's
+  // scope (see useActiveNode), so each node's data is a separate cache entry and
+  // switching simply addresses different keys. Switching back shows that node's
+  // cached data instantly, then React Query refetches in the background.
   const setActiveNode = useCallback(
     (id: string) => {
       const target = nodes.find((n) => n.id === id);

@@ -61,10 +61,10 @@ func (p *prodWatcherDB) GetSession(id string) (unreadSince, lastViewedAt *string
 
 // Setup initializes the node: opens the database, verifies migrations are
 // current, and returns an HTTP handler with all node API routes. It also returns
-// the cross-origin allow-predicate so the caller can guard sibling routes (e.g.
-// the registry's /api/nodes endpoints) with the exact same policy as the node
+// a CORS wrapper so the caller can guard sibling routes (e.g. the registry's
+// /api/nodes endpoints) with the exact same Host + Origin policy as the node
 // API, instead of rebuilding and risking drift.
-func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(string) bool, func(), error) {
+func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(http.Handler) http.Handler, func(), error) {
 	// Resolve Argus's state root once (ARGUS_HOME, else ~/.argus), secure it to
 	// 0700, and share it with every component below. The database lives directly
 	// in the root, so it must be private before db.Open. config.Load already
@@ -145,18 +145,25 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(strin
 			cfg.Notifications.Channel, cfg.Notifications.NotifyAfterUnreadFor)
 	}
 
-	// Derive the MagicDNS suffix from baseURL ("http://<fqdn>" when Tailscale is
-	// on, "" otherwise) so CORS can recognize tailnet peers by origin shape.
-	// e.g. "my-node.tail1234.ts.net" → ".tail1234.ts.net". Empty when Tailscale
-	// is off, which keeps CORS loopback-only.
-	var tailnetSuffix string
+	// Derive the node's MagicDNS FQDN and suffix from baseURL ("http://<fqdn>"
+	// when Tailscale is on, "" otherwise). The suffix lets the Origin policy
+	// recognize tailnet peers by origin shape (e.g. "my-node.tail1234.ts.net" →
+	// ".tail1234.ts.net"); the FQDN is one of this node's own Host names for the
+	// rebinding gate. Both empty when Tailscale is off, which keeps the node
+	// loopback-only (plus its concrete bind address).
+	var tailnetSuffix, fqdn string
 	if u, err := url.Parse(baseURL); err == nil {
-		if host := u.Hostname(); strings.Contains(host, ".") {
-			tailnetSuffix = host[strings.IndexByte(host, '.'):]
+		if host := u.Hostname(); host != "" {
+			fqdn = host
+			if strings.Contains(host, ".") {
+				tailnetSuffix = host[strings.IndexByte(host, '.'):]
+			}
 		}
 	}
+	tailscaleOn := baseURL != ""
 
 	allowOrigin := api.NewCORSPolicy(tailnetSuffix)
+	allowHost := api.NewHostPolicy(cfg.BindAddress, fqdn, tailscaleOn, cfg.AllowedHosts)
 	handler := api.NewRouter(api.Deps{
 		SessionManager: mgr,
 		WatcherManager: watcherMgr,
@@ -164,7 +171,12 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(strin
 		RepoIndexer:    repoIndexer,
 		StateDir:       stateDir,
 		AllowOrigin:    allowOrigin,
+		AllowHost:      allowHost,
 	})
+
+	// cors wraps sibling routes (the registry's /api/nodes endpoints) with the
+	// same Host + Origin guard the node API uses.
+	cors := func(next http.Handler) http.Handler { return api.CORS(allowHost, allowOrigin, next) }
 
 	cleanup := func() {
 		if notifService != nil {
@@ -174,5 +186,5 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(strin
 		repoIndexer.Close()
 		database.Close()
 	}
-	return handler, database, allowOrigin, cleanup, nil
+	return handler, database, cors, cleanup, nil
 }

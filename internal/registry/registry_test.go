@@ -9,6 +9,11 @@ type fakeDB struct{ nodes []ManualNode }
 
 func (f *fakeDB) ListManualNodes(context.Context) ([]ManualNode, error) { return f.nodes, nil }
 
+// Write stubs so fakeDB satisfies DB; the List tests below don't mutate.
+func (f *fakeDB) AddManualNode(context.Context, string, string, string) error    { return nil }
+func (f *fakeDB) UpdateManualNode(context.Context, string, string, string) error { return nil }
+func (f *fakeDB) DeleteManualNode(context.Context, string) error                 { return nil }
+
 func TestNormalize(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -115,7 +120,7 @@ func TestNormalize(t *testing.T) {
 func TestList_NilDiscoverOmitsDiscoveredNodes(t *testing.T) {
 	db := &fakeDB{nodes: []ManualNode{{ID: "m1", Name: "manual-a", URL: "http://a:80"}}}
 	self := Node{ID: "self", Name: "this", URL: "", Source: SourceLocal, Self: true}
-	svc := New(db, self, nil) // nil discover
+	svc := New(db, self, "", nil) // no tailnet identity, nil discover
 
 	got, err := svc.List(context.Background())
 	if err != nil {
@@ -135,15 +140,16 @@ func TestList_NilDiscoverOmitsDiscoveredNodes(t *testing.T) {
 
 func TestList_MergesSourcesWithPrecedence(t *testing.T) {
 	db := &fakeDB{nodes: []ManualNode{{ID: "m1", Name: "manual-gpu", URL: "http://gpu-box:80"}}}
-	self := Node{ID: "self", Name: "this", URL: "", Source: SourceLocal, Self: true, dedupKey: normalize("http://laptop:80")}
+	self := Node{ID: "self", Name: "this", URL: "", Source: SourceLocal, Self: true}
 	discover := func(context.Context) ([]Node, error) {
 		return []Node{
-			{ID: "d1", Name: "gpu-box", URL: "http://gpu-box:80", Source: SourceDiscovered, dedupKey: normalize("http://gpu-box:80")},
-			{ID: "d2", Name: "laptop", URL: "http://laptop:80", Source: SourceDiscovered, dedupKey: normalize("http://laptop:80")},
-			{ID: "d3", Name: "ci", URL: "http://ci:80", Source: SourceDiscovered, dedupKey: normalize("http://ci:80")},
+			{ID: "d1", Name: "gpu-box", URL: "http://gpu-box:80", Source: SourceDiscovered},
+			{ID: "d2", Name: "laptop", URL: "http://laptop:80", Source: SourceDiscovered},
+			{ID: "d3", Name: "ci", URL: "http://ci:80", Source: SourceDiscovered},
 		}, nil
 	}
-	svc := New(db, self, discover)
+	// self's canonical URL is the laptop origin, so discovered "laptop" dedups out.
+	svc := New(db, self, "http://laptop:80", discover)
 
 	got, err := svc.List(context.Background())
 	if err != nil {
@@ -172,7 +178,7 @@ func TestList_DiscoveryErrorDegrades(t *testing.T) {
 	db := &fakeDB{nodes: []ManualNode{{ID: "m1", Name: "a", URL: "http://a:80"}}}
 	self := Node{ID: "self", Source: SourceLocal, Self: true}
 	discover := func(context.Context) ([]Node, error) { return nil, context.DeadlineExceeded }
-	svc := New(db, self, discover)
+	svc := New(db, self, "", discover)
 
 	got, err := svc.List(context.Background())
 	if err != nil {

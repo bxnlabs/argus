@@ -54,13 +54,15 @@ export async function apiFetch<T>(
   url: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await baseFetch(baseUrl, url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
+  // Only declare a JSON body when there is one. A Content-Type on a bodyless
+  // cross-origin GET makes it a non-"simple" request, forcing a CORS preflight
+  // on every read to a remote node (e.g. the status poll) — so set it only for
+  // requests that actually carry a body.
+  const headers = new Headers(options?.headers);
+  if (options?.body != null && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const res = await baseFetch(baseUrl, url, { ...options, headers });
   return res.json();
 }
 

@@ -13,8 +13,14 @@ import (
 
 // Config holds all Argus configuration.
 type Config struct {
-	Port          int                 `mapstructure:"port"`
-	BindAddress   string              `mapstructure:"bind_address"`
+	Port        int    `mapstructure:"port"`
+	BindAddress string `mapstructure:"bind_address"`
+	// AllowedHosts are extra Host header values accepted by the node API's
+	// anti-DNS-rebinding gate, beyond the ones derived automatically (loopback,
+	// the bind address, and the Tailscale identity). Only needed when binding to
+	// 0.0.0.0 and reaching the node by a name that can't be derived (e.g. an
+	// /etc/hosts alias or internal DNS name). Empty by default.
+	AllowedHosts  []string            `mapstructure:"allowed_hosts"`
 	Git           GitConfig           `mapstructure:"git"`
 	Tailscale     TailscaleConfig     `mapstructure:"tailscale"`
 	Notifications NotificationsConfig `mapstructure:"notifications"`

@@ -1,16 +1,13 @@
-import { useState } from "react";
 import { Check, ChevronLeft, Plus, Ellipsis, Pencil, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNodeContext } from "@/contexts/NodeContext";
-import { ManageNodesDialog } from "@/components/ManageNodesDialog";
-import { useDeleteNode } from "@/data/nodes/queries";
 import { NodeAvatar } from "@/components/NodeAvatar";
 import { UnreadBadge } from "./UnreadBadge";
+import { useNodeManagement } from "./useNodeManagement";
 import { nodeStatus, sourceLabel } from "@/components/NodeStatus/status";
-import type { NodeWithStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,12 +29,7 @@ export function MobileNodePanel({
   onClose: () => void;
 }) {
   const { nodes, activeNodeId, setActiveNode } = useNodeContext();
-  // Shared Configure Node dialog: add (node: null) or edit a Custom node.
-  const [dialog, setDialog] = useState<{ open: boolean; node: NodeWithStatus | null }>({
-    open: false,
-    node: null,
-  });
-  const deleteNode = useDeleteNode();
+  const { openAdd, openEdit, deleteNode, dialog } = useNodeManagement();
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
@@ -125,7 +117,7 @@ export function MobileNodePanel({
                       <DropdownMenuItem
                         onClick={(e) => {
                           e.stopPropagation();
-                          setDialog({ open: true, node: n });
+                          openEdit(n);
                         }}
                       >
                         <Pencil className="mr-2 h-3.5 w-3.5" />
@@ -135,7 +127,7 @@ export function MobileNodePanel({
                         variant="destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteNode.mutate(n.id);
+                          deleteNode(n);
                         }}
                       >
                         <Trash2 className="mr-2 h-3.5 w-3.5" />
@@ -153,7 +145,7 @@ export function MobileNodePanel({
         <div className="border-border mt-auto border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
-            onClick={() => setDialog({ open: true, node: null })}
+            onClick={openAdd}
             className="hover:bg-accent/50 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 transition-colors"
           >
             <Plus className="text-muted-foreground h-[18px] w-[18px] flex-shrink-0" />
@@ -161,11 +153,7 @@ export function MobileNodePanel({
           </button>
         </div>
 
-        <ManageNodesDialog
-          open={dialog.open}
-          node={dialog.node}
-          onClose={() => setDialog((d) => ({ ...d, open: false }))}
-        />
+        {dialog}
       </SheetContent>
     </Sheet>
   );

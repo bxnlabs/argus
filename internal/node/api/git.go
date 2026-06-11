@@ -81,7 +81,7 @@ type gitHandler struct {
 	stateDir string
 }
 
-// GET /api/git/branches?source=...
+// GET /git/branches?source=...
 func (h *gitHandler) branches(w http.ResponseWriter, r *http.Request) {
 	src := r.URL.Query().Get("source")
 	if src == "" {
@@ -121,7 +121,7 @@ func (h *gitHandler) branches(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"branches": branches})
 }
 
-// GET /api/git/status?path=...
+// GET /git/status?path=...
 func (h *gitHandler) status(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -142,7 +142,7 @@ func (h *gitHandler) status(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"status": status})
 }
 
-// GET /api/git/diff?path=...&file=...&staged=...&untracked=...
+// GET /git/diff?path=...&file=...&staged=...&untracked=...
 func (h *gitHandler) diff(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	file := r.URL.Query().Get("file")
@@ -172,7 +172,7 @@ func (h *gitHandler) diff(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"diff": diff})
 }
 
-// GET /api/git/working-diff?path=...
+// GET /git/working-diff?path=...
 func (h *gitHandler) workingDiff(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -193,7 +193,7 @@ func (h *gitHandler) workingDiff(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// GET /api/git/history?path=...&limit=...
+// GET /git/history?path=...&limit=...
 func (h *gitHandler) history(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -221,7 +221,7 @@ func (h *gitHandler) history(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"commits": commits})
 }
 
-// GET /api/git/history/{hash}?path=...
+// GET /git/history/{hash}?path=...
 func (h *gitHandler) commitDetail(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	path := r.URL.Query().Get("path")
@@ -243,7 +243,7 @@ func (h *gitHandler) commitDetail(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"commit": commit})
 }
 
-// GET /api/git/history/{hash}/full-diff?path=...
+// GET /git/history/{hash}/full-diff?path=...
 func (h *gitHandler) commitFullDiff(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	path := r.URL.Query().Get("path")
@@ -265,7 +265,7 @@ func (h *gitHandler) commitFullDiff(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// GET /api/git/compare?path=...&base=...
+// GET /git/compare?path=...&base=...
 func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	base := r.URL.Query().Get("base")
@@ -286,7 +286,7 @@ func (h *gitHandler) compare(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// POST /api/git/fetch?path=...&base=...
+// POST /git/fetch?path=...&base=...
 //
 // `base` is optional — when set (typically by the Compare tab), Fetch will
 // also refresh the remote that the base branch's upstream lives on, so the
@@ -313,7 +313,7 @@ func (h *gitHandler) fetch(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// GET /api/git/compare/branches?path=...
+// GET /git/compare/branches?path=...
 func (h *gitHandler) compareBranches(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -334,7 +334,7 @@ func (h *gitHandler) compareBranches(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// GET /api/git/file-content?path=...&file=...
+// GET /git/file-content?path=...&file=...
 func (h *gitHandler) fileContent(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	file := r.URL.Query().Get("file")
@@ -380,7 +380,7 @@ func lexicalValidateFilePath(file string) error {
 	return nil
 }
 
-// GET /api/git/file-lines?path=...&file=...&start=...&end=...&ref=...
+// GET /git/file-lines?path=...&file=...&start=...&end=...&ref=...
 func (h *gitHandler) fileLines(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	file := r.URL.Query().Get("file")
@@ -432,7 +432,7 @@ func (h *gitHandler) fileLines(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// GET /api/git/check?path=...
+// GET /git/check?path=...
 func (h *gitHandler) check(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {

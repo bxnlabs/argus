@@ -22,6 +22,11 @@ type Deps struct {
 	// If nil, only loopback origins are allowed (the safe default — e.g. an
 	// instance with Tailscale disabled has no remote peers anyway).
 	AllowOrigin func(string) bool
+	// AllowHost reports whether a request's Host hostname is one of this node's
+	// own names (the anti-DNS-rebinding gate). If nil, every Host is allowed —
+	// a test/embedding convenience; production always supplies a real policy via
+	// node.Setup (mirrors registry.NewHandlers' nil-cors handling).
+	AllowHost func(string) bool
 }
 
 // NewRouter creates the HTTP router with all node API routes.
@@ -118,7 +123,11 @@ func NewRouter(deps Deps) http.Handler {
 	if allowOrigin == nil {
 		allowOrigin = NewCORSPolicy("") // loopback-only
 	}
-	return CORS(allowOrigin, mux)
+	allowHost := deps.AllowHost
+	if allowHost == nil {
+		allowHost = func(string) bool { return true } // test/embedding convenience
+	}
+	return CORS(allowHost, allowOrigin, mux)
 }
 
 func handleInfo(w http.ResponseWriter, r *http.Request) {

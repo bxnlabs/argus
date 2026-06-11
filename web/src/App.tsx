@@ -18,8 +18,10 @@ import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
 import { ShortcutHintOverlay } from "@/components/ShortcutHintOverlay";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
+import { NodeOffline } from "@/components/NodeOffline";
 import { useGitCheckQuery } from "@/data/git";
 import { isMac } from "@/lib/device";
+import { nodeScope } from "@/lib/nodeScope";
 import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
 import type { GitTab, GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
@@ -35,6 +37,7 @@ function HomeContent({
   setRailOpen: (open: boolean) => void;
 }) {
   const { baseUrl } = useActiveNode();
+  const { activeNode } = useNodeContext();
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
@@ -404,20 +407,35 @@ function HomeContent({
 
   // Render the main workspace
   const renderWorkspace = useCallback(
-    () => (
-      <Workspace
-        sessions={sessions}
-        activePanel={activePanel}
-        setActivePanel={setActivePanel}
-        activeWorkingDirectory={activeWorkingDirectory}
-        isGitRepo={isGitRepo}
-        requestedGitTab={requestedGitTab}
-        onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
-        onSelectSession={handleSelectSession}
-        onNewSession={() => setShowNewSessionDialog(true)}
-      />
-    ),
-    [sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo, requestedGitTab]
+    () => {
+      // An unreachable active node would otherwise render as an empty workspace,
+      // indistinguishable from a node with no sessions. Surface it explicitly —
+      // but only once its poll has SETTLED offline: `pending` is the first
+      // "Connecting…" poll (true on cold start, including the local node), so
+      // gating on !pending avoids flashing the offline screen before we know.
+      if (activeNode && !activeNode.online && !activeNode.pending) {
+        return (
+          <NodeOffline
+            name={activeNode.name}
+            onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
+          />
+        );
+      }
+      return (
+        <Workspace
+          sessions={sessions}
+          activePanel={activePanel}
+          setActivePanel={setActivePanel}
+          activeWorkingDirectory={activeWorkingDirectory}
+          isGitRepo={isGitRepo}
+          requestedGitTab={requestedGitTab}
+          onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
+          onSelectSession={handleSelectSession}
+          onNewSession={() => setShowNewSessionDialog(true)}
+        />
+      );
+    },
+    [activeNode, sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo, requestedGitTab]
   );
 
   const viewProps = {
@@ -513,10 +531,11 @@ function AppInner() {
   // and the selection falls back to the local node.
   if (!isLoaded) return <div className="bg-background h-app" />;
   // Scope tabs by id+origin so the workspace remounts AND persists under the
-  // same key — editing a manual node's URL (same id) yields fresh tabs.
-  const nodeScope = `${activeNodeId ?? "none"}:${activeNode?.url ?? ""}`;
+  // same key — editing a manual node's URL (same id) yields fresh tabs. Same
+  // token as useActiveNode's cache scope (both via nodeScope).
+  const scope = nodeScope(activeNodeId, activeNode?.url ?? "");
   return (
-    <TabProvider key={nodeScope} nodeScope={nodeScope}>
+    <TabProvider key={scope} nodeScope={scope}>
       <HomeContent railOpen={railOpen} setRailOpen={setRailOpen} />
       <Toaster
         theme="dark"

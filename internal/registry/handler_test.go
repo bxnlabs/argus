@@ -67,8 +67,8 @@ func newCounter() func() string {
 
 func newTestHandlers() (*Handlers, *memDB) {
 	mdb := &memDB{}
-	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
-	return NewHandlers(svc, mdb, newCounter(), nil), mdb
+	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, "", nil)
+	return NewHandlers(svc, newCounter(), nil), mdb
 }
 
 // TestRegisterAppliesCORS asserts the registry routes are wrapped in the
@@ -76,10 +76,11 @@ func newTestHandlers() (*Handlers, *memDB) {
 // before reaching the handler, so it cannot mutate the registry (CSRF defense).
 func TestRegisterAppliesCORS(t *testing.T) {
 	mdb := &memDB{}
-	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
+	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, "", nil)
 	// Empty tailnet suffix → loopback-only policy, so http://evil.com is denied.
-	cors := func(next http.Handler) http.Handler { return api.CORS(api.NewCORSPolicy(""), next) }
-	h := NewHandlers(svc, mdb, newCounter(), cors)
+	allowHost := func(string) bool { return true } // isolate origin behavior from the Host gate
+	cors := func(next http.Handler) http.Handler { return api.CORS(allowHost, api.NewCORSPolicy(""), next) }
+	h := NewHandlers(svc, newCounter(), cors)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -102,9 +103,10 @@ func TestRegisterAppliesCORS(t *testing.T) {
 // 403, an allowed loopback origin gets 204 with the reflected ACAO header.
 func TestRegisterHandlesPreflight(t *testing.T) {
 	mdb := &memDB{}
-	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, nil)
-	cors := func(next http.Handler) http.Handler { return api.CORS(api.NewCORSPolicy(""), next) }
-	h := NewHandlers(svc, mdb, newCounter(), cors)
+	svc := New(mdb, Node{ID: "self", Name: "this", Source: SourceLocal, Self: true}, "", nil)
+	allowHost := func(string) bool { return true } // isolate origin behavior from the Host gate
+	cors := func(next http.Handler) http.Handler { return api.CORS(allowHost, api.NewCORSPolicy(""), next) }
+	h := NewHandlers(svc, newCounter(), cors)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -281,9 +283,9 @@ func TestAddRejectsOutOfRangePort(t *testing.T) {
 func TestAddRejectsSelfURL(t *testing.T) {
 	mdb := &memDB{}
 	self := Node{ID: "local", Name: "this", Source: SourceLocal, Self: true}
-	self.SetDedupKey("http://self-host:80") // normalizes to http://self-host
-	svc := New(mdb, self, nil)
-	h := NewHandlers(svc, mdb, newCounter(), nil)
+	// self-host:80 is this node's canonical origin (normalizes to http://self-host).
+	svc := New(mdb, self, "http://self-host:80", nil)
+	h := NewHandlers(svc, newCounter(), nil)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -303,13 +305,12 @@ func TestAddRejectsSelfURL(t *testing.T) {
 }
 
 // TestUpdateRejectsSelfURL asserts the update path also rejects re-pointing a
-// node at this node's own origin with 409 (the same IsSelfOrigin guard as add).
+// node at this node's own origin with 409 (the same self-origin guard as add).
 func TestUpdateRejectsSelfURL(t *testing.T) {
 	mdb := &memDB{}
 	self := Node{ID: "local", Name: "this", Source: SourceLocal, Self: true}
-	self.SetDedupKey("http://self-host:80")
-	svc := New(mdb, self, nil)
-	h := NewHandlers(svc, mdb, newCounter(), nil)
+	svc := New(mdb, self, "http://self-host:80", nil)
+	h := NewHandlers(svc, newCounter(), nil)
 	mux := http.NewServeMux()
 	h.Register(mux)
 

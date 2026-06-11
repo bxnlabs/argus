@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useNodeContext } from "@/contexts/NodeContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -7,10 +6,9 @@ import {
 } from "@/components/ui/context-menu";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import type { NodeWithStatus } from "@/types";
-import { ManageNodesDialog } from "@/components/ManageNodesDialog";
-import { useDeleteNode } from "@/data/nodes/queries";
 import { nodeAccentColor, nodeInitials } from "@/components/NodeAvatar";
 import { UnreadBadge } from "./UnreadBadge";
+import { useNodeManagement } from "./useNodeManagement";
 
 function NodeTile({
   node, active, onSelect, tooltipSide, onEdit, onDelete,
@@ -120,14 +118,7 @@ function NodeTile({
  */
 export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
   const { nodes, activeNodeId, setActiveNode } = useNodeContext();
-  // The Configure Node dialog is shared between adding (node: null) and editing
-  // (node: the Custom node). Closing only flips `open` so the prefilled content
-  // doesn't flash blank during the close animation.
-  const [dialog, setDialog] = useState<{ open: boolean; node: NodeWithStatus | null }>({
-    open: false,
-    node: null,
-  });
-  const deleteNode = useDeleteNode();
+  const { openAdd, openEdit, deleteNode, dialog } = useNodeManagement();
 
   const showTiles = nodes.length >= 2;
   return (
@@ -148,24 +139,20 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
               active={n.id === activeNodeId}
               onSelect={() => setActiveNode(n.id)}
               tooltipSide={side === "right" ? "left" : "right"}
-              onEdit={(node) => setDialog({ open: true, node })}
-              onDelete={(node) => deleteNode.mutate(node.id)}
+              onEdit={openEdit}
+              onDelete={deleteNode}
             />
           ))}
         <button
           type="button"
           aria-label="Add node"
-          onClick={() => setDialog({ open: true, node: null })}
+          onClick={openAdd}
           className="text-muted-foreground border-muted-foreground hover:border-white hover:text-white mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
         >
           <Plus className="h-4 w-4" />
         </button>
       </div>
-      <ManageNodesDialog
-        open={dialog.open}
-        node={dialog.node}
-        onClose={() => setDialog((d) => ({ ...d, open: false }))}
-      />
+      {dialog}
     </>
   );
 }

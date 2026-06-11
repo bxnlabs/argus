@@ -48,14 +48,14 @@ describe("NodeProvider", () => {
     expect(localStorage.getItem("argus.activeNodeId")).toBe("m1");
   });
 
-  it("drops the previous node's scoped caches when a persisted remote resolves, keeping the rail's", async () => {
+  it("keeps each node's scoped caches across a switch (instant-switch-with-cache)", async () => {
     // A remote node was active in a prior session.
     localStorage.setItem("argus.activeNodeId", "m1");
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    // Seed a node-scoped cache under the local node's scope ("local:") plus a
-    // rail cache that must survive the implicit switch to the persisted remote.
-    qc.setQueryData(["sessions", "local:", "list"], ["stale-local-session"]);
-    qc.setQueryData(["node-summary", "keep"], { attention: 9, busy: 0, total: 9 });
+    // Seed a cache under the local node's scope ("local:"). With no eviction on
+    // switch, it must survive the implicit switch to the persisted remote so
+    // switching back later is instant.
+    qc.setQueryData(["sessions", "local:", "list"], ["cached-local-session"]);
 
     render(
       <QueryClientProvider client={qc}>
@@ -66,9 +66,8 @@ describe("NodeProvider", () => {
     // Once the registry loads, "m1" resolves as active — without any click.
     await waitFor(() => expect(screen.getByTestId("active").textContent).toBe("m1"));
 
-    // The local node's scoped sessions are dropped (scope at index 1 no longer
-    // matches the active node); the rail's registry/summary caches are kept.
-    expect(qc.getQueryData(["sessions", "local:", "list"])).toBeUndefined();
-    expect(qc.getQueryData(["node-summary", "keep"])).toEqual({ attention: 9, busy: 0, total: 9 });
+    // The local node's scoped data is still cached (node-scoped keys keep each
+    // node's entries separate; switching addresses different keys, not eviction).
+    expect(qc.getQueryData(["sessions", "local:", "list"])).toEqual(["cached-local-session"]);
   });
 });

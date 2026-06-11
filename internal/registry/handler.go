@@ -1,32 +1,21 @@
 package registry
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
 
 	"github.com/bxnlabs/argus/internal/node/db"
 )
 
 const maxBodySize = 1 << 20 // 1 MB
 
-// WriteDB is the persistence dependency for mutations (satisfied by *db.DB).
-type WriteDB interface {
-	DB
-	AddManualNode(ctx context.Context, id, name, url string) error
-	UpdateManualNode(ctx context.Context, id, name, url string) error
-	DeleteManualNode(ctx context.Context, id string) error
-}
-
-// Handlers serves the /api/nodes registry endpoints.
+// Handlers serves the /api/nodes registry endpoints. They are thin HTTP
+// adapters: decode the request, delegate to Service for all validation and
+// persistence, and map the returned error to a status code.
 type Handlers struct {
 	svc   *Service
-	db    WriteDB
 	newID func() string
 	cors  func(http.Handler) http.Handler
 }
@@ -37,11 +26,11 @@ type Handlers struct {
 // endpoints have no app auth and decode JSON regardless of Content-Type, so an
 // unguarded route would let any page CSRF a node add/rename/delete. A nil cors
 // means no wrapping (test convenience).
-func NewHandlers(svc *Service, db WriteDB, newID func() string, cors func(http.Handler) http.Handler) *Handlers {
+func NewHandlers(svc *Service, newID func() string, cors func(http.Handler) http.Handler) *Handlers {
 	if cors == nil {
 		cors = func(next http.Handler) http.Handler { return next }
 	}
-	return &Handlers{svc: svc, db: db, newID: newID, cors: cors}
+	return &Handlers{svc: svc, newID: newID, cors: cors}
 }
 
 // Register wires the routes onto the given mux. Each route is wrapped in the
@@ -79,6 +68,24 @@ func writeInternalError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 }
 
+// writeServiceError maps a Service error to its HTTP status + client message.
+// Anything unrecognized is treated as an internal error.
+func writeServiceError(w http.ResponseWriter, err error) {
+	var ve *ValidationError
+	switch {
+	case errors.As(err, &ve):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": ve.Msg})
+	case errors.Is(err, ErrSelfOrigin):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": ErrSelfOrigin.Error()})
+	case errors.Is(err, db.ErrDuplicateURL):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "a node with that url already exists"})
+	case errors.Is(err, db.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
+	default:
+		writeInternalError(w, err)
+	}
+}
+
 func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 	nodes, err := h.svc.List(r.Context())
 	if err != nil {
@@ -98,77 +105,15 @@ func (h *Handlers) add(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	body.Name = strings.TrimSpace(body.Name)
-	if body.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
-		return
-	}
-	// Persist the normalized form so the DB UNIQUE constraint and the dedup key
-	// agree: case/port variants (e.g. http://GPU:80 vs http://gpu) map to the
-	// same stored value and correctly trigger a 409 on re-add.
-	normalizedURL, errMsg := validNodeOrigin(body.URL)
-	if errMsg != "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsg})
-		return
-	}
-	if h.svc.IsSelfOrigin(normalizedURL) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "that url is this node"})
-		return
-	}
 	id := h.newID()
-	if err := h.db.AddManualNode(r.Context(), id, body.Name, normalizedURL); err != nil {
-		if errors.Is(err, db.ErrDuplicateURL) {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "a node with that url already exists"})
-			return
-		}
-		writeInternalError(w, err)
+	if err := h.svc.AddManualNode(r.Context(), id, body.Name, body.URL); err != nil {
+		writeServiceError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
 
-// validNodeOrigin trims, validates, and normalizes a node origin URL. On success
-// it returns the normalized URL and an empty message; on failure it returns ""
-// and a client-facing error message. The URL is used as a node origin/base, so a
-// path, query, fragment, or userinfo would corrupt later requests (e.g.
-// http://gpu/api/api/node/summary); only a bare scheme://host[:port] (optionally
-// a lone "/") is accepted.
-//
-// Origin *reachability* is intentionally not validated here. The supported
-// trust boundary is loopback/tailnet (see the multi-node design spec), but that
-// is enforced at request time by the target node's own CORS policy, and a node
-// the browser can't reach simply reads as offline in the rail. Allow-listing
-// origins at add time would add no real safety (the runtime CORS is the gate)
-// while falsely rejecting legitimate tailnet short-names (e.g. "http://gpu",
-// which resolves via the tailnet search domain but has no ".ts.net" suffix to
-// match against).
-func validNodeOrigin(raw string) (normalized, errMsg string) {
-	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", "url must be an absolute http(s) URL"
-	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return "", "url must be a node origin, e.g. http://host:port"
-	}
-	// url.Parse already rejects a non-numeric or negative port ("http://h:abc",
-	// "http://h:-1"), but it accepts out-of-range numbers ("http://h:0",
-	// ":99999", ":65536"); reject those so a node can't be saved with a port it
-	// could never listen on.
-	if p := u.Port(); p != "" {
-		n, perr := strconv.Atoi(p)
-		if perr != nil || n < 1 || n > 65535 {
-			return "", "url port must be between 1 and 65535"
-		}
-	}
-	return normalize(raw), ""
-}
-
-// update edits a manual node's name and origin. Both name and url are required:
-// the only client (the Configure Node dialog) always sends both, so there is a
-// single update path rather than a separate name-only rename.
 func (h *Handlers) update(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
 	var body struct {
 		Name string `json:"name"`
 		URL  string `json:"url"`
@@ -178,47 +123,16 @@ func (h *Handlers) update(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	body.Name = strings.TrimSpace(body.Name)
-	if body.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
-		return
-	}
-	if strings.TrimSpace(body.URL) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url is required"})
-		return
-	}
-	normalizedURL, errMsg := validNodeOrigin(body.URL)
-	if errMsg != "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errMsg})
-		return
-	}
-	if h.svc.IsSelfOrigin(normalizedURL) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "that url is this node"})
-		return
-	}
-	err := h.db.UpdateManualNode(r.Context(), id, body.Name, normalizedURL)
-	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
-			return
-		}
-		if errors.Is(err, db.ErrDuplicateURL) {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "a node with that url already exists"})
-			return
-		}
-		writeInternalError(w, err)
+	if err := h.svc.UpdateManualNode(r.Context(), r.PathValue("id"), body.Name, body.URL); err != nil {
+		writeServiceError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
-	if err := h.db.DeleteManualNode(r.Context(), r.PathValue("id")); err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
-			return
-		}
-		writeInternalError(w, err)
+	if err := h.svc.DeleteManualNode(r.Context(), r.PathValue("id")); err != nil {
+		writeServiceError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

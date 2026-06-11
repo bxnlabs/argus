@@ -60,6 +60,7 @@ func TestLoadFromFile(t *testing.T) {
 	content := []byte(`
 port = 4000
 bind_address = "0.0.0.0"
+allowed_hosts = ["devbox.corp", "argus.internal"]
 
 [git]
 branch_prefix = "jeev"
@@ -81,6 +82,11 @@ branch_prefix = "jeev"
 	}
 	if cfg.Git.BranchPrefix != "jeev" {
 		t.Errorf("Git.BranchPrefix = %q, want jeev", cfg.Git.BranchPrefix)
+	}
+	// allowed_hosts is the anti-rebinding escape hatch; assert it unmarshals so a
+	// 0.0.0.0 bind reachable by a custom name can't be silently locked out.
+	if got := cfg.AllowedHosts; len(got) != 2 || got[0] != "devbox.corp" || got[1] != "argus.internal" {
+		t.Errorf("AllowedHosts = %v, want [devbox.corp argus.internal]", got)
 	}
 }
 

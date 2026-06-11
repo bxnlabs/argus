@@ -20,7 +20,6 @@ import (
 	"github.com/bxnlabs/argus/cmd/argus/cli"
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/node"
-	"github.com/bxnlabs/argus/internal/node/api"
 	"github.com/bxnlabs/argus/internal/registry"
 	"github.com/bxnlabs/argus/internal/shared"
 	ts "github.com/bxnlabs/argus/internal/tailscale"
@@ -76,10 +75,14 @@ func hasTag(tags []string, want string) bool {
 	return false
 }
 
-// newNodeID returns a random hex id for a manual node.
+// newNodeID returns a random hex id for a manual node. A crypto/rand failure is
+// unrecoverable (and would otherwise yield an all-zero, colliding id), so panic
+// rather than return a bad id — matching the stdlib/uuid convention.
 func newNodeID() string {
 	var b [16]byte
-	_, _ = rand.Read(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(fmt.Sprintf("newNodeID: crypto/rand failed: %v", err))
+	}
 	return hex.EncodeToString(b[:])
 }
 
@@ -121,7 +124,7 @@ func runInstance(ctx context.Context) error {
 		baseURL = "http://" + tsFQDN
 	}
 
-	nodeHandler, database, allowOrigin, cleanup, err := node.Setup(cfg, baseURL)
+	nodeHandler, database, cors, cleanup, err := node.Setup(cfg, baseURL)
 	if err != nil {
 		return err
 	}
@@ -148,7 +151,6 @@ func runInstance(ctx context.Context) error {
 		Source: registry.SourceLocal,
 		Self:   true,
 	}
-	self.SetDedupKey(baseURL) // baseURL is "http://<fqdn>" or "" when no Tailscale
 
 	var discover registry.DiscoverFunc
 	if tsServer != nil {
@@ -185,13 +187,15 @@ func runInstance(ctx context.Context) error {
 		}
 	}
 
-	regSvc := registry.New(database, self, discover)
-	// Guard the registry routes with the SAME origin policy as the node API:
-	// they're served on the top-level mux (not behind node.Setup's CORS) and
-	// mutate state from JSON without a Content-Type check, so an unguarded route
-	// is a CSRF surface for any page the user visits.
-	cors := func(next http.Handler) http.Handler { return api.CORS(allowOrigin, next) }
-	regHandlers := registry.NewHandlers(regSvc, database, newNodeID, cors)
+	// baseURL is "http://<fqdn>" (or "" when no Tailscale) — the local node's
+	// canonical URL, used to drop a discovered copy of self from the listing.
+	regSvc := registry.New(database, self, baseURL, discover)
+	// Guard the registry routes with the SAME Host + Origin policy as the node
+	// API (the cors wrapper from node.Setup): they're served on the top-level mux
+	// (not behind node.Setup's CORS) and mutate state from JSON without a
+	// Content-Type check, so an unguarded route is a CSRF/rebinding surface for
+	// any page the user visits.
+	regHandlers := registry.NewHandlers(regSvc, newNodeID, cors)
 	regHandlers.Register(mux)
 
 	return serve(listeners, discoveryAddr, mux, "argus")
