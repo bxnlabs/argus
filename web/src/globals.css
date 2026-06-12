@@ -285,6 +285,39 @@ body {
   pointer-events: none;
 }
 
+/* Node rail: accent-tinted glass so the rail reads as a surface distinct from
+   the adjacent sidebar (both otherwise share --sidebar-background). Layers, top
+   to bottom in the shorthand: an inner-edge sheen facing the sidebar divider, a
+   primary-blue vertical tint (lighter top -> darker bottom), then the sidebar
+   base. Primary blue channels are 217.2 91.2% 59.8% (see --primary). This class
+   is unlayered, so it overrides the Tailwind `bg-sidebar-background` utility,
+   same as .node-working overrides its surroundings. */
+.node-rail-glass {
+  background:
+    linear-gradient(to left, hsl(0 0% 100% / 0.06), transparent 16px),
+    linear-gradient(
+      to bottom,
+      hsl(217.2 91.2% 59.8% / 0.12),
+      hsl(217.2 91.2% 59.8% / 0.03) 45%,
+      hsl(0 0% 0% / 0.12)
+    ),
+    hsl(var(--sidebar-background));
+}
+
+/* Mobile drawer variant: the rail sits on the right, so mirror the sheen to the
+   left edge, which now faces the sidebar divider. */
+.node-rail-glass[data-side="right"] {
+  background:
+    linear-gradient(to right, hsl(0 0% 100% / 0.06), transparent 16px),
+    linear-gradient(
+      to bottom,
+      hsl(217.2 91.2% 59.8% / 0.12),
+      hsl(217.2 91.2% 59.8% / 0.03) 45%,
+      hsl(0 0% 0% / 0.12)
+    ),
+    hsl(var(--sidebar-background));
+}
+
 /* Toast prominence */
 [data-sonner-toaster] {
   --offset: 16px !important;
