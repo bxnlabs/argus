@@ -18,80 +18,90 @@ type Deps struct {
 	RepoIndexer       *ghservice.RepoIndexer
 	UploadDirOverride string // override upload directory (for testing)
 	StateDir          string
+	// AllowOrigin reports whether a cross-origin request's Origin is permitted.
+	// If nil, only loopback origins are allowed (the safe default — e.g. an
+	// instance with Tailscale disabled has no remote peers anyway).
+	AllowOrigin func(string) bool
+	// AllowHost reports whether a request's Host hostname is one of this node's
+	// own names (the anti-DNS-rebinding gate). If nil, every Host is allowed —
+	// a test/embedding convenience; production always supplies a real policy via
+	// node.Setup (mirrors registry.NewHandlers' nil-cors handling).
+	AllowHost func(string) bool
 }
 
 // NewRouter creates the HTTP router with all node API routes.
 func NewRouter(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/info", handleInfo)
+	mux.HandleFunc("GET /info", handleInfo)
 
 	// Session routes
 	sh := &sessionHandler{manager: deps.SessionManager, watcherManager: deps.WatcherManager}
-	mux.HandleFunc("GET /api/sessions", sh.list)
-	mux.HandleFunc("POST /api/sessions", sh.create)
-	mux.HandleFunc("POST /api/sessions/{id}/clone", sh.clone)
-	mux.HandleFunc("GET /api/sessions/{id}", sh.get)
-	mux.HandleFunc("PATCH /api/sessions/{id}", sh.update)
-	mux.HandleFunc("DELETE /api/sessions/{id}", sh.delete)
-	mux.HandleFunc("PUT /api/sessions/{id}/profile", sh.setProfile)
-	mux.HandleFunc("DELETE /api/sessions/{id}/profile", sh.detachProfile)
+	mux.HandleFunc("GET /sessions", sh.list)
+	mux.HandleFunc("POST /sessions", sh.create)
+	mux.HandleFunc("POST /sessions/{id}/clone", sh.clone)
+	mux.HandleFunc("GET /sessions/{id}", sh.get)
+	mux.HandleFunc("PATCH /sessions/{id}", sh.update)
+	mux.HandleFunc("DELETE /sessions/{id}", sh.delete)
+	mux.HandleFunc("PUT /sessions/{id}/profile", sh.setProfile)
+	mux.HandleFunc("DELETE /sessions/{id}/profile", sh.detachProfile)
 
 	// Profile routes
-	mux.HandleFunc("GET /api/profiles", sh.listProfiles)
+	mux.HandleFunc("GET /profiles", sh.listProfiles)
 
 	// Git routes
 	gh := &gitHandler{stateDir: deps.StateDir}
-	mux.HandleFunc("GET /api/git/status", gh.status)
-	mux.HandleFunc("GET /api/git/diff", gh.diff)
-	mux.HandleFunc("GET /api/git/working-diff", gh.workingDiff)
-	mux.HandleFunc("GET /api/git/history", gh.history)
-	mux.HandleFunc("GET /api/git/history/{hash}", gh.commitDetail)
-	mux.HandleFunc("GET /api/git/history/{hash}/full-diff", gh.commitFullDiff)
-	mux.HandleFunc("GET /api/git/compare/branches", gh.compareBranches)
-	mux.HandleFunc("GET /api/git/compare", gh.compare)
-	mux.HandleFunc("GET /api/git/file-content", gh.fileContent)
-	mux.HandleFunc("GET /api/git/file-lines", gh.fileLines)
-	mux.HandleFunc("GET /api/git/check", gh.check)
-	mux.HandleFunc("GET /api/git/branches", gh.branches)
-	mux.HandleFunc("POST /api/git/fetch", gh.fetch)
+	mux.HandleFunc("GET /git/status", gh.status)
+	mux.HandleFunc("GET /git/diff", gh.diff)
+	mux.HandleFunc("GET /git/working-diff", gh.workingDiff)
+	mux.HandleFunc("GET /git/history", gh.history)
+	mux.HandleFunc("GET /git/history/{hash}", gh.commitDetail)
+	mux.HandleFunc("GET /git/history/{hash}/full-diff", gh.commitFullDiff)
+	mux.HandleFunc("GET /git/compare/branches", gh.compareBranches)
+	mux.HandleFunc("GET /git/compare", gh.compare)
+	mux.HandleFunc("GET /git/file-content", gh.fileContent)
+	mux.HandleFunc("GET /git/file-lines", gh.fileLines)
+	mux.HandleFunc("GET /git/check", gh.check)
+	mux.HandleFunc("GET /git/branches", gh.branches)
+	mux.HandleFunc("POST /git/fetch", gh.fetch)
 
 	// Review routes
 	rh := &reviewHandler{}
-	mux.HandleFunc("GET /api/git/review", rh.get)
-	mux.HandleFunc("POST /api/git/review", rh.post)
-	mux.HandleFunc("DELETE /api/git/review", rh.delete)
+	mux.HandleFunc("GET /git/review", rh.get)
+	mux.HandleFunc("POST /git/review", rh.post)
+	mux.HandleFunc("DELETE /git/review", rh.delete)
 
 	// File routes
 	fh := &filesHandler{uploadDirOverride: deps.UploadDirOverride}
-	mux.HandleFunc("GET /api/files", fh.list)
-	mux.HandleFunc("GET /api/files/meta", fh.meta)
-	mux.HandleFunc("GET /api/files/content", fh.readContent)
-	mux.HandleFunc("PUT /api/files/content", fh.writeContent)
-	mux.HandleFunc("GET /api/files/search", fh.search)
-	mux.HandleFunc("POST /api/files/upload", fh.upload)
+	mux.HandleFunc("GET /files", fh.list)
+	mux.HandleFunc("GET /files/meta", fh.meta)
+	mux.HandleFunc("GET /files/content", fh.readContent)
+	mux.HandleFunc("PUT /files/content", fh.writeContent)
+	mux.HandleFunc("GET /files/search", fh.search)
+	mux.HandleFunc("POST /files/upload", fh.upload)
 
 	// Code search routes
 	srch := &searchHandler{}
-	mux.HandleFunc("GET /api/code-search", srch.search)
-	mux.HandleFunc("GET /api/code-search/available", srch.available)
+	mux.HandleFunc("GET /code-search", srch.search)
+	mux.HandleFunc("GET /code-search/available", srch.available)
 
 	// GitHub routes
 	ghub := &githubHandler{repoIndexer: deps.RepoIndexer}
-	mux.HandleFunc("GET /api/github/repos", ghub.listRepos)
+	mux.HandleFunc("GET /github/repos", ghub.listRepos)
 
 	// Status route
-	if deps.WatcherManager != nil {
-		mux.HandleFunc("GET /api/sessions/status", handleStatus(deps.WatcherManager, deps.Database))
+	if deps.WatcherManager != nil && deps.Database != nil {
+		mux.HandleFunc("GET /sessions/status", handleStatus(deps.WatcherManager, deps.Database))
+		mux.HandleFunc("GET /summary", handleSummary(deps.WatcherManager, deps.Database))
 	}
 
 	// Heartbeat/acknowledge routes
 	if deps.Database != nil {
 		hb := &heartbeatHandler{db: deps.Database}
-		mux.HandleFunc("POST /api/sessions/{id}/heartbeat", hb.heartbeat)
-		mux.HandleFunc("POST /api/sessions/{id}/acknowledge", hb.acknowledge)
-		mux.HandleFunc("POST /api/sessions/{id}/unread", hb.markUnread)
-		mux.HandleFunc("POST /api/sessions/{id}/read", hb.markRead)
+		mux.HandleFunc("POST /sessions/{id}/heartbeat", hb.heartbeat)
+		mux.HandleFunc("POST /sessions/{id}/acknowledge", hb.acknowledge)
+		mux.HandleFunc("POST /sessions/{id}/unread", hb.markUnread)
+		mux.HandleFunc("POST /sessions/{id}/read", hb.markRead)
 	}
 
 	// Terminal WebSocket
@@ -110,27 +120,20 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("/ws/sessions/{id}", terminal.HandleSessionWebSocket(deps.SessionManager, onSessionReady))
 	mux.HandleFunc("/ws/terminal", terminal.HandleTerminalWebSocket)
 
-	return corsMiddleware(mux)
+	allowOrigin := deps.AllowOrigin
+	if allowOrigin == nil {
+		allowOrigin = NewCORSPolicy("") // loopback-only
+	}
+	allowHost := deps.AllowHost
+	if allowHost == nil {
+		allowHost = func(string) bool { return true } // test/embedding convenience
+	}
+	return CORS(allowHost, allowOrigin, mux)
 }
 
 func handleInfo(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{
 		"name":    "argus-node",
 		"version": "2.0.0",
-	})
-}
-
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		next.ServeHTTP(w, r)
 	})
 }

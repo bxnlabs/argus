@@ -23,7 +23,7 @@ type sessionHandler struct {
 	watcherManager watcherEnsurer
 }
 
-// GET /api/sessions
+// GET /sessions
 func (h *sessionHandler) list(w http.ResponseWriter, r *http.Request) {
 	sessions, err := h.manager.List(r.Context())
 	if err != nil {
@@ -40,7 +40,7 @@ func (h *sessionHandler) list(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /api/sessions
+// POST /sessions
 func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 	var opts session.CreateOptions
 	if err := parseBody(w, r, &opts); err != nil {
@@ -72,7 +72,7 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, map[string]any{"session": sess})
 }
 
-// POST /api/sessions/{id}/clone
+// POST /sessions/{id}/clone
 func (h *sessionHandler) clone(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -97,7 +97,7 @@ func (h *sessionHandler) clone(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, map[string]any{"session": sess})
 }
 
-// GET /api/sessions/{id}
+// GET /sessions/{id}
 func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -127,7 +127,7 @@ func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"session": session})
 }
 
-// PATCH /api/sessions/{id}
+// PATCH /sessions/{id}
 func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -158,7 +158,7 @@ func (h *sessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"session": session})
 }
 
-// PUT /api/sessions/{id}/profile sets or changes a session to a named profile.
+// PUT /sessions/{id}/profile sets or changes a session to a named profile.
 // To detach a profile, use DELETE instead — a profile name is required here.
 func (h *sessionHandler) setProfile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -179,7 +179,7 @@ func (h *sessionHandler) setProfile(w http.ResponseWriter, r *http.Request) {
 	h.respondProfileChange(w, sess, err)
 }
 
-// DELETE /api/sessions/{id}/profile detaches the profile (restarts the
+// DELETE /sessions/{id}/profile detaches the profile (restarts the
 // session). Detaching an already-detached session is a no-op.
 func (h *sessionHandler) detachProfile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -210,7 +210,7 @@ func (h *sessionHandler) respondProfileChange(w http.ResponseWriter, sess *db.Se
 	respondJSON(w, http.StatusOK, map[string]any{"session": sess})
 }
 
-// GET /api/profiles
+// GET /profiles
 func (h *sessionHandler) listProfiles(w http.ResponseWriter, r *http.Request) {
 	profiles, err := h.manager.ListProfiles()
 	if err != nil {
@@ -220,7 +220,7 @@ func (h *sessionHandler) listProfiles(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"profiles": profiles})
 }
 
-// DELETE /api/sessions/{id}
+// DELETE /sessions/{id}
 func (h *sessionHandler) delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	force := r.URL.Query().Get("force") == "true"

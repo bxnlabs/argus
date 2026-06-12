@@ -3,6 +3,7 @@ package tailscale
 import (
 	"context"
 	"net"
+	"sort"
 
 	"tailscale.com/tsnet"
 
@@ -59,6 +60,43 @@ func (s *Server) FQDN() string {
 		return ""
 	}
 	return domains[0]
+}
+
+// Peer is a discovered tailnet peer relevant to node discovery.
+type Peer struct {
+	DNSName string   // e.g. "gpu-box.tailnet.ts.net."
+	Tags    []string // ACL tags, e.g. ["tag:argus-node"]
+	Online  bool
+}
+
+// Peers returns the current tailnet peers (excluding self). Must be called
+// after Up(). Returns nil when the server hasn't started.
+func (s *Server) Peers(ctx context.Context) ([]Peer, error) {
+	if !s.started {
+		return nil, nil
+	}
+	lc, err := s.ts.LocalClient()
+	if err != nil {
+		return nil, err
+	}
+	st, err := lc.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var peers []Peer
+	for _, ps := range st.Peer {
+		var tags []string
+		if ps.Tags != nil {
+			tags = ps.Tags.AsSlice()
+		}
+		peers = append(peers, Peer{
+			DNSName: ps.DNSName,
+			Tags:    tags,
+			Online:  ps.Online,
+		})
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].DNSName < peers[j].DNSName })
+	return peers, nil
 }
 
 // Close shuts down the tsnet node. If Up() was never called, Close is a no-op.

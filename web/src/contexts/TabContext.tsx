@@ -43,22 +43,30 @@ const TabContext = createContext<TabContextValue | null>(null);
 // Provider
 // ---------------------------------------------------------------------------
 
-export function TabProvider({ children }: { children: ReactNode }) {
+export function TabProvider({
+  nodeScope,
+  children,
+}: {
+  // Scopes persisted tab state to the active node's id+origin. The provider is
+  // keyed on this same scope in App, so nodeScope is stable for a given mount.
+  nodeScope: string;
+  children: ReactNode;
+}) {
   const [state, setState] = useState<TabState>(createInitialTabState);
   const [hydrated, setHydrated] = useState(false);
   const { isMobile } = useViewport();
 
-  // ------ Load persisted state from localStorage on mount ------
+  // ------ Load this node's persisted state from localStorage on mount ------
   useEffect(() => {
-    const saved = loadTabState();
+    const saved = loadTabState(nodeScope);
     if (saved) setState(saved);
     setHydrated(true);
-  }, []);
+  }, [nodeScope]);
 
-  // ------ Persist to localStorage on every state change ------
+  // ------ Persist to this node's key on every state change ------
   useEffect(() => {
-    if (hydrated) saveTabState(state);
-  }, [state, hydrated]);
+    if (hydrated) saveTabState(state, nodeScope);
+  }, [state, hydrated, nodeScope]);
 
   // ------ Tab management ------
 

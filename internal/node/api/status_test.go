@@ -63,7 +63,7 @@ func TestHandleStatus_SessionWithoutSnapshotDefaultsToIdle(t *testing.T) {
 	defer mgr.Close()
 
 	handler := handleStatus(mgr, database)
-	req := httptest.NewRequest("GET", "/api/sessions/status", nil)
+	req := httptest.NewRequest("GET", "/sessions/status", nil)
 	w := httptest.NewRecorder()
 	handler(w, req)
 
@@ -115,7 +115,7 @@ func TestHandleStatus_AllDBSessionsAppearInResponse(t *testing.T) {
 	defer mgr.Close()
 
 	handler := handleStatus(mgr, database)
-	req := httptest.NewRequest("GET", "/api/sessions/status", nil)
+	req := httptest.NewRequest("GET", "/sessions/status", nil)
 	w := httptest.NewRecorder()
 	handler(w, req)
 
@@ -155,7 +155,7 @@ func TestHandleStatus_IncludesUserMarkedUnreadAt(t *testing.T) {
 	defer mgr.Close()
 
 	handler := handleStatus(mgr, database)
-	req := httptest.NewRequest("GET", "/api/sessions/status", nil)
+	req := httptest.NewRequest("GET", "/sessions/status", nil)
 	w := httptest.NewRecorder()
 	handler(w, req)
 

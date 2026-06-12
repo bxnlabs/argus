@@ -6,6 +6,7 @@ import {
   FileCode,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import { Button } from "@/components/ui/button";
 import { FileChanges } from "./FileChanges";
 import { GitPanelTabs, type GitTab, type GitTabRequest } from "./GitPanelTabs";
@@ -36,6 +37,7 @@ interface GitPanelProps {
 export function GitPanel({ workingDirectory, requestedTab }: GitPanelProps) {
   const { isMobile } = useViewport();
   const queryClient = useQueryClient();
+  const { scope } = useActiveNode();
   const [activeTab, setActiveTab] = useState<GitTab>(requestedTab?.tab ?? "changes");
 
   // Narrow subscriptions — neither includes isRefetching
@@ -141,8 +143,8 @@ export function GitPanel({ workingDirectory, requestedTab }: GitPanelProps) {
     // workingDiff's own `enabled` flag gates the refetch to the Changes tab;
     // invalidating unconditionally also ensures a stale working diff isn't
     // served when the user switches tabs after refreshing on Compare/History.
-    queryClient.invalidateQueries({ queryKey: gitKeys.status(workingDirectory) });
-    queryClient.invalidateQueries({ queryKey: gitKeys.workingDiff(workingDirectory) });
+    queryClient.invalidateQueries({ queryKey: gitKeys.status(scope, workingDirectory) });
+    queryClient.invalidateQueries({ queryKey: gitKeys.workingDiff(scope, workingDirectory) });
     // Pass the active compare base so the backend also fetches the remote
     // its upstream lives on — fork workflows where HEAD and base track
     // different remotes can't clear the stale-base banner otherwise.
@@ -150,7 +152,7 @@ export function GitPanel({ workingDirectory, requestedTab }: GitPanelProps) {
     // the user may have refreshed from Changes/History after viewing Compare,
     // and the next visit to Compare should see fresh data.
     gitFetch({ path: workingDirectory, base: compareBaseRef.current });
-  }, [queryClient, workingDirectory, gitFetch]);
+  }, [queryClient, scope, workingDirectory, gitFetch]);
 
   const handleFileClick = useCallback(
     (file: GitFile) => {

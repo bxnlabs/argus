@@ -1,13 +1,16 @@
+// scope ("<id>:<url>", from useActiveNode) is the first key segment so each
+// node's data is a distinct cache entry; switching nodes addresses a different
+// key rather than relying on eviction.
 export const sessionKeys = {
-  all: ["sessions"] as const,
-  list: () => [...sessionKeys.all, "list"] as const,
+  all: (scope: string) => ["sessions", scope] as const,
+  list: (scope: string) => [...sessionKeys.all(scope), "list"] as const,
 };
 
 export const statusKeys = {
-  all: ["session-statuses"] as const,
+  all: (scope: string) => ["session-statuses", scope] as const,
 };
 
 export const profileKeys = {
-  all: ["profiles"] as const,
-  list: () => [...profileKeys.all, "list"] as const,
+  all: (scope: string) => ["profiles", scope] as const,
+  list: (scope: string) => [...profileKeys.all(scope), "list"] as const,
 };

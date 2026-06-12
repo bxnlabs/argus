@@ -14,6 +14,10 @@ export interface ViewProps {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
 
+  // Node rail (hidden by default; toggled by the NodeStatus snippet)
+  railOpen: boolean;
+  setRailOpen: (open: boolean) => void;
+
   // Active tab info
   activeTab: TabData | null;
 

@@ -27,7 +27,7 @@ type sessionInfo struct {
 // fetchAndResolve fetches all sessions from the node and resolves the query
 // to a single session by name or ID prefix.
 func fetchAndResolve(c *apiClient, query string) (*sessionInfo, error) {
-	body, err := c.get("/api/sessions")
+	body, err := c.get("/sessions")
 	if err != nil {
 		return nil, err
 	}

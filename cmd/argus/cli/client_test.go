@@ -58,16 +58,16 @@ func TestDiscover_StalePID(t *testing.T) {
 
 func TestAPIClient_Get(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/node/api/sessions" {
-			t.Errorf("path = %q, want /node/api/sessions", r.URL.Path)
+		if r.URL.Path != "/api/node/sessions" {
+			t.Errorf("path = %q, want /api/node/sessions", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"sessions":[]}`))
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
-	body, err := c.get("/api/sessions")
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
+	body, err := c.get("/sessions")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}

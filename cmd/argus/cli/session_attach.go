@@ -36,15 +36,15 @@ func newAttachCmd() *cobra.Command {
 				return err
 			}
 
-			// Call EnsureSession via the GET /api/sessions/{id} endpoint
+			// Call EnsureSession via the GET /api/node/sessions/{id} endpoint
 			// so the node revives the tmux session if it died.
-			_, err = c.get("/api/sessions/" + session.ID)
+			_, err = c.get("/sessions/" + session.ID)
 			if err != nil {
 				return fmt.Errorf("ensure session: %w", err)
 			}
 
 			// Acknowledge unread state before attaching
-			_, _ = c.post("/api/sessions/"+session.ID+"/acknowledge", nil)
+			_, _ = c.post("/sessions/"+session.ID+"/acknowledge", nil)
 
 			return attachTmux(session.ID, session.TmuxName, c.baseURL)
 		},
@@ -94,7 +94,7 @@ func attachTmux(sessionID, tmuxName, baseURL string) error {
 // last_viewed_at is fresh from the start (covers activity in the first 2s).
 func runHeartbeat(ctx context.Context, sessionID, baseURL string) {
 	client := &http.Client{Timeout: 2 * time.Second}
-	url := baseURL + "/api/sessions/" + sessionID + "/heartbeat"
+	url := baseURL + "/sessions/" + sessionID + "/heartbeat"
 
 	// Immediate heartbeat at attach start
 	if req, err := http.NewRequestWithContext(ctx, "POST", url, nil); err == nil {

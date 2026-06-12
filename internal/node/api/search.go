@@ -12,7 +12,7 @@ import (
 
 type searchHandler struct{}
 
-// GET /api/code-search?query=...&path=...&maxResults=100
+// GET /code-search?query=...&path=...&maxResults=100
 // The query is a regular expression (ripgrep syntax). maxResults is capped server-side.
 func (h *searchHandler) search(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
@@ -60,7 +60,7 @@ func (h *searchHandler) search(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// GET /api/code-search/available
+// GET /code-search/available
 func (h *searchHandler) available(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]bool{
 		"available": search.IsAvailable(),

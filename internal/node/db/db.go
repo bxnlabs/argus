@@ -128,11 +128,12 @@ func (d *DB) seedMigrations() error {
 	// An existing database with all columns but prior migration records is
 	// an upgrade — let CheckMigrations flag create_notifications_table.
 	if priorMigrations == 0 && allColumnsPresent {
-		if _, err := d.sql.Exec(
-			`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`,
-			"create_notifications_table",
-		); err != nil {
-			return err
+		for _, name := range []string{"create_notifications_table", "add_nodes_table"} {
+			if _, err := d.sql.Exec(
+				`INSERT OR IGNORE INTO _migrations (name) VALUES (?)`, name,
+			); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

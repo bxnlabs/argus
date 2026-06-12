@@ -1,6 +1,6 @@
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { WS_RECONNECT_BASE_DELAY, WS_RECONNECT_MAX_DELAY } from "../constants";
-import { getNodeWsUrl } from "@/api/client";
+import { nodeWsUrl } from "@/api/client";
 
 export interface WebSocketCallbacks {
   onConnected?: () => void;
@@ -23,6 +23,7 @@ const textEncoder = new TextEncoder();
 
 export function createWebSocketConnection(
   term: XTerm,
+  baseUrl: string,
   sessionName: string | null,
   callbacks: WebSocketCallbacks,
   wsRef: React.MutableRefObject<WebSocket | null>,
@@ -30,7 +31,9 @@ export function createWebSocketConnection(
   reconnectDelayRef: React.MutableRefObject<number>,
   intentionalCloseRef: React.MutableRefObject<boolean>
 ): WebSocketManager {
-  const wsUrl = getNodeWsUrl(sessionName);
+  // Captured once at setup so this socket — and its reconnects — always target
+  // the node that owned it, even if the active node changes elsewhere.
+  const wsUrl = nodeWsUrl(baseUrl, sessionName);
   const ws = new WebSocket(wsUrl);
   ws.binaryType = "arraybuffer";
   wsRef.current = ws;

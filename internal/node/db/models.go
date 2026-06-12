@@ -5,6 +5,9 @@ import "errors"
 // ErrNotFound is returned when a session does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrDuplicateURL is returned when adding a node whose URL already exists.
+var ErrDuplicateURL = errors.New("node url already exists")
+
 // Session represents a tmux-backed coding session.
 type Session struct {
 	ID                 string  `json:"id"`

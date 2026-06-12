@@ -36,7 +36,7 @@ func newRenameCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("marshal request: %w", err)
 			}
-			if _, err := c.patch("/api/sessions/"+session.ID, bytes.NewReader(reqBody)); err != nil {
+			if _, err := c.patch("/sessions/"+session.ID, bytes.NewReader(reqBody)); err != nil {
 				return err
 			}
 

@@ -137,6 +137,7 @@ export function NewSessionDialog({
     <>
       <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
         <DialogContent
+          showCloseButton={false}
           className="top-[env(safe-area-inset-top)] translate-y-0 max-h-[85vh] overflow-y-auto sm:top-[50%] sm:translate-y-[-50%]"
           onPointerDownOutside={(e) => {
             if (childPickerClosingRef.current) {

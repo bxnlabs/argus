@@ -7,7 +7,7 @@ import (
 	"github.com/bxnlabs/argus/internal/node/status"
 )
 
-// handleStatus returns a handler for GET /api/sessions/status.
+// handleStatus returns a handler for GET /sessions/status.
 // Composes activity state from in-memory snapshot with unread_since from DB.
 func handleStatus(mgr *status.WatcherManager, database *db.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
