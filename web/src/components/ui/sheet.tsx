@@ -18,7 +18,7 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
     className={cn(
-      "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/60",
+      "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/60 backdrop-blur-sm",
       className
     )}
     {...props}
@@ -53,10 +53,10 @@ interface SheetContentProps
   hideCloseButton?: boolean;
   dismissOnOverlayClick?: boolean;
   /**
-   * Render the overlay without its own dim. Use when the sheet slides over a
-   * surface that is already backdropped (e.g. the mobile node switcher over the
-   * sidebar drawer) so the dim doesn't double up. The overlay still catches
-   * taps for `dismissOnOverlayClick`.
+   * Render the overlay without its own dim or blur. Use when the sheet slides
+   * over a surface that is already backdropped (e.g. the mobile node switcher
+   * over the sidebar drawer) so the scrim doesn't double up. The overlay still
+   * catches taps for `dismissOnOverlayClick`.
    */
   transparentOverlay?: boolean;
 }
@@ -80,10 +80,14 @@ const SheetContent = React.forwardRef<
     <SheetPortal>
       {dismissOnOverlayClick ? (
         <SheetPrimitive.Close asChild>
-          <SheetOverlay className={cn(transparentOverlay && "bg-transparent")} />
+          <SheetOverlay
+          className={cn(transparentOverlay && "bg-transparent backdrop-blur-none")}
+        />
         </SheetPrimitive.Close>
       ) : (
-        <SheetOverlay className={cn(transparentOverlay && "bg-transparent")} />
+        <SheetOverlay
+          className={cn(transparentOverlay && "bg-transparent backdrop-blur-none")}
+        />
       )}
       <SheetPrimitive.Content
         ref={ref}
