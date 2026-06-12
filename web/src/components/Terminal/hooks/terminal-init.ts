@@ -62,20 +62,42 @@ export function createTerminal(
   let webglAddon: WebglAddon | null = null;
   let webglDropped = false; // had WebGL, then lost the context
   let webglGivenUp = false; // repeated rapid losses — stop retrying
-  let lastWebglLoadAt = 0;
+  // Consecutive context losses where the renderer never survived long enough to
+  // prove healthy. An unhealthy GPU loses every fresh context almost at once; a
+  // normal background eviction loses one context that recovers on foreground.
+  let webglLosses = 0;
+  let webglStableTimer: ReturnType<typeof setTimeout> | null = null;
+  // A context that survives this long is treated as healthy and clears the loss
+  // streak.
+  const WEBGL_STABLE_MS = 10000;
+  // xterm fires onContextLoss only ~3s after the real loss — it waits for a
+  // possible 'webglcontextrestored' first (see WebglRenderer). The health timer
+  // must add this delay; otherwise a context that dies late in the window is
+  // reported only after the reset already cleared the streak, letting an
+  // unhealthy context loop forever.
+  const WEBGL_LOSS_REPORT_DELAY_MS = 3000;
+  const WEBGL_MAX_LOSSES = 2; // give up after this many rapid losses
 
   const loadWebgl = () => {
     if (webglGivenUp) return;
+    let pendingAddon: WebglAddon | null = null;
     try {
       const addon = new WebglAddon();
+      pendingAddon = addon;
       addon.onContextLoss(() => {
         addon.dispose(); // xterm reverts to its DOM renderer
         webglAddon = null;
         webglDropped = true;
         term.refresh(0, term.rows - 1); // repaint current buffer via DOM renderer
-        // A loss within a second of (re)loading means the context is unhealthy
-        // (e.g. GPU reset) — stop retrying to avoid a dispose/recreate loop.
-        if (Date.now() - lastWebglLoadAt < 1000) {
+        // The context died before proving healthy — cancel its pending stability
+        // reset so this loss counts toward the streak.
+        if (webglStableTimer) {
+          clearTimeout(webglStableTimer);
+          webglStableTimer = null;
+        }
+        // Repeated rapid losses mean the context is unhealthy (e.g. GPU reset) —
+        // stop retrying to avoid a dispose/recreate loop.
+        if (++webglLosses >= WEBGL_MAX_LOSSES) {
           webglGivenUp = true;
         } else if (document.visibilityState === "visible") {
           // Loss surfaced while foregrounded — re-acquire immediately.
@@ -85,9 +107,18 @@ export function createTerminal(
       term.loadAddon(addon);
       webglAddon = addon;
       webglDropped = false;
-      lastWebglLoadAt = Date.now();
+      // If this renderer survives the window (plus xterm's loss-reporting delay,
+      // so a late loss can still cancel this), treat it as healthy and clear the
+      // loss streak.
+      if (webglStableTimer) clearTimeout(webglStableTimer);
+      webglStableTimer = setTimeout(() => {
+        webglLosses = 0;
+        webglStableTimer = null;
+      }, WEBGL_STABLE_MS + WEBGL_LOSS_REPORT_DELAY_MS);
     } catch {
-      // WebGL2 unavailable — fall back to xterm's default DOM renderer.
+      // WebGL2 unavailable, or activation threw after xterm registered the addon
+      // — dispose it and fall back to xterm's default DOM renderer.
+      pendingAddon?.dispose();
       webglAddon = null;
     }
   };
@@ -163,6 +194,7 @@ export function createTerminal(
   const cleanup = () => {
     document.removeEventListener("keydown", handleKeyDown, true);
     document.removeEventListener("visibilitychange", handleWebglVisibility);
+    if (webglStableTimer) clearTimeout(webglStableTimer);
   };
 
   return { term, fitAddon, searchAddon, cleanup };
