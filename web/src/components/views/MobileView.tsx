@@ -146,6 +146,7 @@ export function MobileView({
       <MobileNodePanel
         open={sidebarOpen && railOpen}
         onClose={() => setRailOpen(false)}
+        onDismiss={() => setSidebarOpen(false)}
       />
 
       {/* Dialogs */}

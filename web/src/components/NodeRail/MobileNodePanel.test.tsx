@@ -20,6 +20,7 @@ function renderPanel(
   setActiveNode = vi.fn(),
   onClose = vi.fn(),
   activeNodeId = "local",
+  onDismiss = vi.fn(),
 ) {
   render(
     <QueryClientProvider client={new QueryClient()}>
@@ -32,11 +33,11 @@ function renderPanel(
           setActiveNode,
         }}
       >
-        <MobileNodePanel open onClose={onClose} />
+        <MobileNodePanel open onClose={onClose} onDismiss={onDismiss} />
       </NodeContext.Provider>
     </QueryClientProvider>,
   );
-  return { setActiveNode, onClose };
+  return { setActiveNode, onClose, onDismiss };
 }
 
 describe("MobileNodePanel", () => {
@@ -59,7 +60,26 @@ describe("MobileNodePanel", () => {
     const { setActiveNode, onClose } = renderPanel();
     fireEvent.click(screen.getByTestId("node-row-m1"));
     expect(setActiveNode).toHaveBeenCalledWith("m1");
-    // Stays open so you can switch freely; closed only via back / dimmed area.
+    // Stays open so you can switch freely; exits only via the back chevron
+    // (onClose) or the dimmed area / Escape (onDismiss).
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("steps back one level (onClose, not onDismiss) when the back chevron is tapped", () => {
+    const { onClose, onDismiss } = renderPanel();
+    fireEvent.click(screen.getByLabelText("Back to sidebar"));
+    // Back returns to the sidebar — closes the rail, leaves the drawer open.
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("dismisses the whole stack (onDismiss, not onClose) on Escape / tap-outside", () => {
+    const { onClose, onDismiss } = renderPanel();
+    // Escape and the dimmed-overlay tap share Radix's onOpenChange path; Escape
+    // is the testable proxy. Tapping outside should land back on the main panel,
+    // so it closes the drawer too — never the back-one-level onClose.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
   });
 

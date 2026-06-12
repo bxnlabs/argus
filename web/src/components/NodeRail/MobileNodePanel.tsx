@@ -17,22 +17,30 @@ import { cn } from "@/lib/utils";
  * Full rows give real touch targets and room for each node's name and status.
  *
  * Picking a node switches the active node but keeps the panel open (switch
- * freely; the check moves); the back chevron or tapping the dimmed area closes
- * it. The desktop rail is untouched. Custom rows carry a ⋯ menu to rename or
+ * freely; the check moves). Two distinct exits: the back chevron steps back one
+ * level to the sidebar ({@link onClose}); tapping the dimmed area (or Escape)
+ * dismisses the whole drawer stack back to the terminal ({@link onDismiss}) —
+ * the dimmed region reads as "outside everything", so one tap should get you
+ * there. The desktop rail is untouched. Custom rows carry a ⋯ menu to rename or
  * remove the node.
  */
 export function MobileNodePanel({
   open,
   onClose,
+  onDismiss,
 }: {
   open: boolean;
   onClose: () => void;
+  onDismiss: () => void;
 }) {
   const { nodes, activeNodeId, setActiveNode } = useNodeContext();
   const { openAdd, openEdit, deleteNode, dialog } = useNodeManagement();
 
+  // Radix fires onOpenChange only for its own dismiss triggers (overlay tap,
+  // Escape) — never for an external `open`-prop change — so the chevron's
+  // onClose path stays one-level while tap-outside drives the full dismiss.
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+    <Sheet open={open} onOpenChange={(o) => !o && onDismiss()}>
       <SheetContent
         side="left"
         hideCloseButton
@@ -146,10 +154,10 @@ export function MobileNodePanel({
           <button
             type="button"
             onClick={openAdd}
-            className="hover:bg-accent/50 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 transition-colors"
+            className="hover:bg-accent/50 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-base transition-colors"
           >
-            <Plus className="text-muted-foreground h-[18px] w-[18px] flex-shrink-0" />
-            <span className="text-muted-foreground text-[15px]">Add node</span>
+            <Plus className="h-5 w-5 flex-shrink-0" />
+            <span>Add node</span>
           </button>
         </div>
 

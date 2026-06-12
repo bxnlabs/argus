@@ -121,6 +121,8 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
   const { openAdd, openEdit, deleteNode, dialog } = useNodeManagement();
 
   const showTiles = nodes.length >= 2;
+  // Tooltips open away from the divider edge, same as the node tiles.
+  const tooltipSide = side === "right" ? "left" : "right";
   return (
     <>
       <div
@@ -138,19 +140,24 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
               node={n}
               active={n.id === activeNodeId}
               onSelect={() => setActiveNode(n.id)}
-              tooltipSide={side === "right" ? "left" : "right"}
+              tooltipSide={tooltipSide}
               onEdit={openEdit}
               onDelete={deleteNode}
             />
           ))}
-        <button
-          type="button"
-          aria-label="Add node"
-          onClick={openAdd}
-          className="text-muted-foreground border-muted-foreground hover:border-white hover:text-white mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Add node"
+              onClick={openAdd}
+              className="text-muted-foreground border-muted-foreground hover:border-white hover:text-white mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side={tooltipSide}>Add node</TooltipContent>
+        </Tooltip>
       </div>
       {dialog}
     </>
