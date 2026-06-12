@@ -21,6 +21,7 @@ import { MobileView } from "@/components/views/MobileView";
 import { NodeOffline } from "@/components/NodeOffline";
 import { useGitCheckQuery } from "@/data/git";
 import { isMac } from "@/lib/device";
+import { buildNodeSwitchBindings } from "@/lib/nodeShortcuts";
 import { nodeScope } from "@/lib/nodeScope";
 import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
@@ -37,7 +38,7 @@ function HomeContent({
   setRailOpen: (open: boolean) => void;
 }) {
   const { baseUrl } = useActiveNode();
-  const { activeNode } = useNodeContext();
+  const { activeNode, nodes, setActiveNode } = useNodeContext();
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
@@ -229,6 +230,7 @@ function HomeContent({
       ArrowLeft: { label: "Previous tab", run: () => switchRelative(-1) },
       ArrowRight: { label: "Next tab", run: () => switchRelative(1) },
       t: { label: "Terminal", run: () => setActivePanel(null) },
+      b: { label: "Toggle sidebar", run: () => setSidebarOpen((v) => !v) },
       // Session-scoped shortcuts: only offered when the active tab actually has
       // a session attached, so the hint overlay never advertises a no-op (same
       // conditional-registration approach as `g`/`e` below). Detach mirrors the
@@ -277,9 +279,10 @@ function HomeContent({
             },
           }
         : {}),
+      ...buildNodeSwitchBindings(nodes, setActiveNode),
       "?": { label: "Show all shortcuts", run: () => setShowShortcutsHelp(true) },
     };
-  }, [tabs, activeTabId, isGitRepo, activeWorkingDirectory, addTab, closeTab, switchTab, requestGitTab, activeTab, detachSession]);
+  }, [tabs, activeTabId, isGitRepo, activeWorkingDirectory, addTab, closeTab, switchTab, requestGitTab, activeTab, detachSession, nodes, setActiveNode]);
 
   // Chord engine — desktop only (touch devices have no leader key).
   const { pending } = useKeyboardChords(bindings, { enabled: !isMobile });
