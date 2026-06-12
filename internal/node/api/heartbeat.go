@@ -33,25 +33,25 @@ func (h *heartbeatHandler) respond(w http.ResponseWriter, err error) {
 	}
 }
 
-// heartbeat handles POST /api/sessions/{id}/heartbeat.
+// heartbeat handles POST /sessions/{id}/heartbeat.
 // Updates last_viewed_at = now(). Lightweight — single DB update.
 func (h *heartbeatHandler) heartbeat(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, h.db.TouchLastViewedAt(r.Context(), r.PathValue("id")))
 }
 
-// acknowledge handles POST /api/sessions/{id}/acknowledge.
+// acknowledge handles POST /sessions/{id}/acknowledge.
 // Clears unread_since and sets last_viewed_at = now(). Idempotent.
 func (h *heartbeatHandler) acknowledge(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, h.db.AcknowledgeSession(r.Context(), r.PathValue("id")))
 }
 
-// markUnread handles POST /api/sessions/{id}/unread.
+// markUnread handles POST /sessions/{id}/unread.
 // Sets the manual user_marked_unread_at marker; does not touch unread_since. Idempotent.
 func (h *heartbeatHandler) markUnread(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, h.db.MarkSessionUnread(r.Context(), r.PathValue("id")))
 }
 
-// markRead handles POST /api/sessions/{id}/read.
+// markRead handles POST /sessions/{id}/read.
 // Clears both unread_since and user_marked_unread_at and sets last_viewed_at. Idempotent.
 func (h *heartbeatHandler) markRead(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, h.db.MarkSessionRead(r.Context(), r.PathValue("id")))

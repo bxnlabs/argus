@@ -36,6 +36,14 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_session_sent_at
   ON notifications(session_id, sent_at);
 
+-- Peer node registry (manually-added nodes; local/discovered are computed)
+CREATE TABLE IF NOT EXISTS nodes (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Migrations tracking
 CREATE TABLE IF NOT EXISTS _migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

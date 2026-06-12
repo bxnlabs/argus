@@ -192,7 +192,7 @@ func TestGitFetch_ReturnsOKForRealRepo(t *testing.T) {
 	}
 
 	router := NewRouter(Deps{})
-	req := httptest.NewRequest(http.MethodPost, "/api/git/fetch?path="+dir, nil)
+	req := httptest.NewRequest(http.MethodPost, "/git/fetch?path="+dir, nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -203,7 +203,7 @@ func TestGitFetch_ReturnsOKForRealRepo(t *testing.T) {
 
 func TestGitFetch_MissingPathIs400(t *testing.T) {
 	router := NewRouter(Deps{})
-	req := httptest.NewRequest(http.MethodPost, "/api/git/fetch", nil)
+	req := httptest.NewRequest(http.MethodPost, "/git/fetch", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -224,7 +224,7 @@ func TestGitFetch_AcceptsBaseQueryParam(t *testing.T) {
 
 	router := NewRouter(Deps{})
 	q := url.Values{"path": {dir}, "base": {"main"}}
-	req := httptest.NewRequest(http.MethodPost, "/api/git/fetch?"+q.Encode(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/git/fetch?"+q.Encode(), nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

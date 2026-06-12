@@ -4,6 +4,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { GitPanel } from "./index";
+import { StubNodeProvider } from "@/test/node-context";
 import type { GitTabRequest } from "./GitPanelTabs";
 import {
   useGitCurrentBranchQuery,
@@ -62,7 +63,9 @@ function renderPanel(initial: GitTabRequest) {
   });
   const ui = (req: GitTabRequest) => (
     <QueryClientProvider client={queryClient}>
-      <GitPanel workingDirectory="/repo" requestedTab={req} />
+      <StubNodeProvider>
+        <GitPanel workingDirectory="/repo" requestedTab={req} />
+      </StubNodeProvider>
     </QueryClientProvider>
   );
   const utils = render(ui(initial));

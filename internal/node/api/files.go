@@ -33,7 +33,7 @@ func (h *filesHandler) getUploadDir() string {
 	return uploadDir
 }
 
-// GET /api/files?path=...&recursive=false
+// GET /files?path=...&recursive=false
 func (h *filesHandler) list(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -71,7 +71,7 @@ func (h *filesHandler) list(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /api/files/meta?path=...
+// GET /files/meta?path=...
 func (h *filesHandler) meta(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -109,7 +109,7 @@ func (h *filesHandler) meta(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /api/files/content?path=...
+// GET /files/content?path=...
 func (h *filesHandler) readContent(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -155,7 +155,7 @@ func (h *filesHandler) readContent(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, expandedPath, info.ModTime(), f)
 }
 
-// PUT /api/files/content?path=...
+// PUT /files/content?path=...
 func (h *filesHandler) writeContent(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -235,7 +235,7 @@ func (h *filesHandler) saveUploadedFile(fh *multipart.FileHeader) (uploadResult,
 	}, nil
 }
 
-// POST /api/files/upload
+// POST /files/upload
 func (h *filesHandler) upload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize+10<<10) // +10KB for multipart framing overhead
 	defer r.Body.Close()
@@ -284,7 +284,7 @@ func (h *filesHandler) upload(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"files": results})
 }
 
-// GET /api/files/search?q=...&type=directory&limit=20
+// GET /files/search?q=...&type=directory&limit=20
 func (h *filesHandler) search(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {

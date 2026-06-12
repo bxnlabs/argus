@@ -3,6 +3,7 @@ import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { CompareView } from "./CompareView";
+import { StubNodeProvider } from "@/test/node-context";
 import {
   useCompareBranchesQuery,
   useCompareQuery,
@@ -116,7 +117,9 @@ function renderView() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <CompareView workingDirectory="/repo" />
+      <StubNodeProvider>
+        <CompareView workingDirectory="/repo" />
+      </StubNodeProvider>
     </QueryClientProvider>,
   );
 }

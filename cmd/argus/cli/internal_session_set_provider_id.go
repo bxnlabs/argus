@@ -33,7 +33,7 @@ func newSetProviderIDCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("marshal request: %w", err)
 			}
-			if _, err := c.patch("/api/sessions/"+sessionID, bytes.NewReader(reqBody)); err != nil {
+			if _, err := c.patch("/sessions/"+sessionID, bytes.NewReader(reqBody)); err != nil {
 				return err
 			}
 

@@ -32,7 +32,7 @@ func TestWorktreeBranchColumn(t *testing.T) {
 		Name:             "fix auth",
 		TmuxName:         "claude-sess_test_1",
 		WorkingDirectory: "/tmp/wt",
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 	}
 
@@ -60,7 +60,7 @@ func TestWorktreeBranchNullable(t *testing.T) {
 		Name:             "plain session",
 		TmuxName:         "claude-sess_test_2",
 		WorkingDirectory: "/tmp/plain",
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 	}
 
 	if err := d.CreateSession(s); err != nil {
@@ -86,7 +86,7 @@ func TestGitParentDirColumn(t *testing.T) {
 		Name:             "with parent dir",
 		TmuxName:         "claude-sess_gpd_1",
 		WorkingDirectory: "/tmp/wt/argus-feature",
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &parentDir,
 	}
@@ -115,7 +115,7 @@ func TestGitParentDirNullable(t *testing.T) {
 		Name:             "no parent dir",
 		TmuxName:         "claude-sess_gpd_2",
 		WorkingDirectory: "/tmp/plain",
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 	}
 
 	if err := d.CreateSession(s); err != nil {
@@ -210,7 +210,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 		Name:             "upgrade test",
 		TmuxName:         "claude-sess_upgrade",
 		WorkingDirectory: "/tmp/upgrade",
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 	}
 	if err := d.CreateSession(s); err != nil {
@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 		Name:             "upgrade gpd test",
 		TmuxName:         "claude-sess_upgrade_gpd",
 		WorkingDirectory: "/tmp/upgrade-wt",
-		ProviderType:        "claude",
+		ProviderType:     "claude",
 		WorktreeBranch:   &branch,
 		GitParentDir:     &parentDir,
 	}

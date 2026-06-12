@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabProvider, useTabs } from "@/contexts/TabContext";
+import { NodeProvider, useNodeContext } from "@/contexts/NodeContext";
 import { Workspace } from "@/components/Workspace";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useViewport } from "@/hooks/useViewport";
@@ -9,19 +10,34 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession, useCloneSession } from "@/data/sessions/queries";
+import { apiTextFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
 import { SessionInfoDialog } from "@/components/SessionInfoDialog";
 import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
 import { ShortcutHintOverlay } from "@/components/ShortcutHintOverlay";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
+import { NodeOffline } from "@/components/NodeOffline";
 import { useGitCheckQuery } from "@/data/git";
 import { isMac } from "@/lib/device";
+import { nodeScope } from "@/lib/nodeScope";
 import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
 import type { GitTab, GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
 
-function HomeContent() {
+// `railOpen` lives in AppInner (above the node-keyed TabProvider) so switching
+// nodes resets the workspace without collapsing the node rail — it stays open
+// until toggled from the switcher.
+function HomeContent({
+  railOpen,
+  setRailOpen,
+}: {
+  railOpen: boolean;
+  setRailOpen: (open: boolean) => void;
+}) {
+  const { baseUrl } = useActiveNode();
+  const { activeNode } = useNodeContext();
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
@@ -145,12 +161,12 @@ function HomeContent() {
       // "Mark as unread" survives selection.
       const status = sessionStatuses[session.id];
       if (status?.unreadSince) {
-        fetch(`${import.meta.env.VITE_NODE_URL || ""}/node/api/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
+        apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
           method: "POST",
         }).catch(() => {});
       }
     },
-    [attachSession, sessionStatuses]
+    [attachSession, sessionStatuses, baseUrl]
   );
 
   // Deep-link: auto-attach session from ?session= query param (e.g. from Slack notification)
@@ -300,7 +316,7 @@ function HomeContent() {
 
         if (result.session) {
           // Attach to the newly created session — Terminal will auto-connect
-          // via WebSocket to /node/ws/sessions/{id}. Session list refreshes
+          // via WebSocket to /api/node/ws/sessions/{id}. Session list refreshes
           // automatically via TanStack Query's onSuccess invalidation.
           attachToSession(result.session);
         }
@@ -411,20 +427,35 @@ function HomeContent() {
 
   // Render the main workspace
   const renderWorkspace = useCallback(
-    () => (
-      <Workspace
-        sessions={sessions}
-        activePanel={activePanel}
-        setActivePanel={setActivePanel}
-        activeWorkingDirectory={activeWorkingDirectory}
-        isGitRepo={isGitRepo}
-        requestedGitTab={requestedGitTab}
-        onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
-        onSelectSession={handleSelectSession}
-        onNewSession={() => setShowNewSessionDialog(true)}
-      />
-    ),
-    [sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo, requestedGitTab]
+    () => {
+      // An unreachable active node would otherwise render as an empty workspace,
+      // indistinguishable from a node with no sessions. Surface it explicitly —
+      // but only once its poll has SETTLED offline: `pending` is the first
+      // "Connecting…" poll (true on cold start, including the local node), so
+      // gating on !pending avoids flashing the offline screen before we know.
+      if (activeNode && !activeNode.online && !activeNode.pending) {
+        return (
+          <NodeOffline
+            name={activeNode.name}
+            onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
+          />
+        );
+      }
+      return (
+        <Workspace
+          sessions={sessions}
+          activePanel={activePanel}
+          setActivePanel={setActivePanel}
+          activeWorkingDirectory={activeWorkingDirectory}
+          isGitRepo={isGitRepo}
+          requestedGitTab={requestedGitTab}
+          onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
+          onSelectSession={handleSelectSession}
+          onNewSession={() => setShowNewSessionDialog(true)}
+        />
+      );
+    },
+    [activeNode, sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo, requestedGitTab]
   );
 
   const viewProps = {
@@ -433,6 +464,8 @@ function HomeContent() {
     sessionStatuses,
     sidebarOpen,
     setSidebarOpen,
+    railOpen,
+    setRailOpen,
     activeTab,
     showNewSessionDialog,
     setShowNewSessionDialog,
@@ -499,17 +532,38 @@ function HomeContent() {
 export function App() {
   return (
     <TooltipProvider>
-      <TabProvider>
-        <HomeContent />
-        <Toaster
-          theme="dark"
-          position="bottom-right"
-          richColors
-          toastOptions={{
-            className: "argus-toast",
-          }}
-        />
-      </TabProvider>
+      <NodeProvider>
+        <AppInner />
+      </NodeProvider>
     </TooltipProvider>
+  );
+}
+
+function AppInner() {
+  const { activeNodeId, activeNode, isLoaded } = useNodeContext();
+  // Node-rail visibility lives here, above the node-keyed TabProvider, so it
+  // survives the workspace remount on node switch.
+  const [railOpen, setRailOpen] = useState(false);
+  // Wait for the registry to settle before mounting the workspace. Otherwise,
+  // when a remote node is the persisted selection, HomeContent would mount with
+  // the default (local) origin and fire node-scoped fetches against the wrong
+  // node before the active origin is applied. The registry is same-origin and
+  // fast, so this is a brief gate; on a registry error isLoaded still settles
+  // and the selection falls back to the local node.
+  if (!isLoaded) return <div className="bg-background h-app" />;
+  // Scope tabs by id+origin so the workspace remounts AND persists under the
+  // same key — editing a manual node's URL (same id) yields fresh tabs. Same
+  // token as useActiveNode's cache scope (both via nodeScope).
+  const scope = nodeScope(activeNodeId, activeNode?.url ?? "");
+  return (
+    <TabProvider key={scope} nodeScope={scope}>
+      <HomeContent railOpen={railOpen} setRailOpen={setRailOpen} />
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        richColors
+        toastOptions={{ className: "argus-toast" }}
+      />
+    </TabProvider>
   );
 }

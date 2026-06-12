@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/tooltip";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
 import { cn } from "@/lib/utils";
+import { NodeRail } from "@/components/NodeRail";
+import { NodeStatus } from "@/components/NodeStatus";
 import type { ViewProps } from "./types";
 
 export function DesktopView({
@@ -18,6 +20,8 @@ export function DesktopView({
   sessionStatuses,
   sidebarOpen,
   setSidebarOpen,
+  railOpen,
+  setRailOpen,
   activeTab,
   showNewSessionDialog,
   setShowNewSessionDialog,
@@ -45,6 +49,7 @@ export function DesktopView({
 
   return (
     <div className="bg-background flex h-app overflow-hidden">
+      {sidebarOpen && railOpen && <NodeRail />}
       {/* Sidebar — always visible, toggles between expanded (w-72) and collapsed (w-14) */}
       <div
         className={cn(
@@ -52,34 +57,42 @@ export function DesktopView({
           sidebarOpen ? "w-72" : "w-14"
         )}
       >
-        {/* Header row: branding + toggle */}
-        <div
-          className={cn(
-            "flex items-center px-3 py-3",
-            sidebarOpen ? "justify-between" : "justify-center"
-          )}
-        >
-          {sidebarOpen && (
-            <h2 className="pl-1 text-2xl font-bold tracking-wide">argus</h2>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                {sidebarOpen ? (
-                  <PanelLeftClose className="h-4 w-4" />
-                ) : (
-                  <PanelLeft className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            {!sidebarOpen && (
-              <TooltipContent side="right">Expand sidebar</TooltipContent>
+        {/* Header: branding + toggle, then the node status snippet (expanded only) */}
+        <div className="px-3 py-3">
+          <div
+            className={cn(
+              "flex items-center",
+              sidebarOpen ? "justify-between" : "justify-center"
             )}
-          </Tooltip>
+          >
+            {sidebarOpen && (
+              <div className="flex items-center gap-2">
+                <NodeStatus
+                  railOpen={railOpen}
+                  onToggleRail={() => setRailOpen(!railOpen)}
+                />
+                <h2 className="text-2xl font-bold tracking-wide">argus</h2>
+              </div>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                >
+                  {sidebarOpen ? (
+                    <PanelLeftClose className="h-4 w-4" />
+                  ) : (
+                    <PanelLeft className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              {!sidebarOpen && (
+                <TooltipContent side="right">Expand sidebar</TooltipContent>
+              )}
+            </Tooltip>
+          </div>
         </div>
 
         {/* Nav items */}

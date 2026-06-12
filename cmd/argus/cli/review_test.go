@@ -12,7 +12,7 @@ import (
 
 func TestResolveReviewBase_FlagOverridesDefault(t *testing.T) {
 	// When --base is provided, the helper must return it verbatim and must
-	// NOT call /api/git/compare/branches at all (the network round-trip is
+	// NOT call /api/node/git/compare/branches at all (the network round-trip is
 	// pure waste and may fail on stale discovery state).
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -21,7 +21,7 @@ func TestResolveReviewBase_FlagOverridesDefault(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	got, err := resolveReviewBase(c, "path=/tmp/repo", "develop")
 	if err != nil {
 		t.Fatalf("resolveReviewBase: %v", err)
@@ -46,7 +46,7 @@ func TestResolveReviewBase_FlagTrimsWhitespace(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	got, err := resolveReviewBase(c, "path=/tmp/repo", "  main\n")
 	if err != nil {
 		t.Fatalf("resolveReviewBase: %v", err)
@@ -60,18 +60,18 @@ func TestResolveReviewBase_FlagTrimsWhitespace(t *testing.T) {
 }
 
 func TestResolveReviewBase_FallsBackToDefault(t *testing.T) {
-	// With no flag, the helper must hit /api/git/compare/branches and use
+	// With no flag, the helper must hit /api/node/git/compare/branches and use
 	// whatever defaultBase the server returns.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/node/api/git/compare/branches" {
-			t.Errorf("path = %q, want /node/api/git/compare/branches", r.URL.Path)
+		if r.URL.Path != "/api/node/git/compare/branches" {
+			t.Errorf("path = %q, want /api/node/git/compare/branches", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"defaultBase": "main"})
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	got, err := resolveReviewBase(c, "path=/tmp/repo", "")
 	if err != nil {
 		t.Fatalf("resolveReviewBase: %v", err)
@@ -92,7 +92,7 @@ func TestResolveReviewBase_EmptyFlagAndNoDefault(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	_, err := resolveReviewBase(c, "path=/tmp/repo", "")
 	if err == nil {
 		t.Fatal("expected error when no default base is detectable and --base is unset")
@@ -110,7 +110,7 @@ func TestResolveReviewBase_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	_, err := resolveReviewBase(c, "path=/tmp/repo", "")
 	if err == nil {
 		t.Fatal("expected error when server returns 5xx")
@@ -129,7 +129,7 @@ func TestResolveReviewBase_MalformedJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	_, err := resolveReviewBase(c, "path=/tmp/repo", "")
 	if err == nil {
 		t.Fatal("expected error for malformed JSON response")

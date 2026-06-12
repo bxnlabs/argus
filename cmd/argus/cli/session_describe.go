@@ -103,9 +103,9 @@ func newDescribeCmd() *cobra.Command {
 			// Fetch the list once: resolve the query and learn the home dir
 			// (used for path compression). Mirrors `session ls`. The list
 			// already returns full session records, so --json can pretty-print
-			// the matching one directly — avoiding GET /api/sessions/{id}, which
+			// the matching one directly — avoiding GET /api/node/sessions/{id}, which
 			// calls EnsureSession and would revive a dead session.
-			body, err := c.get("/api/sessions")
+			body, err := c.get("/sessions")
 			if err != nil {
 				return err
 			}
@@ -144,7 +144,7 @@ func newDescribeCmd() *cobra.Command {
 
 			// Best-effort runtime status (don't fail if unavailable).
 			status := ""
-			if statusBody, err := c.get("/api/sessions/status"); err == nil {
+			if statusBody, err := c.get("/sessions/status"); err == nil {
 				var statusResp struct {
 					Statuses map[string]struct {
 						Status string `json:"status"`

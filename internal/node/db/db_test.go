@@ -994,6 +994,12 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	if !strings.Contains(err.Error(), "create_notifications_table") {
 		t.Fatalf("expected error to mention create_notifications_table, got: %v", err)
 	}
+	// add_nodes_table is also pending: it was introduced after the column
+	// migrations recorded above, and the seed gate (priorMigrations==0 &&
+	// allColumnsPresent) does not fire because priorMigrations > 0.
+	if !strings.Contains(err.Error(), "add_nodes_table") {
+		t.Fatalf("expected error to mention add_nodes_table, got: %v", err)
+	}
 }
 
 func TestMigrationAddsPinnedToExistingDB(t *testing.T) {

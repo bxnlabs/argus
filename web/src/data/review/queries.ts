@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
 import type { Review } from "@/types";
 import { reviewKeys } from "./keys";
 
@@ -10,8 +11,9 @@ export function useReviewQuery(
   headRef?: string,
   baseRef?: string,
 ) {
+  const { scope, baseUrl } = useActiveNode();
   return useQuery({
-    queryKey: [...reviewKeys.forComparison(path, head ?? "", base ?? ""), headRef ?? "", baseRef ?? ""],
+    queryKey: [...reviewKeys.forComparison(scope, path, head ?? "", base ?? ""), headRef ?? "", baseRef ?? ""],
     queryFn: async () => {
       const params = new URLSearchParams({
         path,
@@ -20,7 +22,7 @@ export function useReviewQuery(
       });
       if (headRef) params.set("headRef", headRef);
       if (baseRef) params.set("baseRef", baseRef);
-      return apiFetch<Review>(`/node/api/git/review?${params}`);
+      return apiFetch<Review>(baseUrl, `/api/node/git/review?${params}`);
     },
     staleTime: 30_000,
     enabled: path.trim().length > 0 && !!head && !!base,
@@ -29,11 +31,12 @@ export function useReviewQuery(
 
 export function useSaveReviewMutation(path: string) {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: async (data: Review) => {
       const params = new URLSearchParams({ path });
-      return apiFetch<{ status: string }>(`/node/api/git/review?${params}`, {
+      return apiFetch<{ status: string }>(baseUrl, `/api/node/git/review?${params}`, {
         method: "POST",
         body: JSON.stringify(data),
       });
@@ -42,7 +45,7 @@ export function useSaveReviewMutation(path: string) {
       // Invalidate the (path, head, base) prefix so any cached review query —
       // regardless of the headRef/baseRef suffix — is refetched after save.
       queryClient.invalidateQueries({
-        queryKey: reviewKeys.forComparison(path, data.head, data.base),
+        queryKey: reviewKeys.forComparison(scope, path, data.head, data.base),
       });
     },
   });
@@ -50,6 +53,7 @@ export function useSaveReviewMutation(path: string) {
 
 export function useDeleteReviewMutation(path: string) {
   const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
     mutationFn: async ({
@@ -65,13 +69,14 @@ export function useDeleteReviewMutation(path: string) {
         base,
       });
       return apiFetch<{ status: string }>(
-        `/node/api/git/review?${params}`,
+        baseUrl,
+        `/api/node/git/review?${params}`,
         { method: "DELETE" },
       );
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: reviewKeys.forComparison(path, variables.head, variables.base),
+        queryKey: reviewKeys.forComparison(scope, path, variables.head, variables.base),
       });
     },
   });

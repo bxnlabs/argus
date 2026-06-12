@@ -14,6 +14,7 @@ import { createTerminal, updateTerminalForMobile } from "./terminal-init";
 import { setupTouchScroll } from "./touch-scroll";
 import { createWebSocketConnection } from "./websocket-connection";
 import { setupResizeHandlers } from "./resize-handlers";
+import { useActiveNode } from "@/hooks/useActiveNode";
 
 export type { TerminalScrollState } from "./useTerminalConnection.types";
 
@@ -27,6 +28,8 @@ export function useTerminalConnection({
   isMobile = false,
   selectMode = false,
 }: UseTerminalConnectionProps): UseTerminalConnectionReturn {
+  const { baseUrl } = useActiveNode();
+
   const [connectionState, setConnectionState] = useState<
     "connecting" | "connected" | "disconnected" | "reconnecting" | "session_ended"
   >("connecting");
@@ -128,6 +131,7 @@ export function useTerminalConnection({
     let scrollRestoreTimer: ReturnType<typeof setTimeout> | null = null;
     const wsManager = createWebSocketConnection(
       term,
+      baseUrl,
       sessionName,
       {
         onConnected: () => {
@@ -203,7 +207,7 @@ export function useTerminalConnection({
       fitAddonRef.current = null;
       searchAddonRef.current = null;
     };
-  }, [isMobile, terminalRef, sessionName]);
+  }, [isMobile, terminalRef, sessionName, baseUrl]);
 
   // Handle isMobile changes dynamically
   useEffect(() => {

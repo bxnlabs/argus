@@ -79,6 +79,15 @@ var allMigrations = []migration{
 		return d.addColumnIfMissing("user_marked_unread_at",
 			`ALTER TABLE sessions ADD COLUMN user_marked_unread_at TEXT`)
 	}},
+	{"add_nodes_table", func(d *DB) error {
+		_, err := d.sql.Exec(`CREATE TABLE IF NOT EXISTS nodes (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`)
+		return err
+	}},
 }
 
 // hasColumn reports whether the sessions table already has the named column.

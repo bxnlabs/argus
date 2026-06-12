@@ -60,7 +60,7 @@ func TestBuildListeners_InvalidAddr(t *testing.T) {
 
 func TestMakeListeners_Disabled(t *testing.T) {
 	tsCfg := config.TailscaleConfig{Enabled: false}
-	lns, disc, _, closer, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0, "combined")
+	lns, disc, _, tsServer, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0)
 	if err != nil {
 		t.Fatalf("makeListeners (disabled): %v", err)
 	}
@@ -75,14 +75,14 @@ func TestMakeListeners_Disabled(t *testing.T) {
 	if disc == "" {
 		t.Error("discoveryAddr is empty")
 	}
-	if closer != nil {
-		t.Error("tsCloser should be nil when Tailscale is disabled")
+	if tsServer != nil {
+		t.Error("tsServer should be nil when Tailscale is disabled")
 	}
 }
 
 func TestMakeListeners_DisabledWildcard(t *testing.T) {
 	tsCfg := config.TailscaleConfig{Enabled: false}
-	lns, disc, _, _, err := makeListeners(context.Background(), tsCfg, "0.0.0.0", 0, "combined")
+	lns, disc, _, _, err := makeListeners(context.Background(), tsCfg, "0.0.0.0", 0)
 	if err != nil {
 		t.Fatalf("makeListeners (wildcard): %v", err)
 	}
@@ -108,7 +108,7 @@ func TestMakeListeners_DisabledWildcardIPv6(t *testing.T) {
 	ln.Close()
 
 	tsCfg := config.TailscaleConfig{Enabled: false}
-	lns, disc, _, _, err := makeListeners(context.Background(), tsCfg, "::", 0, "combined")
+	lns, disc, _, _, err := makeListeners(context.Background(), tsCfg, "::", 0)
 	if err != nil {
 		t.Fatalf("makeListeners (:: wildcard): %v", err)
 	}
@@ -119,30 +119,6 @@ func TestMakeListeners_DisabledWildcardIPv6(t *testing.T) {
 	}()
 	if !strings.HasPrefix(disc, "127.0.0.1:") {
 		t.Errorf("discoveryAddr = %q, want 127.0.0.1:* prefix", disc)
-	}
-}
-
-func TestMakeListeners_HostnameSuffix(t *testing.T) {
-	// We can't start tsnet in tests, but we can verify the hostname derivation
-	// logic indirectly by checking that makeListeners passes through mode correctly.
-	// The actual hostname derivation is tested here by verifying the function
-	// signature accepts mode and the disabled path returns correctly for each mode.
-	tsCfg := config.TailscaleConfig{Enabled: false}
-	for _, mode := range []string{"combined", "server", "node"} {
-		t.Run(mode, func(t *testing.T) {
-			lns, disc, _, _, err := makeListeners(context.Background(), tsCfg, "127.0.0.1", 0, mode)
-			if err != nil {
-				t.Fatalf("makeListeners (disabled, mode=%s): %v", mode, err)
-			}
-			defer func() {
-				for _, ln := range lns {
-					ln.Close()
-				}
-			}()
-			if disc == "" {
-				t.Errorf("discoveryAddr is empty for mode %s", mode)
-			}
-		})
 	}
 }
 
@@ -188,30 +164,21 @@ func TestSanitizeDNSCompliantHostname(t *testing.T) {
 
 func TestDeriveHostname(t *testing.T) {
 	tests := []struct {
-		name     string
-		prefix   string
-		mode     string
-		wantSfx  string
-		wantPfx  string
+		name    string
+		prefix  string
+		wantPfx string
 	}{
-		{name: "combined default", prefix: "", mode: "combined", wantPfx: "argus-"},
-		{name: "server default", prefix: "", mode: "server", wantPfx: "argus-", wantSfx: "-server"},
-		{name: "node default", prefix: "", mode: "node", wantPfx: "argus-", wantSfx: "-node"},
-		{name: "custom combined", prefix: "myhost", mode: "combined", wantPfx: "myhost"},
-		{name: "custom server", prefix: "myhost", mode: "server", wantPfx: "myhost", wantSfx: "-server"},
-		{name: "custom node", prefix: "myhost", mode: "node", wantPfx: "myhost", wantSfx: "-node"},
+		{name: "default", prefix: "", wantPfx: "argus-"},
+		{name: "custom", prefix: "myhost", wantPfx: "myhost"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := deriveHostname(tt.prefix, tt.mode)
+			got := deriveHostname(tt.prefix)
 			if tt.wantPfx != "" && !strings.HasPrefix(got, tt.wantPfx) {
-				t.Errorf("deriveHostname(%q, %q) = %q, want prefix %q", tt.prefix, tt.mode, got, tt.wantPfx)
+				t.Errorf("deriveHostname(%q) = %q, want prefix %q", tt.prefix, got, tt.wantPfx)
 			}
-			if tt.wantSfx != "" && !strings.HasSuffix(got, tt.wantSfx) {
-				t.Errorf("deriveHostname(%q, %q) = %q, want suffix %q", tt.prefix, tt.mode, got, tt.wantSfx)
-			}
-			if tt.mode == "combined" && (strings.HasSuffix(got, "-server") || strings.HasSuffix(got, "-node")) {
-				t.Errorf("combined mode should not have -server/-node suffix, got %q", got)
+			if strings.HasSuffix(got, "-server") || strings.HasSuffix(got, "-node") {
+				t.Errorf("hostname should not have -server/-node suffix, got %q", got)
 			}
 		})
 	}

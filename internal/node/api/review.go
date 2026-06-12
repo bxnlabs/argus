@@ -35,7 +35,7 @@ func (h *reviewHandler) resolveProjectDir(expandedPath string) (string, error) {
 	return resolveProjectDir(expandedPath, h.projectDirOverride)
 }
 
-// GET /api/git/review?path=...&branch=...&base=...&headRef=...&baseRef=...
+// GET /git/review?path=...&branch=...&base=...&headRef=...&baseRef=...
 func (h *reviewHandler) get(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	branch := r.URL.Query().Get("branch")
@@ -71,7 +71,7 @@ func (h *reviewHandler) get(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, rv)
 }
 
-// POST /api/git/review?path=...
+// POST /git/review?path=...
 func (h *reviewHandler) post(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	if repoPath == "" {
@@ -116,7 +116,7 @@ func (h *reviewHandler) post(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// DELETE /api/git/review?path=...&branch=...&base=...
+// DELETE /git/review?path=...&branch=...&base=...
 func (h *reviewHandler) delete(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	branch := r.URL.Query().Get("branch")

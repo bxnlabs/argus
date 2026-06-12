@@ -10,7 +10,7 @@ import (
 
 func TestFilesSearch_MissingQuery(t *testing.T) {
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files/search", nil)
+	req := httptest.NewRequest("GET", "/files/search", nil)
 	w := httptest.NewRecorder()
 	handler.search(w, req)
 
@@ -24,7 +24,7 @@ func TestFilesSearch_MissingQuery(t *testing.T) {
 
 func TestFilesSearch_InvalidType(t *testing.T) {
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/api/files/search?q=test&type=invalid", nil)
+	req := httptest.NewRequest("GET", "/files/search?q=test&type=invalid", nil)
 	w := httptest.NewRecorder()
 	handler.search(w, req)
 
@@ -37,7 +37,7 @@ func TestFilesSearch_ViaRouter(t *testing.T) {
 	deps := Deps{} // filesHandler has no deps
 	router := NewRouter(deps)
 
-	req := httptest.NewRequest("GET", "/api/files/search?q=test&type=directory&limit=5", nil)
+	req := httptest.NewRequest("GET", "/files/search?q=test&type=directory&limit=5", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

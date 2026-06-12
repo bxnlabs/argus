@@ -74,7 +74,7 @@ func TestHeartbeatHandler(t *testing.T) {
 	db := newFakeHeartbeatDB()
 	h := &heartbeatHandler{db: db}
 
-	req := httptest.NewRequest("POST", "/api/sessions/sess-1/heartbeat", nil)
+	req := httptest.NewRequest("POST", "/sessions/sess-1/heartbeat", nil)
 	req.SetPathValue("id", "sess-1")
 	w := httptest.NewRecorder()
 
@@ -95,7 +95,7 @@ func TestAcknowledgeHandler(t *testing.T) {
 	db := newFakeHeartbeatDB()
 	h := &heartbeatHandler{db: db}
 
-	req := httptest.NewRequest("POST", "/api/sessions/sess-2/acknowledge", nil)
+	req := httptest.NewRequest("POST", "/sessions/sess-2/acknowledge", nil)
 	req.SetPathValue("id", "sess-2")
 	w := httptest.NewRecorder()
 
@@ -116,7 +116,7 @@ func TestMarkUnreadHandler(t *testing.T) {
 	db := newFakeHeartbeatDB()
 	h := &heartbeatHandler{db: db}
 
-	req := httptest.NewRequest("POST", "/api/sessions/sess-3/unread", nil)
+	req := httptest.NewRequest("POST", "/sessions/sess-3/unread", nil)
 	req.SetPathValue("id", "sess-3")
 	w := httptest.NewRecorder()
 
@@ -137,7 +137,7 @@ func TestMarkReadHandler(t *testing.T) {
 	db := newFakeHeartbeatDB()
 	h := &heartbeatHandler{db: db}
 
-	req := httptest.NewRequest("POST", "/api/sessions/sess-4/read", nil)
+	req := httptest.NewRequest("POST", "/sessions/sess-4/read", nil)
 	req.SetPathValue("id", "sess-4")
 	w := httptest.NewRecorder()
 
@@ -165,10 +165,10 @@ func TestHeartbeatHandlersMissingSession(t *testing.T) {
 		handler http.HandlerFunc
 		path    string
 	}{
-		{"heartbeat", h.heartbeat, "/api/sessions/missing/heartbeat"},
-		{"acknowledge", h.acknowledge, "/api/sessions/missing/acknowledge"},
-		{"unread", h.markUnread, "/api/sessions/missing/unread"},
-		{"read", h.markRead, "/api/sessions/missing/read"},
+		{"heartbeat", h.heartbeat, "/sessions/missing/heartbeat"},
+		{"acknowledge", h.acknowledge, "/sessions/missing/acknowledge"},
+		{"unread", h.markUnread, "/sessions/missing/unread"},
+		{"read", h.markRead, "/sessions/missing/read"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

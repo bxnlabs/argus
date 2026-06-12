@@ -47,7 +47,7 @@ func TestFetchAndResolve_OK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	s, err := fetchAndResolve(c, "my-session")
 	if err != nil {
 		t.Fatalf("fetchAndResolve: %v", err)
@@ -64,7 +64,7 @@ func TestFetchAndResolve_NoMatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &apiClient{baseURL: srv.URL + "/node"}
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	_, err := fetchAndResolve(c, "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for no match")
@@ -78,7 +78,7 @@ func TestNewClient_AcceptsLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newClient: %v", err)
 	}
-	if c.baseURL != "http://127.0.0.1:3000/node" {
+	if c.baseURL != "http://127.0.0.1:3000/api/node" {
 		t.Errorf("baseURL = %q", c.baseURL)
 	}
 }

@@ -16,7 +16,7 @@ func TestReviewHandler_GetEmpty(t *testing.T) {
 	repoDir := homeTempDir(t)
 	h := &reviewHandler{projectDirOverride: t.TempDir()}
 	req := httptest.NewRequest("GET",
-		"/api/git/review?path="+repoDir+"&branch=feat/test&base=main",
+		"/git/review?path="+repoDir+"&branch=feat/test&base=main",
 		nil)
 	w := httptest.NewRecorder()
 	h.get(w, req)
@@ -49,7 +49,7 @@ func TestReviewHandler_PostAndGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	postReq := httptest.NewRequest("POST",
-		"/api/git/review?path="+repoDir,
+		"/git/review?path="+repoDir,
 		bytes.NewReader(body))
 	postW := httptest.NewRecorder()
 	h.post(postW, postReq)
@@ -57,7 +57,7 @@ func TestReviewHandler_PostAndGet(t *testing.T) {
 		t.Fatalf("POST expected 200, got %d: %s", postW.Code, postW.Body.String())
 	}
 	getReq := httptest.NewRequest("GET",
-		"/api/git/review?path="+repoDir+"&branch=feat/test&base=main",
+		"/git/review?path="+repoDir+"&branch=feat/test&base=main",
 		nil)
 	getW := httptest.NewRecorder()
 	h.get(getW, getReq)
@@ -84,7 +84,7 @@ func TestReviewHandler_PostRejectsTraversal(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest("POST",
-		"/api/git/review?path="+repoDir,
+		"/git/review?path="+repoDir,
 		bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.post(w, req)
@@ -111,7 +111,7 @@ func TestReviewHandler_PostRejectsInvalidSide(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest("POST",
-		"/api/git/review?path="+repoDir,
+		"/git/review?path="+repoDir,
 		bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.post(w, req)
@@ -138,7 +138,7 @@ func TestReviewHandler_PostRejectsNonPositiveLine(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest("POST",
-		"/api/git/review?path="+repoDir,
+		"/git/review?path="+repoDir,
 		bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.post(w, req)
@@ -166,7 +166,7 @@ func TestReviewHandler_PostRejectsOldPathTraversal(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest("POST",
-		"/api/git/review?path="+repoDir,
+		"/git/review?path="+repoDir,
 		bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.post(w, req)
@@ -193,7 +193,7 @@ func TestReviewHandler_PostRejectsFromNotEqualTo(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest("POST",
-		"/api/git/review?path="+repoDir,
+		"/git/review?path="+repoDir,
 		bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.post(w, req)
@@ -221,7 +221,7 @@ func TestReviewHandler_Delete(t *testing.T) {
 	}
 	body, _ := json.Marshal(payload)
 	postReq := httptest.NewRequest("POST",
-		"/api/git/review?path="+repoDir,
+		"/git/review?path="+repoDir,
 		bytes.NewReader(body))
 	postW := httptest.NewRecorder()
 	h.post(postW, postReq)
@@ -229,7 +229,7 @@ func TestReviewHandler_Delete(t *testing.T) {
 		t.Fatalf("POST expected 200, got %d: %s", postW.Code, postW.Body.String())
 	}
 	delReq := httptest.NewRequest("DELETE",
-		"/api/git/review?path="+repoDir+"&branch=feat/test&base=main",
+		"/git/review?path="+repoDir+"&branch=feat/test&base=main",
 		nil)
 	delW := httptest.NewRecorder()
 	h.delete(delW, delReq)
