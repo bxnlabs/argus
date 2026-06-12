@@ -120,6 +120,14 @@ export function createTerminal(
       // — dispose it and fall back to xterm's default DOM renderer.
       pendingAddon?.dispose();
       webglAddon = null;
+      // A throw while re-acquiring after a context loss is another unhealthy
+      // attempt — count it toward the streak so we eventually stop retrying on
+      // every foreground instead of looping forever. (The initial load runs
+      // with webglDropped === false, so a one-off "no WebGL2" startup failure
+      // never trips this.)
+      if (webglDropped && ++webglLosses >= WEBGL_MAX_LOSSES) {
+        webglGivenUp = true;
+      }
     }
   };
 
