@@ -52,6 +52,13 @@ interface SheetContentProps
     VariantProps<typeof sheetVariants> {
   hideCloseButton?: boolean;
   dismissOnOverlayClick?: boolean;
+  /**
+   * Render the overlay without its own dim. Use when the sheet slides over a
+   * surface that is already backdropped (e.g. the mobile node switcher over the
+   * sidebar drawer) so the dim doesn't double up. The overlay still catches
+   * taps for `dismissOnOverlayClick`.
+   */
+  transparentOverlay?: boolean;
 }
 
 const SheetContent = React.forwardRef<
@@ -65,6 +72,7 @@ const SheetContent = React.forwardRef<
       children,
       hideCloseButton = false,
       dismissOnOverlayClick = false,
+      transparentOverlay = false,
       ...props
     },
     ref
@@ -72,10 +80,10 @@ const SheetContent = React.forwardRef<
     <SheetPortal>
       {dismissOnOverlayClick ? (
         <SheetPrimitive.Close asChild>
-          <SheetOverlay />
+          <SheetOverlay className={cn(transparentOverlay && "bg-transparent")} />
         </SheetPrimitive.Close>
       ) : (
-        <SheetOverlay />
+        <SheetOverlay className={cn(transparentOverlay && "bg-transparent")} />
       )}
       <SheetPrimitive.Content
         ref={ref}

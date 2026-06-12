@@ -45,6 +45,7 @@ export function MobileNodePanel({
         side="left"
         hideCloseButton
         dismissOnOverlayClick
+        transparentOverlay
         className="bg-sidebar-background w-72"
       >
         {/* Header: back chevron + title */}
