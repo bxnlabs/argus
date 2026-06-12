@@ -31,6 +31,7 @@ export function DesktopView({
   onCreateSession,
   onDeleteSession,
   onRenameSession,
+  onCloneSession,
   onChangeProfile,
   onViewInfo,
   onTogglePin,
@@ -145,6 +146,7 @@ export function DesktopView({
                 onAttachSession={handleAttachSession}
                 onDeleteSession={onDeleteSession}
                 onRenameSession={onRenameSession}
+                onCloneSession={onCloneSession}
                 onChangeProfile={onChangeProfile}
                 onViewInfo={onViewInfo}
                 onTogglePin={onTogglePin}

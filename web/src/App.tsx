@@ -9,7 +9,7 @@ import { useViewport } from "@/hooks/useViewport";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
-import { useCreateSession } from "@/data/sessions/queries";
+import { useCreateSession, useCloneSession } from "@/data/sessions/queries";
 import { apiTextFetch } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
@@ -87,6 +87,9 @@ function HomeContent({
   const createSessionMutation = useCreateSession();
   const createMutateRef = useRef(createSessionMutation.mutateAsync);
   createMutateRef.current = createSessionMutation.mutateAsync;
+  const cloneSessionMutation = useCloneSession();
+  const cloneMutateRef = useRef(cloneSessionMutation.mutateAsync);
+  cloneMutateRef.current = cloneSessionMutation.mutateAsync;
 
   const focusedSession = activeTab?.sessionId
     ? sessions.find((s) => s.id === activeTab.sessionId)
@@ -325,6 +328,23 @@ function HomeContent({
     [attachToSession]
   );
 
+  // Clone session handler — creates a sibling session sharing the same context
+  // (worktree, profile, provider) and attaches to it.
+  const handleCloneSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        const result = await cloneMutateRef.current(sessionId);
+        if (result.session) {
+          attachToSession(result.session);
+        }
+      } catch (err) {
+        console.error("Failed to clone session:", err);
+        toast.error("Failed to clone session");
+      }
+    },
+    [attachToSession]
+  );
+
   // Delete session handler
   const handleDeleteSession = useCallback(
     async (sessionId: string, deleteBranch?: boolean) => {
@@ -455,6 +475,7 @@ function HomeContent({
     onCreateSession: handleCreateSession,
     onDeleteSession: handleDeleteSession,
     onRenameSession: handleRenameSession,
+    onCloneSession: handleCloneSession,
     onChangeProfile: (session: Session) => setChangeProfileSessionId(session.id),
     onViewInfo: (session: Session) => setInfoSessionId(session.id),
     onTogglePin: handleTogglePin,

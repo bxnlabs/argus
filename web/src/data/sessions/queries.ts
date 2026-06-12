@@ -49,6 +49,23 @@ export function useCreateSession() {
   });
 }
 
+export function useCloneSession() {
+  const queryClient = useQueryClient();
+  const { scope, baseUrl } = useActiveNode();
+
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      apiFetch<CreateSessionResponse>(
+        baseUrl,
+        `/api/node/sessions/${encodeURIComponent(sessionId)}/clone`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
+    },
+  });
+}
+
 interface DeleteSessionResponse {
   success: boolean;
   branch_deleted: boolean;
@@ -68,7 +85,7 @@ export function useDeleteSession() {
     }) =>
       apiFetch<DeleteSessionResponse>(
         baseUrl,
-        `/api/node/sessions/${sessionId}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
+        `/api/node/sessions/${encodeURIComponent(sessionId)}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
         { method: "DELETE" },
       ),
     onSuccess: () => {
@@ -89,7 +106,7 @@ export function useRenameSession() {
       sessionId: string;
       newName: string;
     }) =>
-      apiFetch(baseUrl, `/api/node/sessions/${sessionId}`, {
+      apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}`, {
         method: "PATCH",
         body: JSON.stringify({ name: newName }),
       }),
@@ -134,10 +151,10 @@ export function useChangeSessionProfile() {
       profile: string | null;
     }) =>
       profile === null
-        ? apiFetch(baseUrl, `/api/node/sessions/${sessionId}/profile`, {
+        ? apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "DELETE",
           })
-        : apiFetch(baseUrl, `/api/node/sessions/${sessionId}/profile`, {
+        : apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "PUT",
             body: JSON.stringify({ profile }),
           }),
@@ -158,7 +175,7 @@ export function useUpdateSession() {
 
   return useMutation({
     mutationFn: ({ sessionId, pinned }: UpdateSessionInput) =>
-      apiFetch(baseUrl, `/api/node/sessions/${sessionId}`, {
+      apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}`, {
         method: "PATCH",
         body: JSON.stringify({ pinned }),
       }),

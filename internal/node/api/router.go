@@ -39,6 +39,7 @@ func NewRouter(deps Deps) http.Handler {
 	sh := &sessionHandler{manager: deps.SessionManager, watcherManager: deps.WatcherManager}
 	mux.HandleFunc("GET /sessions", sh.list)
 	mux.HandleFunc("POST /sessions", sh.create)
+	mux.HandleFunc("POST /sessions/{id}/clone", sh.clone)
 	mux.HandleFunc("GET /sessions/{id}", sh.get)
 	mux.HandleFunc("PATCH /sessions/{id}", sh.update)
 	mux.HandleFunc("DELETE /sessions/{id}", sh.delete)

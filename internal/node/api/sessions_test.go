@@ -76,6 +76,20 @@ func TestDetachProfileHandler_SessionNotFound(t *testing.T) {
 	}
 }
 
+func TestCloneHandler_SessionNotFound(t *testing.T) {
+	h, _ := newTestSessionHandler(t)
+
+	req := httptest.NewRequest("POST", "/api/sessions/missing/clone", nil)
+	req.SetPathValue("id", "missing")
+	w := httptest.NewRecorder()
+
+	h.clone(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing session, got %d", w.Code)
+	}
+}
+
 func TestDetachProfileHandler_AlreadyDetachedIsNoop(t *testing.T) {
 	h, database := newTestSessionHandler(t)
 

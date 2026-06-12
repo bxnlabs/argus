@@ -25,6 +25,7 @@ export function MobileView({
   onCreateSession,
   onDeleteSession,
   onRenameSession,
+  onCloneSession,
   onChangeProfile,
   onViewInfo,
   onTogglePin,
@@ -117,6 +118,7 @@ export function MobileView({
                       onAttachSession={handleAttachSession}
                       onDeleteSession={onDeleteSession}
                       onRenameSession={onRenameSession}
+                      onCloneSession={onCloneSession}
                       onChangeProfile={onChangeProfile}
                       onViewInfo={onViewInfo}
                       onTogglePin={onTogglePin}
