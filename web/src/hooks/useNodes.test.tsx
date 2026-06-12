@@ -169,6 +169,55 @@ describe("useNodes", () => {
     expect(gpu.summary).toBeNull();
   });
 
+  it("keeps a settled-offline node offline across refetches (no connecting flicker)", async () => {
+    // Reproduces the mobile "unreachable" oscillation: a node that has already
+    // settled offline must NOT flip back to Connecting while its next 5s poll is
+    // in flight. With retry:false, React Query clears the prior error back to
+    // status:'pending' for the whole in-flight window, so a node that re-fetches
+    // mid-test reports isPending:true again — but it has errored before, so it
+    // must read Offline (pending:false), not Connecting.
+    vi.useFakeTimers();
+    let remoteFirstPollDone = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (input === "/api/nodes") {
+        return new Response(JSON.stringify({ nodes: [
+          { id: "local", name: "this", url: "", source: "local", self: true },
+          { id: "m1", name: "gpu", url: "http://gpu:80", source: "manual", self: false },
+        ] }), { status: 200 });
+      }
+      if (input === "/api/node/summary") {
+        return new Response(JSON.stringify({ attention: 0, busy: 0, total: 1 }), { status: 200 });
+      }
+      if (input === "http://gpu:80/api/node/summary") {
+        // First poll 502s fast (settles offline); every later poll hangs, so the
+        // refetch is genuinely in flight when we assert — exactly the production
+        // window where isPending re-reads true.
+        if (!remoteFirstPollDone) {
+          remoteFirstPollDone = true;
+          return new Response("", { status: 502 });
+        }
+        return new Promise<Response>(() => {}); // hangs, like a blackholed node
+      }
+      return new Response("", { status: 404 });
+    }));
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useNodes(), { wrapper: wrapper(qc) });
+
+    // Let the first remote poll settle as an error → Offline.
+    await vi.advanceTimersByTimeAsync(50);
+    const settled = result.current.nodes.find((n) => n.id === "m1")!;
+    expect(settled.online).toBe(false);
+    expect(settled.pending).toBe(false);
+
+    // Drive the 5s refetch; it now hangs, so isPending re-reads true. The node
+    // has errored before, so it must stay Offline rather than flash Connecting.
+    await vi.advanceTimersByTimeAsync(5000);
+    const refetching = result.current.nodes.find((n) => n.id === "m1")!;
+    expect(refetching.online).toBe(false);
+    expect(refetching.pending).toBe(false);
+  });
+
   it("falls back to a local node when the registry request fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string) => {
       if (input === "/api/nodes") return new Response("", { status: 500 });

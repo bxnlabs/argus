@@ -58,10 +58,17 @@ export function useNodes(): { nodes: NodeWithStatus[]; isLoaded: boolean } {
     //      a refetch error sets status:'error'; the retained data surfaces as
     //      isRefetchError, not success — so isSuccess alone is sufficient.)
     const online = !!q && q.isSuccess;
-    // Pending = the first poll is still in flight (never settled). retry:false
-    // means isPending flips false the moment a poll settles and stays false on
-    // background refetches, so it marks "Connecting…" without flashing.
-    const pending = !!q && q.isPending;
+    // Pending = the FIRST poll is still in flight (the node has never settled
+    // either way). isPending alone is "no data yet", which a never-succeeded
+    // (always-offline) node re-enters on EVERY background refetch: with
+    // retry:false each 5s poll clears the prior error back to status:'pending'
+    // for the whole in-flight window, so gating on isPending alone oscillates a
+    // downed node offline⇄"Connecting…" every poll (the workspace flips to a
+    // doomed-connecting Terminal for ~5s at a time, and on mobile that unmounts
+    // the offline screen's "switch node" button mid-tap). errorUpdateCount is
+    // cumulative and survives refetches, so "has never errored" tells a genuine
+    // cold-start poll apart from a downed node's doomed retry.
+    const pending = !!q && q.isPending && q.errorUpdateCount === 0;
     // Discovered nodes arrive with their raw tailnet hostname (e.g.
     // "argus-bumblebee.tail06de7.ts.net"); run it through the same helper that
     // names manual nodes so the rail, switcher, and panel read consistently.

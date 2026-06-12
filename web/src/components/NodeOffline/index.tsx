@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
  * On mobile the rail/sidebar live behind a hamburger that normally sits in the
  * workspace this screen replaces, so `onMenuClick` (passed only on mobile) keeps
  * that trigger present — otherwise an offline active node would trap the user
- * with no way to switch away.
+ * with no way to switch away. It anchors below `env(safe-area-inset-top)` (as
+ * the MobileTabBar's menu button does) so a notch/Dynamic Island doesn't push it
+ * up under the status bar out of reach.
  */
 export function NodeOffline({
   name,
@@ -26,7 +28,7 @@ export function NodeOffline({
           size="icon-sm"
           onClick={onMenuClick}
           aria-label="Open menu"
-          className="absolute left-2 top-2 h-8 w-8"
+          className="absolute left-2 top-[max(0.5rem,env(safe-area-inset-top))] h-8 w-8"
         >
           <PanelLeft className="h-4 w-4" />
         </Button>
