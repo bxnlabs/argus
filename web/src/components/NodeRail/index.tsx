@@ -41,7 +41,7 @@ function NodeTile({
       onContextMenu={editable ? undefined : (e) => e.preventDefault()}
       style={{ backgroundColor: nodeAccentColor(node.id) }}
       className={cn(
-        "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg border-[3px] font-mono text-lg font-bold leading-none text-white transition-[border-color,opacity,filter]",
+        "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg border-[3px] text-lg font-semibold leading-none text-white transition-[border-color,opacity,filter]",
         // The node's derived accent color is its identity (same tile as the
         // switcher avatar). Active is called out by the ring; inactive tiles
         // brighten on hover.
