@@ -19,7 +19,7 @@ Read these before starting:
 - `web/src/App.tsx:40` — `HomeContent` already calls `const { activeNode } = useNodeContext();`. We extend this destructure to also pull `nodes` and `setActiveNode`.
 - `web/src/App.tsx:42` — `const [sidebarOpen, setSidebarOpen] = useState(false);` lives in the same scope as the chord map.
 - `web/src/components/views/DesktopView.tsx:52` — `{sidebarOpen && railOpen && <NodeRail />}`; line 82 — the existing toggle button does `setSidebarOpen(!sidebarOpen)` (collapse to `w-14` icon strip ⇄ expand to `w-72`; never fully hidden).
-- `web/src/components/NodeRail/index.tsx:128–135` — the rail container `<div>`. Currently `className={cn("bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3", side === "right" ? "border-l" : "border-r")}`. `side` defaults to `"left"`; the mobile drawer passes `"right"`.
+- `web/src/components/NodeRail/index.tsx:128–135` — the rail container `<div>`. Currently `className={cn("bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3", side === "right" ? "border-l" : "border-r")}`. `side` defaults to `"left"`; no current caller passes `"right"` (the mobile path uses a separate `MobileNodePanel`), so the `"right"` variant is supported for future use only.
 - `web/src/globals.css:69` — `--primary: 217.2 91.2% 59.8%;` (HSL channels). `--sidebar-background: 0 0% 7%;` (line 87). `.node-working` and its keyframes sit around lines 253–286 — add the new class right after them.
 - `web/src/types.ts:202` — `NodeWithStatus extends NodeInfo`, which has `id: string` and `name: string`.
 

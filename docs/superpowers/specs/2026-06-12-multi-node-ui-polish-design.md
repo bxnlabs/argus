@@ -11,9 +11,12 @@ Three small, presentational improvements to the multi-node UI:
 2. A keyboard shortcut `Cmd/Ctrl+; b` to toggle the sidebar.
 3. Keyboard shortcuts `Cmd/Ctrl+; 1–9` to switch to a node by number.
 
-All three changes live in three files: `web/src/globals.css` and
-`web/src/components/NodeRail/index.tsx` for the gradient, and
-`web/src/App.tsx` (the chord map) for both shortcuts.
+The changes live in `web/src/globals.css` and
+`web/src/components/NodeRail/index.tsx` for the gradient, and `web/src/App.tsx`
+(the chord map) for both shortcuts. During implementation the node-switch digit
+logic was extracted into a small pure helper (`web/src/lib/nodeShortcuts.ts`)
+with unit tests (`web/src/lib/nodeShortcuts.test.ts`) so it can be tested in
+isolation; see the implementation plan for the final file breakdown.
 
 ## Background
 
@@ -68,8 +71,11 @@ utilities (`flex h-full w-14 ...`). The class supplies the gradient/tint; the
 existing utility classes keep the layout. `bg-sidebar-background` may remain as
 the fallback base the gradient sits on.
 
-The rail's `side="right"` case (the mobile drawer) mirrors the inner-edge sheen
-to the opposite edge so the glass treatment stays oriented toward the divider.
+The rail's `side="right"` case mirrors the inner-edge sheen to the opposite edge
+so the glass treatment stays oriented toward the divider. This variant is
+supported on `NodeRail` but not exercised by any current caller — the only
+`<NodeRail />` usage (`DesktopView.tsx`) takes the default `"left"`, and the
+mobile path renders a separate `MobileNodePanel`, not `NodeRail`.
 
 ### Non-goals
 
@@ -154,20 +160,29 @@ primarily by running the app:
 - **Gradient:** confirm the rail visibly separates from the sidebar, in both the
   single-node state (rail collapsed to the add-node button) and the 2+-node
   state (tiles visible). Confirm the glass tint reads as intended against the
-  sidebar and that the `side="right"` mobile drawer mirrors correctly.
+  sidebar. (The `side="right"` mirror variant has no current caller, so there is
+  nothing to verify there yet.)
 - **`b` chord:** `Cmd/Ctrl+;` then `b` collapses/expands the sidebar; the binding
   shows in the `?` overlay.
 - **`1–9` chords:** with 2+ nodes, the digits switch the active node and match
   rail order; with a single node, no digit bindings are registered; the `?`
   overlay lists the digit→node mappings.
 
-No new unit tests are planned unless desired (e.g., asserting the `b` and digit
-bindings are present in the chord map under the expected conditions).
+The node-switch digit logic is extracted into `web/src/lib/nodeShortcuts.ts` and
+unit-tested in `web/src/lib/nodeShortcuts.test.ts` (empty map below 2 nodes,
+rail-order digit mapping labelled by name, cap at the first 9). The `b` toggle
+and the gradient remain presentational/wiring changes verified by running the
+app.
 
 ## Files touched
 
-- `web/src/globals.css` — add `.node-rail-glass`.
-- `web/src/components/NodeRail/index.tsx` — apply `.node-rail-glass` to the rail
-  container; mirror sheen for `side="right"`.
-- `web/src/App.tsx` — add `b` and `1–9` bindings to the chord map; extend the
-  `useMemo` dependency array with `nodes` and `setActiveNode`.
+- `web/src/lib/nodeShortcuts.ts` — new pure helper deriving the `1–9`
+  node-switch chord bindings.
+- `web/src/lib/nodeShortcuts.test.ts` — unit tests for the helper.
+- `web/src/globals.css` — add `.node-rail-glass` (and its `[data-side="right"]`
+  variant).
+- `web/src/components/NodeRail/index.tsx` — apply `.node-rail-glass` and
+  `data-side={side}` to the rail container.
+- `web/src/App.tsx` — add the `b` binding and spread the node-switch digit
+  bindings into the chord map; extend the `useMemo` dependency array with `nodes`
+  and `setActiveNode`.
