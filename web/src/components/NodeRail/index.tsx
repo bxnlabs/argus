@@ -152,7 +152,7 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
               type="button"
               aria-label="Add node"
               onClick={openAdd}
-              className="text-muted-foreground border-muted-foreground hover:border-white hover:text-white mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
+              className="text-muted-foreground border-muted-foreground hover:border-white hover:text-white mx-auto mt-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
             >
               <Plus className="h-4 w-4" />
             </button>
