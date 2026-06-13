@@ -136,14 +136,8 @@ func runInstance(ctx context.Context) error {
 
 	// Self entry: same-origin from the browser (URL empty). Its dedup key is
 	// the tailnet URL (if any) so a discovered copy of self is collapsed.
-	selfName := cfg.Tailscale.HostnamePrefix
-	if selfName == "" {
-		if h, err := os.Hostname(); err == nil {
-			selfName = h
-		} else {
-			selfName = "this node"
-		}
-	}
+	osHostname, _ := os.Hostname()
+	selfName := deriveSelfName(cfg.Tailscale.HostnamePrefix, osHostname)
 	self := registry.Node{
 		ID:     "local",
 		Name:   selfName,
@@ -244,6 +238,22 @@ func sanitizeDNSCompliantHostname(s string) string {
 		s = strings.TrimRight(s[:63], "-")
 	}
 	return s
+}
+
+// deriveSelfName produces the local node's display name. It prefers the
+// configured Tailscale hostname prefix, falling back to the OS hostname, and
+// applies the same DNS-label sanitisation as Tailscale node names so a macOS
+// host reported as "bumblebee.local" displays as "bumblebee". Returns
+// "this node" when neither yields a usable label.
+func deriveSelfName(prefix, osHostname string) string {
+	name := sanitizeDNSCompliantHostname(prefix)
+	if name == "" {
+		name = sanitizeDNSCompliantHostname(osHostname)
+	}
+	if name == "" {
+		name = "this node"
+	}
+	return name
 }
 
 // deriveHostname builds the Tailscale node hostname from prefix.
