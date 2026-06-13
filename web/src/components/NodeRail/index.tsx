@@ -117,19 +117,18 @@ function NodeTile({
 
 /**
  * Rail carrying the manage-nodes entry point. Visibility is controlled by the
- * caller (gated on `railOpen`, toggled from the NodeStatus snippet). Node tiles
- * only appear once there's more than the local node to switch between; with a single
- * node the rail collapses to just the manage button, so a manual (non-Tailscale)
- * user can still add their first node from the UI. The rail is always a vertical
- * strip; `side` only flips which edge carries the divider and which way tooltips
- * open — the mobile drawer puts it on the right. Custom tiles carry a right-click
- * menu to edit or remove the node.
+ * caller (gated on `railOpen`, toggled from the NodeStatus snippet). Every node
+ * gets a tile, including the current one when it's the only node — the rail
+ * always shows which node you're on, matching the mobile switcher, rather than
+ * collapsing to a bare manage button before any peer is discovered. The rail is
+ * always a vertical strip; `side` only flips which edge carries the divider and
+ * which way tooltips open — the mobile drawer puts it on the right. Custom tiles
+ * carry a right-click menu to edit or remove the node.
  */
 export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
   const { nodes, activeNodeId, setActiveNode } = useNodeContext();
   const { openAdd, openEdit, deleteNode, dialog } = useNodeManagement();
 
-  const showTiles = nodes.length >= 2;
   // Tooltips open away from the divider edge, same as the node tiles.
   const tooltipSide = side === "right" ? "left" : "right";
   return (
@@ -143,18 +142,17 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
           side === "right" ? "border-l" : "border-r",
         )}
       >
-        {showTiles &&
-          nodes.map((n) => (
-            <NodeTile
-              key={n.id}
-              node={n}
-              active={n.id === activeNodeId}
-              onSelect={() => setActiveNode(n.id)}
-              tooltipSide={tooltipSide}
-              onEdit={openEdit}
-              onDelete={deleteNode}
-            />
-          ))}
+        {nodes.map((n) => (
+          <NodeTile
+            key={n.id}
+            node={n}
+            active={n.id === activeNodeId}
+            onSelect={() => setActiveNode(n.id)}
+            tooltipSide={tooltipSide}
+            onEdit={openEdit}
+            onDelete={deleteNode}
+          />
+        ))}
         <Tooltip>
           <TooltipTrigger asChild>
             <button

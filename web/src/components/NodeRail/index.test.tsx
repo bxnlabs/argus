@@ -27,13 +27,14 @@ function renderRail(nodes: NodeWithStatus[], activeId: string) {
 const base: NodeWithStatus = { id: "x", name: "x", url: "", source: "manual", self: false, summary: null, online: true, pending: false };
 
 describe("NodeRail", () => {
-  it("shows only the manage button (no tiles) with a single node", () => {
+  it("shows the current node's tile even when it's the only node", () => {
     const { container } = renderRail([{ ...base, id: "local", self: true }], "local");
     // The rail is present so the manage entry stays reachable...
     expect(container.querySelector("[data-testid='node-rail']")).not.toBeNull();
     expect(screen.getByLabelText("Add node")).toBeTruthy();
-    // ...but with nothing to switch to, no node tiles render.
-    expect(container.querySelector("[data-testid='node-tile-local']")).toBeNull();
+    // ...and the current node always shows, so you can see which node you're on
+    // even before any peer is discovered (parity with the mobile switcher).
+    expect(screen.getByTestId("node-tile-local")).toBeTruthy();
   });
 
   it("shows an attention badge with the count", () => {
