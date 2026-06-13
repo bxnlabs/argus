@@ -50,11 +50,13 @@ function NodeTile({
         } as CSSProperties
       }
       className={cn(
-        "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg border-[3px] text-lg font-semibold leading-none text-white transition-[border-color,opacity,filter]",
+        "relative mx-auto flex h-8 w-8 items-center justify-center rounded-lg border-solid text-base font-semibold leading-none text-white transition-[border-color,opacity,filter]",
         // The node's derived accent color is its identity (same tile as the
         // switcher avatar). Active is called out by the ring; inactive tiles
-        // brighten on hover.
-        active ? "border-primary" : "border-transparent hover:brightness-110",
+        // brighten on hover. Inactive tiles keep the 3px border the working ring
+        // offsets past (--node-working-border); the active tile uses a thinner
+        // border since it never shows the ring.
+        active ? "border-[1.5px] border-white" : "border-[3px] border-transparent hover:brightness-110",
         // Offline recedes rather than alarms: the colored tile simply dims so
         // a down node is the quietest tile in the rail, never the loudest.
         !node.online && !active && "opacity-40",
