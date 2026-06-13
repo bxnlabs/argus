@@ -111,6 +111,28 @@ describe("MobileNodePanel", () => {
     expect(screen.getByTestId("node-row-local").querySelector(".node-working")).toBeNull();
   });
 
+  it("shows the unread badge on the active node too, matching the desktop rail", () => {
+    // Sessions on the active node can still need attention while you're looking
+    // at a different session, so its unread badge stays on — unlike the working
+    // ring, which selection suppresses.
+    const activeWithUnreads: NodeWithStatus = {
+      ...local, summary: { attention: 3, busy: 0, total: 5 },
+    };
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <NodeContext.Provider
+          value={{
+            nodes: [activeWithUnreads, remote], isLoaded: true, activeNodeId: "local",
+            activeNode: activeWithUnreads, setActiveNode: vi.fn(),
+          }}
+        >
+          <MobileNodePanel open onClose={vi.fn()} onDismiss={vi.fn()} />
+        </NodeContext.Provider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId("node-row-attention-local").textContent).toBe("3");
+  });
+
   it("offers rename/delete actions only for Custom (manual) nodes", () => {
     renderPanel();
     // The Tailscale-discovered node (m1) is not editable...
