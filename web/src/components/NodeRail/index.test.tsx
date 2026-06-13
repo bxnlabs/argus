@@ -27,13 +27,14 @@ function renderRail(nodes: NodeWithStatus[], activeId: string) {
 const base: NodeWithStatus = { id: "x", name: "x", url: "", source: "manual", self: false, summary: null, online: true, pending: false };
 
 describe("NodeRail", () => {
-  it("shows only the manage button (no tiles) with a single node", () => {
+  it("shows the current node's tile even when it's the only node", () => {
     const { container } = renderRail([{ ...base, id: "local", self: true }], "local");
     // The rail is present so the manage entry stays reachable...
     expect(container.querySelector("[data-testid='node-rail']")).not.toBeNull();
     expect(screen.getByLabelText("Add node")).toBeTruthy();
-    // ...but with nothing to switch to, no node tiles render.
-    expect(container.querySelector("[data-testid='node-tile-local']")).toBeNull();
+    // ...and the current node always shows, so you can see which node you're on
+    // even before any peer is discovered (parity with the mobile switcher).
+    expect(screen.getByTestId("node-tile-local")).toBeTruthy();
   });
 
   it("shows an attention badge with the count", () => {
@@ -56,6 +57,23 @@ describe("NodeRail", () => {
       "local",
     );
     expect(screen.getByTestId("node-tile-m1").getAttribute("data-online")).toBe("false");
+  });
+
+  it("offsets the working ring past the tile border on a busy peer", () => {
+    renderRail(
+      [
+        { ...base, id: "local", self: true },
+        { ...base, id: "m1", name: "gpu", summary: { attention: 0, busy: 2, total: 4 } },
+      ],
+      "local",
+    );
+    const tile = screen.getByTestId("node-tile-m1");
+    // A busy non-active peer carries the spinning working ring...
+    expect(tile.className).toContain("node-working");
+    // ...and exposes its 3px border so the ring offsets past it instead of
+    // landing on the border band (desktop/mobile parity — the borderless mobile
+    // avatar leaves the var at its 0 default). See .node-working::before.
+    expect(tile.style.getPropertyValue("--node-working-border")).toBe("3px");
   });
 
   it("shows the dog-ear cue only on Custom (manual) tiles", () => {

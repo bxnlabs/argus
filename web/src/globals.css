@@ -265,7 +265,14 @@ body {
 .node-working::before {
   content: "";
   position: absolute;
-  inset: -3px;
+  /* Absolutely-positioned pseudo-elements are placed relative to the host's
+     *padding* box, so a host with a border (the desktop rail's 3px tile) would
+     pull this ring inward onto the border band — the box-shadow halo above sits
+     outside the border box, so the two split into a double ring. Offset by the
+     host's border width (exposed as --node-working-border; 0 by default for the
+     borderless mobile avatar) so the 3px ring lands flush just outside the
+     visible edge on both. */
+  inset: calc(-3px - var(--node-working-border, 0px));
   border-radius: inherit;
   padding: 3px;
   background: conic-gradient(
@@ -283,6 +290,21 @@ body {
   filter: blur(1px);
   animation: spin-border 2s linear infinite;
   pointer-events: none;
+}
+
+/* Node rail: dark frosted-glass surface so the rail reads as distinct from the
+   adjacent sidebar (both otherwise share --sidebar-background). A single vertical
+   ramp — a desaturated cool-grey at the top (#1d2024, lighter than the bare
+   sidebar) deepening downward into a near-black slate-navy at the bottom
+   (#081827), in the spirit of Slack's dark-mode rail. No side-specific sheen,
+   so the one rule serves both the desktop (left) rail and the mobile (right)
+   drawer. This class is unlayered, so it overrides the Tailwind
+   `bg-sidebar-background` utility, same as .node-working overrides its
+   surroundings. */
+.node-rail-glass {
+  background:
+    linear-gradient(to bottom, #1d2024, #081827),
+    hsl(var(--sidebar-background));
 }
 
 /* Toast prominence */

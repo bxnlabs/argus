@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Stray npm lockfile — this project uses pnpm (web/pnpm-lock.yaml)
+package-lock.json
+
 # Build output
 .next/
 out/

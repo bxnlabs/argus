@@ -162,6 +162,31 @@ func TestSanitizeDNSCompliantHostname(t *testing.T) {
 	}
 }
 
+func TestDeriveSelfName(t *testing.T) {
+	tests := []struct {
+		name     string
+		prefix   string
+		hostname string
+		want     string
+	}{
+		{name: "mac local stripped", prefix: "", hostname: "bumblebee.local", want: "bumblebee"},
+		{name: "plain hostname", prefix: "", hostname: "bumblebee", want: "bumblebee"},
+		{name: "corporate fqdn", prefix: "", hostname: "host.corp.example.com", want: "host"},
+		{name: "prefix wins over hostname", prefix: "myhost", hostname: "bumblebee.local", want: "myhost"},
+		{name: "prefix sanitised", prefix: "My-Box.local", hostname: "bumblebee", want: "my-box"},
+		{name: "no name available", prefix: "", hostname: "", want: "this node"},
+		{name: "unsanitisable hostname falls back", prefix: "", hostname: "!!!", want: "this node"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := deriveSelfName(tt.prefix, tt.hostname)
+			if got != tt.want {
+				t.Errorf("deriveSelfName(%q, %q) = %q, want %q", tt.prefix, tt.hostname, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeriveHostname(t *testing.T) {
 	tests := []struct {
 		name    string

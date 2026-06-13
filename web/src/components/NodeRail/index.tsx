@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { useNodeContext } from "@/contexts/NodeContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -39,7 +40,15 @@ function NodeTile({
       // Non-editable tiles have no menu; swallow the contextmenu event so a
       // right-click doesn't pop the native browser menu over a node tile.
       onContextMenu={editable ? undefined : (e) => e.preventDefault()}
-      style={{ backgroundColor: nodeAccentColor(node.id) }}
+      style={
+        {
+          backgroundColor: nodeAccentColor(node.id),
+          // Expose the tile's 3px border so the working ring (.node-working::before)
+          // offsets past it and sits flush outside the tile, matching the
+          // borderless mobile avatar. Keep in sync with border-[3px] below.
+          "--node-working-border": "3px",
+        } as CSSProperties
+      }
       className={cn(
         "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg border-[3px] text-lg font-semibold leading-none text-white transition-[border-color,opacity,filter]",
         // The node's derived accent color is its identity (same tile as the
@@ -108,19 +117,18 @@ function NodeTile({
 
 /**
  * Rail carrying the manage-nodes entry point. Visibility is controlled by the
- * caller (gated on `railOpen`, toggled from the NodeStatus snippet). Node tiles
- * only appear once there's more than the local node to switch between; with a single
- * node the rail collapses to just the manage button, so a manual (non-Tailscale)
- * user can still add their first node from the UI. The rail is always a vertical
- * strip; `side` only flips which edge carries the divider and which way tooltips
- * open — the mobile drawer puts it on the right. Custom tiles carry a right-click
- * menu to edit or remove the node.
+ * caller (gated on `railOpen`, toggled from the NodeStatus snippet). Every node
+ * gets a tile, including the current one when it's the only node — the rail
+ * always shows which node you're on, matching the mobile switcher, rather than
+ * collapsing to a bare manage button before any peer is discovered. The rail is
+ * always a vertical strip; `side` only flips which edge carries the divider and
+ * which way tooltips open — the mobile drawer puts it on the right. Custom tiles
+ * carry a right-click menu to edit or remove the node.
  */
 export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
   const { nodes, activeNodeId, setActiveNode } = useNodeContext();
   const { openAdd, openEdit, deleteNode, dialog } = useNodeManagement();
 
-  const showTiles = nodes.length >= 2;
   // Tooltips open away from the divider edge, same as the node tiles.
   const tooltipSide = side === "right" ? "left" : "right";
   return (
@@ -128,30 +136,30 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
       <div
         id="node-rail"
         data-testid="node-rail"
+        data-side={side}
         className={cn(
-          "bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3",
+          "node-rail-glass bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3",
           side === "right" ? "border-l" : "border-r",
         )}
       >
-        {showTiles &&
-          nodes.map((n) => (
-            <NodeTile
-              key={n.id}
-              node={n}
-              active={n.id === activeNodeId}
-              onSelect={() => setActiveNode(n.id)}
-              tooltipSide={tooltipSide}
-              onEdit={openEdit}
-              onDelete={deleteNode}
-            />
-          ))}
+        {nodes.map((n) => (
+          <NodeTile
+            key={n.id}
+            node={n}
+            active={n.id === activeNodeId}
+            onSelect={() => setActiveNode(n.id)}
+            tooltipSide={tooltipSide}
+            onEdit={openEdit}
+            onDelete={deleteNode}
+          />
+        ))}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"
               aria-label="Add node"
               onClick={openAdd}
-              className="text-muted-foreground border-muted-foreground hover:border-white hover:text-white mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
+              className="text-muted-foreground border-muted-foreground hover:border-white hover:text-white mx-auto mt-auto flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors"
             >
               <Plus className="h-4 w-4" />
             </button>
