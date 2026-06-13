@@ -48,6 +48,19 @@ describe("NodeRail", () => {
     expect(screen.getByTestId("node-attention-m1").textContent).toBe("4");
   });
 
+  it("shows the attention badge on the selected node too", () => {
+    // Sessions on the active node can still need attention while you're looking
+    // at a different session, so its badge stays visible.
+    renderRail(
+      [
+        { ...base, id: "local", self: true, summary: { attention: 2, busy: 0, total: 3 } },
+        { ...base, id: "m1", name: "gpu" },
+      ],
+      "local",
+    );
+    expect(screen.getByTestId("node-attention-local").textContent).toBe("2");
+  });
+
   it("marks an offline node", () => {
     renderRail(
       [

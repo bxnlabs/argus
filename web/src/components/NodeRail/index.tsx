@@ -23,9 +23,10 @@ function NodeTile({
 }) {
   const attention = node.summary?.attention ?? 0;
   const busy = node.summary?.busy ?? 0;
-  // The selected node conveys its state purely through the border colour, so it
-  // never shows the unread badge or the working ring (you're already looking at
-  // it). Working takes effect only on the *other* tiles.
+  // The selected node still shows its unread badge: sessions on it can need
+  // attention while you're looking at a different session. The working ring,
+  // though, stays off the active tile — selection already says "you're here", so
+  // the ring takes effect only on the *other* tiles.
   const working = !active && node.online && busy > 0;
   // Only manually-added (Custom) nodes can be edited/removed; the local node and
   // Tailscale-discovered peers aren't editable, so they get no menu.
@@ -50,7 +51,7 @@ function NodeTile({
         } as CSSProperties
       }
       className={cn(
-        "relative mx-auto flex h-8 w-8 items-center justify-center rounded-lg border-solid text-base font-semibold leading-none text-white transition-[border-color,opacity,filter]",
+        "relative mx-auto flex h-8 w-8 items-center justify-center rounded-lg border-solid text-sm font-semibold leading-none text-white transition-[border-color,opacity,filter]",
         // The node's derived accent color is its identity (same tile as the
         // switcher avatar). Active is called out by the ring; inactive tiles
         // brighten on hover. Inactive tiles keep the 3px border the working ring
@@ -80,7 +81,7 @@ function NodeTile({
           <span className="absolute bottom-0 right-0 h-3.5 w-3.5 bg-gradient-to-br from-white/95 to-white/70 [clip-path:polygon(100%_0,100%_100%,0_100%)] [filter:drop-shadow(-1px_-1px_1px_rgba(0,0,0,0.55))]" />
         </span>
       )}
-      {!active && node.online && attention > 0 && (
+      {node.online && attention > 0 && (
         <UnreadBadge count={attention} data-testid={`node-attention-${node.id}`} />
       )}
     </button>
