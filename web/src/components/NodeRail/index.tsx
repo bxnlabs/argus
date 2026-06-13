@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { useNodeContext } from "@/contexts/NodeContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -39,7 +40,15 @@ function NodeTile({
       // Non-editable tiles have no menu; swallow the contextmenu event so a
       // right-click doesn't pop the native browser menu over a node tile.
       onContextMenu={editable ? undefined : (e) => e.preventDefault()}
-      style={{ backgroundColor: nodeAccentColor(node.id) }}
+      style={
+        {
+          backgroundColor: nodeAccentColor(node.id),
+          // Expose the tile's 3px border so the working ring (.node-working::before)
+          // offsets past it and sits flush outside the tile, matching the
+          // borderless mobile avatar. Keep in sync with border-[3px] below.
+          "--node-working-border": "3px",
+        } as CSSProperties
+      }
       className={cn(
         "relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg border-[3px] text-lg font-semibold leading-none text-white transition-[border-color,opacity,filter]",
         // The node's derived accent color is its identity (same tile as the

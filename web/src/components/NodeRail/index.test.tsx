@@ -58,6 +58,23 @@ describe("NodeRail", () => {
     expect(screen.getByTestId("node-tile-m1").getAttribute("data-online")).toBe("false");
   });
 
+  it("offsets the working ring past the tile border on a busy peer", () => {
+    renderRail(
+      [
+        { ...base, id: "local", self: true },
+        { ...base, id: "m1", name: "gpu", summary: { attention: 0, busy: 2, total: 4 } },
+      ],
+      "local",
+    );
+    const tile = screen.getByTestId("node-tile-m1");
+    // A busy non-active peer carries the spinning working ring...
+    expect(tile.className).toContain("node-working");
+    // ...and exposes its 3px border so the ring offsets past it instead of
+    // landing on the border band (desktop/mobile parity — the borderless mobile
+    // avatar leaves the var at its 0 default). See .node-working::before.
+    expect(tile.style.getPropertyValue("--node-working-border")).toBe("3px");
+  });
+
   it("shows the dog-ear cue only on Custom (manual) tiles", () => {
     renderRail(
       [
