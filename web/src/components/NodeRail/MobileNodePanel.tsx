@@ -94,7 +94,11 @@ export function MobileNodePanel({
               >
                 <span className="relative flex-shrink-0">
                   <NodeAvatar node={n} size={36} className={cn(working && "node-working")} />
-                  {!active && n.online && attention > 0 && (
+                  {/* The active node keeps its unread badge — sessions on it can
+                      still need attention while you're in another session — even
+                      though selection suppresses its working ring above. Matches
+                      the desktop rail (NodeTile). */}
+                  {n.online && attention > 0 && (
                     <UnreadBadge count={attention} data-testid={`node-row-attention-${n.id}`} />
                   )}
                 </span>
