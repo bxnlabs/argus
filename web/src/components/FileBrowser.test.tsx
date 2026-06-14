@@ -126,3 +126,67 @@ describe("FileBrowser base listing", () => {
     expect(screen.getByText("Looking for something?")).toBeTruthy();
   });
 });
+
+describe("FileBrowser grounding and navigation", () => {
+  it("grounds typed search at the session working directory", () => {
+    mockListings({
+      "/home/jeev/proj": { files: [], path: "/home/jeev/proj" },
+      "~": { files: [], path: "/home/jeev" },
+    });
+
+    renderBrowser({ searchPath: "/home/jeev/proj" });
+
+    // The search hook is invoked every render with the working dir as its root,
+    // so typed search walks the session tree rather than $HOME.
+    expect(useFileSearchQuery).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ searchPath: "/home/jeev/proj" }),
+    );
+  });
+
+  it("drills into a subfolder and returns to the base listing when cleared", () => {
+    // Use a path outside $HOME so tilde contraction is a no-op and the drilled
+    // query is a predictable absolute path.
+    mockListings({
+      "/srv/work": {
+        files: [{ name: "src", path: "/srv/work/src", type: "directory" }],
+        path: "/srv/work",
+      },
+      "/srv/work/src": {
+        files: [{ name: "app.ts", path: "/srv/work/src/app.ts", type: "file" }],
+        path: "/srv/work/src",
+      },
+      "~": { files: [], path: "/home/jeev" },
+    });
+
+    renderBrowser({ searchPath: "/srv/work" });
+
+    // Base listing shows the working dir's entries.
+    expect(screen.getByText("src")).toBeTruthy();
+
+    // Drilling in lists the subfolder.
+    fireEvent.click(screen.getByText("src"));
+    expect(screen.getByText("app.ts")).toBeTruthy();
+
+    // Clearing the input returns to the base listing.
+    fireEvent.change(screen.getByPlaceholderText("Search..."), {
+      target: { value: "" },
+    });
+    expect(screen.getByText("src")).toBeTruthy();
+    expect(screen.queryByText("app.ts")).toBeNull();
+  });
+
+  it("surfaces a listing error from the base listing", () => {
+    mockListingError("/srv/work", new Error("boom"));
+
+    renderBrowser({ searchPath: "/srv/work" });
+
+    expect(screen.getByText("Could not load directory")).toBeTruthy();
+  });
+
+  it("keeps the idle prompt in directory mode without a searchPath", () => {
+    renderBrowser({ mode: "directory" });
+
+    expect(screen.getByText("Looking for something?")).toBeTruthy();
+  });
+});
