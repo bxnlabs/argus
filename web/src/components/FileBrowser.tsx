@@ -62,6 +62,15 @@ export function FileBrowser({
     return { directoryToList: dir, filterSegment: filter };
   }, [query, isPathMode]);
 
+  // --- Browse root ---
+  // searchPath (the session working directory) is both the search root AND the
+  // directory listed when the input is empty ("base listing"). Browsing is
+  // active in explicit path mode OR in the base listing.
+  const baseDir = searchPath ? searchPath.replace(/\/+$/, "") || "/" : "";
+  const isBaseListing = !isPathMode && !query.trim() && !!baseDir;
+  const isBrowsing = isPathMode || isBaseListing;
+  const browseDir = isPathMode ? directoryToList : baseDir;
+
   // --- Debounce for search mode ---
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -78,8 +87,8 @@ export function FileBrowser({
   }, [query, isPathMode]);
 
   // --- API queries ---
-  const filesQuery = useFilesQuery(directoryToList, {
-    enabled: open && isPathMode && !!directoryToList,
+  const filesQuery = useFilesQuery(browseDir, {
+    enabled: open && isBrowsing && !!browseDir,
   });
 
   const searchQuery = useFileSearchQuery(debouncedQuery, {
@@ -99,7 +108,7 @@ export function FileBrowser({
 
   // --- Compute results ---
   const { results, isLoading } = useMemo(() => {
-    if (isPathMode) {
+    if (isBrowsing) {
       const allFiles = filesQuery.data?.files ?? [];
       const filtered =
         mode === "directory"
@@ -122,7 +131,7 @@ export function FileBrowser({
 
     return { results: [], isLoading: false };
   }, [
-    isPathMode,
+    isBrowsing,
     filesQuery.data,
     filesQuery.isLoading,
     filterSegment,
@@ -134,9 +143,9 @@ export function FileBrowser({
 
   // --- Parent entry ---
   const parentEntry = useMemo(() => {
-    if (!isPathMode) return null;
+    if (!isBrowsing) return null;
     // Don't show at root
-    const dir = directoryToList;
+    const dir = browseDir;
     if (dir === "/" || dir === "~") return null;
 
     const normalized = dir.endsWith("/") ? dir.slice(0, -1) : dir;
@@ -150,7 +159,7 @@ export function FileBrowser({
       type: "directory" as const,
       isParentEntry: true,
     };
-  }, [isPathMode, directoryToList]);
+  }, [isBrowsing, browseDir]);
 
   const displayItems = useMemo(() => {
     if (parentEntry) return [parentEntry, ...results];
@@ -159,11 +168,11 @@ export function FileBrowser({
 
   // --- Breadcrumbs ---
   const breadcrumbs = useMemo(() => {
-    if (!isPathMode || !directoryToList) return [];
+    if (!isBrowsing || !browseDir) return [];
 
     const display = homePath
-      ? contractTilde(directoryToList, homePath)
-      : directoryToList;
+      ? contractTilde(browseDir, homePath)
+      : browseDir;
 
     if (display === "/" || display === "~") {
       return [{ label: display, path: display }];
@@ -191,7 +200,7 @@ export function FileBrowser({
     }
 
     return crumbs;
-  }, [isPathMode, directoryToList, homePath]);
+  }, [isBrowsing, browseDir, homePath]);
 
   // --- Reset state on open ---
   useEffect(() => {
@@ -419,7 +428,7 @@ export function FileBrowser({
       </div>
 
       {/* Breadcrumbs */}
-      {isPathMode && breadcrumbs.length > 0 && (
+      {isBrowsing && breadcrumbs.length > 0 && (
         <div className="border-border flex items-center gap-0.5 overflow-hidden border-b px-3 py-1.5">
           {breadcrumbs.map((crumb, i) => (
             <span key={crumb.path || `ellipsis-${i}`} className="flex items-center gap-0.5">
@@ -459,7 +468,7 @@ export function FileBrowser({
           <div className="flex items-center justify-center py-8">
             <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
           </div>
-        ) : filesQuery.error && isPathMode ? (
+        ) : filesQuery.error && isBrowsing ? (
           <>
             {displayItems.map((item, index) => {
               const isParent =
@@ -493,9 +502,9 @@ export function FileBrowser({
           </>
         ) : displayItems.length === 0 ? (
           <div className="text-muted-foreground px-4 py-8 text-center text-sm">
-            {!query.trim()
+            {!query.trim() && !isBaseListing
               ? "Looking for something?"
-              : isPathMode && !filterSegment
+              : isBrowsing && !filterSegment
                 ? mode === "directory"
                   ? "No directories found"
                   : "Empty directory"
@@ -537,7 +546,7 @@ export function FileBrowser({
                     <File className="h-3.5 w-3.5" />
                   )}
                 </div>
-                {!isPathMode && !isParent ? (
+                {!isBrowsing && !isParent ? (
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">
                       {item.name}
