@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { FileBrowser } from "./FileBrowser";
@@ -134,14 +134,29 @@ describe("FileBrowser grounding and navigation", () => {
       "~": { files: [], path: "/home/jeev" },
     });
 
-    renderBrowser({ searchPath: "/home/jeev/proj" });
+    vi.useFakeTimers();
+    try {
+      renderBrowser({ searchPath: "/home/jeev/proj" });
 
-    // The search hook is invoked every render with the working dir as its root,
-    // so typed search walks the session tree rather than $HOME.
-    expect(useFileSearchQuery).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ searchPath: "/home/jeev/proj" }),
-    );
+      // Type a non-path query and let the debounce fire so search activates.
+      fireEvent.change(screen.getByPlaceholderText("Search..."), {
+        target: { value: "readme" },
+      });
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      // Once active, the search hook walks the session working dir, not $HOME.
+      expect(useFileSearchQuery).toHaveBeenLastCalledWith(
+        "readme",
+        expect.objectContaining({
+          enabled: true,
+          searchPath: "/home/jeev/proj",
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("drills into a subfolder and returns to the base listing when cleared", () => {
