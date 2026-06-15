@@ -156,9 +156,55 @@ func (m *Manager) buildTmuxCmd(sessionID, providerType, profile, cwd, agentCmd s
 	return "", nil
 }
 
-// buildDockerTmuxCmd is implemented in a later task.
+// buildDockerTmuxCmd builds the host wrapper command for a dockerized profile.
+// It validates the cwd is visible in the container, ensures the stack is up,
+// writes the inner init script under the mounted state tmp dir, and wraps it in
+// a `docker compose exec` invocation embedded in the standard host init script
+// (which provides the banner and, for resume-capable providers, the
+// provider-session-ID capture).
 func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFile, cwd, agentCmd string, postCreatePaths []string) (string, error) {
-	return "", fmt.Errorf("not implemented")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home: %w", err)
+	}
+	if !docker.PathVisible(cwd, home, m.stateDir) {
+		return "", fmt.Errorf("%w: working directory %q is not under the home or state directory mounted into the %q profile container", ErrInvalidInput, cwd, profile)
+	}
+	if err := m.ensureStackUp(profile, composeFile); err != nil {
+		return "", fmt.Errorf("start profile %q stack: %w", profile, err)
+	}
+
+	var innerPath string
+	pattern := ""
+	if agentCmd != "" {
+		innerPath, err = WriteContainerInitScript(sessionID, m.stateDir, agentCmd, postCreatePaths)
+		pattern = provider.GetSessionIDPattern(provider.ProviderType(providerType))
+	} else {
+		innerPath, err = WriteContainerShellInitScript(sessionID, m.stateDir, postCreatePaths)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	uid, gid := dockerIdentity()
+	execCmd := docker.ExecCommand(docker.ExecOptions{
+		Project: docker.ProjectName(profile),
+		File:    composeFile,
+		Workdir: cwd,
+		UID:     uid,
+		GID:     gid,
+		Service: "agent",
+		Command: "bash " + shellQuote(innerPath),
+	})
+
+	// The host wrapper is the standard init script with the agent command set
+	// to the docker-exec string and no host-side hooks (hooks are sourced
+	// inside the container by the inner script).
+	hostPath, err := WriteInitScript(sessionID, execCmd, pattern, nil)
+	if err != nil {
+		return "", fmt.Errorf("write host wrapper script: %w", err)
+	}
+	return "bash " + hostPath, nil
 }
 
 // dockerIdentity returns the host UID/GID as strings for `exec --user`.

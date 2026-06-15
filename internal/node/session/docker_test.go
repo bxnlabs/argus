@@ -170,3 +170,86 @@ func TestBuildTmuxCmd_HostShellNoHooks(t *testing.T) {
 		t.Errorf("expected empty command for hookless shell session, got %q", cmd)
 	}
 }
+
+func TestBuildDockerTmuxCmd_AgentSession(t *testing.T) {
+	mgr, fake, state := dockerTestManager(t)
+	makeProfile(t, state, "work", true)
+	cwd := filepath.Join(state, "wt") // under stateDir → visible in container
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, err := mgr.buildTmuxCmd("sess_d1", "claude", "work", cwd, "claude --resume z", nil)
+	if err != nil {
+		t.Fatalf("buildTmuxCmd: %v", err)
+	}
+	if !strings.HasPrefix(cmd, "bash ") {
+		t.Fatalf("expected 'bash <host-wrapper>', got %q", cmd)
+	}
+	// Lazy-up happened.
+	if !fake.up["argus-work"] {
+		t.Error("expected stack brought up")
+	}
+	// The inner script was written under the mounted state tmp dir.
+	innerPath := filepath.Join(state, "tmp", "argus-inner-sess_d1.sh")
+	if _, err := os.Stat(innerPath); err != nil {
+		t.Errorf("inner script not written: %v", err)
+	}
+	// The host wrapper invokes docker compose exec into the agent service.
+	hostScript := strings.TrimPrefix(cmd, "bash ")
+	data, err := os.ReadFile(hostScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"docker compose", "exec", "-p 'argus-work'", "agent", innerPath} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("host wrapper missing %q", want)
+		}
+	}
+	// Capture logic present (claude supports resume).
+	if !strings.Contains(string(data), "tmux capture-pane") {
+		t.Error("expected provider-id capture in host wrapper")
+	}
+}
+
+func TestBuildDockerTmuxCmd_RejectsInvisibleCwd(t *testing.T) {
+	mgr, _, state := dockerTestManager(t)
+	makeProfile(t, state, "work", true)
+	// A cwd outside both home and the state dir.
+	_, err := mgr.buildTmuxCmd("sess_d2", "claude", "work", "/nonexistent-root-xyz/wt", "claude", nil)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for invisible cwd, got %v", err)
+	}
+}
+
+func TestBuildDockerTmuxCmd_ShellSession(t *testing.T) {
+	mgr, _, state := dockerTestManager(t)
+	makeProfile(t, state, "work", true)
+	cwd := filepath.Join(state, "sh")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd, err := mgr.buildTmuxCmd("sess_d3", "shell", "work", cwd, "", nil)
+	if err != nil {
+		t.Fatalf("buildTmuxCmd shell: %v", err)
+	}
+	hostScript := strings.TrimPrefix(cmd, "bash ")
+	data, err := os.ReadFile(hostScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Shell session: docker exec present, but no provider-id capture.
+	if !strings.Contains(string(data), "docker compose") {
+		t.Error("expected docker compose exec for shell session")
+	}
+	if strings.Contains(string(data), "tmux capture-pane") {
+		t.Error("shell session must not capture a provider id")
+	}
+	innerData, err := os.ReadFile(filepath.Join(state, "tmp", "argus-inner-sess_d3.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(innerData), "exec $SHELL -l") {
+		t.Error("expected container shell inner script")
+	}
+}
