@@ -22,6 +22,7 @@ vi.mock("@/data/sessions", () => ({
       profiles: [
         { name: "default", dockerized: false, stack: "-" },
         { name: "review", dockerized: false, stack: "-" },
+        { name: "sandbox", dockerized: true, stack: "-" },
       ],
     },
     refetch: vi.fn(),
@@ -89,6 +90,15 @@ function providerTrigger(): HTMLElement {
     .getAllByRole("combobox")
     .find((c) => c.textContent?.includes("Claude Code"));
   if (!trigger) throw new Error("provider combobox not found");
+  return trigger;
+}
+
+// The profile <Select> trigger shows the "Select a profile..." placeholder.
+function profileTrigger(): HTMLElement {
+  const trigger = screen
+    .getAllByRole("combobox")
+    .find((c) => c.textContent?.includes("Select a profile"));
+  if (!trigger) throw new Error("profile combobox not found");
   return trigger;
 }
 
@@ -221,6 +231,15 @@ describe("NewSessionDialog keyboard flow", () => {
     expect(onCreateSession).toHaveBeenCalledWith(
       expect.objectContaining({ name: "feat", provider_type: "codex" }),
     );
+  });
+
+  it("renders the dockerized badge for a dockerized profile", async () => {
+    renderDialog();
+    await screen.findByRole("dialog");
+    // Open the profile dropdown so its options (and their badges) render.
+    fireEvent.click(profileTrigger());
+    await screen.findByRole("option", { name: /sandbox/ });
+    expect(screen.getByLabelText("dockerized")).toBeTruthy();
   });
 
   it("returns focus to the Source trigger after the picker closes", async () => {

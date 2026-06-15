@@ -103,7 +103,11 @@ export function ChangeProfileDialog({
                   <SelectItem key={p.name} value={p.name}>
                     {p.name}
                     {p.dockerized && (
-                      <span className="text-muted-foreground ml-2 text-xs">
+                      <span
+                        role="img"
+                        aria-label="dockerized"
+                        className="text-muted-foreground ml-2 text-xs"
+                      >
                         🐳
                       </span>
                     )}

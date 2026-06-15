@@ -9,4 +9,4 @@ export {
   useUpdateSession,
   useProfilesQuery,
 } from "./queries";
-export type { CreateSessionInput, UpdateSessionInput } from "./queries";
+export type { CreateSessionInput, UpdateSessionInput, ProfileInfo } from "./queries";
