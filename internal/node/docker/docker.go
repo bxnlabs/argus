@@ -12,7 +12,7 @@ import (
 
 // composeFileNames are the compose file names recognized in a profile
 // directory, in priority order.
-var composeFileNames = []string{"docker-compose.yml", "compose.yaml"}
+var composeFileNames = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
 
 // ProfileComposeFile returns the path to a profile's compose file and true when
 // the profile is dockerized. It returns "" and false otherwise.

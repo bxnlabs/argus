@@ -29,6 +29,18 @@ func TestProfileComposeFile(t *testing.T) {
 	if _, ok := ProfileComposeFile(state, "alt"); !ok {
 		t.Error("compose.yaml should be recognized")
 	}
+	// compose.yml is also recognized.
+	mkdir(t, filepath.Join(state, "profiles", "alt2", "hooks"))
+	writeFile(t, filepath.Join(state, "profiles", "alt2", "compose.yml"), "services: {}")
+	if _, ok := ProfileComposeFile(state, "alt2"); !ok {
+		t.Error("compose.yml should be recognized")
+	}
+	// docker-compose.yaml is also recognized.
+	mkdir(t, filepath.Join(state, "profiles", "alt3", "hooks"))
+	writeFile(t, filepath.Join(state, "profiles", "alt3", "docker-compose.yaml"), "services: {}")
+	if _, ok := ProfileComposeFile(state, "alt3"); !ok {
+		t.Error("docker-compose.yaml should be recognized")
+	}
 }
 
 func TestProjectName(t *testing.T) {
