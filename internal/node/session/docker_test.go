@@ -92,6 +92,9 @@ func TestProfileUpDown(t *testing.T) {
 	if fake.up["argus-work"] {
 		t.Error("expected stack down after ProfileDown")
 	}
+	if len(fake.downCalls) != 1 {
+		t.Errorf("expected 1 down call, got %d", len(fake.downCalls))
+	}
 }
 
 func TestProfileUpRejectsNonDocker(t *testing.T) {
@@ -99,6 +102,26 @@ func TestProfileUpRejectsNonDocker(t *testing.T) {
 	makeProfile(t, state, "plain", false)
 	if err := mgr.ProfileUp("plain"); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("expected ErrInvalidInput for non-docker profile, got %v", err)
+	}
+}
+
+func TestListProfilesDetailedIsUpError(t *testing.T) {
+	mgr, fake, state := dockerTestManager(t)
+	makeProfile(t, state, "work", true)
+	fake.isUpErr = errors.New("daemon unavailable")
+
+	infos, err := mgr.ListProfilesDetailed()
+	if err != nil {
+		t.Fatalf("ListProfilesDetailed should not fail on daemon error: %v", err)
+	}
+	var work ProfileInfo
+	for _, i := range infos {
+		if i.Name == "work" {
+			work = i
+		}
+	}
+	if !work.Dockerized || work.Stack != "?" {
+		t.Errorf("expected dockerized work profile with Stack \"?\" on daemon error, got %+v", work)
 	}
 }
 
