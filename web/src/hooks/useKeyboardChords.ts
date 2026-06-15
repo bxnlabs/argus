@@ -16,6 +16,14 @@ export type ChordBinding = {
   run?: () => void;
   /** Optional sub-chords reachable after this key. */
   children?: Record<string, ChordBinding>;
+  /**
+   * When set, the hint overlay collapses this binding into a single row shared
+   * with adjacent bindings carrying the same token, showing the key range and
+   * one `label` instead of a row per key. Used for the per-node number chords so
+   * the overlay shows one "1–9 Switch node" line rather than nine named rows.
+   * Purely cosmetic — the chord engine still treats each key independently.
+   */
+  collapse?: string;
 };
 
 export type ChordMap = Record<string, ChordBinding>;

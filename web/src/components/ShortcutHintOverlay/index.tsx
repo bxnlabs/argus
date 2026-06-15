@@ -7,7 +7,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { ChordMap, ChordPending } from "@/hooks/useKeyboardChords";
+import type {
+  ChordBinding,
+  ChordMap,
+  ChordPending,
+} from "@/hooks/useKeyboardChords";
 
 interface ShortcutHintOverlayProps {
   pending: ChordPending | null;
@@ -40,6 +44,46 @@ function KeyChip({ children, className }: { children: React.ReactNode; className
 }
 
 /**
+ * A row to render: either a single binding or a collapsed group of adjacent
+ * bindings sharing a `collapse` token (e.g. the 1–9 node-switch chords), shown
+ * as one row with a key range.
+ */
+type DisplayRow =
+  | { kind: "single"; key: string; binding: ChordBinding }
+  | { kind: "group"; keys: string[]; label: string };
+
+/**
+ * Fold a level's entries into display rows, merging runs of bindings that share
+ * a `collapse` token into one group row. Order is preserved; only consecutive
+ * same-token bindings merge (node chords are emitted contiguously).
+ */
+function toDisplayRows(level: ChordMap): DisplayRow[] {
+  const rows: DisplayRow[] = [];
+  for (const [key, binding] of Object.entries(level)) {
+    const prev = rows[rows.length - 1];
+    if (
+      binding.collapse &&
+      prev?.kind === "group" &&
+      prev.label === binding.label
+    ) {
+      prev.keys.push(key);
+    } else if (binding.collapse) {
+      rows.push({ kind: "group", keys: [key], label: binding.label });
+    } else {
+      rows.push({ kind: "single", key, binding });
+    }
+  }
+  return rows;
+}
+
+/** Render a group's keys as a single range chip ("1–9"), or one chip if alone. */
+function GroupKeyChip({ keys }: { keys: string[] }): React.JSX.Element {
+  const text =
+    keys.length > 1 ? `${keys[0]}–${keys[keys.length - 1]}` : keys[0];
+  return <KeyChip>{text}</KeyChip>;
+}
+
+/**
  * Walk `bindings` along `path` and join the labels of each step with " › ".
  * Stops early if a mid-path binding has no children (shouldn't happen — path
  * is always produced by descending into children). Returns null only when a
@@ -62,17 +106,26 @@ function buildBreadcrumb(bindings: ChordMap, path: string[]): string | null {
 function ChordRows({ level }: { level: ChordMap }) {
   return (
     <>
-      {Object.entries(level).map(([key, binding]) => (
-        <div key={key} className="flex items-center gap-2">
-          <KeyChip>{formatKey(key)}</KeyChip>
-          <span className="text-foreground/80 min-w-0 truncate text-xs">
-            {binding.label}
-          </span>
-          {binding.children && (
-            <span className="text-muted-foreground ml-auto text-xs">›</span>
-          )}
-        </div>
-      ))}
+      {toDisplayRows(level).map((row) =>
+        row.kind === "group" ? (
+          <div key={row.keys[0]} className="flex items-center gap-2">
+            <GroupKeyChip keys={row.keys} />
+            <span className="text-foreground/80 min-w-0 truncate text-xs">
+              {row.label}
+            </span>
+          </div>
+        ) : (
+          <div key={row.key} className="flex items-center gap-2">
+            <KeyChip>{formatKey(row.key)}</KeyChip>
+            <span className="text-foreground/80 min-w-0 truncate text-xs">
+              {row.binding.label}
+            </span>
+            {row.binding.children && (
+              <span className="text-muted-foreground ml-auto text-xs">›</span>
+            )}
+          </div>
+        ),
+      )}
     </>
   );
 }
@@ -87,21 +140,25 @@ function ChordTreeRows({
 }) {
   return (
     <>
-      {Object.entries(level).map(([key, binding]) => (
-        <div key={key}>
+      {toDisplayRows(level).map((row) => (
+        <div key={row.kind === "group" ? row.keys[0] : row.key}>
           <div
             className={cn(
               "flex items-center gap-2 py-0.5",
               depth > 0 && "pl-4",
             )}
           >
-            <KeyChip>{formatKey(key)}</KeyChip>
+            {row.kind === "group" ? (
+              <GroupKeyChip keys={row.keys} />
+            ) : (
+              <KeyChip>{formatKey(row.key)}</KeyChip>
+            )}
             <span className="text-foreground/80 min-w-0 truncate text-xs">
-              {binding.label}
+              {row.kind === "group" ? row.label : row.binding.label}
             </span>
           </div>
-          {binding.children && (
-            <ChordTreeRows level={binding.children} depth={depth + 1} />
+          {row.kind === "single" && row.binding.children && (
+            <ChordTreeRows level={row.binding.children} depth={depth + 1} />
           )}
         </div>
       ))}

@@ -60,6 +60,36 @@ describe("ShortcutHintOverlay", () => {
     expect(screen.getAllByText("›").length).toBeGreaterThan(0);
   });
 
+  it("collapses bindings sharing a collapse token into one ranged row", () => {
+    const withNodes: ChordMap = {
+      "1": { label: "Switch node", collapse: "node-switch" },
+      "2": { label: "Switch node", collapse: "node-switch" },
+      "3": { label: "Switch node", collapse: "node-switch" },
+      // A non-collapsed sibling (unique label — these tests don't auto-clean
+      // between renders, so it must not collide with another test's bindings).
+      t: { label: "Terminal" },
+    };
+    const pending: ChordPending = { level: withNodes, path: [] };
+    render(
+      <ShortcutHintOverlay
+        pending={pending}
+        bindings={withNodes}
+        leaderLabel="⌘ ;"
+        helpOpen={false}
+        onHelpOpenChange={noop}
+      />,
+    );
+
+    // One collapsed row spanning the digit range, no per-node names/keys.
+    expect(screen.getByText("1–3")).toBeTruthy();
+    expect(screen.getByText("Switch node")).toBeTruthy();
+    expect(screen.queryByText("2")).toBeNull();
+    expect(screen.queryByText("3")).toBeNull();
+
+    // Non-collapsed siblings still render normally.
+    expect(screen.getByText("Terminal")).toBeTruthy();
+  });
+
   it("renders breadcrumb heading when path is ['g']", () => {
     const pending: ChordPending = {
       level: bindings.g.children!,

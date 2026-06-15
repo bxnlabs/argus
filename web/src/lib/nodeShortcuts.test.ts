@@ -25,7 +25,7 @@ describe("buildNodeSwitchBindings", () => {
     );
   });
 
-  it("maps nodes to digit keys in order, labelled by name", () => {
+  it("maps nodes to digit keys in order, collapsed under one label", () => {
     const setActiveNode = vi.fn();
     const bindings = buildNodeSwitchBindings(
       [node("a", "Alpha"), node("b", "Bravo"), node("c", "Charlie")],
@@ -33,9 +33,12 @@ describe("buildNodeSwitchBindings", () => {
     );
 
     expect(Object.keys(bindings)).toEqual(["1", "2", "3"]);
-    expect(bindings["1"].label).toBe("Alpha");
-    expect(bindings["2"].label).toBe("Bravo");
-    expect(bindings["3"].label).toBe("Charlie");
+    // Names are dropped: every chord shares one generic label + collapse token
+    // so the hint overlay shows a single "1–3 Switch node" row.
+    for (const key of ["1", "2", "3"]) {
+      expect(bindings[key].label).toBe("Switch node");
+      expect(bindings[key].collapse).toBe("node-switch");
+    }
 
     bindings["1"].run!();
     expect(setActiveNode).toHaveBeenCalledTimes(1);
