@@ -139,35 +139,46 @@ func (s *session) readWS() {
 				s.resize(msg.Cols, msg.Rows)
 			case "text":
 				if msg.Text != "" {
-					// Normalize line endings: CRLF -> CR, then LF -> CR
-					// (PTY expects CR for Enter / line submission)
-					text := strings.ReplaceAll(msg.Text, "\r\n", "\r")
-					text = strings.ReplaceAll(text, "\n", "\r")
-
-					if _, err := s.ptmx.Write([]byte(text)); err != nil {
-						return
-					}
-
 					// Submit defaults to true for backwards compatibility
 					// (old clients don't send the field).
-					// Write \r as a separate PTY write so the TUI sees
-					// Enter as a distinct input event (not part of a
-					// pasted text chunk). The sleep must be long enough
-					// for text to traverse the dual-PTY path (our PTY →
-					// tmux client → tmux server → pane PTY) before \r
-					// arrives, preventing coalescing that causes TUIs
-					// like Claude Code to swallow the Return.
 					submit := msg.Submit == nil || *msg.Submit
-					if submit {
-						time.Sleep(10 * time.Millisecond)
-						if _, err := s.ptmx.Write([]byte("\r")); err != nil {
-							return
-						}
+					if _, err := s.ptmx.Write(composePayload(msg.Text, submit)); err != nil {
+						return
 					}
 				}
 			}
 		}
 	}
+}
+
+// composePayload builds the byte sequence injected into the PTY for a compose
+// "text" message.
+//
+// The text is wrapped in bracketed-paste markers (ESC[200~ ... ESC[201~) so a
+// TUI that enabled bracketed paste mode (e.g. Claude Code) receives multiline
+// input as a SINGLE paste event — newlines inserted literally — instead of one
+// Enter keypress per line, which would submit each line as its own prompt
+// (BXN-110). tmux forwards the markers to such panes and strips them for panes
+// whose app did not enable the mode (e.g. a plain shell), so embedded line
+// breaks remain plain CRs there and behavior is unchanged.
+//
+// Line endings are normalized to CR (the PTY's Enter). When submit is set, a
+// trailing CR is appended OUTSIDE the closing marker so the TUI registers it as
+// a distinct Return keypress that submits the pasted block. Because the marker
+// explicitly delimits the paste, no timing/sleep is needed to keep the submit
+// from being swallowed into the paste.
+func composePayload(text string, submit bool) []byte {
+	text = strings.ReplaceAll(text, "\r\n", "\r")
+	text = strings.ReplaceAll(text, "\n", "\r")
+
+	var b strings.Builder
+	b.WriteString("\x1b[200~")
+	b.WriteString(text)
+	b.WriteString("\x1b[201~")
+	if submit {
+		b.WriteString("\r")
+	}
+	return []byte(b.String())
 }
 
 // ping sends periodic WebSocket pings to detect dead connections.
