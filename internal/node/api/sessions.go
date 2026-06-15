@@ -212,12 +212,40 @@ func (h *sessionHandler) respondProfileChange(w http.ResponseWriter, sess *db.Se
 
 // GET /profiles
 func (h *sessionHandler) listProfiles(w http.ResponseWriter, r *http.Request) {
-	profiles, err := h.manager.ListProfiles()
+	profiles, err := h.manager.ListProfilesDetailed()
 	if err != nil {
 		respondInternalError(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"profiles": profiles})
+}
+
+// POST /profiles/{name}/up brings a dockerized profile's stack up.
+func (h *sessionHandler) profileUp(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := h.manager.ProfileUp(name); err != nil {
+		if errors.Is(err, session.ErrInvalidInput) {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondInternalError(w, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"name": name, "stack": "up"})
+}
+
+// POST /profiles/{name}/down tears a dockerized profile's stack down.
+func (h *sessionHandler) profileDown(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := h.manager.ProfileDown(name); err != nil {
+		if errors.Is(err, session.ErrInvalidInput) {
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondInternalError(w, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"name": name, "stack": "down"})
 }
 
 // DELETE /sessions/{id}

@@ -48,6 +48,8 @@ func NewRouter(deps Deps) http.Handler {
 
 	// Profile routes
 	mux.HandleFunc("GET /profiles", sh.listProfiles)
+	mux.HandleFunc("POST /profiles/{name}/up", sh.profileUp)
+	mux.HandleFunc("POST /profiles/{name}/down", sh.profileDown)
 
 	// Git routes
 	gh := &gitHandler{stateDir: deps.StateDir}
