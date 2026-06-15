@@ -82,7 +82,8 @@ func newProfileLsCmd() *cobra.Command {
 				}
 				fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, typ, p.Stack)
 			}
-			return w.Flush()
+			w.Flush()
+			return nil
 		},
 	}
 }
