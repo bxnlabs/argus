@@ -143,3 +143,81 @@ func WriteShellInitScript(sessionID string, hookPaths []string) (string, error) 
 	}
 	return path, nil
 }
+
+// GenerateContainerInitScript returns the script run INSIDE the container to
+// launch an agent session: export PATH, source post_create hooks, run the
+// agent command. The banner and provider-session-ID capture stay in the host
+// wrapper (GenerateInitScript). The script self-deletes on start.
+func GenerateContainerInitScript(agentCommand string, hookPaths []string) string {
+	hookBlock := generateHookSourceBlock(hookPaths)
+	hookSection := ""
+	if hookBlock != "" {
+		hookSection = "\n" + hookBlock
+	}
+	return "#!/bin/bash\n" +
+		"# Argus Container Init Script\n" +
+		"# Auto-generated - do not edit manually\n" +
+		"rm -f -- \"$0\"\n" +
+		"export PATH=\"$HOME/.local/bin:$PATH\"\n" +
+		hookSection +
+		"\n" +
+		agentCommand + "\n"
+}
+
+// GenerateContainerShellInitScript returns the script run INSIDE the container
+// for a shell session: source post_create hooks (if any) and exec the login
+// shell. Unlike GenerateShellInitScript it always returns a script, because a
+// containerized shell session must run through `docker compose exec`.
+func GenerateContainerShellInitScript(hookPaths []string) string {
+	hookBlock := generateHookSourceBlock(hookPaths)
+	hookSection := ""
+	if hookBlock != "" {
+		hookSection = hookBlock + "\n"
+	}
+	return "#!/bin/bash\n" +
+		"# Argus Container Shell Init Script\n" +
+		"rm -f -- \"$0\"\n" +
+		hookSection +
+		"exec $SHELL -l\n"
+}
+
+// containerScriptDir returns <stateDir>/tmp, creating it 0700. This directory
+// is mounted into the container at the same path, so init scripts written here
+// are runnable in-container by path.
+func containerScriptDir(stateDir string) (string, error) {
+	dir := filepath.Join(stateDir, "tmp")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create container script dir: %w", err)
+	}
+	return dir, nil
+}
+
+// WriteContainerInitScript writes the agent inner-init script under the mounted
+// state tmp dir and returns its path (identical on host and in-container).
+func WriteContainerInitScript(sessionID, stateDir, agentCommand string, hookPaths []string) (string, error) {
+	dir, err := containerScriptDir(stateDir)
+	if err != nil {
+		return "", err
+	}
+	content := GenerateContainerInitScript(agentCommand, hookPaths)
+	path := filepath.Join(dir, fmt.Sprintf("argus-inner-%s.sh", sessionID))
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		return "", fmt.Errorf("write container init script: %w", err)
+	}
+	return path, nil
+}
+
+// WriteContainerShellInitScript writes the shell inner-init script under the
+// mounted state tmp dir and returns its path.
+func WriteContainerShellInitScript(sessionID, stateDir string, hookPaths []string) (string, error) {
+	dir, err := containerScriptDir(stateDir)
+	if err != nil {
+		return "", err
+	}
+	content := GenerateContainerShellInitScript(hookPaths)
+	path := filepath.Join(dir, fmt.Sprintf("argus-inner-%s.sh", sessionID))
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		return "", fmt.Errorf("write container shell init script: %w", err)
+	}
+	return path, nil
+}

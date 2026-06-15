@@ -1,6 +1,8 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -132,5 +134,56 @@ func TestGenerateShellInitScriptNoHooks(t *testing.T) {
 	script := GenerateShellInitScript(nil)
 	if script != "" {
 		t.Errorf("expected empty string when no hooks, got %q", script)
+	}
+}
+
+func TestGenerateContainerInitScript(t *testing.T) {
+	hooks := []string{"/home/jeev/.argus/profiles/work/hooks/post_create.sh"}
+	script := GenerateContainerInitScript("claude --resume abc", hooks)
+
+	if !strings.HasPrefix(script, "#!/bin/bash") {
+		t.Error("expected shebang")
+	}
+	if !strings.Contains(script, `source '/home/jeev/.argus/profiles/work/hooks/post_create.sh'`) {
+		t.Error("expected sourced post_create hook")
+	}
+	if !strings.Contains(script, "claude --resume abc") {
+		t.Error("expected agent command")
+	}
+	// No banner and no capture — those live in the host wrapper.
+	if strings.Contains(script, "Argus Session Init") || strings.Contains(script, "tmux capture-pane") {
+		t.Error("container script must not contain banner or capture")
+	}
+}
+
+func TestGenerateContainerShellInitScript(t *testing.T) {
+	// Always returns a script, even with no hooks (a containerized shell must
+	// run through docker compose exec).
+	script := GenerateContainerShellInitScript(nil)
+	if !strings.Contains(script, "exec $SHELL -l") {
+		t.Error("expected exec $SHELL -l")
+	}
+	withHooks := GenerateContainerShellInitScript([]string{"/h/post_create.sh"})
+	if !strings.Contains(withHooks, "source '/h/post_create.sh'") {
+		t.Error("expected sourced hook")
+	}
+}
+
+func TestWriteContainerInitScript(t *testing.T) {
+	state := t.TempDir()
+	path, err := WriteContainerInitScript("sess_xyz", state, "claude", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Must live under <stateDir>/tmp so it is visible in the container.
+	if !strings.HasPrefix(path, filepath.Join(state, "tmp")) {
+		t.Errorf("inner script not under state tmp dir: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "claude") {
+		t.Error("expected agent command in written file")
 	}
 }
