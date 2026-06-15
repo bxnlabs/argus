@@ -55,24 +55,27 @@ type DisplayRow =
 /**
  * Fold a level's entries into display rows, merging runs of bindings that share
  * a `collapse` token into one group row. Order is preserved; only consecutive
- * same-token bindings merge (node chords are emitted contiguously).
+ * same-token bindings merge (node chords are emitted contiguously). Bindings
+ * with `children` never collapse — a group row drops sub-chords, so collapsing a
+ * non-leaf would silently hide its subtree from the reference modal.
  */
 function toDisplayRows(level: ChordMap): DisplayRow[] {
   const rows: DisplayRow[] = [];
   for (const [key, binding] of Object.entries(level)) {
     const prev = rows[rows.length - 1];
+    const canCollapse = Boolean(binding.collapse) && !binding.children;
     if (
-      binding.collapse &&
+      canCollapse &&
       prev?.kind === "group" &&
       prev.collapse === binding.collapse
     ) {
       prev.keys.push(key);
-    } else if (binding.collapse) {
+    } else if (canCollapse) {
       rows.push({
         kind: "group",
         keys: [key],
         label: binding.label,
-        collapse: binding.collapse,
+        collapse: binding.collapse!,
       });
     } else {
       rows.push({ kind: "single", key, binding });

@@ -136,6 +136,30 @@ describe("ShortcutHintOverlay", () => {
     expect(screen.queryByText("1–5")).toBeNull();
   });
 
+  it("does not collapse a binding that has children (keeps its subtree visible)", () => {
+    const withChildParent: ChordMap = {
+      m: {
+        label: "Menu",
+        collapse: "menu",
+        children: { d: { label: "Deep action" } },
+      },
+    };
+    render(
+      <ShortcutHintOverlay
+        pending={null}
+        bindings={withChildParent}
+        leaderLabel="⌘ ;"
+        helpOpen={true}
+        onHelpOpenChange={noop}
+      />,
+    );
+
+    // Rendered as a normal single row (its own key), not a collapsed group, so
+    // the reference modal still descends into and shows the child shortcut.
+    expect(screen.getByText("m")).toBeTruthy();
+    expect(screen.getByText("Deep action")).toBeTruthy();
+  });
+
   it("renders breadcrumb heading when path is ['g']", () => {
     const pending: ChordPending = {
       level: bindings.g.children!,
