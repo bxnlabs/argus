@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bxnlabs/argus/internal/config"
@@ -144,5 +145,28 @@ func TestListProfilesDetailed(t *testing.T) {
 	}
 	if !got["work"].Dockerized || got["work"].Stack != "up" {
 		t.Errorf("work: %+v", got["work"])
+	}
+}
+
+func TestBuildTmuxCmd_HostAgent(t *testing.T) {
+	mgr, _, _ := dockerTestManager(t)
+	cmd, err := mgr.buildTmuxCmd("sess_1", "claude", "", t.TempDir(), "claude --resume x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(cmd, "bash ") {
+		t.Errorf("expected 'bash <script>', got %q", cmd)
+	}
+}
+
+func TestBuildTmuxCmd_HostShellNoHooks(t *testing.T) {
+	mgr, _, _ := dockerTestManager(t)
+	// Shell provider (empty agent command) with no hooks → no init script.
+	cmd, err := mgr.buildTmuxCmd("sess_2", "shell", "", t.TempDir(), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd != "" {
+		t.Errorf("expected empty command for hookless shell session, got %q", cmd)
 	}
 }

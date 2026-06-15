@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/bxnlabs/argus/internal/node/docker"
+	"github.com/bxnlabs/argus/internal/node/provider"
 )
 
 // composeRunner is the subset of docker.CLICompose the Manager depends on, so
@@ -123,6 +124,41 @@ func (m *Manager) ListProfilesDetailed() ([]ProfileInfo, error) {
 		out = append(out, info)
 	}
 	return out, nil
+}
+
+// buildTmuxCmd constructs the command tmux runs for a session: the init script
+// that launches the agent (or shell) and sources post_create hooks. For a
+// dockerized profile the agent/shell runs inside the profile's container via
+// `docker compose exec`; otherwise it runs directly on the host. An empty
+// return means "start tmux's default shell with no init script".
+func (m *Manager) buildTmuxCmd(sessionID, providerType, profile, cwd, agentCmd string, postCreatePaths []string) (string, error) {
+	if composeFile, ok := docker.ProfileComposeFile(m.stateDir, profile); ok {
+		return m.buildDockerTmuxCmd(sessionID, providerType, profile, composeFile, cwd, agentCmd, postCreatePaths)
+	}
+	// Host (non-docker) path — unchanged behavior.
+	if agentCmd != "" {
+		pattern := provider.GetSessionIDPattern(provider.ProviderType(providerType))
+		scriptPath, err := WriteInitScript(sessionID, agentCmd, pattern, postCreatePaths)
+		if err != nil {
+			return "", fmt.Errorf("write init script: %w", err)
+		}
+		return "bash " + scriptPath, nil
+	}
+	if len(postCreatePaths) > 0 {
+		scriptPath, err := WriteShellInitScript(sessionID, postCreatePaths)
+		if err != nil {
+			return "", fmt.Errorf("write shell init script: %w", err)
+		}
+		if scriptPath != "" {
+			return "bash " + scriptPath, nil
+		}
+	}
+	return "", nil
+}
+
+// buildDockerTmuxCmd is implemented in a later task.
+func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFile, cwd, agentCmd string, postCreatePaths []string) (string, error) {
+	return "", fmt.Errorf("not implemented")
 }
 
 // dockerIdentity returns the host UID/GID as strings for `exec --user`.

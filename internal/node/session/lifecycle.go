@@ -181,23 +181,9 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// Resolve post_create hooks for init script sourcing
 	postCreatePaths := m.hooks.ResolvePostCreateHookPaths(resolvedProfile, projectKey)
 
-	var tmuxCmd string
-	if agentCmd != "" {
-		pattern := provider.GetSessionIDPattern(provider.ProviderType(opts.ProviderType))
-		scriptPath, err := WriteInitScript(sessionID, agentCmd, pattern, postCreatePaths)
-		if err != nil {
-			return nil, fmt.Errorf("write init script: %w", err)
-		}
-		tmuxCmd = "bash " + scriptPath
-	} else if len(postCreatePaths) > 0 {
-		// Shell session with hooks — need init wrapper to source them
-		scriptPath, err := WriteShellInitScript(sessionID, postCreatePaths)
-		if err != nil {
-			return nil, fmt.Errorf("write shell init script: %w", err)
-		}
-		if scriptPath != "" {
-			tmuxCmd = "bash " + scriptPath
-		}
+	tmuxCmd, err := m.buildTmuxCmd(sessionID, opts.ProviderType, resolvedProfile, cwd, agentCmd, postCreatePaths)
+	if err != nil {
+		return nil, err
 	}
 
 	// Spawn tmux session and apply standard styling
@@ -761,22 +747,9 @@ func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	projectKey := ProjectKeyForSession(session)
 	postCreatePaths := m.hooks.ResolvePostCreateHookPaths(profileName, projectKey)
 
-	var tmuxCmd string
-	if agentCmd != "" {
-		pattern := provider.GetSessionIDPattern(provider.ProviderType(session.ProviderType))
-		scriptPath, err := WriteInitScript(session.ID, agentCmd, pattern, postCreatePaths)
-		if err != nil {
-			return "", fmt.Errorf("write init script: %w", err)
-		}
-		tmuxCmd = "bash " + scriptPath
-	} else if len(postCreatePaths) > 0 {
-		scriptPath, err := WriteShellInitScript(session.ID, postCreatePaths)
-		if err != nil {
-			return "", fmt.Errorf("write shell init script: %w", err)
-		}
-		if scriptPath != "" {
-			tmuxCmd = "bash " + scriptPath
-		}
+	tmuxCmd, err := m.buildTmuxCmd(session.ID, session.ProviderType, profileName, cwd, agentCmd, postCreatePaths)
+	if err != nil {
+		return "", err
 	}
 
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
