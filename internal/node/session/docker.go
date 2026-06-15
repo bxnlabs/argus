@@ -58,7 +58,7 @@ func (m *Manager) ensureStackUp(profile, composeFile string) error {
 	env := docker.Env(home, m.stateDir)
 	up, err := m.compose.IsUp(context.Background(), project, composeFile, env)
 	if err != nil {
-		return err
+		return fmt.Errorf("check stack status for profile %q: %w", profile, err)
 	}
 	if up {
 		return nil
