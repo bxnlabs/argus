@@ -60,6 +60,106 @@ describe("ShortcutHintOverlay", () => {
     expect(screen.getAllByText("›").length).toBeGreaterThan(0);
   });
 
+  it("collapses bindings sharing a collapse token into one ranged row", () => {
+    const withNodes: ChordMap = {
+      "1": { label: "Switch node", collapse: "node-switch" },
+      "2": { label: "Switch node", collapse: "node-switch" },
+      "3": { label: "Switch node", collapse: "node-switch" },
+      // A non-collapsed sibling (unique label — these tests don't auto-clean
+      // between renders, so it must not collide with another test's bindings).
+      t: { label: "Terminal" },
+    };
+    const pending: ChordPending = { level: withNodes, path: [] };
+    render(
+      <ShortcutHintOverlay
+        pending={pending}
+        bindings={withNodes}
+        leaderLabel="⌘ ;"
+        helpOpen={false}
+        onHelpOpenChange={noop}
+      />,
+    );
+
+    // One collapsed row spanning the digit range, no per-node names/keys.
+    expect(screen.getByText("1–3")).toBeTruthy();
+    expect(screen.getByText("Switch node")).toBeTruthy();
+    expect(screen.queryByText("2")).toBeNull();
+    expect(screen.queryByText("3")).toBeNull();
+
+    // Non-collapsed siblings still render normally.
+    expect(screen.getByText("Terminal")).toBeTruthy();
+  });
+
+  it("keeps adjacent same-label bindings with different collapse tokens separate", () => {
+    const withTokens: ChordMap = {
+      a: { label: "Jump", collapse: "alpha" },
+      b: { label: "Jump", collapse: "beta" },
+      x: { label: "Exit" },
+    };
+    const pending: ChordPending = { level: withTokens, path: [] };
+    render(
+      <ShortcutHintOverlay
+        pending={pending}
+        bindings={withTokens}
+        leaderLabel="⌘ ;"
+        helpOpen={false}
+        onHelpOpenChange={noop}
+      />,
+    );
+
+    // Different tokens → two separate single-key chips, not a merged "a–b" range.
+    expect(screen.getByText("a")).toBeTruthy();
+    expect(screen.getByText("b")).toBeTruthy();
+    expect(screen.queryByText("a–b")).toBeNull();
+    expect(screen.queryByText("a, b")).toBeNull();
+  });
+
+  it("lists non-contiguous collapsed keys instead of a misleading range", () => {
+    const sparse: ChordMap = {
+      "1": { label: "Pick", collapse: "pick" },
+      "3": { label: "Pick", collapse: "pick" },
+      "5": { label: "Pick", collapse: "pick" },
+    };
+    const pending: ChordPending = { level: sparse, path: [] };
+    render(
+      <ShortcutHintOverlay
+        pending={pending}
+        bindings={sparse}
+        leaderLabel="⌘ ;"
+        helpOpen={false}
+        onHelpOpenChange={noop}
+      />,
+    );
+
+    // Gaps in the run → comma list, never "1–5" (which would imply 2 and 4).
+    expect(screen.getByText("1, 3, 5")).toBeTruthy();
+    expect(screen.queryByText("1–5")).toBeNull();
+  });
+
+  it("does not collapse a binding that has children (keeps its subtree visible)", () => {
+    const withChildParent: ChordMap = {
+      m: {
+        label: "Menu",
+        collapse: "menu",
+        children: { d: { label: "Deep action" } },
+      },
+    };
+    render(
+      <ShortcutHintOverlay
+        pending={null}
+        bindings={withChildParent}
+        leaderLabel="⌘ ;"
+        helpOpen={true}
+        onHelpOpenChange={noop}
+      />,
+    );
+
+    // Rendered as a normal single row (its own key), not a collapsed group, so
+    // the reference modal still descends into and shows the child shortcut.
+    expect(screen.getByText("m")).toBeTruthy();
+    expect(screen.getByText("Deep action")).toBeTruthy();
+  });
+
   it("renders breadcrumb heading when path is ['g']", () => {
     const pending: ChordPending = {
       level: bindings.g.children!,

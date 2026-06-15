@@ -10,6 +10,9 @@ export const MAX_NODE_CHORDS = 9;
  * between (a single node or none), so the chord/help overlay never advertises a
  * no-op. Nodes past the 9th get no binding — they are reachable only by
  * clicking the rail tile. Each binding mirrors a tile click: `setActiveNode(id)`.
+ *
+ * Every binding shares a `collapse` token so the hint overlay renders them as a
+ * single "1–9 Switch node" row rather than one named row per node.
  */
 export function buildNodeSwitchBindings(
   nodes: NodeWithStatus[],
@@ -20,7 +23,8 @@ export function buildNodeSwitchBindings(
   const bindings: ChordMap = {};
   nodes.slice(0, MAX_NODE_CHORDS).forEach((node, i) => {
     bindings[String(i + 1)] = {
-      label: node.name,
+      label: "Switch node",
+      collapse: "node-switch",
       run: () => setActiveNode(node.id),
     };
   });
