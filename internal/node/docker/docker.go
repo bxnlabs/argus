@@ -11,7 +11,10 @@ import (
 )
 
 // composeFileNames are the compose file names recognized in a profile
-// directory, in priority order.
+// directory, listed in Docker Compose's own canonical resolution order:
+// compose.yaml (preferred) before the legacy docker-compose.* variants. This
+// matches what `docker compose` picks when invoked without an explicit -f, so a
+// profile holding more than one file resolves the same way here and at the CLI.
 var composeFileNames = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
 
 // ProfileComposeFile returns the path to a profile's compose file and true when
