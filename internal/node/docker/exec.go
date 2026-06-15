@@ -30,7 +30,7 @@ func ExecCommand(o ExecOptions) string {
 	if o.UID != "" {
 		b.WriteString(" -u " + shellQuote(o.UID+":"+o.GID))
 	}
-	b.WriteString(" " + o.Service + " ")
+	b.WriteString(" " + shellQuote(o.Service) + " ")
 	b.WriteString(o.Command)
 	return b.String()
 }
