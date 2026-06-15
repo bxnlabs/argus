@@ -245,8 +245,25 @@ the CLI/UI.
 
 - `argus profile up <name>` — bring the stack up.
 - `argus profile down <name>` — tear the stack down.
-- `argus profile status <name>` — show whether the stack is up.
-- `argus profile ls` — list profiles, annotating which are dockerized.
+- `argus profile status <name>` — show whether a single profile's stack is up.
+- `argus profile ls` — list all profiles in a table, with their type and stack
+  status.
+
+`argus profile ls` renders a `text/tabwriter` table (matching `session ls`):
+
+```
+NAME        TYPE     STACK
+acme        docker   up
+globex      docker   down
+default     host     -
+```
+
+- **NAME** — profile directory name.
+- **TYPE** — `docker` if the profile has a compose file, else `host`.
+- **STACK** — for docker profiles, `up`/`down` from a best-effort
+  `docker compose ps` (per profile); `-` for host profiles, and `?` if the
+  daemon is unreachable. Status lookups are best-effort so the listing never
+  fails when Docker is down — it just shows `?`.
 
 ### API / UI
 
