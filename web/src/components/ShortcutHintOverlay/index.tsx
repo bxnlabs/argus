@@ -50,7 +50,7 @@ function KeyChip({ children, className }: { children: React.ReactNode; className
  */
 type DisplayRow =
   | { kind: "single"; key: string; binding: ChordBinding }
-  | { kind: "group"; keys: string[]; label: string };
+  | { kind: "group"; keys: string[]; label: string; collapse: string };
 
 /**
  * Fold a level's entries into display rows, merging runs of bindings that share
@@ -64,11 +64,16 @@ function toDisplayRows(level: ChordMap): DisplayRow[] {
     if (
       binding.collapse &&
       prev?.kind === "group" &&
-      prev.label === binding.label
+      prev.collapse === binding.collapse
     ) {
       prev.keys.push(key);
     } else if (binding.collapse) {
-      rows.push({ kind: "group", keys: [key], label: binding.label });
+      rows.push({
+        kind: "group",
+        keys: [key],
+        label: binding.label,
+        collapse: binding.collapse,
+      });
     } else {
       rows.push({ kind: "single", key, binding });
     }
@@ -76,10 +81,20 @@ function toDisplayRows(level: ChordMap): DisplayRow[] {
   return rows;
 }
 
-/** Render a group's keys as a single range chip ("1–9"), or one chip if alone. */
+/**
+ * Render a group's keys as a single range chip ("1–9") when they form a
+ * contiguous numeric run, otherwise list them ("1, 3, 5") so the chip never
+ * implies keys that aren't bound. A lone key renders verbatim.
+ */
 function GroupKeyChip({ keys }: { keys: string[] }): React.JSX.Element {
+  const nums = keys.map(Number);
+  const contiguous =
+    nums.every(Number.isInteger) &&
+    nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
   const text =
-    keys.length > 1 ? `${keys[0]}–${keys[keys.length - 1]}` : keys[0];
+    keys.length > 1 && contiguous
+      ? `${keys[0]}–${keys[keys.length - 1]}`
+      : keys.join(", ");
   return <KeyChip>{text}</KeyChip>;
 }
 

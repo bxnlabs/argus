@@ -90,6 +90,52 @@ describe("ShortcutHintOverlay", () => {
     expect(screen.getByText("Terminal")).toBeTruthy();
   });
 
+  it("keeps adjacent same-label bindings with different collapse tokens separate", () => {
+    const withTokens: ChordMap = {
+      a: { label: "Jump", collapse: "alpha" },
+      b: { label: "Jump", collapse: "beta" },
+      x: { label: "Exit" },
+    };
+    const pending: ChordPending = { level: withTokens, path: [] };
+    render(
+      <ShortcutHintOverlay
+        pending={pending}
+        bindings={withTokens}
+        leaderLabel="⌘ ;"
+        helpOpen={false}
+        onHelpOpenChange={noop}
+      />,
+    );
+
+    // Different tokens → two separate single-key chips, not a merged "a–b" range.
+    expect(screen.getByText("a")).toBeTruthy();
+    expect(screen.getByText("b")).toBeTruthy();
+    expect(screen.queryByText("a–b")).toBeNull();
+    expect(screen.queryByText("a, b")).toBeNull();
+  });
+
+  it("lists non-contiguous collapsed keys instead of a misleading range", () => {
+    const sparse: ChordMap = {
+      "1": { label: "Pick", collapse: "pick" },
+      "3": { label: "Pick", collapse: "pick" },
+      "5": { label: "Pick", collapse: "pick" },
+    };
+    const pending: ChordPending = { level: sparse, path: [] };
+    render(
+      <ShortcutHintOverlay
+        pending={pending}
+        bindings={sparse}
+        leaderLabel="⌘ ;"
+        helpOpen={false}
+        onHelpOpenChange={noop}
+      />,
+    );
+
+    // Gaps in the run → comma list, never "1–5" (which would imply 2 and 4).
+    expect(screen.getByText("1, 3, 5")).toBeTruthy();
+    expect(screen.queryByText("1–5")).toBeNull();
+  });
+
   it("renders breadcrumb heading when path is ['g']", () => {
     const pending: ChordPending = {
       level: bindings.g.children!,
