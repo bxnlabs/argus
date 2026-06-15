@@ -13,6 +13,7 @@ import (
 	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/docker"
 	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
@@ -33,6 +34,9 @@ type Manager struct {
 	hooks    *HookRunner
 	mu       sync.Mutex
 	sessLks  map[string]*sync.Mutex
+
+	compose    composeRunner
+	profileLks map[string]*sync.Mutex
 }
 
 // sessionLock returns a per-session mutex, creating it if needed.
@@ -56,7 +60,7 @@ func (m *Manager) sessionLock(id string) *sync.Mutex {
 
 // NewManager creates a new session manager.
 func NewManager(database *db.DB, wt *worktree.Manager, stateDir string) *Manager {
-	return &Manager{db: database, wt: wt, stateDir: stateDir, hooks: NewHookRunner(stateDir)}
+	return &Manager{db: database, wt: wt, stateDir: stateDir, hooks: NewHookRunner(stateDir), compose: docker.NewCLICompose()}
 }
 
 // CreateOptions are the options for creating a new session.
