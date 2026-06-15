@@ -18,7 +18,12 @@ import { NewSessionDialog } from "./index";
 // --- Mock data hooks ---
 vi.mock("@/data/sessions", () => ({
   useProfilesQuery: () => ({
-    data: { profiles: ["default", "review"] },
+    data: {
+      profiles: [
+        { name: "default", dockerized: false, stack: "-" },
+        { name: "review", dockerized: false, stack: "-" },
+      ],
+    },
     refetch: vi.fn(),
   }),
 }));

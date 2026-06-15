@@ -10,7 +10,14 @@ import type { Session } from "@/types";
 
 // --- Mock data + viewport hooks ---
 vi.mock("@/data/sessions", () => ({
-  useProfilesQuery: () => ({ data: { profiles: ["default", "review"] } }),
+  useProfilesQuery: () => ({
+    data: {
+      profiles: [
+        { name: "default", dockerized: false, stack: "-" },
+        { name: "review", dockerized: false, stack: "-" },
+      ],
+    },
+  }),
 }));
 vi.mock("@/hooks/useViewport", () => ({
   useViewport: () => ({ isMobile: false, isDesktop: true, isHydrated: true }),

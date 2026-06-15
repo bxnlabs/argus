@@ -209,8 +209,14 @@ export function useUpdateSession() {
   });
 }
 
+export interface ProfileInfo {
+  name: string;
+  dockerized: boolean;
+  stack: string; // "up" | "down" | "-" | "?"
+}
+
 interface ProfilesResponse {
-  profiles: string[];
+  profiles: ProfileInfo[];
 }
 
 export function useProfilesQuery() {

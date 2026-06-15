@@ -229,8 +229,13 @@ export function NewSessionDialog({
                   </SelectTrigger>
                   <SelectContent>
                     {profiles.map((p) => (
-                      <SelectItem key={p} value={p}>
-                        {p}
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.name}
+                        {p.dockerized && (
+                          <span className="text-muted-foreground ml-2 text-xs">
+                            🐳
+                          </span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>
