@@ -121,6 +121,20 @@ func TestProfileUpHandler_NotDockerized(t *testing.T) {
 	}
 }
 
+func TestProfileDownHandler_NotDockerized(t *testing.T) {
+	h, stateDir := newProfileTestHandler(t)
+	if err := os.MkdirAll(filepath.Join(stateDir, "profiles", "plain", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/profiles/plain/down", nil)
+	req.SetPathValue("name", "plain")
+	w := httptest.NewRecorder()
+	h.profileDown(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for non-docker profile, got %d", w.Code)
+	}
+}
+
 func TestDetachProfileHandler_AlreadyDetachedIsNoop(t *testing.T) {
 	h, database := newTestSessionHandler(t)
 
