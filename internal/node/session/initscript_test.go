@@ -144,6 +144,9 @@ func TestGenerateContainerInitScript(t *testing.T) {
 	if !strings.HasPrefix(script, "#!/bin/bash") {
 		t.Error("expected shebang")
 	}
+	if !strings.Contains(script, `rm -f -- "$0"`) {
+		t.Error("expected self-delete line")
+	}
 	if !strings.Contains(script, `source '/home/jeev/.argus/profiles/work/hooks/post_create.sh'`) {
 		t.Error("expected sourced post_create hook")
 	}
@@ -185,5 +188,24 @@ func TestWriteContainerInitScript(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "claude") {
 		t.Error("expected agent command in written file")
+	}
+}
+
+func TestWriteContainerShellInitScript(t *testing.T) {
+	state := t.TempDir()
+	path, err := WriteContainerShellInitScript("sess_sh", state, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Must live under <stateDir>/tmp so it is visible in the container.
+	if !strings.HasPrefix(path, filepath.Join(state, "tmp")) {
+		t.Errorf("inner shell script not under state tmp dir: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "exec $SHELL -l") {
+		t.Error("expected exec $SHELL -l in written file")
 	}
 }

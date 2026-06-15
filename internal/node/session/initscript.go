@@ -150,16 +150,22 @@ func WriteShellInitScript(sessionID string, hookPaths []string) (string, error) 
 // wrapper (GenerateInitScript). The script self-deletes on start.
 func GenerateContainerInitScript(agentCommand string, hookPaths []string) string {
 	hookBlock := generateHookSourceBlock(hookPaths)
-	hookSection := ""
+
+	// Build the section between the PATH export and the agent command.
+	// When hooks are present: blank line + hook block (which ends with "\n").
+	// When hooks are absent: nothing — the trailing "\n" below provides the
+	// single blank line separator before the agent command.
+	middle := ""
 	if hookBlock != "" {
-		hookSection = "\n" + hookBlock
+		middle = "\n" + hookBlock
 	}
+
 	return "#!/bin/bash\n" +
 		"# Argus Container Init Script\n" +
 		"# Auto-generated - do not edit manually\n" +
 		"rm -f -- \"$0\"\n" +
 		"export PATH=\"$HOME/.local/bin:$PATH\"\n" +
-		hookSection +
+		middle +
 		"\n" +
 		agentCommand + "\n"
 }
@@ -176,6 +182,7 @@ func GenerateContainerShellInitScript(hookPaths []string) string {
 	}
 	return "#!/bin/bash\n" +
 		"# Argus Container Shell Init Script\n" +
+		"# Auto-generated - do not edit manually\n" +
 		"rm -f -- \"$0\"\n" +
 		hookSection +
 		"exec $SHELL -l\n"
