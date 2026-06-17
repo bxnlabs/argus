@@ -6,24 +6,29 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/bxnlabs/argus/internal/node/docker"
 	"github.com/bxnlabs/argus/internal/node/provider"
 )
 
+// stackOpTimeout bounds a single compose up/down so a hung Docker daemon can't
+// hold a profile's mutex forever and wedge every future create/revival for that
+// profile. It is deliberately generous — it must never fire mid-legitimate
+// build/pull; its only job is to release the lock if Docker is truly dead.
+const stackOpTimeout = 20 * time.Minute
+
 // composeRunner is the subset of docker.CLICompose the Manager depends on, so
 // tests can substitute a fake.
 type composeRunner interface {
-	Up(ctx context.Context, project, file string, env []string) error
+	Up(ctx context.Context, project, file string, env []string, opts docker.ComposeUpOpts) error
 	Down(ctx context.Context, project, file string, env []string) error
-	IsUp(ctx context.Context, project, file string, env []string) (bool, error)
 }
 
 // ProfileInfo describes a profile for the listing API/CLI.
 type ProfileInfo struct {
 	Name       string `json:"name"`
 	Dockerized bool   `json:"dockerized"`
-	Stack      string `json:"stack"` // "up" | "down" | "-" (host) | "?" (daemon error)
 }
 
 // profileLock returns a per-profile mutex, creating it if needed. It serializes
@@ -43,85 +48,101 @@ func (m *Manager) profileLock(name string) *sync.Mutex {
 	return l
 }
 
-// ensureStackUp brings the profile's compose stack up if it is not already
-// running. Serialized per profile.
-func (m *Manager) ensureStackUp(profile, composeFile string) error {
+// composeArgs resolves the project name and interpolation env for a profile's
+// stack. The compose file path comes from docker.ProfileComposeFile at the call
+// site, so it is not bundled here.
+func (m *Manager) composeArgs(profile string) (project string, env []string, err error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve home: %w", err)
+	}
+	return docker.ProjectName(profile), docker.Env(home, m.stateDir), nil
+}
+
+// bringStackUp runs `docker compose up -d` (with opts) for the profile's stack,
+// serialized per profile and bounded by stackOpTimeout. `up -d` is idempotent:
+// it reconciles to the compose file's desired state, leaves unchanged running
+// containers alone, and restarts a dead service — so it is safe to always run.
+func (m *Manager) bringStackUp(profile, composeFile string, opts docker.ComposeUpOpts) error {
 	l := m.profileLock(profile)
 	l.Lock()
 	defer l.Unlock()
 
-	home, err := os.UserHomeDir()
+	project, env, err := m.composeArgs(profile)
 	if err != nil {
-		return fmt.Errorf("resolve home: %w", err)
+		return err
 	}
-	project := docker.ProjectName(profile)
-	env := docker.Env(home, m.stateDir)
-	up, err := m.compose.IsUp(context.Background(), project, composeFile, env)
-	if err != nil {
-		return fmt.Errorf("check stack status for profile %q: %w", profile, err)
-	}
-	if up {
-		return nil
-	}
-	return m.compose.Up(context.Background(), project, composeFile, env)
+	ctx, cancel := context.WithTimeout(context.Background(), stackOpTimeout)
+	defer cancel()
+	return m.compose.Up(ctx, project, composeFile, env, opts)
 }
 
-// ProfileUp brings a dockerized profile's stack up. Returns ErrInvalidInput if
-// the profile is not dockerized.
+// ensureStackUp is the lazy path used on session create/revival: a fast
+// `up -d` that ensures the stack is running and auto-applies compose-config
+// changes, without rebuilding or re-pulling images.
+func (m *Manager) ensureStackUp(profile, composeFile string) error {
+	return m.bringStackUp(profile, composeFile, docker.ComposeUpOpts{})
+}
+
+// ProfileUp is the explicit refresh path (`argus profile up`): `up -d --build
+// --pull always`, rebuilding local images and re-pulling registry images. It
+// only acts on real, usable (hooks-bearing) dockerized profiles. Returns
+// ErrInvalidInput if the profile is missing, invalid, or not dockerized.
 func (m *Manager) ProfileUp(name string) error {
-	if err := ValidateProfileName(name); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	file, err := m.dockerizedProfileFile(name)
+	if err != nil {
+		return err
 	}
-	file, ok := docker.ProfileComposeFile(m.stateDir, name)
-	if !ok {
-		return fmt.Errorf("%w: profile %q is not dockerized", ErrInvalidInput, name)
-	}
-	return m.ensureStackUp(name, file)
+	return m.bringStackUp(name, file, docker.ComposeUpOpts{Build: true, Pull: true})
 }
 
-// ProfileDown tears a dockerized profile's stack down.
+// ProfileDown tears a dockerized profile's stack down. Like ProfileUp it only
+// acts on real, usable dockerized profiles.
 func (m *Manager) ProfileDown(name string) error {
-	if err := ValidateProfileName(name); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidInput, err)
-	}
-	file, ok := docker.ProfileComposeFile(m.stateDir, name)
-	if !ok {
-		return fmt.Errorf("%w: profile %q is not dockerized", ErrInvalidInput, name)
+	file, err := m.dockerizedProfileFile(name)
+	if err != nil {
+		return err
 	}
 	l := m.profileLock(name)
 	l.Lock()
 	defer l.Unlock()
-	home, err := os.UserHomeDir()
+	project, env, err := m.composeArgs(name)
 	if err != nil {
-		return fmt.Errorf("resolve home: %w", err)
+		return err
 	}
-	return m.compose.Down(context.Background(), docker.ProjectName(name), file, docker.Env(home, m.stateDir))
+	ctx, cancel := context.WithTimeout(context.Background(), stackOpTimeout)
+	defer cancel()
+	return m.compose.Down(ctx, project, file, env)
 }
 
-// ListProfilesDetailed returns every profile annotated with its type and, for
-// dockerized profiles, its stack status. Status lookups are best-effort: a
-// Docker daemon error yields "?" rather than failing the listing.
+// dockerizedProfileFile validates that name is a real, usable profile (via
+// resolveProfile, which checks the name and requires hooks/) and that it is
+// dockerized, returning its compose file. All failures map to ErrInvalidInput
+// so the API returns 400.
+func (m *Manager) dockerizedProfileFile(name string) (string, error) {
+	if _, err := m.resolveProfile(&name); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	}
+	file, ok := docker.ProfileComposeFile(m.stateDir, name)
+	if !ok {
+		return "", fmt.Errorf("%w: profile %q is not dockerized", ErrInvalidInput, name)
+	}
+	return file, nil
+}
+
+// ListProfilesDetailed returns every profile annotated with whether it is
+// dockerized. It is a pure directory-stat loop and does no Docker subprocess
+// work, so GET /profiles is cheap. Operators who want live stack status use
+// `docker compose -p argus-<name> ps` directly.
 func (m *Manager) ListProfilesDetailed() ([]ProfileInfo, error) {
 	names, err := m.ListProfiles()
 	if err != nil {
 		return nil, err
 	}
-	home, _ := os.UserHomeDir()
 	out := make([]ProfileInfo, 0, len(names))
 	for _, name := range names {
-		info := ProfileInfo{Name: name, Stack: "-"}
-		if file, ok := docker.ProfileComposeFile(m.stateDir, name); ok {
-			info.Dockerized = true
-			info.Stack = "?"
-			if up, err := m.compose.IsUp(context.Background(), docker.ProjectName(name), file, docker.Env(home, m.stateDir)); err == nil {
-				if up {
-					info.Stack = "up"
-				} else {
-					info.Stack = "down"
-				}
-			}
-		}
-		out = append(out, info)
+		_, dockerized := docker.ProfileComposeFile(m.stateDir, name)
+		out = append(out, ProfileInfo{Name: name, Dockerized: dockerized})
 	}
 	return out, nil
 }
@@ -132,8 +153,14 @@ func (m *Manager) ListProfilesDetailed() ([]ProfileInfo, error) {
 // `docker compose exec`; otherwise it runs directly on the host. An empty
 // return means "start tmux's default shell with no init script".
 func (m *Manager) buildTmuxCmd(sessionID, providerType, profile, cwd, agentCmd string, postCreatePaths []string) (string, error) {
-	if composeFile, ok := docker.ProfileComposeFile(m.stateDir, profile); ok {
-		return m.buildDockerTmuxCmd(sessionID, providerType, profile, composeFile, cwd, agentCmd, postCreatePaths)
+	// Normalize "" → "default" so dockerization is consistent with the hooks
+	// layer: a no-profile session already sources profiles/default/'s hooks, so
+	// a profiles/default/ compose file must dockerize it too. The normalized
+	// name flows downstream so detection, ProjectName, ensureStackUp, and the
+	// exec all agree on the same stack (argus-default).
+	dockerProfile := effectiveProfileName(profile)
+	if composeFile, ok := docker.ProfileComposeFile(m.stateDir, dockerProfile); ok {
+		return m.buildDockerTmuxCmd(sessionID, providerType, dockerProfile, composeFile, cwd, agentCmd, postCreatePaths)
 	}
 	// Host (non-docker) path — unchanged behavior.
 	if agentCmd != "" {
@@ -174,14 +201,15 @@ func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFi
 		return "", fmt.Errorf("start profile %q stack: %w", profile, err)
 	}
 
-	var innerPath string
+	var content string
 	pattern := ""
 	if agentCmd != "" {
-		innerPath, err = WriteContainerInitScript(sessionID, m.stateDir, agentCmd, postCreatePaths)
+		content = GenerateContainerInitScript(agentCmd, postCreatePaths)
 		pattern = provider.GetSessionIDPattern(provider.ProviderType(providerType))
 	} else {
-		innerPath, err = WriteContainerShellInitScript(sessionID, m.stateDir, postCreatePaths)
+		content = GenerateContainerShellInitScript(postCreatePaths)
 	}
+	innerPath, err := writeContainerScript(sessionID, m.stateDir, content)
 	if err != nil {
 		return "", err
 	}
@@ -194,6 +222,9 @@ func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFi
 		UID:     uid,
 		GID:     gid,
 		Service: "agent",
+		// docker compose exec re-interpolates the whole compose file at exec
+		// time, so it needs the same ARGUS_* vars `up` saw or ${ARGUS_*} blanks.
+		Env:     docker.Env(home, m.stateDir),
 		Command: "bash " + shellQuote(innerPath),
 	})
 

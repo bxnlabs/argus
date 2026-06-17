@@ -13,7 +13,6 @@ import (
 type profileInfo struct {
 	Name       string `json:"name"`
 	Dockerized bool   `json:"dockerized"`
-	Stack      string `json:"stack"`
 }
 
 // NewProfileCmd returns the top-level "profile" command group for managing
@@ -27,7 +26,7 @@ func NewProfileCmd() *cobra.Command {
 		// command group.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
 	}
-	cmd.AddCommand(newProfileLsCmd(), newProfileUpCmd(), newProfileDownCmd(), newProfileStatusCmd())
+	cmd.AddCommand(newProfileLsCmd(), newProfileUpCmd(), newProfileDownCmd())
 	return cmd
 }
 
@@ -57,7 +56,7 @@ func fetchProfiles(c *apiClient) ([]profileInfo, error) {
 func newProfileLsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
-		Short: "List profiles and their stack status",
+		Short: "List profiles and their type",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
@@ -74,13 +73,13 @@ func newProfileLsCmd() *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tTYPE\tSTACK")
+			fmt.Fprintln(w, "NAME\tTYPE")
 			for _, p := range profiles {
 				typ := "host"
 				if p.Dockerized {
 					typ = "docker"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, typ, p.Stack)
+				fmt.Fprintf(w, "%s\t%s\n", p.Name, typ)
 			}
 			w.Flush()
 			return nil
@@ -124,36 +123,6 @@ func newProfileDownCmd() *cobra.Command {
 			}
 			fmt.Printf("Profile %q stack is down\n", args[0])
 			return nil
-		},
-	}
-}
-
-func newProfileStatusCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "status <profile>",
-		Short: "Show a profile's stack status",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cmd.SilenceUsage = true
-			c, err := profileClient()
-			if err != nil {
-				return err
-			}
-			profiles, err := fetchProfiles(c)
-			if err != nil {
-				return err
-			}
-			for _, p := range profiles {
-				if p.Name == args[0] {
-					typ := "host"
-					if p.Dockerized {
-						typ = "docker"
-					}
-					fmt.Printf("%s (%s): %s\n", p.Name, typ, p.Stack)
-					return nil
-				}
-			}
-			return fmt.Errorf("profile %q not found", args[0])
 		},
 	}
 }

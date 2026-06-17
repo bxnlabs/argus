@@ -32,6 +32,29 @@ func TestExecCommand(t *testing.T) {
 	}
 }
 
+func TestExecCommandEnvPrefix(t *testing.T) {
+	got := ExecCommand(ExecOptions{
+		Project: "argus-work",
+		File:    "/x/compose.yaml",
+		Service: "agent",
+		Env:     []string{"ARGUS_HOST_HOME=/home/jeev", "ARGUS_UID=1000"},
+		Command: "true",
+	})
+	// Env pairs are shell-quoted and prefixed before `docker compose` so it
+	// re-interpolates ${ARGUS_*} at exec time.
+	for _, want := range []string{
+		"ARGUS_HOST_HOME='/home/jeev' ",
+		"ARGUS_UID='1000' ",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ExecCommand missing env prefix %q in:\n%s", want, got)
+		}
+	}
+	if i := strings.Index(got, "docker compose"); i < strings.Index(got, "ARGUS_HOST_HOME") {
+		t.Errorf("env prefixes must precede `docker compose`: %s", got)
+	}
+}
+
 func TestExecCommandQuotesSingleQuotes(t *testing.T) {
 	got := ExecCommand(ExecOptions{
 		Project: "argus-work",

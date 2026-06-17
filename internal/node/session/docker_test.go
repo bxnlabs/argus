@@ -11,20 +11,22 @@ import (
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/docker"
 )
 
 // fakeCompose records calls and tracks per-project up state.
 type fakeCompose struct {
 	up        map[string]bool
 	upCalls   []string
+	upOpts    []docker.ComposeUpOpts // opts for each Up call, parallel to upCalls
 	downCalls []string
-	isUpErr   error
 }
 
 func newFakeCompose() *fakeCompose { return &fakeCompose{up: map[string]bool{}} }
 
-func (f *fakeCompose) Up(_ context.Context, project, _ string, _ []string) error {
+func (f *fakeCompose) Up(_ context.Context, project, _ string, _ []string, opts docker.ComposeUpOpts) error {
 	f.upCalls = append(f.upCalls, project)
+	f.upOpts = append(f.upOpts, opts)
 	f.up[project] = true
 	return nil
 }
@@ -32,12 +34,6 @@ func (f *fakeCompose) Down(_ context.Context, project, _ string, _ []string) err
 	f.downCalls = append(f.downCalls, project)
 	f.up[project] = false
 	return nil
-}
-func (f *fakeCompose) IsUp(_ context.Context, project, _ string, _ []string) (bool, error) {
-	if f.isUpErr != nil {
-		return false, f.isUpErr
-	}
-	return f.up[project], nil
 }
 
 func dockerTestManager(t *testing.T) (*Manager, *fakeCompose, string) {
@@ -79,12 +75,19 @@ func TestProfileUpDown(t *testing.T) {
 	if !fake.up["argus-work"] {
 		t.Error("expected stack up after ProfileUp")
 	}
-	// Idempotent: already up → no second Up call.
+	// `up -d` is idempotent and always runs (no status probe), so a second
+	// ProfileUp issues a second up call — both are no-op reconciles.
 	if err := mgr.ProfileUp("work"); err != nil {
 		t.Fatal(err)
 	}
-	if len(fake.upCalls) != 1 {
-		t.Errorf("expected 1 up call, got %d", len(fake.upCalls))
+	if len(fake.upCalls) != 2 {
+		t.Errorf("expected 2 up calls, got %d", len(fake.upCalls))
+	}
+	// ProfileUp is the refresh path: it forces image rebuild + re-pull.
+	for i, opts := range fake.upOpts {
+		if !opts.Build || !opts.Pull {
+			t.Errorf("ProfileUp call %d: expected Build+Pull, got %+v", i, opts)
+		}
 	}
 
 	if err := mgr.ProfileDown("work"); err != nil {
@@ -106,31 +109,26 @@ func TestProfileUpRejectsNonDocker(t *testing.T) {
 	}
 }
 
-func TestListProfilesDetailedIsUpError(t *testing.T) {
-	mgr, fake, state := dockerTestManager(t)
-	makeProfile(t, state, "work", true)
-	fake.isUpErr = errors.New("daemon unavailable")
+func TestProfileUpRejectsMissingProfile(t *testing.T) {
+	mgr, _, _ := dockerTestManager(t)
+	// No profiles/<name>/hooks dir exists → resolveProfile fails the guard.
+	if err := mgr.ProfileUp("ghost"); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for missing profile, got %v", err)
+	}
+}
 
-	infos, err := mgr.ListProfilesDetailed()
-	if err != nil {
-		t.Fatalf("ListProfilesDetailed should not fail on daemon error: %v", err)
-	}
-	var work ProfileInfo
-	for _, i := range infos {
-		if i.Name == "work" {
-			work = i
-		}
-	}
-	if !work.Dockerized || work.Stack != "?" {
-		t.Errorf("expected dockerized work profile with Stack \"?\" on daemon error, got %+v", work)
+func TestProfileUpRejectsUppercaseName(t *testing.T) {
+	mgr, _, _ := dockerTestManager(t)
+	// Uppercase names are now invalid (docker project names must be lowercase).
+	if err := mgr.ProfileUp("ClientA"); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for uppercase name, got %v", err)
 	}
 }
 
 func TestListProfilesDetailed(t *testing.T) {
-	mgr, fake, state := dockerTestManager(t)
+	mgr, _, state := dockerTestManager(t)
 	makeProfile(t, state, "plain", false)
 	makeProfile(t, state, "work", true)
-	fake.up["argus-work"] = true
 
 	infos, err := mgr.ListProfilesDetailed()
 	if err != nil {
@@ -140,11 +138,11 @@ func TestListProfilesDetailed(t *testing.T) {
 	for _, i := range infos {
 		got[i.Name] = i
 	}
-	if got["plain"].Dockerized || got["plain"].Stack != "-" {
-		t.Errorf("plain: %+v", got["plain"])
+	if got["plain"].Dockerized {
+		t.Errorf("plain should not be dockerized: %+v", got["plain"])
 	}
-	if !got["work"].Dockerized || got["work"].Stack != "up" {
-		t.Errorf("work: %+v", got["work"])
+	if !got["work"].Dockerized {
+		t.Errorf("work should be dockerized: %+v", got["work"])
 	}
 }
 
@@ -249,7 +247,35 @@ func TestBuildDockerTmuxCmd_ShellSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(innerData), "exec $SHELL -l") {
+	if !strings.Contains(string(innerData), `exec "${SHELL:-/bin/bash}" -l`) {
 		t.Error("expected container shell inner script")
+	}
+}
+
+// A no-profile session with a profiles/default/ compose file must take the
+// dockerized path: "" normalizes to "default", consistent with the hooks layer.
+func TestBuildTmuxCmd_NoProfileDockerizedDefault(t *testing.T) {
+	mgr, fake, state := dockerTestManager(t)
+	makeProfile(t, state, "default", true)
+	cwd := filepath.Join(state, "wt")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, err := mgr.buildTmuxCmd("sess_def", "claude", "", cwd, "claude --resume z", nil)
+	if err != nil {
+		t.Fatalf("buildTmuxCmd: %v", err)
+	}
+	// Resolves to the argus-default stack and brings it up.
+	if !fake.up["argus-default"] {
+		t.Error("expected argus-default stack brought up for no-profile session")
+	}
+	hostScript := strings.TrimPrefix(cmd, "bash ")
+	data, err := os.ReadFile(hostScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "-p 'argus-default'") {
+		t.Errorf("expected exec into argus-default stack, got:\n%s", string(data))
 	}
 }

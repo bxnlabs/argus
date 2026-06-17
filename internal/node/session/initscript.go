@@ -115,7 +115,7 @@ func GenerateShellInitScript(hookPaths []string) string {
 		"\n" +
 		hookBlock +
 		"\n" +
-		"exec $SHELL -l\n"
+		"exec \"${SHELL:-/bin/bash}\" -l\n"
 }
 
 // WriteInitScript writes the init script to a temp file and returns the path.
@@ -185,7 +185,7 @@ func GenerateContainerShellInitScript(hookPaths []string) string {
 		"# Auto-generated - do not edit manually\n" +
 		"rm -f -- \"$0\"\n" +
 		hookSection +
-		"exec $SHELL -l\n"
+		"exec \"${SHELL:-/bin/bash}\" -l\n"
 }
 
 // containerScriptDir returns <stateDir>/tmp, creating it 0700. This directory
@@ -199,32 +199,18 @@ func containerScriptDir(stateDir string) (string, error) {
 	return dir, nil
 }
 
-// WriteContainerInitScript writes the agent inner-init script under the mounted
-// state tmp dir and returns its path (identical on host and in-container).
-func WriteContainerInitScript(sessionID, stateDir, agentCommand string, hookPaths []string) (string, error) {
+// writeContainerScript writes a generated inner-init script under the mounted
+// state tmp dir and returns its path (identical on host and in-container). The
+// caller picks content via GenerateContainerInitScript (agent) or
+// GenerateContainerShellInitScript (shell).
+func writeContainerScript(sessionID, stateDir, content string) (string, error) {
 	dir, err := containerScriptDir(stateDir)
 	if err != nil {
 		return "", err
 	}
-	content := GenerateContainerInitScript(agentCommand, hookPaths)
 	path := filepath.Join(dir, fmt.Sprintf("argus-inner-%s.sh", sessionID))
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		return "", fmt.Errorf("write container init script: %w", err)
-	}
-	return path, nil
-}
-
-// WriteContainerShellInitScript writes the shell inner-init script under the
-// mounted state tmp dir and returns its path.
-func WriteContainerShellInitScript(sessionID, stateDir string, hookPaths []string) (string, error) {
-	dir, err := containerScriptDir(stateDir)
-	if err != nil {
-		return "", err
-	}
-	content := GenerateContainerShellInitScript(hookPaths)
-	path := filepath.Join(dir, fmt.Sprintf("argus-inner-%s.sh", sessionID))
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		return "", fmt.Errorf("write container shell init script: %w", err)
 	}
 	return path, nil
 }

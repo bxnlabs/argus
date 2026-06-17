@@ -113,8 +113,8 @@ func TestGenerateShellInitScript(t *testing.T) {
 	if !strings.Contains(script, "source '/tmp/profiles/default/hooks/post_create.sh'") {
 		t.Error("expected hook source command")
 	}
-	if !strings.Contains(script, "exec $SHELL -l") {
-		t.Error("expected exec $SHELL -l")
+	if !strings.Contains(script, `exec "${SHELL:-/bin/bash}" -l`) {
+		t.Error("expected exec with SHELL fallback")
 	}
 	// Should NOT contain the agent banner
 	if strings.Contains(script, "Argus") {
@@ -163,8 +163,8 @@ func TestGenerateContainerShellInitScript(t *testing.T) {
 	// Always returns a script, even with no hooks (a containerized shell must
 	// run through docker compose exec).
 	script := GenerateContainerShellInitScript(nil)
-	if !strings.Contains(script, "exec $SHELL -l") {
-		t.Error("expected exec $SHELL -l")
+	if !strings.Contains(script, `exec "${SHELL:-/bin/bash}" -l`) {
+		t.Error("expected exec with SHELL fallback")
 	}
 	withHooks := GenerateContainerShellInitScript([]string{"/h/post_create.sh"})
 	if !strings.Contains(withHooks, "source '/h/post_create.sh'") {
@@ -172,9 +172,10 @@ func TestGenerateContainerShellInitScript(t *testing.T) {
 	}
 }
 
-func TestWriteContainerInitScript(t *testing.T) {
+func TestWriteContainerScript_Agent(t *testing.T) {
 	state := t.TempDir()
-	path, err := WriteContainerInitScript("sess_xyz", state, "claude", nil)
+	content := GenerateContainerInitScript("claude", nil)
+	path, err := writeContainerScript("sess_xyz", state, content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,9 +192,10 @@ func TestWriteContainerInitScript(t *testing.T) {
 	}
 }
 
-func TestWriteContainerShellInitScript(t *testing.T) {
+func TestWriteContainerScript_Shell(t *testing.T) {
 	state := t.TempDir()
-	path, err := WriteContainerShellInitScript("sess_sh", state, nil)
+	content := GenerateContainerShellInitScript(nil)
+	path, err := writeContainerScript("sess_sh", state, content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +207,7 @@ func TestWriteContainerShellInitScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "exec $SHELL -l") {
-		t.Error("expected exec $SHELL -l in written file")
+	if !strings.Contains(string(data), `exec "${SHELL:-/bin/bash}" -l`) {
+		t.Error("expected exec with SHELL fallback in written file")
 	}
 }

@@ -13,9 +13,9 @@ vi.mock("@/data/sessions", () => ({
   useProfilesQuery: () => ({
     data: {
       profiles: [
-        { name: "default", dockerized: false, stack: "-" },
-        { name: "review", dockerized: false, stack: "-" },
-        { name: "sandbox", dockerized: true, stack: "-" },
+        { name: "default", dockerized: false },
+        { name: "review", dockerized: false },
+        { name: "sandbox", dockerized: true },
       ],
     },
   }),

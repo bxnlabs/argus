@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,24 +32,26 @@ func TestCLICompose_RoundTrip(t *testing.T) {
 
 	t.Cleanup(func() { _ = c.Down(ctx, project, compose, env) })
 
-	if err := c.Up(ctx, project, compose, env); err != nil {
+	// running reports whether any service container of the stack is running,
+	// via the docker CLI directly (the package no longer exposes a status probe).
+	running := func() bool {
+		out, err := exec.Command("docker", "compose", "-p", project, "-f", compose, "ps", "--status", "running", "-q").Output()
+		if err != nil {
+			t.Fatalf("docker compose ps: %v", err)
+		}
+		return len(strings.TrimSpace(string(out))) > 0
+	}
+
+	if err := c.Up(ctx, project, compose, env, ComposeUpOpts{}); err != nil {
 		t.Fatalf("Up: %v", err)
 	}
-	up, err := c.IsUp(ctx, project, compose, env)
-	if err != nil {
-		t.Fatalf("IsUp: %v", err)
-	}
-	if !up {
+	if !running() {
 		t.Fatal("expected stack to be up")
 	}
 	if err := c.Down(ctx, project, compose, env); err != nil {
 		t.Fatalf("Down: %v", err)
 	}
-	down, err := c.IsUp(ctx, project, compose, env)
-	if err != nil {
-		t.Fatalf("IsUp after down: %v", err)
-	}
-	if down {
+	if running() {
 		t.Fatal("expected stack to be down")
 	}
 }
