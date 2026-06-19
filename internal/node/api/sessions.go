@@ -242,6 +242,10 @@ func (h *sessionHandler) profileDown(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if errors.Is(err, session.ErrProfileInUse) {
+			respondError(w, http.StatusConflict, err.Error())
+			return
+		}
 		respondInternalError(w, err)
 		return
 	}

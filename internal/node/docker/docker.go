@@ -50,8 +50,24 @@ func Env(home, stateDir string) []string {
 // PathVisible reports whether path is under the host home or the state dir,
 // the two roots mounted into the container at identical paths. A session whose
 // working directory is outside both cannot be seen inside the container.
+//
+// Symlinks are resolved on both the path and the roots before comparison, so a
+// link that lexically sits under a mounted root but resolves outside it (its
+// real target would be missing in the container) is correctly rejected. If a
+// path cannot be resolved (e.g. it does not exist yet) it is compared as-is,
+// preserving the plain lexical check.
 func PathVisible(path, home, stateDir string) bool {
-	return underRoot(path, home) || underRoot(path, stateDir)
+	path = resolveSymlinks(path)
+	return underRoot(path, resolveSymlinks(home)) || underRoot(path, resolveSymlinks(stateDir))
+}
+
+// resolveSymlinks returns the fully resolved path, or the input unchanged if it
+// cannot be resolved.
+func resolveSymlinks(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return p
 }
 
 func underRoot(path, root string) bool {

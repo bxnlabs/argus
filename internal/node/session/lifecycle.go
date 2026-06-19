@@ -26,6 +26,10 @@ var ErrNotFound = db.ErrNotFound
 // user-fixable validation errors (bad source, unknown agent type, etc.).
 var ErrInvalidInput = errors.New("invalid input")
 
+// ErrProfileInUse is returned when an operation would disrupt live sessions
+// using a profile — e.g. tearing down a shared stack out from under them.
+var ErrProfileInUse = errors.New("profile in use")
+
 // Manager handles session lifecycle (create, delete, rename, etc.).
 type Manager struct {
 	db       *db.DB
@@ -566,28 +570,47 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		ProviderType: session.ProviderType,
 	}
 
-	// 1. Profile-level transition hooks. Skip them entirely when the old and
-	// new profiles resolve to the same hook directory (e.g. implicit default ""
-	// vs explicit "default"): running that profile's pre_create then pre_destroy
-	// would tear down the setup it just ran.
-	if effectiveProfileName(oldProfile) != effectiveProfileName(resolvedProfile) {
-		// New profile pre_create — abort on failure. Runs before any teardown
-		// so a failure leaves the session untouched and alive.
+	// Profile-level transition hooks and docker preflight, ordered so nothing
+	// tears down the old profile until the switch is known to be viable. The
+	// transition hooks are skipped entirely when the old and new profiles
+	// resolve to the same hook directory (e.g. implicit default "" vs explicit
+	// "default"): running that profile's pre_create then pre_destroy would tear
+	// down the setup it just ran. The docker preflight is NOT skipped — the
+	// "" ↔ "default" case can still target a dockerized default stack.
+	sameHookDir := effectiveProfileName(oldProfile) == effectiveProfileName(resolvedProfile)
+
+	// 1. New profile pre_create — abort on failure. Runs before any teardown
+	// (and before stack-up, matching Create's ordering) so a failure leaves the
+	// session untouched and alive.
+	if !sameHookDir {
 		if p := m.hooks.ResolveProfileHookPath(HookPreCreate, resolvedProfile, true); p != "" {
 			hookEnv.Profile = resolvedProfile
 			if err := m.hooks.RunHook(p, hookEnv); err != nil {
 				return nil, fmt.Errorf("pre_create hook: %w", err)
 			}
 		}
+	}
 
-		// Old profile pre_destroy — best-effort.
+	// 2. Docker preflight. When the target profile is dockerized, validate cwd
+	// visibility and bring its stack up while the original session is still
+	// alive and BEFORE the old profile's pre_destroy teardown. A deterministic
+	// docker failure (cwd not mounted, unstartable stack) can't be recovered by
+	// the self-healing respawn below, so catching it here keeps the session and
+	// its old-profile setup intact. No-op for host profiles.
+	if err := m.prepareDockerTarget(resolvedProfile, cwd); err != nil {
+		return nil, err
+	}
+
+	// 3. Old profile pre_destroy — best-effort teardown, only now that the
+	// switch is known to be viable.
+	if !sameHookDir {
 		if p := m.hooks.ResolveProfileHookPath(HookPreDestroy, oldProfile, true); p != "" {
 			hookEnv.Profile = oldProfile
 			m.hooks.RunHooksBestEffort([]string{p}, hookEnv)
 		}
 	}
 
-	// 2. Kill the existing tmux session (if alive) before persisting, so a
+	// 4. Kill the existing tmux session (if alive) before persisting, so a
 	// failed kill leaves the DB on the old profile — consistent with the
 	// still-live shell and safe to retry. Tolerate a race where the session
 	// disappeared between the check and the kill.
@@ -597,7 +620,7 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		}
 	}
 
-	// 3. Persist the new profile (nil clears it) after the kill but before the
+	// 5. Persist the new profile (nil clears it) after the kill but before the
 	// respawn, so a respawn failure is self-healing: EnsureSession revives the
 	// now-dead session from the new profile.
 	var profilePtr *string
@@ -608,7 +631,7 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		return nil, err
 	}
 
-	// 4. Re-fetch (now carries the new profile) and respawn. The respawn
+	// 6. Re-fetch (now carries the new profile) and respawn. The respawn
 	// re-sources post_create (profile + project), identical to EnsureSession.
 	updated, err := m.db.GetSession(id)
 	if err != nil {
@@ -667,6 +690,7 @@ func (m *Manager) ListProfiles() ([]string, error) {
 		}
 		name := e.Name()
 		if ValidateProfileName(name) != nil {
+			log.Printf("ListProfiles: skipping profile dir %q: invalid name (must be lowercase [a-z0-9][a-z0-9_-]*)", name)
 			continue
 		}
 		hooksDir := filepath.Join(profilesDir, name, "hooks")

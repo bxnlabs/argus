@@ -13,7 +13,7 @@ func TestExecCommand(t *testing.T) {
 		UID:     "1000",
 		GID:     "1000",
 		Service: "agent",
-		Command: "bash /home/jeev/.argus/tmp/argus-inner-sess_1.sh",
+		Args:    []string{"bash", "/home/jeev/.argus/tmp/argus-inner-sess_1.sh"},
 	})
 
 	for _, want := range []string{
@@ -24,7 +24,7 @@ func TestExecCommand(t *testing.T) {
 		"-w '/home/jeev/repo/wt'",
 		"-u '1000:1000'",
 		" 'agent' ",
-		"bash /home/jeev/.argus/tmp/argus-inner-sess_1.sh",
+		"'bash' '/home/jeev/.argus/tmp/argus-inner-sess_1.sh'",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("ExecCommand missing %q in:\n%s", want, got)
@@ -38,7 +38,7 @@ func TestExecCommandEnvPrefix(t *testing.T) {
 		File:    "/x/compose.yaml",
 		Service: "agent",
 		Env:     []string{"ARGUS_HOST_HOME=/home/jeev", "ARGUS_UID=1000"},
-		Command: "true",
+		Args:    []string{"true"},
 	})
 	// Env pairs are shell-quoted and prefixed before `docker compose` so it
 	// re-interpolates ${ARGUS_*} at exec time.
@@ -60,7 +60,7 @@ func TestExecCommandQuotesSingleQuotes(t *testing.T) {
 		Project: "argus-work",
 		File:    "/x/it's/compose.yaml",
 		Service: "agent",
-		Command: "true",
+		Args:    []string{"true"},
 	})
 	if !strings.Contains(got, `'/x/it'\''s/compose.yaml'`) {
 		t.Errorf("path with single quote not escaped: %s", got)

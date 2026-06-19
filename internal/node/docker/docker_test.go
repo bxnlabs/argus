@@ -95,6 +95,39 @@ func TestPathVisible(t *testing.T) {
 	}
 }
 
+// TestPathVisibleSymlinkEscape uses real directories so EvalSymlinks runs: a
+// link that lexically sits under home but resolves outside both roots must be
+// rejected, while a link resolving back inside a root stays visible.
+func TestPathVisibleSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	realHome := filepath.Join(root, "home")
+	state := filepath.Join(root, "state")
+	outside := filepath.Join(root, "outside")
+	mkdir(t, realHome)
+	mkdir(t, state)
+	mkdir(t, outside)
+
+	// A symlink under home that points outside both mounted roots.
+	escape := filepath.Join(realHome, "escape")
+	if err := os.Symlink(outside, escape); err != nil {
+		t.Fatal(err)
+	}
+	if PathVisible(escape, realHome, state) {
+		t.Errorf("PathVisible(%q) = true, want false (resolves outside mounted roots)", escape)
+	}
+
+	// A symlink under home that points back inside home stays visible.
+	inner := filepath.Join(realHome, "inner")
+	mkdir(t, inner)
+	link := filepath.Join(realHome, "link")
+	if err := os.Symlink(inner, link); err != nil {
+		t.Fatal(err)
+	}
+	if !PathVisible(link, realHome, state) {
+		t.Errorf("PathVisible(%q) = false, want true (resolves under home)", link)
+	}
+}
+
 func mkdir(t *testing.T, p string) {
 	t.Helper()
 	if err := os.MkdirAll(p, 0o755); err != nil {

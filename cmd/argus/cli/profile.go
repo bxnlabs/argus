@@ -11,8 +11,8 @@ import (
 
 // profileInfo mirrors the node API's ProfileInfo payload.
 type profileInfo struct {
-	Name       string `json:"name"`
-	Dockerized bool   `json:"dockerized"`
+	Name string `json:"name"`
+	Type string `json:"type"` // "host" or "docker"
 }
 
 // NewProfileCmd returns the top-level "profile" command group for managing
@@ -75,11 +75,7 @@ func newProfileLsCmd() *cobra.Command {
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(w, "NAME\tTYPE")
 			for _, p := range profiles {
-				typ := "host"
-				if p.Dockerized {
-					typ = "docker"
-				}
-				fmt.Fprintf(w, "%s\t%s\n", p.Name, typ)
+				fmt.Fprintf(w, "%s\t%s\n", p.Name, p.Type)
 			}
 			w.Flush()
 			return nil
@@ -98,7 +94,7 @@ func newProfileUpCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := c.post("/profiles/"+args[0]+"/up", nil); err != nil {
+			if _, err := c.postLongRunning("/profiles/"+args[0]+"/up", nil); err != nil {
 				return err
 			}
 			fmt.Printf("Profile %q stack is up\n", args[0])
@@ -118,7 +114,7 @@ func newProfileDownCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := c.post("/profiles/"+args[0]+"/down", nil); err != nil {
+			if _, err := c.postLongRunning("/profiles/"+args[0]+"/down", nil); err != nil {
 				return err
 			}
 			fmt.Printf("Profile %q stack is down\n", args[0])

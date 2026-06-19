@@ -102,7 +102,7 @@ export function ChangeProfileDialog({
                 {profiles.map((p) => (
                   <SelectItem key={p.name} value={p.name}>
                     {p.name}
-                    {p.dockerized && (
+                    {p.type === "docker" && (
                       <span
                         role="img"
                         aria-label="dockerized"

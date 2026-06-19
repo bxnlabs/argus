@@ -25,10 +25,18 @@ type composeRunner interface {
 	Down(ctx context.Context, project, file string, env []string) error
 }
 
+// Profile execution types reported by the listing API/CLI. A profile is
+// "docker" when its directory holds a compose file (its sessions run via
+// `docker compose exec`), otherwise "host".
+const (
+	ProfileTypeHost   = "host"
+	ProfileTypeDocker = "docker"
+)
+
 // ProfileInfo describes a profile for the listing API/CLI.
 type ProfileInfo struct {
-	Name       string `json:"name"`
-	Dockerized bool   `json:"dockerized"`
+	Name string `json:"name"`
+	Type string `json:"type"` // ProfileTypeHost or ProfileTypeDocker
 }
 
 // profileLock returns a per-profile mutex, creating it if needed. It serializes
@@ -84,6 +92,36 @@ func (m *Manager) ensureStackUp(profile, composeFile string) error {
 	return m.bringStackUp(profile, composeFile, docker.ComposeUpOpts{})
 }
 
+// prepareDockerTarget runs the deterministic docker preconditions for a profile
+// — verifying the cwd is visible in the container and bringing the stack up. It
+// is a no-op for non-dockerized (host) profiles. profile is normalized with
+// effectiveProfileName so the implicit-default and explicit "default" cases
+// resolve to the same dockerized stack as buildTmuxCmd.
+//
+// ChangeProfile calls this BEFORE killing the live session so a predictable
+// docker failure (cwd not mounted, unstartable stack) leaves the original
+// session alive and untouched — the same "validate before teardown" contract
+// the cwd and pre_create preflights already follow. buildDockerTmuxCmd re-runs
+// it on respawn, which is safe: PathVisible is pure and `up -d` is idempotent.
+func (m *Manager) prepareDockerTarget(profile, cwd string) error {
+	dockerProfile := effectiveProfileName(profile)
+	composeFile, ok := docker.ProfileComposeFile(m.stateDir, dockerProfile)
+	if !ok {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home: %w", err)
+	}
+	if !docker.PathVisible(cwd, home, m.stateDir) {
+		return fmt.Errorf("%w: working directory %q is not under the home or state directory mounted into the %q profile container", ErrInvalidInput, cwd, dockerProfile)
+	}
+	if err := m.ensureStackUp(dockerProfile, composeFile); err != nil {
+		return fmt.Errorf("start profile %q stack: %w", dockerProfile, err)
+	}
+	return nil
+}
+
 // ProfileUp is the explicit refresh path (`argus profile up`): `up -d --build
 // --pull always`, rebuilding local images and re-pulling registry images. It
 // only acts on real, usable (hooks-bearing) dockerized profiles. Returns
@@ -97,7 +135,9 @@ func (m *Manager) ProfileUp(name string) error {
 }
 
 // ProfileDown tears a dockerized profile's stack down. Like ProfileUp it only
-// acts on real, usable dockerized profiles.
+// acts on real, usable dockerized profiles. It refuses when live sessions are
+// still running in the profile's shared stack, since `down` would kill their
+// containers out from under them (returns ErrProfileInUse).
 func (m *Manager) ProfileDown(name string) error {
 	file, err := m.dockerizedProfileFile(name)
 	if err != nil {
@@ -106,6 +146,23 @@ func (m *Manager) ProfileDown(name string) error {
 	l := m.profileLock(name)
 	l.Lock()
 	defer l.Unlock()
+
+	// Checked under the profile lock so it serializes against concurrent
+	// up/down for this profile. Known limitation: session create brings the
+	// stack up (ensureStackUp) and only inserts the DB row afterwards, so a
+	// session mid-creation in this profile is briefly invisible here and a
+	// racing `down` could stop the stack under it. The window is small,
+	// `profile down` is a deliberate manual operation, and the worst case is a
+	// failed `docker compose exec` in the in-flight session — recoverable by
+	// retry — so we accept it rather than locking across the whole create path.
+	inUse, err := m.profileInUse(name)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return fmt.Errorf("%w: profile %q has live sessions; stop them before bringing the stack down", ErrProfileInUse, name)
+	}
+
 	project, env, err := m.composeArgs(name)
 	if err != nil {
 		return err
@@ -113,6 +170,27 @@ func (m *Manager) ProfileDown(name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), stackOpTimeout)
 	defer cancel()
 	return m.compose.Down(ctx, project, file, env)
+}
+
+// profileInUse reports whether any live tmux session resolves to the given
+// profile. Sessions are matched on their effective profile name, so the
+// implicit-default ("") and explicit "default" sessions both count against the
+// "default" profile, consistent with how the stack is named and brought up.
+func (m *Manager) profileInUse(name string) (bool, error) {
+	sessions, err := m.db.ListSessions(context.Background())
+	if err != nil {
+		return false, fmt.Errorf("list sessions: %w", err)
+	}
+	target := effectiveProfileName(name)
+	for _, s := range sessions {
+		if effectiveProfileName(ptrStr(s.Profile)) != target {
+			continue
+		}
+		if HasSession(s.TmuxName) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // dockerizedProfileFile validates that name is a real, usable profile (via
@@ -141,8 +219,11 @@ func (m *Manager) ListProfilesDetailed() ([]ProfileInfo, error) {
 	}
 	out := make([]ProfileInfo, 0, len(names))
 	for _, name := range names {
-		_, dockerized := docker.ProfileComposeFile(m.stateDir, name)
-		out = append(out, ProfileInfo{Name: name, Dockerized: dockerized})
+		typ := ProfileTypeHost
+		if _, dockerized := docker.ProfileComposeFile(m.stateDir, name); dockerized {
+			typ = ProfileTypeDocker
+		}
+		out = append(out, ProfileInfo{Name: name, Type: typ})
 	}
 	return out, nil
 }
@@ -190,15 +271,14 @@ func (m *Manager) buildTmuxCmd(sessionID, providerType, profile, cwd, agentCmd s
 // (which provides the banner and, for resume-capable providers, the
 // provider-session-ID capture).
 func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFile, cwd, agentCmd string, postCreatePaths []string) (string, error) {
+	// Validate cwd visibility and bring the stack up. Idempotent with the
+	// preflight ChangeProfile runs before teardown (see prepareDockerTarget).
+	if err := m.prepareDockerTarget(profile, cwd); err != nil {
+		return "", err
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home: %w", err)
-	}
-	if !docker.PathVisible(cwd, home, m.stateDir) {
-		return "", fmt.Errorf("%w: working directory %q is not under the home or state directory mounted into the %q profile container", ErrInvalidInput, cwd, profile)
-	}
-	if err := m.ensureStackUp(profile, composeFile); err != nil {
-		return "", fmt.Errorf("start profile %q stack: %w", profile, err)
 	}
 
 	var content string
@@ -224,8 +304,8 @@ func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFi
 		Service: "agent",
 		// docker compose exec re-interpolates the whole compose file at exec
 		// time, so it needs the same ARGUS_* vars `up` saw or ${ARGUS_*} blanks.
-		Env:     docker.Env(home, m.stateDir),
-		Command: "bash " + shellQuote(innerPath),
+		Env:  docker.Env(home, m.stateDir),
+		Args: []string{"bash", innerPath},
 	})
 
 	// The host wrapper is the standard init script with the agent command set

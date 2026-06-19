@@ -3,15 +3,18 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/docker"
+	"github.com/bxnlabs/argus/internal/shared"
 )
 
 // fakeCompose records calls and tracks per-project up state.
@@ -101,6 +104,130 @@ func TestProfileUpDown(t *testing.T) {
 	}
 }
 
+// TestProfileDownRejectsWhenInUse verifies the live-session guard: a profile
+// with a running session can't be torn down (would kill its containers), but
+// once the session is gone the teardown proceeds. A dead session row left in
+// the DB must not block teardown.
+func TestProfileDownRejectsWhenInUse(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	mgr, fake, state := dockerTestManager(t)
+	t.Setenv("ARGUS_HOME", state)
+	requireDedicatedSocketUnder(t, state)
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
+	}
+	makeProfile(t, state, "work", true)
+
+	tmuxName := fmt.Sprintf("docker-inuse-%d", time.Now().UnixNano())
+	if err := NewSession(tmuxName, t.TempDir(), ""); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	t.Cleanup(func() { KillSession(tmuxName) })
+
+	work := "work"
+	if err := mgr.db.CreateSession(&db.Session{
+		ID: "sess-inuse", Name: "x", TmuxName: tmuxName,
+		WorkingDirectory: state, ProviderType: "shell", Profile: &work,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.ProfileDown("work"); !errors.Is(err, ErrProfileInUse) {
+		t.Fatalf("ProfileDown while in use: got %v, want ErrProfileInUse", err)
+	}
+	if len(fake.downCalls) != 0 {
+		t.Errorf("expected no compose down while in use, got %v", fake.downCalls)
+	}
+
+	// The session row stays in the DB, but once tmux is gone it no longer
+	// counts as live, so teardown proceeds.
+	if err := KillSession(tmuxName); err != nil {
+		t.Fatalf("KillSession: %v", err)
+	}
+	if err := mgr.ProfileDown("work"); err != nil {
+		t.Fatalf("ProfileDown after session stopped: %v", err)
+	}
+	if len(fake.downCalls) != 1 {
+		t.Errorf("expected 1 down call after session stopped, got %d", len(fake.downCalls))
+	}
+}
+
+// TestChangeProfileDockerPreflightKeepsSessionAlive is the regression guard for
+// the bricking bug: switching to a dockerized profile whose docker preflight
+// fails deterministically (cwd not visible in the container) must leave the
+// live session alive and the profile unchanged, rather than killing it and
+// persisting a profile that can never revive.
+func TestChangeProfileDockerPreflightKeepsSessionAlive(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	mgr, fake, state := dockerTestManager(t)
+	t.Setenv("ARGUS_HOME", state)
+	requireDedicatedSocketUnder(t, state)
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
+	}
+	makeProfile(t, state, "work", true)
+
+	// Old (host) profile with a pre_destroy hook that records when it runs, so
+	// we can assert teardown does NOT happen when the docker preflight fails.
+	makeProfile(t, state, "old", false)
+	destroyMarker := filepath.Join(t.TempDir(), "pre_destroy.ran")
+	if err := os.WriteFile(filepath.Join(state, "profiles", "old", "hooks", "pre_destroy.sh"),
+		[]byte("#!/bin/bash\ntouch "+destroyMarker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A real, existing cwd outside both home and the state dir, so the
+	// dockerized target's PathVisible check fails deterministically.
+	outsideCwd := t.TempDir()
+
+	tmuxName := fmt.Sprintf("docker-preflight-%d", time.Now().UnixNano())
+	if err := NewSession(tmuxName, outsideCwd, ""); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	t.Cleanup(func() { KillSession(tmuxName) })
+	old := "old"
+	if err := mgr.db.CreateSession(&db.Session{
+		ID: "sess-pf", Name: "x", TmuxName: tmuxName,
+		WorkingDirectory: outsideCwd, ProviderType: "shell", Profile: &old,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	work := "work"
+	if _, err := mgr.ChangeProfile("sess-pf", &work); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("ChangeProfile: got %v, want ErrInvalidInput", err)
+	}
+	if !HasSession(tmuxName) {
+		t.Error("expected session to survive a failed docker preflight (not killed)")
+	}
+	// The preflight runs before the old profile's pre_destroy teardown, so a
+	// failed preflight must leave the old profile's setup intact.
+	if _, err := os.Stat(destroyMarker); err == nil {
+		t.Error("old profile pre_destroy ran despite failed docker preflight (teardown before validation)")
+	}
+	s, err := mgr.db.GetSession("sess-pf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ptrStr(s.Profile) != "old" {
+		t.Errorf("profile changed despite preflight failure: %q, want %q", ptrStr(s.Profile), "old")
+	}
+	// PathVisible fails before ensureStackUp, so the stack was never started.
+	if len(fake.upCalls) != 0 {
+		t.Errorf("expected no compose up on preflight failure, got %v", fake.upCalls)
+	}
+}
+
 func TestProfileUpRejectsNonDocker(t *testing.T) {
 	mgr, _, state := dockerTestManager(t)
 	makeProfile(t, state, "plain", false)
@@ -138,11 +265,11 @@ func TestListProfilesDetailed(t *testing.T) {
 	for _, i := range infos {
 		got[i.Name] = i
 	}
-	if got["plain"].Dockerized {
-		t.Errorf("plain should not be dockerized: %+v", got["plain"])
+	if got["plain"].Type != ProfileTypeHost {
+		t.Errorf("plain should be host type: %+v", got["plain"])
 	}
-	if !got["work"].Dockerized {
-		t.Errorf("work should be dockerized: %+v", got["work"])
+	if got["work"].Type != ProfileTypeDocker {
+		t.Errorf("work should be docker type: %+v", got["work"])
 	}
 }
 

@@ -20,9 +20,9 @@ vi.mock("@/data/sessions", () => ({
   useProfilesQuery: () => ({
     data: {
       profiles: [
-        { name: "default", dockerized: false },
-        { name: "review", dockerized: false },
-        { name: "sandbox", dockerized: true },
+        { name: "default", type: "host" },
+        { name: "review", type: "host" },
+        { name: "sandbox", type: "docker" },
       ],
     },
     refetch: vi.fn(),
