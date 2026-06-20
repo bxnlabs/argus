@@ -94,7 +94,7 @@ func newProfileUpCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := c.postLongRunning("/profiles/"+args[0]+"/up", nil); err != nil {
+			if _, err := c.postLongRunning("/profiles/"+args[0]+"/up", nil, "start profile stack"); err != nil {
 				return err
 			}
 			fmt.Printf("Profile %q stack is up\n", args[0])
@@ -114,7 +114,7 @@ func newProfileDownCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := c.postLongRunning("/profiles/"+args[0]+"/down", nil); err != nil {
+			if _, err := c.postLongRunning("/profiles/"+args[0]+"/down", nil, "stop profile stack"); err != nil {
 				return err
 			}
 			fmt.Printf("Profile %q stack is down\n", args[0])

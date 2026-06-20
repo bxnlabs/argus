@@ -23,6 +23,7 @@ type fakeCompose struct {
 	upCalls   []string
 	upOpts    []docker.ComposeUpOpts // opts for each Up call, parallel to upCalls
 	downCalls []string
+	upErr     error // when set, Up records the call then returns this error
 }
 
 func newFakeCompose() *fakeCompose { return &fakeCompose{up: map[string]bool{}} }
@@ -30,6 +31,9 @@ func newFakeCompose() *fakeCompose { return &fakeCompose{up: map[string]bool{}} 
 func (f *fakeCompose) Up(_ context.Context, project, _ string, _ []string, opts docker.ComposeUpOpts) error {
 	f.upCalls = append(f.upCalls, project)
 	f.upOpts = append(f.upOpts, opts)
+	if f.upErr != nil {
+		return f.upErr
+	}
 	f.up[project] = true
 	return nil
 }
@@ -225,6 +229,36 @@ func TestChangeProfileDockerPreflightKeepsSessionAlive(t *testing.T) {
 	// PathVisible fails before ensureStackUp, so the stack was never started.
 	if len(fake.upCalls) != 0 {
 		t.Errorf("expected no compose up on preflight failure, got %v", fake.upCalls)
+	}
+}
+
+// A docker `up` failure must surface as ErrStackStart (not a bare error) so the
+// API can map it to a clear client message instead of a generic 500. Covers
+// both the explicit ProfileUp path and the lazy prepareDockerTarget path.
+func TestProfileUpWrapsStackStartFailure(t *testing.T) {
+	mgr, fake, state := dockerTestManager(t)
+	makeProfile(t, state, "work", true)
+	fake.upErr = errors.New("docker compose up -d: exit status 1: daemon unreachable")
+
+	err := mgr.ProfileUp("work")
+	if !errors.Is(err, ErrStackStart) {
+		t.Fatalf("ProfileUp: got %v, want ErrStackStart", err)
+	}
+	if !strings.Contains(err.Error(), "daemon unreachable") {
+		t.Errorf("error %q should retain the docker failure detail", err)
+	}
+}
+
+func TestPrepareDockerTargetWrapsStackStartFailure(t *testing.T) {
+	mgr, fake, state := dockerTestManager(t)
+	makeProfile(t, state, "work", true)
+	fake.upErr = errors.New("docker compose up -d: exit status 1: daemon unreachable")
+
+	// state is under the mounted state dir, so PathVisible passes and the lazy
+	// ensureStackUp call is reached.
+	err := mgr.prepareDockerTarget("work", state)
+	if !errors.Is(err, ErrStackStart) {
+		t.Fatalf("prepareDockerTarget: got %v, want ErrStackStart", err)
 	}
 }
 

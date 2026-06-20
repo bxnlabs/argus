@@ -115,8 +115,8 @@ func (c *apiClient) get(path string) ([]byte, error) {
 	return readResponse(resp, "get")
 }
 
-func (c *apiClient) post(path string, body io.Reader) ([]byte, error) {
-	return c.postWith(c.http, path, body)
+func (c *apiClient) post(path string, body io.Reader, op string) ([]byte, error) {
+	return c.postWith(c.http, path, body, op)
 }
 
 // postLongRunning issues a POST with no client-side timeout, for server
@@ -125,16 +125,16 @@ func (c *apiClient) post(path string, body io.Reader) ([]byte, error) {
 // `docker compose up --build --pull always` routinely runs for minutes. The
 // server's timeout is the single source of truth; a dead node still fails fast
 // because the dropped connection surfaces as a read error.
-func (c *apiClient) postLongRunning(path string, body io.Reader) ([]byte, error) {
-	return c.postWith(http.Client{}, path, body)
+func (c *apiClient) postLongRunning(path string, body io.Reader, op string) ([]byte, error) {
+	return c.postWith(http.Client{}, path, body, op)
 }
 
-func (c *apiClient) postWith(client http.Client, path string, body io.Reader) ([]byte, error) {
+func (c *apiClient) postWith(client http.Client, path string, body io.Reader, op string) ([]byte, error) {
 	resp, err := client.Post(c.baseURL+path, "application/json", body)
 	if err != nil {
 		return nil, fmt.Errorf("Cannot reach Argus node at %s.\nCheck if the node is running.", c.baseURL)
 	}
-	return readResponse(resp, "create")
+	return readResponse(resp, op)
 }
 
 func (c *apiClient) patch(path string, body io.Reader) ([]byte, error) {

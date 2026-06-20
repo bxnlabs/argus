@@ -1,8 +1,21 @@
-import { describe, it, expect, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 import { SessionInfoDialog } from "./index";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Session } from "@/types";
+
+// The Info dialog looks the profile's type up from the profiles list to decide
+// whether to render the dockerized badge.
+vi.mock("@/data/sessions", () => ({
+  useProfilesQuery: () => ({
+    data: {
+      profiles: [
+        { name: "review", type: "host" },
+        { name: "sandbox", type: "docker" },
+      ],
+    },
+  }),
+}));
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
@@ -113,6 +126,38 @@ describe("SessionInfoDialog profile field", () => {
     ) as HTMLElement | null;
     expect(description).not.toBeNull();
     expect(description!.textContent).not.toContain("review");
+  });
+
+  it("shows the dockerized badge for a docker profile", async () => {
+    render(
+      <TooltipProvider>
+        <SessionInfoDialog
+          session={makeSession({ profile: "sandbox" })}
+          status="idle"
+          homeDir="/home/user"
+          onClose={() => {}}
+        />
+      </TooltipProvider>,
+    );
+    await screen.findByRole("dialog");
+    expect(screen.getByText("sandbox")).toBeTruthy();
+    expect(screen.getByLabelText("dockerized")).toBeTruthy();
+  });
+
+  it("omits the dockerized badge for a host profile", async () => {
+    render(
+      <TooltipProvider>
+        <SessionInfoDialog
+          session={makeSession({ profile: "review" })}
+          status="idle"
+          homeDir="/home/user"
+          onClose={() => {}}
+        />
+      </TooltipProvider>,
+    );
+    await screen.findByRole("dialog");
+    expect(screen.getByText("review")).toBeTruthy();
+    expect(screen.queryByLabelText("dockerized")).toBeNull();
   });
 
   it("omits the Profile field when no profile is set", async () => {

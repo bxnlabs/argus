@@ -44,7 +44,7 @@ func newAttachCmd() *cobra.Command {
 			}
 
 			// Acknowledge unread state before attaching
-			_, _ = c.post("/sessions/"+session.ID+"/acknowledge", nil)
+			_, _ = c.post("/sessions/"+session.ID+"/acknowledge", nil, "acknowledge")
 
 			return attachTmux(session.ID, session.TmuxName, c.baseURL)
 		},

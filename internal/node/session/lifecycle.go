@@ -30,6 +30,12 @@ var ErrInvalidInput = errors.New("invalid input")
 // using a profile — e.g. tearing down a shared stack out from under them.
 var ErrProfileInUse = errors.New("profile in use")
 
+// ErrStackStart is returned when bringing a dockerized profile's compose stack
+// up fails (daemon down, image pull/build error, etc.). It is a typed marker so
+// the API can surface the actionable docker detail to the client instead of a
+// generic internal error.
+var ErrStackStart = errors.New("start profile stack failed")
+
 // Manager handles session lifecycle (create, delete, rename, etc.).
 type Manager struct {
 	db       *db.DB

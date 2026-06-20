@@ -61,6 +61,10 @@ func (h *sessionHandler) create(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if errors.Is(err, session.ErrStackStart) {
+			respondError(w, http.StatusBadGateway, err.Error())
+			return
+		}
 		respondInternalError(w, err)
 		return
 	}
@@ -199,6 +203,10 @@ func (h *sessionHandler) respondProfileChange(w http.ResponseWriter, sess *db.Se
 			respondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if errors.Is(err, session.ErrStackStart) {
+			respondError(w, http.StatusBadGateway, err.Error())
+			return
+		}
 		respondInternalError(w, err)
 		return
 	}
@@ -226,6 +234,10 @@ func (h *sessionHandler) profileUp(w http.ResponseWriter, r *http.Request) {
 	if err := h.manager.ProfileUp(name); err != nil {
 		if errors.Is(err, session.ErrInvalidInput) {
 			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, session.ErrStackStart) {
+			respondError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 		respondInternalError(w, err)

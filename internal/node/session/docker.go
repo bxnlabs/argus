@@ -117,7 +117,7 @@ func (m *Manager) prepareDockerTarget(profile, cwd string) error {
 		return fmt.Errorf("%w: working directory %q is not under the home or state directory mounted into the %q profile container", ErrInvalidInput, cwd, dockerProfile)
 	}
 	if err := m.ensureStackUp(dockerProfile, composeFile); err != nil {
-		return fmt.Errorf("start profile %q stack: %w", dockerProfile, err)
+		return fmt.Errorf("%w: profile %q: %w", ErrStackStart, dockerProfile, err)
 	}
 	return nil
 }
@@ -131,7 +131,10 @@ func (m *Manager) ProfileUp(name string) error {
 	if err != nil {
 		return err
 	}
-	return m.bringStackUp(name, file, docker.ComposeUpOpts{Build: true, Pull: true})
+	if err := m.bringStackUp(name, file, docker.ComposeUpOpts{Build: true, Pull: true}); err != nil {
+		return fmt.Errorf("%w: profile %q: %w", ErrStackStart, name, err)
+	}
+	return nil
 }
 
 // ProfileDown tears a dockerized profile's stack down. Like ProfileUp it only
