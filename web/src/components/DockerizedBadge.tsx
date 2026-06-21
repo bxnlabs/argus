@@ -1,3 +1,4 @@
+import { Container } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DockerizedBadgeProps {
@@ -9,12 +10,10 @@ interface DockerizedBadgeProps {
 // session info dialog.
 export function DockerizedBadge({ className }: DockerizedBadgeProps) {
   return (
-    <span
+    <Container
       role="img"
       aria-label="dockerized"
-      className={cn("text-muted-foreground text-xs", className)}
-    >
-      🐳
-    </span>
+      className={cn("text-muted-foreground h-3.5 w-3.5", className)}
+    />
   );
 }
