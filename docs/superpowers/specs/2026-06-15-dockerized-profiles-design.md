@@ -149,12 +149,23 @@ FROM my-client-base                 # provider CLIs preinstalled
 ARG ARGUS_UID
 ARG ARGUS_GID
 ARG ARGUS_HOST_HOME
-# Bake a real user matching the host uid/gid, with its home at the mounted host
-# home (-M: reference the mount, don't create or chown it).
-RUN groupadd -g "$ARGUS_GID" argus \
- && useradd -u "$ARGUS_UID" -g "$ARGUS_GID" -d "$ARGUS_HOST_HOME" -M -s /bin/bash argus
+# Free the target uid/gid if the base image already uses them (e.g. ubuntu ships
+# uid/gid 1000 as the `ubuntu` user — a plain useradd/groupadd would fail the
+# build), then bake a user/group matching the host exactly, with its home at the
+# mounted host home (-M: reference the mount, don't create or chown it).
+RUN set -eux; \
+    if u=$(getent passwd "$ARGUS_UID" | cut -d: -f1); [ -n "$u" ]; then userdel "$u"; fi; \
+    if g=$(getent group  "$ARGUS_GID" | cut -d: -f1); [ -n "$g" ]; then groupdel "$g"; fi; \
+    groupadd -g "$ARGUS_GID" argus; \
+    useradd -u "$ARGUS_UID" -g "$ARGUS_GID" -d "$ARGUS_HOST_HOME" -M -s /bin/bash argus
 ENV HOME=$ARGUS_HOST_HOME           # deterministic HOME at exec time
 ```
+
+(The `getent … | cut` assignments stay exit-0 even when the lookup misses, so
+`set -e` doesn't abort on a base image that doesn't pre-use the uid/gid. Verified
+live: this builds on both debian — uid/gid free — and ubuntu — uid/gid 1000
+pre-taken — and exec lands in `argus` with `HOME` = the host home, not the
+base image's stock `/home/ubuntu`.)
 
 Argus runs the agent with `docker compose exec -u $ARGUS_UID:$ARGUS_GID`, so it
 lands in this baked account: `getpwuid` resolves (a real named user, `whoami`
