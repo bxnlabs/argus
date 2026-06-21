@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ProviderBadge } from "@/components/ProviderBadge";
+import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { Badge } from "@/components/ui/badge";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -115,13 +116,7 @@ export function SessionInfoDialog({
                     displayValue={session.profile}
                     badge={
                       isDockerized ? (
-                        <span
-                          role="img"
-                          aria-label="dockerized"
-                          className="text-muted-foreground flex-shrink-0 text-xs"
-                        >
-                          🐳
-                        </span>
+                        <DockerizedBadge className="flex-shrink-0" />
                       ) : undefined
                     }
                   />

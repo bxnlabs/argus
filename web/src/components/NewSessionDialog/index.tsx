@@ -28,6 +28,7 @@ import {
   DialogTitle as BranchDialogTitle,
 } from "@/components/ui/dialog";
 import { BranchPicker } from "@/components/BranchPicker";
+import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { cn } from "@/lib/utils";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
@@ -232,13 +233,7 @@ export function NewSessionDialog({
                       <SelectItem key={p.name} value={p.name}>
                         {p.name}
                         {p.type === "docker" && (
-                          <span
-                            role="img"
-                            aria-label="dockerized"
-                            className="text-muted-foreground ml-2 text-xs"
-                          >
-                            🐳
-                          </span>
+                          <DockerizedBadge className="ml-2" />
                         )}
                       </SelectItem>
                     ))}

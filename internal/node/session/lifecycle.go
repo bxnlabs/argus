@@ -36,6 +36,11 @@ var ErrProfileInUse = errors.New("profile in use")
 // generic internal error.
 var ErrStackStart = errors.New("start profile stack failed")
 
+// ErrStackStop is the down-path counterpart to ErrStackStart: it marks a failed
+// `docker compose down` so the API surfaces the docker detail as a 502 instead
+// of a generic internal error, matching how stack-up failures are reported.
+var ErrStackStop = errors.New("stop profile stack failed")
+
 // Manager handles session lifecycle (create, delete, rename, etc.).
 type Manager struct {
 	db       *db.DB

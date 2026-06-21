@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { useProfilesQuery } from "@/data/sessions";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
@@ -102,15 +103,7 @@ export function ChangeProfileDialog({
                 {profiles.map((p) => (
                   <SelectItem key={p.name} value={p.name}>
                     {p.name}
-                    {p.type === "docker" && (
-                      <span
-                        role="img"
-                        aria-label="dockerized"
-                        className="text-muted-foreground ml-2 text-xs"
-                      >
-                        🐳
-                      </span>
-                    )}
+                    {p.type === "docker" && <DockerizedBadge className="ml-2" />}
                   </SelectItem>
                 ))}
               </SelectContent>

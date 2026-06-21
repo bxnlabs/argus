@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -56,6 +57,28 @@ func (m *Manager) profileLock(name string) *sync.Mutex {
 	return l
 }
 
+// profileHasHooks reports whether dockerProfile is a configured profile: a
+// directory under profiles/ holding a hooks/ subdirectory. This is the same bar
+// ListProfiles and resolveProfile apply, so it defines what counts as a profile.
+func (m *Manager) profileHasHooks(dockerProfile string) bool {
+	info, err := os.Stat(filepath.Join(m.stateDir, "profiles", dockerProfile, "hooks"))
+	return err == nil && info.IsDir()
+}
+
+// dockerComposeFile returns a profile's compose file and true only when the
+// profile is real (hooks-bearing). Keying detection on the compose file alone
+// would dockerize a profiles/<name>/ dir that has a compose file but no hooks/
+// — a "profile" that ListProfiles, resolveProfile, and `profile up/down` all
+// refuse to recognize, silently running its sessions in a stack nobody can list
+// or stop. Gating on hooks keeps implicit dockerization consistent with explicit
+// management.
+func (m *Manager) dockerComposeFile(dockerProfile string) (string, bool) {
+	if !m.profileHasHooks(dockerProfile) {
+		return "", false
+	}
+	return docker.ProfileComposeFile(m.stateDir, dockerProfile)
+}
+
 // composeArgs resolves the project name and interpolation env for a profile's
 // stack. The compose file path comes from docker.ProfileComposeFile at the call
 // site, so it is not bundled here.
@@ -105,7 +128,7 @@ func (m *Manager) ensureStackUp(profile, composeFile string) error {
 // it on respawn, which is safe: PathVisible is pure and `up -d` is idempotent.
 func (m *Manager) prepareDockerTarget(profile, cwd string) error {
 	dockerProfile := effectiveProfileName(profile)
-	composeFile, ok := docker.ProfileComposeFile(m.stateDir, dockerProfile)
+	composeFile, ok := m.dockerComposeFile(dockerProfile)
 	if !ok {
 		return nil
 	}
@@ -172,7 +195,10 @@ func (m *Manager) ProfileDown(name string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), stackOpTimeout)
 	defer cancel()
-	return m.compose.Down(ctx, project, file, env)
+	if err := m.compose.Down(ctx, project, file, env); err != nil {
+		return fmt.Errorf("%w: profile %q: %w", ErrStackStop, name, err)
+	}
+	return nil
 }
 
 // profileInUse reports whether any live tmux session resolves to the given
@@ -243,7 +269,7 @@ func (m *Manager) buildTmuxCmd(sessionID, providerType, profile, cwd, agentCmd s
 	// name flows downstream so detection, ProjectName, ensureStackUp, and the
 	// exec all agree on the same stack (argus-default).
 	dockerProfile := effectiveProfileName(profile)
-	if composeFile, ok := docker.ProfileComposeFile(m.stateDir, dockerProfile); ok {
+	if composeFile, ok := m.dockerComposeFile(dockerProfile); ok {
 		return m.buildDockerTmuxCmd(sessionID, providerType, dockerProfile, composeFile, cwd, agentCmd, postCreatePaths)
 	}
 	// Host (non-docker) path — unchanged behavior.
@@ -313,8 +339,14 @@ func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFi
 
 	// The host wrapper is the standard init script with the agent command set
 	// to the docker-exec string and no host-side hooks (hooks are sourced
-	// inside the container by the inner script).
-	hostPath, err := WriteInitScript(sessionID, execCmd, pattern, nil)
+	// inside the container by the inner script). An EXIT trap removes the inner
+	// script as a safety net: it normally self-deletes on start, but if
+	// `docker compose exec` fails before it runs (e.g. the stack died), the trap
+	// still cleans it out of <stateDir>/tmp instead of leaving it behind.
+	hostAgentCmd := "__argus_inner=" + shellQuote(innerPath) + "\n" +
+		`trap 'rm -f -- "$__argus_inner"' EXIT` + "\n" +
+		execCmd
+	hostPath, err := WriteInitScript(sessionID, hostAgentCmd, pattern, nil)
 	if err != nil {
 		return "", fmt.Errorf("write host wrapper script: %w", err)
 	}

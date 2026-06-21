@@ -24,6 +24,7 @@ type fakeCompose struct {
 	upOpts    []docker.ComposeUpOpts // opts for each Up call, parallel to upCalls
 	downCalls []string
 	upErr     error // when set, Up records the call then returns this error
+	downErr   error // when set, Down records the call then returns this error
 }
 
 func newFakeCompose() *fakeCompose { return &fakeCompose{up: map[string]bool{}} }
@@ -39,6 +40,9 @@ func (f *fakeCompose) Up(_ context.Context, project, _ string, _ []string, opts 
 }
 func (f *fakeCompose) Down(_ context.Context, project, _ string, _ []string) error {
 	f.downCalls = append(f.downCalls, project)
+	if f.downErr != nil {
+		return f.downErr
+	}
 	f.up[project] = false
 	return nil
 }
@@ -105,6 +109,24 @@ func TestProfileUpDown(t *testing.T) {
 	}
 	if len(fake.downCalls) != 1 {
 		t.Errorf("expected 1 down call, got %d", len(fake.downCalls))
+	}
+}
+
+// TestProfileDownWrapsComposeFailure verifies a failed `docker compose down`
+// surfaces as ErrStackStop (mapped to 502 by the API) rather than a raw,
+// untyped error that would become a generic internal error.
+func TestProfileDownWrapsComposeFailure(t *testing.T) {
+	mgr, fake, state := dockerTestManager(t)
+	makeProfile(t, state, "work", true)
+	fake.downErr = errors.New("daemon unreachable")
+
+	err := mgr.ProfileDown("work")
+	if !errors.Is(err, ErrStackStop) {
+		t.Fatalf("ProfileDown: got %v, want ErrStackStop", err)
+	}
+	// The underlying docker detail is preserved for the operator.
+	if !strings.Contains(err.Error(), "daemon unreachable") {
+		t.Errorf("expected wrapped docker detail, got %q", err.Error())
 	}
 }
 
@@ -368,6 +390,44 @@ func TestBuildDockerTmuxCmd_AgentSession(t *testing.T) {
 	// Capture logic present (claude supports resume).
 	if !strings.Contains(string(data), "tmux capture-pane") {
 		t.Error("expected provider-id capture in host wrapper")
+	}
+	// EXIT trap cleans up the inner script even if `compose exec` never runs it.
+	if !strings.Contains(string(data), `trap 'rm -f -- "$__argus_inner"' EXIT`) {
+		t.Error("expected inner-script cleanup trap in host wrapper")
+	}
+}
+
+// A profiles/<name>/ dir holding a compose file but no hooks/ is not a real
+// profile — ListProfiles, resolveProfile, and `profile up/down` all require
+// hooks/. Its sessions must therefore stay on the host instead of silently
+// dockerizing into a stack nobody can list or stop.
+func TestBuildTmuxCmd_ComposeWithoutHooksStaysHost(t *testing.T) {
+	mgr, fake, state := dockerTestManager(t)
+	if err := os.MkdirAll(filepath.Join(state, "profiles", "rogue"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "profiles", "rogue", "compose.yaml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := filepath.Join(state, "wt")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, err := mgr.buildTmuxCmd("sess_h", "claude", "rogue", cwd, "claude --resume z", nil)
+	if err != nil {
+		t.Fatalf("buildTmuxCmd: %v", err)
+	}
+	if len(fake.upCalls) != 0 {
+		t.Errorf("expected no stack up for hookless compose dir, got %v", fake.upCalls)
+	}
+	hostScript := strings.TrimPrefix(cmd, "bash ")
+	data, err := os.ReadFile(hostScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "docker compose") {
+		t.Errorf("expected host (non-docker) command, got docker exec:\n%s", string(data))
 	}
 }
 

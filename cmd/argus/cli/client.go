@@ -119,14 +119,20 @@ func (c *apiClient) post(path string, body io.Reader, op string) ([]byte, error)
 	return c.postWith(c.http, path, body, op)
 }
 
-// postLongRunning issues a POST with no client-side timeout, for server
-// operations (profile stack up/down) whose duration is bounded server-side by
-// stackOpTimeout and can far exceed the default client timeout — a cold
-// `docker compose up --build --pull always` routinely runs for minutes. The
-// server's timeout is the single source of truth; a dead node still fails fast
-// because the dropped connection surfaces as a read error.
+// profileStackClientTimeout bounds profile stack up/down from the client side.
+// It sits just above the server's stackOpTimeout (20m) so the server's timeout
+// stays the source of truth for the compose operation itself, while still
+// capping the wait if the handler ever wedges outside that bounded path — the
+// CLI should never hang indefinitely.
+const profileStackClientTimeout = 25 * time.Minute
+
+// postLongRunning issues a POST for server operations (profile stack up/down)
+// whose duration is bounded server-side by stackOpTimeout and can far exceed the
+// default client timeout — a cold `docker compose up --build --pull always`
+// routinely runs for minutes. A dead node still fails fast because the dropped
+// connection surfaces as a read error.
 func (c *apiClient) postLongRunning(path string, body io.Reader, op string) ([]byte, error) {
-	return c.postWith(http.Client{}, path, body, op)
+	return c.postWith(http.Client{Timeout: profileStackClientTimeout}, path, body, op)
 }
 
 func (c *apiClient) postWith(client http.Client, path string, body io.Reader, op string) ([]byte, error) {

@@ -90,6 +90,10 @@ func (h *sessionHandler) clone(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if errors.Is(err, session.ErrStackStart) {
+			respondError(w, http.StatusBadGateway, err.Error())
+			return
+		}
 		respondInternalError(w, err)
 		return
 	}
@@ -108,6 +112,10 @@ func (h *sessionHandler) get(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.manager.EnsureSession(id); err != nil {
 		if errors.Is(err, session.ErrNotFound) {
 			respondError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		if errors.Is(err, session.ErrStackStart) {
+			respondError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 		respondInternalError(w, err)
@@ -256,6 +264,10 @@ func (h *sessionHandler) profileDown(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, session.ErrProfileInUse) {
 			respondError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, session.ErrStackStop) {
+			respondError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 		respondInternalError(w, err)
