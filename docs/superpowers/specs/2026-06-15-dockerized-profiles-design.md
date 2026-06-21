@@ -113,20 +113,30 @@ docker compose -p argus-<name> -f <profile>/docker-compose.yml <subcommand>
 ```
 
 When invoking, Argus injects a fixed set of env vars the compose file consumes
-for its mounts and identity:
+for its mounts, identity, and image build:
 
 - `ARGUS_HOST_HOME` — host `$HOME`; the compose file mounts it at the same path.
 - `ARGUS_STATE_DIR` — Argus state root; mounted at the same path (only matters
   when the state dir lives outside home).
 - `ARGUS_UID` / `ARGUS_GID` — host user/group.
 
-A minimal compose file therefore looks like:
+### Identity: baked into the image at build time
+
+Argus state is **per user**, so the host uid, gid, and home are fixed for an
+install — static facts, not per-session ones. The image therefore bakes a real
+user matching them at build time, rather than reconstructing it on every session
+entry. The compose file forwards the identity vars into the build, and the
+profile's Dockerfile creates the user:
 
 ```yaml
 services:
   agent:
-    image: my-client-image          # provider CLIs preinstalled
-    user: "${ARGUS_UID}:${ARGUS_GID}"
+    build:
+      context: .
+      args:                           # bake host identity into the image
+        ARGUS_UID: ${ARGUS_UID}
+        ARGUS_GID: ${ARGUS_GID}
+        ARGUS_HOST_HOME: ${ARGUS_HOST_HOME}
     volumes:
       - ${ARGUS_HOST_HOME}:${ARGUS_HOST_HOME}
       - ${ARGUS_STATE_DIR}:${ARGUS_STATE_DIR}
@@ -134,8 +144,35 @@ services:
   # + a tailscale sidecar for the client's tailnet, etc.
 ```
 
-`docker compose exec` additionally passes `--user $ARGUS_UID:$ARGUS_GID` so the
-agent process is the host user regardless of the image default.
+```dockerfile
+FROM my-client-base                 # provider CLIs preinstalled
+ARG ARGUS_UID
+ARG ARGUS_GID
+ARG ARGUS_HOST_HOME
+# Bake a real user matching the host uid/gid, with its home at the mounted host
+# home (-M: reference the mount, don't create or chown it).
+RUN groupadd -g "$ARGUS_GID" argus \
+ && useradd -u "$ARGUS_UID" -g "$ARGUS_GID" -d "$ARGUS_HOST_HOME" -M -s /bin/bash argus
+ENV HOME=$ARGUS_HOST_HOME           # deterministic HOME at exec time
+```
+
+Argus runs the agent with `docker compose exec -u $ARGUS_UID:$ARGUS_GID`, so it
+lands in this baked account: `getpwuid` resolves (a real named user, `whoami`
+works), `HOME` is correct — pinned by both the passwd entry and `ENV HOME`, so it
+does not depend on how `docker exec -u` reads passwd — and the inner init's
+`export PATH="$HOME/.local/bin:$PATH"` puts the provider CLIs on `PATH`. Execing
+as a bare numeric uid with **no** matching `/etc/passwd` entry would instead land
+in a phantom account with `HOME=/` and a bare `PATH`: the agent CLI isn't found
+and HOME-relative config breaks. Argus does no in-container identity work at
+runtime — the image owns it. The image needs `useradd`/`groupadd` at build time
+(debian/ubuntu/etc.; not distroless, which can't run the agent anyway).
+
+Images are rebuilt — picking up any uid/gid/home change — by `argus profile up
+<name>` (`up -d --build`); the lazy create-path `up -d` builds the image only
+when it does not yet exist. Per-container-start system setup (starting a daemon,
+writing config) belongs in the image's own `ENTRYPOINT` or the compose
+`entrypoint:`; users extend the base image if they need more. Argus only execs
+the agent as the baked user.
 
 ## Lifecycle
 
