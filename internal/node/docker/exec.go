@@ -8,8 +8,6 @@ type ExecOptions struct {
 	Project string
 	File    string
 	Workdir string
-	UID     string
-	GID     string
 	Service string
 	Env     []string // KEY=VALUE pairs prefixed before `docker compose` so it
 	// re-interpolates ${ARGUS_*} at exec time, matching what `up` saw.
@@ -34,9 +32,6 @@ func ExecCommand(o ExecOptions) string {
 	b.WriteString(" exec")
 	if o.Workdir != "" {
 		b.WriteString(" -w " + shellQuote(o.Workdir))
-	}
-	if o.UID != "" {
-		b.WriteString(" -u " + shellQuote(o.UID+":"+o.GID))
 	}
 	b.WriteString(" " + shellQuote(o.Service))
 	for _, arg := range o.Args {

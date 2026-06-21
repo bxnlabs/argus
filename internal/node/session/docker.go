@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -323,13 +322,15 @@ func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFi
 		return "", err
 	}
 
-	uid, gid := dockerIdentity()
+	// No -u: the agent runs as the image's default user. The profile's image is
+	// responsible for baking a user that matches the host uid/gid and making it
+	// the default (USER directive), so the agent lands in a real account with the
+	// right HOME and file ownership. See GenerateContainerInitScript and the
+	// dockerized-profiles design doc.
 	execCmd := docker.ExecCommand(docker.ExecOptions{
 		Project: docker.ProjectName(profile),
 		File:    composeFile,
 		Workdir: cwd,
-		UID:     uid,
-		GID:     gid,
 		Service: "agent",
 		// docker compose exec re-interpolates the whole compose file at exec
 		// time, so it needs the same ARGUS_* vars `up` saw or ${ARGUS_*} blanks.
@@ -351,9 +352,4 @@ func (m *Manager) buildDockerTmuxCmd(sessionID, providerType, profile, composeFi
 		return "", fmt.Errorf("write host wrapper script: %w", err)
 	}
 	return "bash " + hostPath, nil
-}
-
-// dockerIdentity returns the host UID/GID as strings for `exec --user`.
-func dockerIdentity() (uid, gid string) {
-	return strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
 }

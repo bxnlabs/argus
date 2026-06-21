@@ -159,24 +159,27 @@ RUN set -eux; \
     groupadd -g "$ARGUS_GID" argus; \
     useradd -u "$ARGUS_UID" -g "$ARGUS_GID" -d "$ARGUS_HOST_HOME" -M -s /bin/bash argus
 ENV HOME=$ARGUS_HOST_HOME           # deterministic HOME at exec time
+USER argus                          # the agent's default identity
 ```
 
 (The `getent … | cut` assignments stay exit-0 even when the lookup misses, so
 `set -e` doesn't abort on a base image that doesn't pre-use the uid/gid. Verified
 live: this builds on both debian — uid/gid free — and ubuntu — uid/gid 1000
-pre-taken — and exec lands in `argus` with `HOME` = the host home, not the
-base image's stock `/home/ubuntu`.)
+pre-taken — and a bare exec lands in `argus` with `HOME` = the host home, not
+the base image's stock `/home/ubuntu`.)
 
-Argus runs the agent with `docker compose exec -u $ARGUS_UID:$ARGUS_GID`, so it
-lands in this baked account: `getpwuid` resolves (a real named user, `whoami`
-works), `HOME` is correct — pinned by both the passwd entry and `ENV HOME`, so it
-does not depend on how `docker exec -u` reads passwd — and the inner init's
-`export PATH="$HOME/.local/bin:$PATH"` puts the provider CLIs on `PATH`. Execing
-as a bare numeric uid with **no** matching `/etc/passwd` entry would instead land
-in a phantom account with `HOME=/` and a bare `PATH`: the agent CLI isn't found
-and HOME-relative config breaks. Argus does no in-container identity work at
-runtime — the image owns it. The image needs `useradd`/`groupadd` at build time
-(debian/ubuntu/etc.; not distroless, which can't run the agent anyway).
+**The image owns identity; Argus pins none.** Argus runs the agent with a plain
+`docker compose exec` (no `-u`), so it lands in the service's **default user** —
+the one the image's `USER` directive sets to the baked `argus` account. There it
+gets a real named user (`getpwuid` resolves, `whoami` works), the correct `HOME`
+(pinned by both the passwd entry and `ENV HOME`), and the inner init's
+`export PATH="$HOME/.local/bin:$PATH"` puts the provider CLIs on `PATH`. The
+profile is responsible for two things: **bake** a user matching the host uid/gid
+(so the passwd entry exists — a missing entry lands in a phantom account with
+`HOME=/` and a bare `PATH`, breaking the agent CLI and HOME-relative config), and
+make it the **default** (so the no-`-u` exec selects it). The image needs
+`useradd`/`groupadd` at build time (debian/ubuntu/etc.; not distroless, which
+can't run the agent anyway). Files the agent writes are owned by the host user.
 
 Images are rebuilt — picking up any uid/gid/home change — by `argus profile up
 <name>` (`up -d --build`); the lazy create-path `up -d` builds the image only
@@ -192,8 +195,8 @@ the agent as the baked user.
   already running (`docker compose ps`). Idempotent and serialized per profile
   (see Concurrency). Also exposed as `argus profile up <name>`.
 - **Per session:** the tmux pane runs the host init wrapper, whose agent step is
-  `docker compose -p argus-<name> exec -w <cwd> -u UID:GID -e <ARGUS_*…> agent
-  <inner-init>`.
+  `docker compose -p argus-<name> exec -w <cwd> -e <ARGUS_*…> agent <inner-init>`
+  (no `-u` — the agent runs as the image's default user).
 - **Down:** never automatic. `argus profile down <name>` (or plain
   `docker compose down`) tears the stack down.
 
@@ -214,7 +217,7 @@ So the existing init-script body is split at exactly one seam:
 ```
 host wrapper (host tmux pane):
   banner
-  docker compose -p argus-<name> exec -w <cwd> -u UID:GID -e <env> agent \
+  docker compose -p argus-<name> exec -w <cwd> -e <env> agent \
       bash <inner-init-path>
   tmux capture-pane … → argus internal session set-provider-id …
 
@@ -262,7 +265,7 @@ behind an interface so the lifecycle/command logic is unit-testable with a fake:
 - `Compose` interface: `Up(project, file string, env)`, `Down(project, file)`,
   `IsUp(project) (bool, error)`, and `ExecCommand(...) []string` /
   `ExecArgs(...)` to build the `docker compose exec` argv (project, file, cwd,
-  user, env, service, inner command).
+  env, service, inner command — no user; identity is the image's default).
 - Detection helper: `IsDockerProfile(stateDir, profileName) (composeFile string,
   ok bool)`.
 - Env assembly: `ComposeEnv(home, stateDir string) []string` producing

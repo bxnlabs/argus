@@ -10,8 +10,6 @@ func TestExecCommand(t *testing.T) {
 		Project: "argus-work",
 		File:    "/home/jeev/.argus/profiles/work/docker-compose.yml",
 		Workdir: "/home/jeev/repo/wt",
-		UID:     "1000",
-		GID:     "1000",
 		Service: "agent",
 		Args:    []string{"bash", "/home/jeev/.argus/tmp/argus-inner-sess_1.sh"},
 	})
@@ -22,7 +20,6 @@ func TestExecCommand(t *testing.T) {
 		"-f '/home/jeev/.argus/profiles/work/docker-compose.yml'",
 		"exec",
 		"-w '/home/jeev/repo/wt'",
-		"-u '1000:1000'",
 		" 'agent' ",
 		"'bash' '/home/jeev/.argus/tmp/argus-inner-sess_1.sh'",
 	} {
@@ -67,8 +64,5 @@ func TestExecCommandQuotesSingleQuotes(t *testing.T) {
 	}
 	if strings.Contains(got, "-w ") {
 		t.Errorf("expected no -w flag when Workdir empty: %s", got)
-	}
-	if strings.Contains(got, "-u ") {
-		t.Errorf("expected no -u flag when UID empty: %s", got)
 	}
 }

@@ -387,6 +387,11 @@ func TestBuildDockerTmuxCmd_AgentSession(t *testing.T) {
 			t.Errorf("host wrapper missing %q", want)
 		}
 	}
+	// No -u/--user: the agent runs as the image's default user, which the
+	// profile image bakes to match the host uid/gid. Argus pins no identity.
+	if strings.Contains(string(data), " -u ") || strings.Contains(string(data), "--user") {
+		t.Errorf("host wrapper should not pin a user, got:\n%s", string(data))
+	}
 	// Capture logic present (claude supports resume).
 	if !strings.Contains(string(data), "tmux capture-pane") {
 		t.Error("expected provider-id capture in host wrapper")
