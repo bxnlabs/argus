@@ -102,8 +102,12 @@ export function ChangeProfileDialog({
                 <SelectItem value={NONE_VALUE}>None (detach)</SelectItem>
                 {profiles.map((p) => (
                   <SelectItem key={p.name} value={p.name}>
-                    {p.name}
-                    {p.type === "docker" && <DockerizedBadge className="ml-2" />}
+                    <span className="flex items-center gap-2">
+                      {p.name}
+                      {p.type === "docker" && (
+                        <DockerizedBadge className="shrink-0" />
+                      )}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
