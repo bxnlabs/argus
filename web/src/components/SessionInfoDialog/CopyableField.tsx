@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -9,12 +9,15 @@ interface CopyableFieldProps {
   displayValue: string;
   // What gets copied; defaults to displayValue (e.g. the full absolute path).
   copyValue?: string;
+  // Optional non-copyable adornment shown after the value (e.g. a type badge).
+  badge?: ReactNode;
 }
 
 export function CopyableField({
   label,
   displayValue,
   copyValue,
+  badge,
 }: CopyableFieldProps) {
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,6 +67,7 @@ export function CopyableField({
         <span className="min-w-0 flex-1 break-all font-mono text-xs">
           {displayValue}
         </span>
+        {badge}
         {copyButton}
       </div>
     </div>

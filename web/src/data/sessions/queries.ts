@@ -209,8 +209,15 @@ export function useUpdateSession() {
   });
 }
 
+export type ProfileType = "host" | "docker";
+
+export interface ProfileInfo {
+  name: string;
+  type: ProfileType;
+}
+
 interface ProfilesResponse {
-  profiles: string[];
+  profiles: ProfileInfo[];
 }
 
 export function useProfilesQuery() {

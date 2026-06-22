@@ -10,7 +10,15 @@ import type { Session } from "@/types";
 
 // --- Mock data + viewport hooks ---
 vi.mock("@/data/sessions", () => ({
-  useProfilesQuery: () => ({ data: { profiles: ["default", "review"] } }),
+  useProfilesQuery: () => ({
+    data: {
+      profiles: [
+        { name: "default", type: "host" },
+        { name: "review", type: "host" },
+        { name: "sandbox", type: "docker" },
+      ],
+    },
+  }),
 }));
 vi.mock("@/hooks/useViewport", () => ({
   useViewport: () => ({ isMobile: false, isDesktop: true, isHydrated: true }),
@@ -163,6 +171,15 @@ describe("ChangeProfileDialog keyboard submit", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
     expect(onApply).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("renders the dockerized badge for a dockerized profile", async () => {
+    renderDialog({ profile: null });
+    await screen.findByRole("dialog");
+    // Open the dropdown so the profile options (and their badges) render.
+    fireEvent.click(screen.getByRole("combobox"));
+    await screen.findByRole("option", { name: /sandbox/ });
+    expect(screen.getByLabelText("dockerized")).toBeTruthy();
   });
 
   it("renders the Cmd/Ctrl+Enter hint on the Apply button (desktop)", async () => {

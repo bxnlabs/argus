@@ -27,14 +27,16 @@ func mustWriteFile(t *testing.T, path string, data []byte, perm os.FileMode) {
 }
 
 func TestValidateProfileName(t *testing.T) {
-	valid := []string{"default", "work", "my-profile", "test_123", "A"}
+	valid := []string{"default", "work", "my-profile", "test_123", "0abc"}
 	for _, name := range valid {
 		if err := ValidateProfileName(name); err != nil {
 			t.Errorf("expected %q to be valid, got error: %v", name, err)
 		}
 	}
 
-	invalid := []string{"", "../evil", "has/slash", "has space", "..", "a..b"}
+	// Uppercase rejected (docker project names must be lowercase); leading
+	// -/_ rejected by the anchored first char class.
+	invalid := []string{"", "../evil", "has/slash", "has space", "..", "a..b", "A", "ClientA", "-lead", "_lead"}
 	for _, name := range invalid {
 		if err := ValidateProfileName(name); err == nil {
 			t.Errorf("expected %q to be invalid", name)

@@ -36,6 +36,24 @@ func TestCheckStatus_ErrorNoMessage(t *testing.T) {
 	}
 }
 
+func TestPostLongRunning_OpLabel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		w.Write([]byte(`{"error":"profile in use"}`))
+	}))
+	defer srv.Close()
+
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
+	_, err := c.postLongRunning("/profiles/acme/down", nil, "stop profile stack")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "stop profile stack failed: profile in use") {
+		t.Errorf("error = %q, want to contain %q", err, "stop profile stack failed: profile in use")
+	}
+}
+
 func TestFetchAndResolve_OK(t *testing.T) {
 	sessions := []sessionInfo{
 		{ID: "sess_abc", Name: "my-session", TmuxName: "claude-sess_abc"},

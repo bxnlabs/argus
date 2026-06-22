@@ -11,10 +11,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ProviderBadge } from "@/components/ProviderBadge";
+import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { Badge } from "@/components/ui/badge";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import type { Session } from "@/types";
+import { useProfilesQuery } from "@/data/sessions";
 import { getSessionLocation } from "./fields";
 import { CopyableField } from "./CopyableField";
 
@@ -33,6 +35,15 @@ export function SessionInfoDialog({
 }: SessionInfoDialogProps) {
   const location = session ? getSessionLocation(session, homeDir) : null;
   const statusMeta = getStatusMeta(status);
+
+  // The session payload carries the profile name but not its type, so look the
+  // type up from the profiles list to mirror the 🐳 badge shown in the New
+  // Session and Change Profile dialogs.
+  const { data: profilesData } = useProfilesQuery();
+  const isDockerized =
+    !!session?.profile &&
+    profilesData?.profiles.find((p) => p.name === session.profile)?.type ===
+      "docker";
 
   return (
     <Dialog open={session !== null} onOpenChange={(o) => !o && onClose()}>
@@ -100,7 +111,15 @@ export function SessionInfoDialog({
                 </div>
                 <CopyableField label="ID" displayValue={session.id} />
                 {session.profile && (
-                  <CopyableField label="Profile" displayValue={session.profile} />
+                  <CopyableField
+                    label="Profile"
+                    displayValue={session.profile}
+                    badge={
+                      isDockerized ? (
+                        <DockerizedBadge className="flex-shrink-0" />
+                      ) : undefined
+                    }
+                  />
                 )}
                 {session.model && (
                   <CopyableField label="Model" displayValue={session.model} />

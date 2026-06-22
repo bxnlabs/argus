@@ -115,7 +115,7 @@ func GenerateShellInitScript(hookPaths []string) string {
 		"\n" +
 		hookBlock +
 		"\n" +
-		"exec $SHELL -l\n"
+		"exec \"${SHELL:-/bin/bash}\" -l\n"
 }
 
 // WriteInitScript writes the init script to a temp file and returns the path.
@@ -140,6 +140,77 @@ func WriteShellInitScript(sessionID string, hookPaths []string) (string, error) 
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("argus-shell-init-%s.sh", sessionID))
 	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
 		return "", fmt.Errorf("write shell init script: %w", err)
+	}
+	return path, nil
+}
+
+// GenerateContainerInitScript returns the script run INSIDE the container to
+// launch an agent session: export PATH, source post_create hooks, run the
+// agent command. The banner and provider-session-ID capture stay in the host
+// wrapper (GenerateInitScript). The script self-deletes on start.
+func GenerateContainerInitScript(agentCommand string, hookPaths []string) string {
+	hookBlock := generateHookSourceBlock(hookPaths)
+
+	// Build the section between the PATH export and the agent command.
+	// When hooks are present: blank line + hook block (which ends with "\n").
+	// When hooks are absent: nothing — the trailing "\n" below provides the
+	// single blank line separator before the agent command.
+	middle := ""
+	if hookBlock != "" {
+		middle = "\n" + hookBlock
+	}
+
+	return "#!/bin/bash\n" +
+		"# Argus Container Init Script\n" +
+		"# Auto-generated - do not edit manually\n" +
+		"rm -f -- \"$0\"\n" +
+		"export PATH=\"$HOME/.local/bin:$PATH\"\n" +
+		middle +
+		"\n" +
+		agentCommand + "\n"
+}
+
+// GenerateContainerShellInitScript returns the script run INSIDE the container
+// for a shell session: source post_create hooks (if any) and exec the login
+// shell. Unlike GenerateShellInitScript it always returns a script, because a
+// containerized shell session must run through `docker compose exec`.
+func GenerateContainerShellInitScript(hookPaths []string) string {
+	hookBlock := generateHookSourceBlock(hookPaths)
+	hookSection := ""
+	if hookBlock != "" {
+		hookSection = hookBlock + "\n"
+	}
+	return "#!/bin/bash\n" +
+		"# Argus Container Shell Init Script\n" +
+		"# Auto-generated - do not edit manually\n" +
+		"rm -f -- \"$0\"\n" +
+		hookSection +
+		"exec \"${SHELL:-/bin/bash}\" -l\n"
+}
+
+// containerScriptDir returns <stateDir>/tmp, creating it 0700. This directory
+// is mounted into the container at the same path, so init scripts written here
+// are runnable in-container by path.
+func containerScriptDir(stateDir string) (string, error) {
+	dir := filepath.Join(stateDir, "tmp")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create container script dir: %w", err)
+	}
+	return dir, nil
+}
+
+// writeContainerScript writes a generated inner-init script under the mounted
+// state tmp dir and returns its path (identical on host and in-container). The
+// caller picks content via GenerateContainerInitScript (agent) or
+// GenerateContainerShellInitScript (shell).
+func writeContainerScript(sessionID, stateDir, content string) (string, error) {
+	dir, err := containerScriptDir(stateDir)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, fmt.Sprintf("argus-inner-%s.sh", sessionID))
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		return "", fmt.Errorf("write container init script: %w", err)
 	}
 	return path, nil
 }

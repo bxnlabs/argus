@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { useProfilesQuery } from "@/data/sessions";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
@@ -100,8 +101,9 @@ export function ChangeProfileDialog({
               <SelectContent>
                 <SelectItem value={NONE_VALUE}>None (detach)</SelectItem>
                 {profiles.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {p}
+                  <SelectItem key={p.name} value={p.name}>
+                    {p.name}
+                    {p.type === "docker" && <DockerizedBadge className="ml-2" />}
                   </SelectItem>
                 ))}
               </SelectContent>

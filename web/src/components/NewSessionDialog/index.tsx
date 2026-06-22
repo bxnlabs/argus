@@ -28,6 +28,7 @@ import {
   DialogTitle as BranchDialogTitle,
 } from "@/components/ui/dialog";
 import { BranchPicker } from "@/components/BranchPicker";
+import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { cn } from "@/lib/utils";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
@@ -229,8 +230,11 @@ export function NewSessionDialog({
                   </SelectTrigger>
                   <SelectContent>
                     {profiles.map((p) => (
-                      <SelectItem key={p} value={p}>
-                        {p}
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.name}
+                        {p.type === "docker" && (
+                          <DockerizedBadge className="ml-2" />
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>

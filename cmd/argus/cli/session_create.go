@@ -67,7 +67,7 @@ func newCreateCmd() *cobra.Command {
 				return fmt.Errorf("marshal request: %w", err)
 			}
 
-			body, err := c.post("/sessions", bytes.NewReader(data))
+			body, err := c.post("/sessions", bytes.NewReader(data), "create")
 			if err != nil {
 				return err
 			}

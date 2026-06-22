@@ -13,6 +13,7 @@ import (
 	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/node/db"
+	"github.com/bxnlabs/argus/internal/node/docker"
 	"github.com/bxnlabs/argus/internal/node/provider"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
@@ -25,6 +26,21 @@ var ErrNotFound = db.ErrNotFound
 // user-fixable validation errors (bad source, unknown agent type, etc.).
 var ErrInvalidInput = errors.New("invalid input")
 
+// ErrProfileInUse is returned when an operation would disrupt live sessions
+// using a profile — e.g. tearing down a shared stack out from under them.
+var ErrProfileInUse = errors.New("profile in use")
+
+// ErrStackStart is returned when bringing a dockerized profile's compose stack
+// up fails (daemon down, image pull/build error, etc.). It is a typed marker so
+// the API can surface the actionable docker detail to the client instead of a
+// generic internal error.
+var ErrStackStart = errors.New("start profile stack failed")
+
+// ErrStackStop is the down-path counterpart to ErrStackStart: it marks a failed
+// `docker compose down` so the API surfaces the docker detail as a 502 instead
+// of a generic internal error, matching how stack-up failures are reported.
+var ErrStackStop = errors.New("stop profile stack failed")
+
 // Manager handles session lifecycle (create, delete, rename, etc.).
 type Manager struct {
 	db       *db.DB
@@ -33,6 +49,9 @@ type Manager struct {
 	hooks    *HookRunner
 	mu       sync.Mutex
 	sessLks  map[string]*sync.Mutex
+
+	compose    composeRunner
+	profileLks map[string]*sync.Mutex
 }
 
 // sessionLock returns a per-session mutex, creating it if needed.
@@ -56,7 +75,7 @@ func (m *Manager) sessionLock(id string) *sync.Mutex {
 
 // NewManager creates a new session manager.
 func NewManager(database *db.DB, wt *worktree.Manager, stateDir string) *Manager {
-	return &Manager{db: database, wt: wt, stateDir: stateDir, hooks: NewHookRunner(stateDir)}
+	return &Manager{db: database, wt: wt, stateDir: stateDir, hooks: NewHookRunner(stateDir), compose: docker.NewCLICompose()}
 }
 
 // CreateOptions are the options for creating a new session.
@@ -177,23 +196,9 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	// Resolve post_create hooks for init script sourcing
 	postCreatePaths := m.hooks.ResolvePostCreateHookPaths(resolvedProfile, projectKey)
 
-	var tmuxCmd string
-	if agentCmd != "" {
-		pattern := provider.GetSessionIDPattern(provider.ProviderType(opts.ProviderType))
-		scriptPath, err := WriteInitScript(sessionID, agentCmd, pattern, postCreatePaths)
-		if err != nil {
-			return nil, fmt.Errorf("write init script: %w", err)
-		}
-		tmuxCmd = "bash " + scriptPath
-	} else if len(postCreatePaths) > 0 {
-		// Shell session with hooks — need init wrapper to source them
-		scriptPath, err := WriteShellInitScript(sessionID, postCreatePaths)
-		if err != nil {
-			return nil, fmt.Errorf("write shell init script: %w", err)
-		}
-		if scriptPath != "" {
-			tmuxCmd = "bash " + scriptPath
-		}
+	tmuxCmd, err := m.buildTmuxCmd(sessionID, opts.ProviderType, resolvedProfile, cwd, agentCmd, postCreatePaths)
+	if err != nil {
+		return nil, err
 	}
 
 	// Spawn tmux session and apply standard styling
@@ -576,28 +581,47 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		ProviderType: session.ProviderType,
 	}
 
-	// 1. Profile-level transition hooks. Skip them entirely when the old and
-	// new profiles resolve to the same hook directory (e.g. implicit default ""
-	// vs explicit "default"): running that profile's pre_create then pre_destroy
-	// would tear down the setup it just ran.
-	if effectiveProfileName(oldProfile) != effectiveProfileName(resolvedProfile) {
-		// New profile pre_create — abort on failure. Runs before any teardown
-		// so a failure leaves the session untouched and alive.
+	// Profile-level transition hooks and docker preflight, ordered so nothing
+	// tears down the old profile until the switch is known to be viable. The
+	// transition hooks are skipped entirely when the old and new profiles
+	// resolve to the same hook directory (e.g. implicit default "" vs explicit
+	// "default"): running that profile's pre_create then pre_destroy would tear
+	// down the setup it just ran. The docker preflight is NOT skipped — the
+	// "" ↔ "default" case can still target a dockerized default stack.
+	sameHookDir := effectiveProfileName(oldProfile) == effectiveProfileName(resolvedProfile)
+
+	// 1. New profile pre_create — abort on failure. Runs before any teardown
+	// (and before stack-up, matching Create's ordering) so a failure leaves the
+	// session untouched and alive.
+	if !sameHookDir {
 		if p := m.hooks.ResolveProfileHookPath(HookPreCreate, resolvedProfile, true); p != "" {
 			hookEnv.Profile = resolvedProfile
 			if err := m.hooks.RunHook(p, hookEnv); err != nil {
 				return nil, fmt.Errorf("pre_create hook: %w", err)
 			}
 		}
+	}
 
-		// Old profile pre_destroy — best-effort.
+	// 2. Docker preflight. When the target profile is dockerized, validate cwd
+	// visibility and bring its stack up while the original session is still
+	// alive and BEFORE the old profile's pre_destroy teardown. A deterministic
+	// docker failure (cwd not mounted, unstartable stack) can't be recovered by
+	// the self-healing respawn below, so catching it here keeps the session and
+	// its old-profile setup intact. No-op for host profiles.
+	if err := m.prepareDockerTarget(resolvedProfile, cwd); err != nil {
+		return nil, err
+	}
+
+	// 3. Old profile pre_destroy — best-effort teardown, only now that the
+	// switch is known to be viable.
+	if !sameHookDir {
 		if p := m.hooks.ResolveProfileHookPath(HookPreDestroy, oldProfile, true); p != "" {
 			hookEnv.Profile = oldProfile
 			m.hooks.RunHooksBestEffort([]string{p}, hookEnv)
 		}
 	}
 
-	// 2. Kill the existing tmux session (if alive) before persisting, so a
+	// 4. Kill the existing tmux session (if alive) before persisting, so a
 	// failed kill leaves the DB on the old profile — consistent with the
 	// still-live shell and safe to retry. Tolerate a race where the session
 	// disappeared between the check and the kill.
@@ -607,7 +631,7 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		}
 	}
 
-	// 3. Persist the new profile (nil clears it) after the kill but before the
+	// 5. Persist the new profile (nil clears it) after the kill but before the
 	// respawn, so a respawn failure is self-healing: EnsureSession revives the
 	// now-dead session from the new profile.
 	var profilePtr *string
@@ -618,7 +642,7 @@ func (m *Manager) ChangeProfile(id string, profile *string) (*db.Session, error)
 		return nil, err
 	}
 
-	// 4. Re-fetch (now carries the new profile) and respawn. The respawn
+	// 6. Re-fetch (now carries the new profile) and respawn. The respawn
 	// re-sources post_create (profile + project), identical to EnsureSession.
 	updated, err := m.db.GetSession(id)
 	if err != nil {
@@ -677,6 +701,7 @@ func (m *Manager) ListProfiles() ([]string, error) {
 		}
 		name := e.Name()
 		if ValidateProfileName(name) != nil {
+			log.Printf("ListProfiles: skipping profile dir %q: invalid name (must be lowercase [a-z0-9][a-z0-9_-]*)", name)
 			continue
 		}
 		hooksDir := filepath.Join(profilesDir, name, "hooks")
@@ -757,22 +782,9 @@ func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	projectKey := ProjectKeyForSession(session)
 	postCreatePaths := m.hooks.ResolvePostCreateHookPaths(profileName, projectKey)
 
-	var tmuxCmd string
-	if agentCmd != "" {
-		pattern := provider.GetSessionIDPattern(provider.ProviderType(session.ProviderType))
-		scriptPath, err := WriteInitScript(session.ID, agentCmd, pattern, postCreatePaths)
-		if err != nil {
-			return "", fmt.Errorf("write init script: %w", err)
-		}
-		tmuxCmd = "bash " + scriptPath
-	} else if len(postCreatePaths) > 0 {
-		scriptPath, err := WriteShellInitScript(session.ID, postCreatePaths)
-		if err != nil {
-			return "", fmt.Errorf("write shell init script: %w", err)
-		}
-		if scriptPath != "" {
-			tmuxCmd = "bash " + scriptPath
-		}
+	tmuxCmd, err := m.buildTmuxCmd(session.ID, session.ProviderType, profileName, cwd, agentCmd, postCreatePaths)
+	if err != nil {
+		return "", err
 	}
 
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {

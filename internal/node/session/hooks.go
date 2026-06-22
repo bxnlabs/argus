@@ -22,7 +22,10 @@ const (
 	HookPreDestroy       = "pre_destroy.sh"
 )
 
-var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+// profileNameRe restricts profile names to lowercase so they are safe as
+// docker-compose project names ("argus-<profile>"), which must be lowercase.
+// The leading [a-z0-9] also rejects a leading '-' or '_'.
+var profileNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // effectiveProfileName returns the profile whose hook directory a name resolves
 // to. An empty name falls back to "default", so the implicit default and an
@@ -38,7 +41,7 @@ func effectiveProfileName(profileName string) string {
 // directory name. Empty names are rejected; use "" to mean "no profile".
 func ValidateProfileName(name string) error {
 	if name == "" || !profileNameRe.MatchString(name) {
-		return fmt.Errorf("invalid profile name %q: must match [a-zA-Z0-9_-]+", name)
+		return fmt.Errorf("invalid profile name %q: must be lowercase and match [a-z0-9][a-z0-9_-]*", name)
 	}
 	return nil
 }

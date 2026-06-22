@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -87,6 +88,50 @@ func TestCloneHandler_SessionNotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for missing session, got %d", w.Code)
+	}
+}
+
+// newProfileTestHandler builds a sessionHandler backed by a real Manager over a
+// temp state dir, returning the state dir so tests can seed profile fixtures.
+func newProfileTestHandler(t *testing.T) (*sessionHandler, string) {
+	t.Helper()
+	stateDir := t.TempDir()
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	wt := worktree.NewManager(stateDir, &config.Config{})
+	mgr := session.NewManager(database, wt, stateDir)
+	return &sessionHandler{manager: mgr}, stateDir
+}
+
+func TestProfileUpHandler_NotDockerized(t *testing.T) {
+	h, stateDir := newProfileTestHandler(t)
+	// Create a non-docker profile so ProfileUp returns ErrInvalidInput.
+	if err := os.MkdirAll(filepath.Join(stateDir, "profiles", "plain", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/profiles/plain/up", nil)
+	req.SetPathValue("name", "plain")
+	w := httptest.NewRecorder()
+	h.profileUp(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for non-docker profile, got %d", w.Code)
+	}
+}
+
+func TestProfileDownHandler_NotDockerized(t *testing.T) {
+	h, stateDir := newProfileTestHandler(t)
+	if err := os.MkdirAll(filepath.Join(stateDir, "profiles", "plain", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/profiles/plain/down", nil)
+	req.SetPathValue("name", "plain")
+	w := httptest.NewRecorder()
+	h.profileDown(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for non-docker profile, got %d", w.Code)
 	}
 }
 
