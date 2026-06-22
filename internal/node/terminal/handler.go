@@ -3,6 +3,7 @@ package terminal
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -142,7 +143,7 @@ func (s *session) readWS() {
 					// Submit defaults to true for backwards compatibility
 					// (old clients don't send the field).
 					submit := msg.Submit == nil || *msg.Submit
-					if _, err := s.ptmx.Write(composePayload(msg.Text, submit)); err != nil {
+					if err := injectCompose(s.ptmx, time.Sleep, msg.Text, submit); err != nil {
 						return
 					}
 				}
@@ -151,23 +152,37 @@ func (s *session) readWS() {
 	}
 }
 
-// composePayload builds the byte sequence injected into the PTY for a compose
-// "text" message.
+// submitReturnDelay is how long to wait after writing a compose paste block
+// before writing the submit Return. The Return must land in a SEPARATE PTY read
+// from the paste so a bracketed-paste-aware TUI (e.g. Claude Code) finishes
+// applying the pasted text to its input before it processes the Return.
 //
-// The text is wrapped in bracketed-paste markers (ESC[200~ ... ESC[201~) so a
-// TUI that enabled bracketed paste mode (e.g. Claude Code) receives multiline
-// input as a SINGLE paste event — newlines inserted literally — instead of one
-// Enter keypress per line, which would submit each line as its own prompt
-// (BXN-110). tmux forwards the markers to such panes and strips them for panes
-// whose app did not enable the mode (e.g. a plain shell), so embedded line
-// breaks remain plain CRs there and behavior is unchanged.
+// Otherwise the Return coalesces into the same PTY read — and the same parser
+// feed — as the closing marker: the TUI emits the paste and the Enter in one
+// batch, applies the paste asynchronously, and runs the Enter's submit handler
+// in the same tick against stale (empty) input, so nothing submits. That is the
+// intermittent "Enter didn't send" bug — intermittent because network/load
+// jitter only occasionally splits the Return into its own read by luck.
 //
-// Line endings are normalized to CR (the PTY's Enter). When submit is set, a
-// trailing CR is appended OUTSIDE the closing marker so the TUI registers it as
-// a distinct Return keypress that submits the pasted block. Because the marker
-// explicitly delimits the paste, no timing/sleep is needed to keep the submit
-// from being swallowed into the paste.
-func composePayload(text string, submit bool) []byte {
+// Measured through Argus's PTY -> tmux -> pane path: an immediate Return is
+// always coalesced with the close marker, while any separating delay reliably
+// splits it into its own read. The margin here covers the extra tmux hops plus
+// node load. Claude Code's own programmatic submit uses the same
+// paste-then-delayed-Return shape (it delays 10ms for a single, direct PTY hop).
+const submitReturnDelay = 40 * time.Millisecond
+
+// composePasteBlock wraps compose text in bracketed-paste markers
+// (ESC[200~ ... ESC[201~) so a TUI that enabled bracketed paste mode (e.g.
+// Claude Code) receives multiline input as a SINGLE paste event — newlines
+// inserted literally — instead of one Enter keypress per line, which would
+// submit each line as its own prompt (BXN-110). tmux forwards the markers to
+// such panes and strips them for panes whose app did not enable the mode (e.g.
+// a plain shell), so embedded line breaks remain plain CRs there and behavior
+// is unchanged.
+//
+// Line endings are normalized to CR (the PTY's Enter). The block NEVER includes
+// the submit Return — injectCompose delivers that as a separate, delayed write.
+func composePasteBlock(text string) []byte {
 	text = strings.ReplaceAll(text, "\r\n", "\r")
 	text = strings.ReplaceAll(text, "\n", "\r")
 
@@ -175,10 +190,25 @@ func composePayload(text string, submit bool) []byte {
 	b.WriteString("\x1b[200~")
 	b.WriteString(text)
 	b.WriteString("\x1b[201~")
-	if submit {
-		b.WriteString("\r")
-	}
 	return []byte(b.String())
+}
+
+// injectCompose writes a compose "text" message into the PTY: the bracketed
+// paste block, then — when submit is set — a lone Return written as a SEPARATE
+// call after submitReturnDelay. The separation (not the marker alone) is what
+// makes the Return register as a distinct submit instead of being swallowed
+// into the paste; see submitReturnDelay. The sleep is injectable for testing.
+func injectCompose(w io.Writer, sleep func(time.Duration), text string, submit bool) error {
+	if _, err := w.Write(composePasteBlock(text)); err != nil {
+		return err
+	}
+	if submit {
+		sleep(submitReturnDelay)
+		if _, err := w.Write([]byte("\r")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ping sends periodic WebSocket pings to detect dead connections.
