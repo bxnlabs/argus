@@ -141,7 +141,7 @@ describe("SessionInfoDialog profile field", () => {
     );
     await screen.findByRole("dialog");
     expect(screen.getByText("sandbox")).toBeTruthy();
-    expect(screen.getByLabelText("dockerized")).toBeTruthy();
+    expect(screen.getByText("Docker")).toBeTruthy();
   });
 
   it("omits the dockerized badge for a host profile", async () => {
@@ -157,7 +157,7 @@ describe("SessionInfoDialog profile field", () => {
     );
     await screen.findByRole("dialog");
     expect(screen.getByText("review")).toBeTruthy();
-    expect(screen.queryByLabelText("dockerized")).toBeNull();
+    expect(screen.queryByText("Docker")).toBeNull();
   });
 
   it("omits the Profile field when no profile is set", async () => {

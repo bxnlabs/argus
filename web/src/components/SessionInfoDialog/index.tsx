@@ -10,8 +10,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Container } from "lucide-react";
 import { ProviderBadge } from "@/components/ProviderBadge";
-import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { Badge } from "@/components/ui/badge";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -61,6 +61,15 @@ export function SessionInfoDialog({
             <DialogHeader className="text-left">
               <div className="mb-1.5 flex items-center gap-1.5">
                 <ProviderBadge type={session.provider_type} />
+                {isDockerized && (
+                  <Badge
+                    variant="outline"
+                    className="text-muted-foreground gap-1 border-current px-1 py-0 text-[10px] font-medium"
+                  >
+                    <Container className="h-3 w-3" aria-hidden="true" />
+                    Docker
+                  </Badge>
+                )}
                 {session.auto_approve && (
                   <Badge
                     variant="outline"
@@ -111,15 +120,7 @@ export function SessionInfoDialog({
                 </div>
                 <CopyableField label="ID" displayValue={session.id} />
                 {session.profile && (
-                  <CopyableField
-                    label="Profile"
-                    displayValue={session.profile}
-                    badge={
-                      isDockerized ? (
-                        <DockerizedBadge className="flex-shrink-0" />
-                      ) : undefined
-                    }
-                  />
+                  <CopyableField label="Profile" displayValue={session.profile} />
                 )}
                 {session.model && (
                   <CopyableField label="Model" displayValue={session.model} />
