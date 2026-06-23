@@ -20,7 +20,7 @@ import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
 import { NodeOffline } from "@/components/NodeOffline";
 import { useGitCheckQuery } from "@/data/git";
-import { isMac } from "@/lib/device";
+import { isMac, isTouchDevice, isPhoneSized } from "@/lib/device";
 import { buildNodeSwitchBindings } from "@/lib/nodeShortcuts";
 import { nodeScope } from "@/lib/nodeScope";
 import type { Session, CreateSessionParams } from "@/types";
@@ -545,8 +545,13 @@ export function App() {
 function AppInner() {
   const { activeNodeId, activeNode, isLoaded } = useNodeContext();
   // Node-rail visibility lives here, above the node-keyed TabProvider, so it
-  // survives the workspace remount on node switch.
-  const [railOpen, setRailOpen] = useState(false);
+  // survives the workspace remount on node switch. Default it open on desktop
+  // (toggle via the node switcher tile); on mobile it stays closed so the
+  // overlay panel never pops open over the drawer. Mirrors useViewport's mobile
+  // check so both agree on what "desktop" means.
+  const [railOpen, setRailOpen] = useState(
+    () => !(isTouchDevice && isPhoneSized()),
+  );
   // Wait for the registry to settle before mounting the workspace. Otherwise,
   // when a remote node is the persisted selection, HomeContent would mount with
   // the default (local) origin and fire node-scoped fetches against the wrong
