@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabProvider, useTabs } from "@/contexts/TabContext";
@@ -72,6 +79,16 @@ function HomeContent({
     detachSessionById,
   } = useTabs();
   const { isMobile, isHydrated } = useViewport();
+
+  // railOpen defaults open on desktop; on a desktop→mobile switch (e.g. a tablet
+  // entering split-screen) close it so the node panel can't surface over the
+  // drawer. Keyed on isMobile only — not railOpen — so it fires on the
+  // transition, not when the user toggles the panel open on mobile. A layout
+  // effect lands the close before paint, so the panel never flashes open for a
+  // frame during the transition.
+  useLayoutEffect(() => {
+    if (isMobile) setRailOpen(false);
+  }, [isMobile, setRailOpen]);
 
   // Data hooks
   const {
