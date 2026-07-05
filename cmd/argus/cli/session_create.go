@@ -40,7 +40,7 @@ func newCreateCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "new <name>",
-		Short: "Create a new session and attach",
+		Short: "Create a new session (headless by default; use --attach for interactive)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
