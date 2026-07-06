@@ -18,8 +18,6 @@ import (
 // internal/node/terminal/handler.go).
 const submitReturnDelay = 40 * time.Millisecond
 
-const sendBufferName = "argus-send"
-
 // resolveSendInput picks the single input source for `session send`: the inline
 // text arg, the --file path, or stdin. Exactly one may be used. When no arg and
 // no file are given, stdin is read — unless stdin is a terminal (stdinIsTTY),
@@ -131,6 +129,12 @@ func newSendCmd() *cobra.Command {
 				return err
 			}
 
+			// Revive the tmux session if it died, mirroring `session attach`:
+			// GET /sessions/{id} runs EnsureSession on the node.
+			if _, err := c.get("/sessions/" + s.ID); err != nil {
+				return fmt.Errorf("ensure session: %w", err)
+			}
+
 			if keysMode {
 				keys := strings.Fields(string(input))
 				if len(keys) == 0 {
@@ -139,11 +143,17 @@ func newSendCmd() *cobra.Command {
 				return runTmux(sendKeysArgs(s.TmuxName, keys))
 			}
 
-			// Bracketed-paste the input via a tmux buffer loaded from stdin.
-			if err := runTmuxStdin(loadBufferArgs(sendBufferName), input); err != nil {
+			// Bracketed-paste the input via a per-invocation tmux buffer loaded
+			// from stdin. A unique name avoids cross-wiring concurrent sends that
+			// share the node's single tmux server; the deferred delete-buffer
+			// cleans up input left behind if paste-buffer fails before its own
+			// -d removes the buffer.
+			bufName := fmt.Sprintf("argus-send-%d-%d", os.Getpid(), time.Now().UnixNano())
+			if err := runTmuxStdin(loadBufferArgs(bufName), input); err != nil {
 				return err
 			}
-			if err := runTmux(pasteBufferArgs(sendBufferName, s.TmuxName)); err != nil {
+			defer func() { _ = runTmux([]string{"delete-buffer", "-b", bufName}) }()
+			if err := runTmux(pasteBufferArgs(bufName, s.TmuxName)); err != nil {
 				return err
 			}
 			if enter {

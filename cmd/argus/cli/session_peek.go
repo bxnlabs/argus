@@ -70,6 +70,12 @@ func newPeekCmd() *cobra.Command {
 				return err
 			}
 
+			// Revive the tmux session if it died, mirroring `session attach`:
+			// GET /sessions/{id} runs EnsureSession on the node.
+			if _, err := c.get("/sessions/" + s.ID); err != nil {
+				return fmt.Errorf("ensure session: %w", err)
+			}
+
 			tmuxCmd, err := shared.TmuxCommand(capturePaneArgs(s.TmuxName, all)...)
 			if err != nil {
 				return fmt.Errorf("build tmux command: %w", err)

@@ -117,6 +117,9 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch name override (uses exact name, bypasses prefix/slug)")
 	cmd.Flags().BoolVar(&attach, "attach", false, "Attach to the session's tmux after creating (interactive; default is headless)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the full session record as JSON instead of the bare ID")
+	// --attach short-circuits to an interactive tmux attach and never prints the
+	// record, so --json would be silently ignored; make the conflict explicit.
+	cmd.MarkFlagsMutuallyExclusive("attach", "json")
 
 	return cmd
 }
