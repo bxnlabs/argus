@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/bxnlabs/argus/internal/node/git/review"
 	"github.com/bxnlabs/argus/internal/shared"
@@ -24,6 +26,7 @@ func newCommentsCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		newCommentsViewCmd(),
+		newCommentsLsCmd(),
 	)
 	return cmd
 }
@@ -113,6 +116,67 @@ func loadLocalReview(rc *reviewContext) (*review.Review, error) {
 		rv = &review.Review{Head: rc.branch, Base: rc.base}
 	}
 	return rv, nil
+}
+
+// commentBodyMax bounds the BODY column of the comments table.
+const commentBodyMax = 60
+
+// firstLineTruncated returns the first line of s, truncated to max runes with a
+// trailing ellipsis when longer. Used for the compact BODY column.
+func firstLineTruncated(s string, max int) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	r := []rune(s)
+	if len(r) > max {
+		return string(r[:max-1]) + "…"
+	}
+	return s
+}
+
+// commentsTable renders comments as an aligned table with columns
+// ID, FILE:LINE, SUBMITTED, BODY. An empty slice yields a single message line.
+func commentsTable(comments []review.ReviewComment) string {
+	if len(comments) == 0 {
+		return "No review comments.\n"
+	}
+	var b strings.Builder
+	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tFILE:LINE\tSUBMITTED\tBODY")
+	for _, c := range comments {
+		submitted := "no"
+		if c.Submitted {
+			submitted = "yes"
+		}
+		loc := fmt.Sprintf("%s:%d", c.File, c.Line.From.Line)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.ID, loc, submitted, firstLineTruncated(c.Body, commentBodyMax))
+	}
+	w.Flush()
+	return b.String()
+}
+
+func newCommentsLsCmd() *cobra.Command {
+	var baseFlag string
+	cmd := &cobra.Command{
+		Use:   "ls",
+		Short: "List review comments for the current branch in a compact table",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			rc, err := resolveReviewContext(baseFlag)
+			if err != nil {
+				return err
+			}
+			rv, err := loadLocalReview(rc)
+			if err != nil {
+				return err
+			}
+			fmt.Print(commentsTable(rv.Comments))
+			return nil
+		},
+	}
+	addBaseFlag(cmd, &baseFlag)
+	return cmd
 }
 
 func newCommentsViewCmd() *cobra.Command {
