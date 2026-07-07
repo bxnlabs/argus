@@ -3,98 +3,11 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/bxnlabs/argus/internal/node/git/review"
-	"github.com/bxnlabs/argus/internal/shared"
-	"github.com/bxnlabs/argus/internal/source"
-	"github.com/spf13/cobra"
 )
-
-func newReviewCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "review",
-		Short: "Manage code reviews",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return nil
-		},
-	}
-	cmd.AddCommand(newReviewGetCmd())
-	return cmd
-}
-
-func newReviewGetCmd() *cobra.Command {
-	var baseFlag string
-	cmd := &cobra.Command{
-		Use:   "get",
-		Short: "Get submitted inline comments for the current branch",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cmd.SilenceUsage = true
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("cannot determine working directory: %w", err)
-			}
-			resolved, err := source.Resolve(cwd)
-			if err != nil {
-				return fmt.Errorf("cannot resolve project: %w", err)
-			}
-			repoDir := resolved.LocalPath
-			parentKey := resolved.ParentKey()
-			stateDir, err := shared.StateDir()
-			if err != nil {
-				return fmt.Errorf("cannot determine state dir: %w", err)
-			}
-			projectDir := filepath.Join(stateDir, "projects", parentKey)
-
-			dp, err := discoveryFilePath()
-			if err != nil {
-				return err
-			}
-			c, err := newClient(dp)
-			if err != nil {
-				return err
-			}
-
-			pathParam := url.Values{"path": []string{repoDir}}.Encode()
-			body, err := c.get("/git/status?" + pathParam)
-			if err != nil {
-				return fmt.Errorf("get git status: %w", err)
-			}
-			var statusResp struct {
-				Status struct {
-					Branch string `json:"branch"`
-				} `json:"status"`
-			}
-			if err := json.Unmarshal(body, &statusResp); err != nil {
-				return fmt.Errorf("parse status: %w", err)
-			}
-			branch := statusResp.Status.Branch
-
-			baseBranch, err := resolveReviewBase(c, pathParam, baseFlag)
-			if err != nil {
-				return err
-			}
-
-			rv, err := review.Load(projectDir, repoDir, branch, baseBranch, "", "")
-			if err != nil {
-				return fmt.Errorf("load review: %w", err)
-			}
-			if rv == nil {
-				rv = &review.Review{Head: branch, Base: baseBranch}
-			}
-
-			fmt.Print(formatReviewMarkdown(rv))
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&baseFlag, "base", "", "Base branch to compare against (default: detected default branch, typically main or master)")
-	return cmd
-}
 
 // resolveReviewBase returns the base branch to use when loading a review.
 // If flagBase is non-empty after trimming whitespace (the user passed --base),
