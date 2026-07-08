@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/node/git/review"
 	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
@@ -19,7 +20,7 @@ import (
 func newCommentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "comments",
-		Short: "Read and write review comments for the current branch",
+		Short: "Read review comments for the current branch",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return nil
 		},
@@ -50,23 +51,28 @@ type reviewContext struct {
 
 // resolveReviewContext resolves the current repo, its head branch (via
 // GET /git/status), and the base branch (via --base or GET /git/compare/branches)
-// and returns a reviewContext. It mirrors the resolution the old
-// `tools git review get` performed inline.
+// and returns a reviewContext.
+//
+// The repo is the worktree root (git rev-parse --show-toplevel), not the
+// current directory: reviews are keyed by the repository root — matching how
+// node sessions and the web UI key them — so running a comments command from a
+// subdirectory addresses the same review document, and file paths are anchored
+// relative to the root.
 func resolveReviewContext(baseFlag string) (*reviewContext, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine working directory: %w", err)
 	}
-	resolved, err := source.Resolve(cwd)
+	root, err := git.Output(cwd, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return nil, fmt.Errorf("cannot resolve project: %w", err)
+		return nil, fmt.Errorf("not inside a git repository: %w", err)
 	}
-	repoDir := resolved.LocalPath
+	repoDir := strings.TrimSpace(root)
 	stateDir, err := shared.StateDir()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine state dir: %w", err)
 	}
-	projectDir := filepath.Join(stateDir, "projects", resolved.ParentKey())
+	projectDir := filepath.Join(stateDir, "projects", source.ParentKeyFromPath(repoDir))
 
 	dp, err := discoveryFilePath()
 	if err != nil {
