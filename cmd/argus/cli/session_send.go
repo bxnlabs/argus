@@ -62,6 +62,21 @@ func sendKeysArgs(tmuxName string, keys []string) []string {
 	return append([]string{"send-keys", "-t", tmuxName}, keys...)
 }
 
+// keysModeKeys splits --keys input into tmux key tokens, appending a trailing
+// Enter when --enter is set so `--keys --enter` submits. Unlike paste mode there
+// is no coalescing risk (send-keys delivers each key discretely), so no delay is
+// needed. Returns an error when the input contains no key tokens.
+func keysModeKeys(input string, enter bool) ([]string, error) {
+	keys := strings.Fields(input)
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("no keys to send")
+	}
+	if enter {
+		keys = append(keys, "Enter")
+	}
+	return keys, nil
+}
+
 // runTmux runs a tmux command through the dedicated socket, surfacing tmux's own
 // error text (e.g. "can't find session") on failure.
 func runTmux(args []string) error {
@@ -136,9 +151,9 @@ func newSendCmd() *cobra.Command {
 			}
 
 			if keysMode {
-				keys := strings.Fields(string(input))
-				if len(keys) == 0 {
-					return fmt.Errorf("no keys to send")
+				keys, err := keysModeKeys(string(input), enter)
+				if err != nil {
+					return err
 				}
 				return runTmux(sendKeysArgs(s.TmuxName, keys))
 			}

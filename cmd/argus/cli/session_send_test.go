@@ -71,6 +71,34 @@ func TestPasteBufferArgs(t *testing.T) {
 	}
 }
 
+func TestKeysModeKeys_NoEnter(t *testing.T) {
+	got, err := keysModeKeys("Escape C-c", false)
+	if err != nil {
+		t.Fatalf("keysModeKeys: %v", err)
+	}
+	want := []string{"Escape", "C-c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestKeysModeKeys_Enter(t *testing.T) {
+	got, err := keysModeKeys("Escape", true)
+	if err != nil {
+		t.Fatalf("keysModeKeys: %v", err)
+	}
+	want := []string{"Escape", "Enter"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestKeysModeKeys_EmptyError(t *testing.T) {
+	if _, err := keysModeKeys("   ", true); err == nil {
+		t.Fatal("expected error when no keys to send")
+	}
+}
+
 func TestSendKeysArgs(t *testing.T) {
 	got := sendKeysArgs("claude-sess_abc", []string{"Escape", "C-c"})
 	want := []string{"send-keys", "-t", "claude-sess_abc", "Escape", "C-c"}
