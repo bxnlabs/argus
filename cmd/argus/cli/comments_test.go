@@ -62,3 +62,26 @@ func TestCommentsTable_Empty(t *testing.T) {
 		t.Errorf("got %q, want a no-comments message", out)
 	}
 }
+
+func TestCommentsTable_LeftSideRenamedUsesOldPath(t *testing.T) {
+	// A left-side comment on a renamed file anchors to a line in the OLD file,
+	// so the location must show OldPath, not the new File path.
+	c := review.ReviewComment{
+		ID:      "c1",
+		File:    "new/path.go",
+		OldPath: "old/path.go",
+		Line: review.LineRange{
+			From: review.DiffPosition{Side: review.DiffSideLeft, Line: 20},
+			To:   review.DiffPosition{Side: review.DiffSideLeft, Line: 20},
+		},
+		Submitted: true,
+		Body:      "deleted line note",
+	}
+	out := commentsTable([]review.ReviewComment{c})
+	if !strings.Contains(out, "old/path.go:20") {
+		t.Errorf("L-side renamed comment should locate at the old path; got:\n%s", out)
+	}
+	if strings.Contains(out, "new/path.go:20") {
+		t.Errorf("L-side renamed comment should not use the new path; got:\n%s", out)
+	}
+}

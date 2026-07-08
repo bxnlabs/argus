@@ -154,7 +154,13 @@ func commentsTable(comments []review.ReviewComment) string {
 		if c.Submitted {
 			submitted = "yes"
 		}
-		loc := fmt.Sprintf("%s:%d", c.File, c.Line.From.Line)
+		// Left-side comments anchor to a line in the base version of the file;
+		// for a renamed file that line lives at OldPath, so show it there.
+		file := c.File
+		if c.Line.From.Side == review.DiffSideLeft && c.OldPath != "" {
+			file = c.OldPath
+		}
+		loc := fmt.Sprintf("%s:%d", file, c.Line.From.Line)
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.ID, loc, submitted, firstLineTruncated(c.Body, commentBodyMax))
 	}
 	w.Flush()
