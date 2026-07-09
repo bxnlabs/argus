@@ -20,20 +20,21 @@ type wtItem struct {
 	Branch string `json:"branch"`
 }
 
-// resolveRepoRoot returns the git worktree root of the current directory.
-// Worktree operations are keyed by repository root — matching the comments
-// command and how node sessions key repos — so running from a subdirectory
-// still addresses the right repo.
+// resolveRepoRoot returns the main repository root for the current directory.
+// Worktree operations are keyed by the main repo — matching how node sessions
+// key repos — so running from a subdirectory or from inside a linked worktree
+// still addresses the same repo. (This differs from the comments command, which
+// keys per worktree root because reviews are per-branch.)
 func resolveRepoRoot() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine working directory: %w", err)
 	}
-	root, err := git.Output(cwd, "rev-parse", "--show-toplevel")
+	root, err := git.FindMainRepo(cwd)
 	if err != nil {
 		return "", fmt.Errorf("not inside a git repository: %w", err)
 	}
-	return strings.TrimSpace(root), nil
+	return root, nil
 }
 
 // worktreesTable renders managed worktrees as a BRANCH/PATH table, compressing

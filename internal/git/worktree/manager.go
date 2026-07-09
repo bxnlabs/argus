@@ -10,6 +10,7 @@ import (
 
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git"
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
 
@@ -25,7 +26,15 @@ type Manager struct {
 
 // NewManager creates a new worktree Manager.
 // stateDir is the ~/.argus directory; cfg is the loaded user config.
+//
+// stateDir is canonicalized (symlinks resolved) so IsManagedPath's lexical
+// prefix check matches git's symlink-resolved worktree paths — e.g. when
+// ARGUS_HOME lives under a symlinked path such as /tmp or /var on macOS.
+// Resolution falls back to the raw value if it fails.
 func NewManager(stateDir string, cfg *config.Config) *Manager {
+	if resolved, err := shared.EvalSymlinks(stateDir); err == nil {
+		stateDir = resolved
+	}
 	return &Manager{stateDir: stateDir, cfg: cfg}
 }
 

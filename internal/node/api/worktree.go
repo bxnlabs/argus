@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/git/worktree"
 	"github.com/bxnlabs/argus/internal/shared"
 )
@@ -33,6 +34,12 @@ func (h *worktreeHandler) create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "path and branch parameters are required")
 		return
 	}
+	// Validate the branch name up front so a syntactically invalid name is a
+	// clean 400 rather than a generic 500 from a downstream git failure.
+	if err := git.Run("", "check-ref-format", "refs/heads/"+branch); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid branch name: "+branch)
+		return
+	}
 	expanded, err := shared.SafeExpandPath(repoPath)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
@@ -41,6 +48,14 @@ func (h *worktreeHandler) create(w http.ResponseWriter, r *http.Request) {
 	wtPath, br, created, branchCreated, err := h.mgr.CreateForLocalRepo(expanded, "", branch)
 	if err != nil {
 		respondInternalError(w, err)
+		return
+	}
+	// created==false means an existing worktree for the branch was reused.
+	// FindWorktree matches any linked worktree, so guard against reusing an
+	// unmanaged one — list hides it and delete refuses it, so returning its
+	// path here would be inconsistent. Reject with 409 to match that boundary.
+	if !created && !h.mgr.IsManagedPath(wtPath) {
+		respondError(w, http.StatusConflict, "branch "+branch+" has a worktree that is not Argus-managed")
 		return
 	}
 	respondJSON(w, http.StatusOK, worktreeCreateResponse{

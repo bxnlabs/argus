@@ -5,9 +5,65 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// initWtGitRepo creates a temporary git repo with an initial commit on main and
+// returns its path.
+func initWtGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "init")
+	return dir
+}
+
+// TestResolveRepoRootFromLinkedWorktree verifies that resolveRepoRoot returns
+// the MAIN repo root even when run from inside a linked worktree, so worktree
+// operations are keyed by the main repo (matching how node sessions key repos)
+// rather than by the current worktree path.
+func TestResolveRepoRootFromLinkedWorktree(t *testing.T) {
+	main := initWtGitRepo(t)
+	linked := filepath.Join(t.TempDir(), "linked")
+	cmd := exec.Command("git", "worktree", "add", "-b", "wt-branch", linked)
+	cmd.Dir = main
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+
+	t.Chdir(linked)
+	got, err := resolveRepoRoot()
+	if err != nil {
+		t.Fatalf("resolveRepoRoot: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("resolveRepoRoot from linked worktree = %q, want main repo %q", got, want)
+	}
+}
 
 func TestWorktreesTable(t *testing.T) {
 	items := []wtItem{

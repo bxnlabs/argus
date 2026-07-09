@@ -192,6 +192,42 @@ func TestWorktreeHandler_DeleteUnmanaged(t *testing.T) {
 	}
 }
 
+func TestWorktreeHandler_CreateReuseUnmanaged(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t)
+
+	// A hand-made, unmanaged worktree for a branch, outside the manager's state
+	// dir. create must not silently "reuse" it (which would return a path that
+	// list hides and rm refuses) — it must reject with 409.
+	unmanaged := filepath.Join(t.TempDir(), "loose")
+	cmd := exec.Command("git", "worktree", "add", "-b", "loose-branch", unmanaged)
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+
+	req := httptest.NewRequest("POST", "/git/worktree?path="+repo+"&branch=loose-branch", nil)
+	w := httptest.NewRecorder()
+	h.create(w, req)
+	if w.Code != http.StatusConflict {
+		t.Errorf("create reuse of unmanaged worktree: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWorktreeHandler_CreateInvalidBranch(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t)
+
+	// A syntactically invalid branch name is a user error, not an internal one:
+	// it must yield 400, not a generic 500.
+	req := httptest.NewRequest("POST", "/git/worktree?path="+repo+"&branch=bad..branch", nil)
+	w := httptest.NewRecorder()
+	h.create(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("invalid branch: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestWorktreeHandler_CreateMissingParams(t *testing.T) {
 	h := newWorktreeHandler(t)
 	req := httptest.NewRequest("POST", "/git/worktree?path=/tmp", nil) // no branch

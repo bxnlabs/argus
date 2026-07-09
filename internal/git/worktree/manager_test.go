@@ -669,3 +669,36 @@ func TestListManaged(t *testing.T) {
 		t.Error("ListManaged included the unmanaged worktree")
 	}
 }
+
+// TestListManagedSymlinkedStateDir verifies that a stateDir passed with a
+// symlink component still yields correct managed-path detection. git reports
+// symlink-resolved worktree paths, so IsManagedPath's lexical prefix check must
+// be against a canonicalized stateDir — NewManager resolves it.
+func TestListManagedSymlinkedStateDir(t *testing.T) {
+	gitRoot := initGitRepo(t)
+
+	// A real state dir plus a symlink pointing at it. Passing the symlinked
+	// path as stateDir must not break managed-path detection.
+	realState := realPath(t, t.TempDir())
+	symlinkedState := filepath.Join(t.TempDir(), "state")
+	if err := os.Symlink(realState, symlinkedState); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := worktree.NewManager(symlinkedState, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
+	_, branch, _, _, err := mgr.CreateForLocalRepo(gitRoot, "feature", "")
+	if err != nil {
+		t.Fatalf("CreateForLocalRepo: %v", err)
+	}
+
+	got, err := mgr.ListManaged(gitRoot)
+	if err != nil {
+		t.Fatalf("ListManaged: %v", err)
+	}
+	if len(got) != 1 || got[0].Branch != branch {
+		t.Fatalf("ListManaged = %+v, want one %q", got, branch)
+	}
+	if !mgr.IsManagedPath(got[0].Path) {
+		t.Errorf("IsManagedPath(%q) = false, want true", got[0].Path)
+	}
+}
