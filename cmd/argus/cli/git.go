@@ -14,5 +14,6 @@ func NewGitCmd() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(newCommentsCmd())
+	cmd.AddCommand(newWtCmd())
 	return cmd
 }
