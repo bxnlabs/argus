@@ -93,7 +93,7 @@ func (h *worktreeHandler) delete(w http.ResponseWriter, r *http.Request) {
 		respondInternalError(w, err)
 		return
 	}
-	if wtPath == "" {
+	if wtPath == "" || !h.mgr.IsManagedPath(wtPath) {
 		respondError(w, http.StatusNotFound, "no managed worktree for branch "+branch)
 		return
 	}

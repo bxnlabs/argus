@@ -165,6 +165,33 @@ func TestWorktreeHandler_DeleteDirty(t *testing.T) {
 	}
 }
 
+func TestWorktreeHandler_DeleteUnmanaged(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t)
+
+	// Create an UNMANAGED linked worktree by hand, outside the manager's state
+	// dir, mirroring TestListManaged's "loose" worktree in manager_test.go.
+	unmanaged := filepath.Join(t.TempDir(), "loose")
+	cmd := exec.Command("git", "worktree", "add", "-b", "loose-branch", unmanaged)
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+
+	// It must be invisible to list (already covered by ListManaged), and
+	// delete must refuse to touch it: 404, not 200.
+	req := httptest.NewRequest("DELETE", "/git/worktree?path="+repo+"&branch=loose-branch", nil)
+	w := httptest.NewRecorder()
+	h.delete(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("delete unmanaged: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if _, err := os.Stat(unmanaged); err != nil {
+		t.Errorf("unmanaged worktree should still exist on disk after refused delete: %v", err)
+	}
+}
+
 func TestWorktreeHandler_CreateMissingParams(t *testing.T) {
 	h := newWorktreeHandler(t)
 	req := httptest.NewRequest("POST", "/git/worktree?path=/tmp", nil) // no branch
