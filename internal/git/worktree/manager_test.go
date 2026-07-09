@@ -615,3 +615,57 @@ func TestCreateForRemoteRepoBranchOverrideRemoteOnly(t *testing.T) {
 		t.Errorf("feature.txt should exist in worktree: %v", err)
 	}
 }
+
+func runGitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestListManaged(t *testing.T) {
+	gitRoot := initGitRepo(t)
+	// Resolve so IsManagedPath's prefix check matches git's resolved paths.
+	stateDir := realPath(t, t.TempDir())
+
+	mgr := worktree.NewManager(stateDir, &config.Config{Git: config.GitConfig{BranchPrefix: "jeev"}})
+
+	// Two managed worktrees (placed under stateDir/projects/.../worktrees/).
+	_, branch1, _, _, err := mgr.CreateForLocalRepo(gitRoot, "first", "")
+	if err != nil {
+		t.Fatalf("first CreateForLocalRepo: %v", err)
+	}
+	_, branch2, _, _, err := mgr.CreateForLocalRepo(gitRoot, "second", "")
+	if err != nil {
+		t.Fatalf("second CreateForLocalRepo: %v", err)
+	}
+
+	// One UNMANAGED worktree (outside stateDir) — must be filtered out.
+	unmanaged := filepath.Join(t.TempDir(), "loose")
+	runGitCmd(t, gitRoot, "worktree", "add", "-b", "loose-branch", unmanaged)
+
+	got, err := mgr.ListManaged(gitRoot)
+	if err != nil {
+		t.Fatalf("ListManaged: %v", err)
+	}
+
+	branches := map[string]bool{}
+	for _, w := range got {
+		branches[w.Branch] = true
+		if !mgr.IsManagedPath(w.Path) {
+			t.Errorf("ListManaged returned unmanaged path %q", w.Path)
+		}
+	}
+	if len(got) != 2 || !branches[branch1] || !branches[branch2] {
+		t.Errorf("ListManaged = %+v, want branches %q and %q only", got, branch1, branch2)
+	}
+	if branches["loose-branch"] {
+		t.Error("ListManaged included the unmanaged worktree")
+	}
+}

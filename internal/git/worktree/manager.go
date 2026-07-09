@@ -147,6 +147,31 @@ func (m *Manager) FindWorktreeByPath(dir string) (branch string, err error) {
 	return "", nil
 }
 
+// ManagedWorktree is an Argus-managed linked worktree (living under
+// <stateDir>/projects/<key>/worktrees/), as returned by ListManaged.
+type ManagedWorktree struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch"`
+}
+
+// ListManaged returns the Argus-managed linked worktrees for the repo at
+// repoDir. The main working tree is always excluded (via listWorktrees), and
+// any linked worktree that is not under the managed
+// <stateDir>/projects/.../worktrees/ layout is filtered out.
+func (m *Manager) ListManaged(repoDir string) ([]ManagedWorktree, error) {
+	entries, err := listWorktrees(repoDir)
+	if err != nil {
+		return nil, err
+	}
+	managed := make([]ManagedWorktree, 0, len(entries))
+	for _, e := range entries {
+		if m.IsManagedPath(e.path) {
+			managed = append(managed, ManagedWorktree{Path: e.path, Branch: e.branch})
+		}
+	}
+	return managed, nil
+}
+
 func (m *Manager) createWorktree(repoDir, parentKey, sessionName string, branchOverride string) (worktreePath, branch string, worktreeCreated, branchCreated bool, err error) {
 	var baseBranch string
 	if branchOverride != "" {
