@@ -165,13 +165,14 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(http.
 	allowOrigin := api.NewCORSPolicy(tailnetSuffix)
 	allowHost := api.NewHostPolicy(cfg.BindAddress, fqdn, tailscaleOn, cfg.AllowedHosts)
 	handler := api.NewRouter(api.Deps{
-		SessionManager: mgr,
-		WatcherManager: watcherMgr,
-		Database:       database,
-		RepoIndexer:    repoIndexer,
-		StateDir:       stateDir,
-		AllowOrigin:    allowOrigin,
-		AllowHost:      allowHost,
+		SessionManager:  mgr,
+		WatcherManager:  watcherMgr,
+		Database:        database,
+		RepoIndexer:     repoIndexer,
+		WorktreeManager: wtMgr,
+		StateDir:        stateDir,
+		AllowOrigin:     allowOrigin,
+		AllowHost:       allowHost,
 	})
 
 	// cors wraps sibling routes (the registry's /api/nodes endpoints) with the
