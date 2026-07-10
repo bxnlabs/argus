@@ -702,3 +702,26 @@ func TestListManagedSymlinkedStateDir(t *testing.T) {
 		t.Errorf("IsManagedPath(%q) = false, want true", got[0].Path)
 	}
 }
+
+// TestIsManagedPathToleratesRawSymlinkedPrefix verifies that IsManagedPath
+// recognizes a path spelled with the RAW (symlinked) stateDir prefix — as a
+// session row persisted before stateDir canonicalization would be — as well as
+// the canonical spelling. Without this, deleting such a session on a symlinked
+// ARGUS_HOME would skip worktree/branch cleanup.
+func TestIsManagedPathToleratesRawSymlinkedPrefix(t *testing.T) {
+	realState := realPath(t, t.TempDir())
+	symlinkedState := filepath.Join(t.TempDir(), "state")
+	if err := os.Symlink(realState, symlinkedState); err != nil {
+		t.Fatal(err)
+	}
+	mgr := worktree.NewManager(symlinkedState, &config.Config{})
+
+	rawPath := filepath.Join(symlinkedState, "projects", "somekey", "worktrees", "wt")
+	if !mgr.IsManagedPath(rawPath) {
+		t.Errorf("IsManagedPath(%q) = false, want true (raw symlinked prefix)", rawPath)
+	}
+	canonPath := filepath.Join(realState, "projects", "somekey", "worktrees", "wt")
+	if !mgr.IsManagedPath(canonPath) {
+		t.Errorf("IsManagedPath(%q) = false, want true (canonical prefix)", canonPath)
+	}
+}

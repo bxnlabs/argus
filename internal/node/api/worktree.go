@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/git/worktree"
@@ -34,9 +35,11 @@ func (h *worktreeHandler) create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "path and branch parameters are required")
 		return
 	}
-	// Validate the branch name up front so a syntactically invalid name is a
-	// clean 400 rather than a generic 500 from a downstream git failure.
-	if err := git.Run("", "check-ref-format", "refs/heads/"+branch); err != nil {
+	// Validate the branch name up front so a bad name is a clean 400 rather than
+	// a generic 500 from a downstream git failure. A leading dash is rejected
+	// explicitly (matching session validation) because check-ref-format accepts
+	// it as a refname but `git worktree add -b` treats it as a flag.
+	if strings.HasPrefix(branch, "-") || git.Run("", "check-ref-format", "refs/heads/"+branch) != nil {
 		respondError(w, http.StatusBadRequest, "invalid branch name: "+branch)
 		return
 	}

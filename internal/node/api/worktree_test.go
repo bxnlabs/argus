@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -218,13 +219,17 @@ func TestWorktreeHandler_CreateInvalidBranch(t *testing.T) {
 	h := newWorktreeHandler(t)
 	repo := initHomeGitRepo(t)
 
-	// A syntactically invalid branch name is a user error, not an internal one:
-	// it must yield 400, not a generic 500.
-	req := httptest.NewRequest("POST", "/git/worktree?path="+repo+"&branch=bad..branch", nil)
-	w := httptest.NewRecorder()
-	h.create(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("invalid branch: expected 400, got %d: %s", w.Code, w.Body.String())
+	// Branch names that are user errors, not internal ones: each must yield 400,
+	// not a generic 500. "bad..branch" is syntactically invalid; "-foo" is a
+	// leading-dash name that check-ref-format accepts as a refname but that
+	// `git worktree add -b` treats as a flag (mirrors session validation).
+	for _, branch := range []string{"bad..branch", "-foo"} {
+		req := httptest.NewRequest("POST", "/git/worktree?path="+repo+"&branch="+url.QueryEscape(branch), nil)
+		w := httptest.NewRecorder()
+		h.create(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("invalid branch %q: expected 400, got %d: %s", branch, w.Code, w.Body.String())
+		}
 	}
 }
 

@@ -20,8 +20,14 @@ var ErrWorktreeDirty = errors.New("worktree has uncommitted changes")
 
 // Manager handles git worktree creation and remote repo cloning.
 type Manager struct {
-	stateDir string
-	cfg      *config.Config
+	// stateDir is the canonical (symlinks-resolved) ~/.argus directory, used to
+	// construct worktree paths. rawStateDir is the value as passed to
+	// NewManager, retained so IsManagedPath also recognizes paths spelled with
+	// the un-canonicalized prefix (e.g. session rows persisted before stateDir
+	// canonicalization on a symlinked ARGUS_HOME).
+	stateDir    string
+	rawStateDir string
+	cfg         *config.Config
 }
 
 // NewManager creates a new worktree Manager.
@@ -32,21 +38,35 @@ type Manager struct {
 // ARGUS_HOME lives under a symlinked path such as /tmp or /var on macOS.
 // Resolution falls back to the raw value if it fails.
 func NewManager(stateDir string, cfg *config.Config) *Manager {
-	if resolved, err := shared.EvalSymlinks(stateDir); err == nil {
-		stateDir = resolved
+	resolved := stateDir
+	if r, err := shared.EvalSymlinks(stateDir); err == nil {
+		resolved = r
 	}
-	return &Manager{stateDir: stateDir, cfg: cfg}
+	return &Manager{stateDir: resolved, rawStateDir: stateDir, cfg: cfg}
 }
 
 // IsManagedPath reports whether the given path matches the managed worktree
 // layout based solely on the path structure, without accessing the filesystem.
 // This is useful when the worktree directory may no longer exist.
+//
+// It accepts both the canonical stateDir prefix (matching git's
+// symlink-resolved worktree paths) and the raw, pre-canonicalization prefix
+// (matching paths persisted before stateDir was canonicalized), so a symlinked
+// ARGUS_HOME does not silently break managed-path detection for either.
 func (m *Manager) IsManagedPath(worktreePath string) bool {
-	worktreesRoot := filepath.Join(m.stateDir, "projects") + string(filepath.Separator)
+	if managedUnder(worktreePath, m.stateDir) {
+		return true
+	}
+	return m.rawStateDir != m.stateDir && managedUnder(worktreePath, m.rawStateDir)
+}
+
+// managedUnder reports whether worktreePath sits at the managed
+// <base>/projects/<parentKey>/worktrees/<name> layout depth.
+func managedUnder(worktreePath, base string) bool {
+	worktreesRoot := filepath.Join(base, "projects") + string(filepath.Separator)
 	if !strings.HasPrefix(worktreePath, worktreesRoot) {
 		return false
 	}
-	// Expected: <stateDir>/projects/<parentKey>/worktrees/<name>
 	rel := worktreePath[len(worktreesRoot):]
 	parts := strings.Split(rel, string(filepath.Separator))
 	return len(parts) == 3 && parts[1] == "worktrees"
