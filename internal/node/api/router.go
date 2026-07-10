@@ -79,7 +79,7 @@ func NewRouter(deps Deps) http.Handler {
 
 	// Worktree routes
 	if deps.WorktreeManager != nil {
-		wh := &worktreeHandler{mgr: deps.WorktreeManager}
+		wh := &worktreeHandler{mgr: deps.WorktreeManager, db: deps.Database}
 		mux.HandleFunc("POST /git/worktree", wh.create)
 		mux.HandleFunc("DELETE /git/worktree", wh.delete)
 		mux.HandleFunc("GET /git/worktrees", wh.list)

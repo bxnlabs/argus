@@ -18,6 +18,11 @@ import (
 // uncommitted changes without the force flag.
 var ErrWorktreeDirty = errors.New("worktree has uncommitted changes")
 
+// ErrWorktreeConflict wraps user-actionable precondition conflicts from worktree
+// creation (as opposed to internal git/OS failures), so callers can surface them
+// as a client error rather than a generic internal error.
+var ErrWorktreeConflict = errors.New("worktree conflict")
+
 // Manager handles git worktree creation and remote repo cloning.
 type Manager struct {
 	// stateDir is the canonical (symlinks-resolved) ~/.argus directory, used to
@@ -256,9 +261,9 @@ func (m *Manager) createWorktree(repoDir, parentKey, sessionName string, branchO
 		}
 		if mainBranch == baseBranch {
 			return "", "", false, false, fmt.Errorf(
-				"branch %q is currently checked out in the main working tree at %s; "+
+				"%w: branch %q is currently checked out in the main working tree at %s; "+
 					"switch to a different branch there before starting this session",
-				baseBranch, repoDir,
+				ErrWorktreeConflict, baseBranch, repoDir,
 			)
 		}
 		if remoteOnly {

@@ -2,19 +2,23 @@ package api
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/shared"
 )
 
 // worktreeHandler serves the worktree management routes backed by the shared
 // worktree.Manager: reuse-or-create a worktree for a branch, list managed
-// worktrees, and remove one.
+// worktrees, and remove one. db is used to refuse removing a worktree that an
+// active session still occupies.
 type worktreeHandler struct {
 	mgr *worktree.Manager
+	db  *db.DB
 }
 
 type worktreeCreateResponse struct {
@@ -22,6 +26,25 @@ type worktreeCreateResponse struct {
 	Branch        string `json:"branch"`
 	Created       bool   `json:"created"`
 	BranchCreated bool   `json:"branchCreated"`
+}
+
+// resolveRepoParam expands the ?path= repo param and normalizes it to the main
+// repository root, so managed worktrees are keyed consistently regardless of
+// whether a subdirectory or linked-worktree path was passed (the CLI already
+// normalizes, but a direct API caller may not). It writes a 400 and returns
+// ok=false on an unsafe path or a non-repository path.
+func (h *worktreeHandler) resolveRepoParam(w http.ResponseWriter, repoPath string) (string, bool) {
+	expanded, err := shared.SafeExpandPath(repoPath)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	}
+	root, err := git.FindMainRepo(expanded)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "not a git repository: "+repoPath)
+		return "", false
+	}
+	return root, true
 }
 
 // create handles POST /git/worktree?path=<repo>&branch=<b>. It reuses an
@@ -43,13 +66,18 @@ func (h *worktreeHandler) create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "invalid branch name: "+branch)
 		return
 	}
-	expanded, err := shared.SafeExpandPath(repoPath)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+	repoRoot, ok := h.resolveRepoParam(w, repoPath)
+	if !ok {
 		return
 	}
-	wtPath, br, created, branchCreated, err := h.mgr.CreateForLocalRepo(expanded, "", branch)
+	wtPath, br, created, branchCreated, err := h.mgr.CreateForLocalRepo(repoRoot, "", branch)
 	if err != nil {
+		// A precondition conflict (e.g. branch checked out in the main tree) is
+		// user-actionable — surface it as 409 with its message, not a 500.
+		if errors.Is(err, worktree.ErrWorktreeConflict) {
+			respondError(w, http.StatusConflict, err.Error())
+			return
+		}
 		respondInternalError(w, err)
 		return
 	}
@@ -77,12 +105,11 @@ func (h *worktreeHandler) list(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "path parameter is required")
 		return
 	}
-	expanded, err := shared.SafeExpandPath(repoPath)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+	repoRoot, ok := h.resolveRepoParam(w, repoPath)
+	if !ok {
 		return
 	}
-	worktrees, err := h.mgr.ListManaged(expanded)
+	worktrees, err := h.mgr.ListManaged(repoRoot)
 	if err != nil {
 		respondInternalError(w, err)
 		return
@@ -101,12 +128,11 @@ func (h *worktreeHandler) delete(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "path and branch parameters are required")
 		return
 	}
-	expanded, err := shared.SafeExpandPath(repoPath)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+	repoRoot, ok := h.resolveRepoParam(w, repoPath)
+	if !ok {
 		return
 	}
-	wtPath, err := h.mgr.FindWorktree(expanded, branch)
+	wtPath, err := h.mgr.FindWorktree(repoRoot, branch)
 	if err != nil {
 		respondInternalError(w, err)
 		return
@@ -114,6 +140,24 @@ func (h *worktreeHandler) delete(w http.ResponseWriter, r *http.Request) {
 	if wtPath == "" || !h.mgr.IsManagedPath(wtPath) {
 		respondError(w, http.StatusNotFound, "no managed worktree for branch "+branch)
 		return
+	}
+	// Refuse to remove a worktree an active session still occupies, so wt rm
+	// cannot pull a live tmux session's directory out from under it. This
+	// mirrors the session-deletion guard. The match is exact-string on the
+	// stored working_directory; it can miss legacy or reuse-by-path rows stored
+	// under a symlinked spelling — a known, bounded gap (same as session delete).
+	if h.db != nil {
+		inUse, err := h.db.CountSessionsByWorkingDir("", wtPath)
+		if err != nil {
+			respondInternalError(w, err)
+			return
+		}
+		if inUse > 0 {
+			respondError(w, http.StatusConflict, "worktree for branch "+branch+" is in use by an active session")
+			return
+		}
+	} else {
+		log.Printf("worktree delete: no database configured; skipping in-use session check for %s", wtPath)
 	}
 	if err := h.mgr.RemoveWorktree(wtPath, false); err != nil {
 		if errors.Is(err, worktree.ErrWorktreeDirty) {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git/worktree"
+	"github.com/bxnlabs/argus/internal/node/db"
 )
 
 // initHomeGitRepo creates a git repo under $HOME (so SafeExpandPath accepts its
@@ -44,14 +45,19 @@ func initHomeGitRepo(t *testing.T) string {
 
 // newWorktreeHandler builds a worktreeHandler with a manager rooted at a
 // resolved temp state dir (resolved so IsManagedPath matches git's
-// symlink-resolved worktree paths on macOS).
+// symlink-resolved worktree paths on macOS) and a fresh test database.
 func newWorktreeHandler(t *testing.T) *worktreeHandler {
 	t.Helper()
 	stateDir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &worktreeHandler{mgr: worktree.NewManager(stateDir, &config.Config{})}
+	database, err := db.Open(filepath.Join(stateDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	return &worktreeHandler{mgr: worktree.NewManager(stateDir, &config.Config{}), db: database}
 }
 
 func doCreate(t *testing.T, h *worktreeHandler, repo, branch string) map[string]any {
@@ -230,6 +236,67 @@ func TestWorktreeHandler_CreateInvalidBranch(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("invalid branch %q: expected 400, got %d: %s", branch, w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestWorktreeHandler_DeleteInUseBySession(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t)
+	resp := doCreate(t, h, repo, "feature-x")
+	wtPath, _ := resp["path"].(string)
+
+	// An active session occupies the worktree. delete must refuse (409) rather
+	// than pull the directory out from under it, and leave it on disk.
+	if err := h.db.CreateSession(&db.Session{
+		ID: "s1", Name: "s1", TmuxName: "claude-s1", ProviderType: "claude",
+		WorkingDirectory: wtPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/git/worktree?path="+repo+"&branch=feature-x", nil)
+	w := httptest.NewRecorder()
+	h.delete(w, req)
+	if w.Code != http.StatusConflict {
+		t.Errorf("in-use delete: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist on disk after refused delete: %v", err)
+	}
+}
+
+func TestWorktreeHandler_CreateBranchCheckedOut(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t) // on "main" with a commit
+
+	// Requesting a worktree for the branch checked out in the main working tree
+	// is a user conflict (409), not a generic internal error (500).
+	req := httptest.NewRequest("POST", "/git/worktree?path="+repo+"&branch=main", nil)
+	w := httptest.NewRecorder()
+	h.create(w, req)
+	if w.Code != http.StatusConflict {
+		t.Errorf("checked-out branch: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWorktreeHandler_CreateNormalizesSubdirPath(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t)
+	sub := filepath.Join(repo, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	fromRoot := doCreate(t, h, repo, "from-root")
+	fromSub := doCreate(t, h, sub, "from-sub")
+
+	// Passing a subdirectory must be normalized to the main repo root before
+	// keying, so both worktrees land under the same projects/<key>/worktrees
+	// parent.
+	rootParent := filepath.Dir(fromRoot["path"].(string))
+	subParent := filepath.Dir(fromSub["path"].(string))
+	if rootParent != subParent {
+		t.Errorf("subdir path keyed differently:\n root: %s\n sub:  %s", rootParent, subParent)
 	}
 }
 
