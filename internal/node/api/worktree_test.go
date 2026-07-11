@@ -265,6 +265,38 @@ func TestWorktreeHandler_DeleteInUseBySession(t *testing.T) {
 	}
 }
 
+func TestWorktreeHandler_DeleteInUseBySessionSymlinkedPath(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t)
+	resp := doCreate(t, h, repo, "feature-x")
+	wtPath, _ := resp["path"].(string)
+
+	// The session persisted its working directory under a DIFFERENT spelling
+	// that resolves to the same worktree (as reuse-by-path under a symlinked
+	// ARGUS_HOME would). Exact-string matching would miss it; the guard must
+	// compare by symlink-resolved path.
+	alt := filepath.Join(t.TempDir(), "alt-worktree")
+	if err := os.Symlink(wtPath, alt); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.CreateSession(&db.Session{
+		ID: "s1", Name: "s1", TmuxName: "claude-s1", ProviderType: "claude",
+		WorkingDirectory: alt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/git/worktree?path="+repo+"&branch=feature-x", nil)
+	w := httptest.NewRecorder()
+	h.delete(w, req)
+	if w.Code != http.StatusConflict {
+		t.Errorf("in-use (symlinked spelling) delete: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist on disk after refused delete: %v", err)
+	}
+}
+
 func TestWorktreeHandler_CreateBranchCheckedOut(t *testing.T) {
 	h := newWorktreeHandler(t)
 	repo := initHomeGitRepo(t) // on "main" with a commit

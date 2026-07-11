@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -117,6 +118,40 @@ func (h *worktreeHandler) list(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"worktrees": worktrees})
 }
 
+// worktreeInUse reports whether any session's working directory refers to
+// wtPath. It compares by symlink-resolved path rather than exact string, so a
+// session persisted under a different spelling that resolves to the same
+// directory — e.g. a reuse-by-path session created under a symlinked
+// ARGUS_HOME — is still detected. An exact-string match would silently miss
+// those and let rm delete a worktree out from under a live session.
+//
+// This per-guard resolution is a workaround for paths not being canonicalized
+// at ingestion (BXN-122). The check is also a TOCTOU read, not mutual exclusion
+// with session creation (BXN-123).
+func (h *worktreeHandler) worktreeInUse(ctx context.Context, wtPath string) (bool, error) {
+	target := wtPath
+	if resolved, err := shared.EvalSymlinks(wtPath); err == nil {
+		target = resolved
+	}
+	sessions, err := h.db.ListSessions(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, s := range sessions {
+		if s.WorkingDirectory == "" {
+			continue
+		}
+		dir := s.WorkingDirectory
+		if resolved, err := shared.EvalSymlinks(dir); err == nil {
+			dir = resolved
+		}
+		if dir == target {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // delete handles DELETE /git/worktree?path=<repo>&branch=<b>. It finds the
 // worktree for the branch and removes it without force; a dirty worktree yields
 // HTTP 400 so the caller can surface a clean error. A missing worktree yields
@@ -143,16 +178,14 @@ func (h *worktreeHandler) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	// Refuse to remove a worktree an active session still occupies, so wt rm
 	// cannot pull a live tmux session's directory out from under it. This
-	// mirrors the session-deletion guard. The match is exact-string on the
-	// stored working_directory; it can miss legacy or reuse-by-path rows stored
-	// under a symlinked spelling — a known, bounded gap (same as session delete).
+	// mirrors the session-deletion guard.
 	if h.db != nil {
-		inUse, err := h.db.CountSessionsByWorkingDir("", wtPath)
+		inUse, err := h.worktreeInUse(r.Context(), wtPath)
 		if err != nil {
 			respondInternalError(w, err)
 			return
 		}
-		if inUse > 0 {
+		if inUse {
 			respondError(w, http.StatusConflict, "worktree for branch "+branch+" is in use by an active session")
 			return
 		}
