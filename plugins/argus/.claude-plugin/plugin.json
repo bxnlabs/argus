@@ -1,0 +1,10 @@
+{
+  "name": "argus",
+  "description": "Drive Argus node sessions headlessly from the CLI: spawn coding-agent sessions, send them prompts, read their tmux output, review comments, and manage git worktrees.",
+  "version": "0.1.0",
+  "author": {
+    "name": "bxnlabs",
+    "url": "https://github.com/bxnlabs"
+  },
+  "repository": "https://github.com/bxnlabs/argus"
+}

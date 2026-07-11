@@ -1,0 +1,13 @@
+{
+  "name": "bxnlabs",
+  "owner": {
+    "name": "bxnlabs",
+    "url": "https://github.com/bxnlabs"
+  },
+  "plugins": [
+    {
+      "name": "argus",
+      "source": "./plugins/argus"
+    }
+  ]
+}
