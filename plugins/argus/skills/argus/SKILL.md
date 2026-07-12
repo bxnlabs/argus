@@ -21,10 +21,19 @@ argus session ls
 ```
 
 If this errors, the node daemon is not running — start it (`argus`) or point
-`$ARGUS_HOME` at the right node first. `peek` and `send` shell out to `tmux`
-against the node's socket, so they only work **on the same host as the node**.
-`session new`/`ls`/`rm` and the `git` commands use HTTP and work from anywhere
-the node is reachable.
+`$ARGUS_HOME` at the right node first. Every command needs a local discovery
+file (`node.json`) pointing at a running node, and in practice you run the CLI
+**on the node's host**:
+
+- `peek`/`send` shell out to `tmux` against the node's socket.
+- `git comments` and `git wt` resolve the repo from your current directory, and
+  `comments` reads its review data from local Argus state on disk — so run them
+  inside the repo, on the node's host.
+- `session new --src <path>` treats a local path as local to the node's
+  filesystem. Only a remote git URL/shorthand source is portable across hosts.
+
+`session new`/`ls`/`rm` talk to the node over HTTP, but still require the local
+discovery file above.
 
 ### 2. Spawn (headless)
 
@@ -104,10 +113,14 @@ a binary cannot change your shell's directory for you.
 
 ```bash
 argus session rm "$id"                    # delete the session
-argus session rm "$id" --delete-branch    # also delete its git branch
+argus session rm "$id" --delete-branch    # also request branch deletion
 ```
 
 Add `--force` to delete even when the worktree has uncommitted changes.
+
+`--delete-branch` only deletes the branch when this is the last session on an
+Argus-created branch, and it is best-effort — check the command's output to
+confirm whether the branch was actually removed.
 
 ## Command reference
 
