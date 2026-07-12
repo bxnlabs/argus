@@ -172,6 +172,29 @@ func TestWorktreeHandler_DeleteDirty(t *testing.T) {
 	}
 }
 
+func TestWorktreeHandler_DeleteDirtyForce(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t)
+	resp := doCreate(t, h, repo, "feature-x")
+	wtPath, _ := resp["path"].(string)
+
+	// Same dirty worktree as above, but force=true discards the changes and
+	// removes it — the branch is still preserved by RemoveWorktree.
+	if err := os.WriteFile(filepath.Join(wtPath, "dirty.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/git/worktree?path="+repo+"&branch=feature-x&force=true", nil)
+	w := httptest.NewRecorder()
+	h.delete(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("dirty force delete: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Errorf("worktree should be gone after force delete, stat err = %v", err)
+	}
+}
+
 func TestWorktreeHandler_DeleteUnmanaged(t *testing.T) {
 	h := newWorktreeHandler(t)
 	repo := initHomeGitRepo(t)
@@ -259,6 +282,33 @@ func TestWorktreeHandler_DeleteInUseBySession(t *testing.T) {
 	h.delete(w, req)
 	if w.Code != http.StatusConflict {
 		t.Errorf("in-use delete: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should still exist on disk after refused delete: %v", err)
+	}
+}
+
+func TestWorktreeHandler_DeleteInUseBySessionSubdir(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := initHomeGitRepo(t)
+	resp := doCreate(t, h, repo, "feature-x")
+	wtPath, _ := resp["path"].(string)
+
+	// A session runs from a subdirectory of the worktree, not its root. Removing
+	// the worktree would still pull the directory out from under it, so the guard
+	// must match any cwd at or under the worktree — not only an exact-root match.
+	if err := h.db.CreateSession(&db.Session{
+		ID: "s1", Name: "s1", TmuxName: "claude-s1", ProviderType: "claude",
+		WorkingDirectory: filepath.Join(wtPath, "subdir"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/git/worktree?path="+repo+"&branch=feature-x", nil)
+	w := httptest.NewRecorder()
+	h.delete(w, req)
+	if w.Code != http.StatusConflict {
+		t.Errorf("in-use (subdir cwd) delete: expected 409, got %d: %s", w.Code, w.Body.String())
 	}
 	if _, err := os.Stat(wtPath); err != nil {
 		t.Errorf("worktree should still exist on disk after refused delete: %v", err)

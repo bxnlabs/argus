@@ -139,12 +139,13 @@ func TestRunWtLs(t *testing.T) {
 }
 
 func TestRunWtRm(t *testing.T) {
-	var gotBranch string
+	var gotBranch, gotForce string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete || r.URL.Path != "/api/node/git/worktree" {
 			t.Errorf("got %s %s", r.Method, r.URL.Path)
 		}
 		gotBranch = r.URL.Query().Get("branch")
+		gotForce = r.URL.Query().Get("force")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}))
@@ -152,14 +153,37 @@ func TestRunWtRm(t *testing.T) {
 
 	c := &apiClient{baseURL: srv.URL + "/api/node"}
 	var out bytes.Buffer
-	if err := runWtRm(c, "/repo", "feature-x", &out); err != nil {
+	if err := runWtRm(c, "/repo", "feature-x", false, &out); err != nil {
 		t.Fatalf("runWtRm: %v", err)
 	}
 	if gotBranch != "feature-x" {
 		t.Errorf("branch param = %q, want feature-x", gotBranch)
 	}
+	// Without --force, the force param is omitted (not sent as "false").
+	if gotForce != "" {
+		t.Errorf("force param = %q, want empty when not forced", gotForce)
+	}
 	if !strings.Contains(out.String(), "feature-x") {
 		t.Errorf("stdout = %q, want a confirmation", out.String())
+	}
+}
+
+func TestRunWtRm_Force(t *testing.T) {
+	var gotForce string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotForce = r.URL.Query().Get("force")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer srv.Close()
+
+	c := &apiClient{baseURL: srv.URL + "/api/node"}
+	var out bytes.Buffer
+	if err := runWtRm(c, "/repo", "feature-x", true, &out); err != nil {
+		t.Fatalf("runWtRm: %v", err)
+	}
+	if gotForce != "true" {
+		t.Errorf("force param = %q, want true", gotForce)
 	}
 }
 

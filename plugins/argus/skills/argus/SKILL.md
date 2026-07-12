@@ -104,6 +104,7 @@ Manage isolated worktrees for the current repo:
 cd "$(argus git wt co feature-x)"   # create/reuse a worktree, cd into it
 argus git wt ls                     # list managed worktrees (BRANCH, PATH)
 argus git wt rm feature-x           # remove the worktree (branch is kept)
+argus git wt rm feature-x --force   # remove even with uncommitted changes
 ```
 
 `wt co` prints the worktree path to stdout precisely so you can `cd` into it —
@@ -136,7 +137,7 @@ confirm whether the branch was actually removed.
 | `argus git comments view [--base <b>]` | Show submitted comments as markdown |
 | `argus git wt co <branch>` | Create/reuse a worktree; prints its path |
 | `argus git wt ls` | List managed worktrees |
-| `argus git wt rm <branch>` | Remove a worktree (branch preserved) |
+| `argus git wt rm <branch> [--force]` | Remove a worktree (branch preserved; `--force` discards uncommitted changes) |
 
 ## Gotchas
 

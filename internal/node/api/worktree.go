@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/bxnlabs/argus/internal/git"
@@ -118,12 +119,14 @@ func (h *worktreeHandler) list(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"worktrees": worktrees})
 }
 
-// worktreeInUse reports whether any session's working directory refers to
+// worktreeInUse reports whether any session's working directory is at or under
 // wtPath. It compares by symlink-resolved path rather than exact string, so a
 // session persisted under a different spelling that resolves to the same
 // directory — e.g. a reuse-by-path session created under a symlinked
-// ARGUS_HOME — is still detected. An exact-string match would silently miss
-// those and let rm delete a worktree out from under a live session.
+// ARGUS_HOME — is still detected. It also matches sessions whose cwd is a
+// subdirectory of the worktree, not just its root, so rm cannot delete a
+// worktree out from under a session running deeper in the tree. An exact-string
+// match would silently miss both cases.
 //
 // This per-guard resolution is a workaround for paths not being canonicalized
 // at ingestion (BXN-122). The check is also a TOCTOU read, not mutual exclusion
@@ -145,20 +148,22 @@ func (h *worktreeHandler) worktreeInUse(ctx context.Context, wtPath string) (boo
 		if resolved, err := shared.EvalSymlinks(dir); err == nil {
 			dir = resolved
 		}
-		if dir == target {
+		if dir == target || strings.HasPrefix(dir, target+string(filepath.Separator)) {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-// delete handles DELETE /git/worktree?path=<repo>&branch=<b>. It finds the
-// worktree for the branch and removes it without force; a dirty worktree yields
-// HTTP 400 so the caller can surface a clean error. A missing worktree yields
-// HTTP 404. The branch itself is intentionally preserved.
+// delete handles DELETE /git/worktree?path=<repo>&branch=<b>&force=<bool>. It
+// finds the worktree for the branch and removes it. Without force, a dirty
+// worktree yields HTTP 400 so the caller can surface a clean error; with
+// force=true, uncommitted changes are discarded. A missing worktree yields HTTP
+// 404. The branch itself is intentionally preserved regardless of force.
 func (h *worktreeHandler) delete(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("path")
 	branch := r.URL.Query().Get("branch")
+	force := r.URL.Query().Get("force") == "true"
 	if repoPath == "" || branch == "" {
 		respondError(w, http.StatusBadRequest, "path and branch parameters are required")
 		return
@@ -192,7 +197,7 @@ func (h *worktreeHandler) delete(w http.ResponseWriter, r *http.Request) {
 	} else {
 		log.Printf("worktree delete: no database configured; skipping in-use session check for %s", wtPath)
 	}
-	if err := h.mgr.RemoveWorktree(wtPath, false); err != nil {
+	if err := h.mgr.RemoveWorktree(wtPath, force); err != nil {
 		if errors.Is(err, worktree.ErrWorktreeDirty) {
 			respondError(w, http.StatusBadRequest, err.Error())
 			return

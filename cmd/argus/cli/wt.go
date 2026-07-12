@@ -84,9 +84,14 @@ func runWtLs(c *apiClient, repoDir, home string, stdout io.Writer) error {
 	return nil
 }
 
-// runWtRm deletes the worktree for branch and prints a confirmation.
-func runWtRm(c *apiClient, repoDir, branch string, stdout io.Writer) error {
+// runWtRm deletes the worktree for branch and prints a confirmation. When force
+// is set, a worktree with uncommitted changes is removed anyway (the branch is
+// still preserved).
+func runWtRm(c *apiClient, repoDir, branch string, force bool, stdout io.Writer) error {
 	params := url.Values{"path": {repoDir}, "branch": {branch}}
+	if force {
+		params.Set("force", "true")
+	}
 	if _, err := c.delete("/git/worktree?" + params.Encode()); err != nil {
 		return err
 	}
@@ -168,6 +173,7 @@ func newWtLsCmd() *cobra.Command {
 }
 
 func newWtRmCmd() *cobra.Command {
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "rm <branch>",
 		Short: "Remove the worktree for a branch (the branch is preserved)",
@@ -178,8 +184,9 @@ func newWtRmCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runWtRm(c, repoDir, args[0], os.Stdout)
+			return runWtRm(c, repoDir, args[0], force, os.Stdout)
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "Remove even if the worktree has uncommitted changes")
 	return cmd
 }
