@@ -9,6 +9,31 @@ import (
 	"github.com/bxnlabs/argus/internal/config"
 )
 
+// TestRootCmd_GitReachable asserts the top-level `git` command and its nested
+// subcommands are wired into newRootCmd and reachable by path — guarding the
+// `tools` -> `git` restructuring at the root level (the subcommand wiring itself
+// is covered in the cli package).
+func TestRootCmd_GitReachable(t *testing.T) {
+	root := newRootCmd()
+	paths := [][]string{
+		{"git", "comments", "view"},
+		{"git", "comments", "ls"},
+		{"git", "wt", "co"},
+		{"git", "wt", "ls"},
+		{"git", "wt", "rm"},
+	}
+	for _, p := range paths {
+		cmd, _, err := root.Find(p)
+		if err != nil {
+			t.Errorf("Find(%v): %v", p, err)
+			continue
+		}
+		if cmd.Name() != p[len(p)-1] {
+			t.Errorf("Find(%v) resolved to %q, want %q", p, cmd.Name(), p[len(p)-1])
+		}
+	}
+}
+
 func TestBuildListeners(t *testing.T) {
 	tests := []struct {
 		name      string

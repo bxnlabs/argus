@@ -66,3 +66,39 @@ func TestSliceLines_HeadBeyondLen(t *testing.T) {
 		t.Errorf("got %q, want %q", got, "a\nb\n")
 	}
 }
+
+// TestSliceLines_NoTrailingNewline verifies that a slice of input without a
+// trailing newline does not gain one — the doc contract preserves the input's
+// trailing newline rather than always appending it.
+func TestSliceLines_NoTrailingNewline(t *testing.T) {
+	head, err := sliceLines("a\nb\nc", 2, 0)
+	if err != nil {
+		t.Fatalf("sliceLines head: %v", err)
+	}
+	if head != "a\nb" {
+		t.Errorf("head got %q, want %q", head, "a\nb")
+	}
+	tail, err := sliceLines("a\nb\nc", 0, 2)
+	if err != nil {
+		t.Fatalf("sliceLines tail: %v", err)
+	}
+	if tail != "b\nc" {
+		t.Errorf("tail got %q, want %q", tail, "b\nc")
+	}
+}
+
+func TestPeekCmd_HeadTailConflict(t *testing.T) {
+	cmd := newPeekCmd()
+	cmd.SetArgs([]string{"some-session", "--head", "1", "--tail", "1"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error when --head and --tail are used together")
+	}
+}
+
+func TestPeekCmd_NoArgs(t *testing.T) {
+	cmd := newPeekCmd()
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error for missing session arg")
+	}
+}

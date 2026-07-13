@@ -30,6 +30,7 @@ func sliceLines(text string, head, tail int) (string, error) {
 	if head <= 0 && tail <= 0 {
 		return text, nil
 	}
+	hadTrailingNL := strings.HasSuffix(text, "\n")
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	switch {
 	case head > 0 && head < len(lines):
@@ -37,7 +38,11 @@ func sliceLines(text string, head, tail int) (string, error) {
 	case tail > 0 && tail < len(lines):
 		lines = lines[len(lines)-tail:]
 	}
-	return strings.Join(lines, "\n") + "\n", nil
+	out := strings.Join(lines, "\n")
+	if hadTrailingNL {
+		out += "\n"
+	}
+	return out, nil
 }
 
 func newPeekCmd() *cobra.Command {

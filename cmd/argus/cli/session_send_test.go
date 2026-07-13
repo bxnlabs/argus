@@ -106,3 +106,29 @@ func TestSendKeysArgs(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestSendCmd_NoArgs(t *testing.T) {
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error for missing session arg")
+	}
+}
+
+func TestSendCmd_TooManyArgs(t *testing.T) {
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"a", "b", "c"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error for too many args")
+	}
+}
+
+// TestSendCmd_TextAndFileConflict verifies the text+--file conflict is rejected
+// through the command layer before any node/tmux access.
+func TestSendCmd_TextAndFileConflict(t *testing.T) {
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"some-session", "hello", "--file", "in.txt"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error when both text and --file are given")
+	}
+}

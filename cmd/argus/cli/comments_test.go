@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -60,6 +64,48 @@ func TestCommentsTable_Rows(t *testing.T) {
 func TestCommentsTable_Empty(t *testing.T) {
 	if out := commentsTable(nil); !strings.Contains(out, "No review comments") {
 		t.Errorf("got %q, want a no-comments message", out)
+	}
+}
+
+// TestCommentsLsCmd_EmptyReview drives `git comments ls` end-to-end from inside
+// a real git repo against a fake node, with --base supplied to skip the
+// default-base lookup. With no review file on disk it exercises
+// resolveReviewContext -> loadLocalReview -> commentsTable and prints the
+// no-comments message.
+func TestCommentsLsCmd_EmptyReview(t *testing.T) {
+	repo := initWtGitRepo(t)
+	t.Chdir(repo)
+
+	var gotStatusPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/node/git/status" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		gotStatusPath = r.URL.Query().Get("path")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": map[string]any{"branch": "feature-x"},
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	t.Setenv("ARGUS_HOME", dir)
+	writeTestDiscovery(t, dir, os.Getpid(), strings.TrimPrefix(srv.URL, "http://"))
+
+	out := captureStdout(t, func() {
+		cmd := newCommentsLsCmd()
+		cmd.SetArgs([]string{"--base", "main"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "No review comments") {
+		t.Errorf("output = %q, want a no-comments message", out)
+	}
+	if gotStatusPath == "" {
+		t.Error("git status request missing path param")
 	}
 }
 
