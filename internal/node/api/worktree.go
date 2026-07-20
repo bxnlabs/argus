@@ -34,9 +34,17 @@ type worktreeCreateResponse struct {
 // repository root, so managed worktrees are keyed consistently regardless of
 // whether a subdirectory or linked-worktree path was passed (the CLI already
 // normalizes, but a direct API caller may not). It writes a 400 and returns
-// ok=false on an unsafe path or a non-repository path.
+// ok=false on an empty/unresolvable path or a non-repository path.
+//
+// This uses CleanPath (canonicalize only), not SafeExpandPath: the repo source
+// is intentionally not confined to $HOME. Session creation (`session new --src`)
+// applies no such restriction, so requiring it here would be inconsistent — and
+// the node's real trust boundary is its network binding (loopback/Tailscale)
+// plus OS-level permissions, not a home-directory check (see CleanPath). The
+// branch-listing route (git.go) already CleanPaths a local repo path the same
+// way.
 func (h *worktreeHandler) resolveRepoParam(w http.ResponseWriter, repoPath string) (string, bool) {
-	expanded, err := shared.SafeExpandPath(repoPath)
+	expanded, err := shared.CleanPath(repoPath)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return "", false

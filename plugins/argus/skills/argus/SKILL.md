@@ -54,9 +54,9 @@ id=$(argus session new my-task --src . --provider claude)
 ```
 
 - `--src` is a local path or git URL/shorthand (defaults to the current dir).
-  A local path must live **under the node's home directory** (`$HOME` on the
-  node's host) — a source outside it is rejected (`path ... is outside home
-  directory`). This also applies to repos you drive `git wt` against.
+  A local path is resolved on the node's filesystem as-is — there is no
+  home-directory restriction. A git repo source gets an isolated worktree;
+  a non-repo path (or any `shell` session) just runs in that directory.
 - `--provider` is one of `claude` (default), `codex`, `gemini`, `shell`. Use
   `shell` when you just want to drive a shell (send a command, read its output)
   rather than a coding agent.
@@ -173,12 +173,9 @@ argus git wt rm feature-x --force   # remove even with uncommitted changes
 ```
 
 `wt co` prints the worktree path to stdout precisely so you can `cd` into it —
-a binary cannot change your shell's directory for you.
-
-The repo you run these from must live **under the node's home directory**
-(`$HOME` on the node's host); `wt co` rejects a repo outside it with `path ...
-is outside home directory`. (A `mktemp -d` under `/tmp` or `$TMPDIR` is a common
-way to trip this — put the repo under `$HOME` instead.)
+a binary cannot change your shell's directory for you. Worktrees are created
+under Argus's state dir regardless of where the repo lives, so any git repo on
+the node's filesystem works.
 
 ## 8. Cleanup
 
@@ -224,8 +221,6 @@ confirm whether the branch was actually removed.
 - **`idle` ≠ done.** Status tracks output churn, not process liveness — a quiet
   agent or a `sleep` reads `idle` while still working. Confirm completion from a
   marker in the pane (`peek`), not the status field.
-- **Sources must live under the node's home dir.** A `--src` path or a `git wt`
-  repo outside `$HOME` on the node's host is rejected.
 - **`peek --tail N` can return blank.** Trailing pane padding below the cursor
   eats small N; widen it or use `--all`.
 - **`describe` beats scraping `ls`** for one session's metadata, and `--json`

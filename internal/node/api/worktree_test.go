@@ -15,11 +15,9 @@ import (
 	"github.com/bxnlabs/argus/internal/node/db"
 )
 
-// initHomeGitRepo creates a git repo under $HOME (so SafeExpandPath accepts its
-// path) with an initial commit on main, and returns its path.
-func initHomeGitRepo(t *testing.T) string {
+// initGitRepoAt initializes a git repo with an initial commit on main at dir.
+func initGitRepoAt(t *testing.T, dir string) {
 	t.Helper()
-	dir := homeTempDir(t) // shared helper in files_test.go
 	run := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", args...)
@@ -40,6 +38,16 @@ func initHomeGitRepo(t *testing.T) string {
 	}
 	run("add", ".")
 	run("commit", "-m", "init")
+}
+
+// initHomeGitRepo creates a git repo under $HOME with an initial commit on main
+// and returns its path. Repos live under $HOME here as a convenient default; the
+// worktree route no longer confines the source path to $HOME (see
+// resolveRepoParam and TestWorktreeHandler_CreateOutsideHome).
+func initHomeGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := homeTempDir(t) // shared helper in files_test.go
+	initGitRepoAt(t, dir)
 	return dir
 }
 
@@ -95,6 +103,30 @@ func listWorktreesResp(t *testing.T, h *worktreeHandler, repo string) []worktree
 func TestWorktreeHandler_CreateAndList(t *testing.T) {
 	h := newWorktreeHandler(t)
 	repo := initHomeGitRepo(t)
+
+	resp := doCreate(t, h, repo, "feature-x")
+	if resp["created"] != true {
+		t.Errorf("created = %v, want true", resp["created"])
+	}
+	if resp["branch"] != "feature-x" {
+		t.Errorf("branch = %v, want feature-x", resp["branch"])
+	}
+
+	got := listWorktreesResp(t, h, repo)
+	if len(got) != 1 || got[0].Branch != "feature-x" {
+		t.Errorf("list = %+v, want one feature-x", got)
+	}
+}
+
+// TestWorktreeHandler_CreateOutsideHome verifies the source repo is not confined
+// to $HOME: a repo under a plain temp dir (outside $HOME on macOS/Linux) is
+// accepted, and its worktree is created and listed. This locks in the Model A
+// relaxation (canonicalize-only, trust the network/OS boundary) — under the old
+// SafeExpandPath guard this create returned 400.
+func TestWorktreeHandler_CreateOutsideHome(t *testing.T) {
+	h := newWorktreeHandler(t)
+	repo := t.TempDir() // outside $HOME
+	initGitRepoAt(t, repo)
 
 	resp := doCreate(t, h, repo, "feature-x")
 	if resp["created"] != true {
