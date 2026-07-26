@@ -20,7 +20,7 @@ import (
 func newCommentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "comments",
-		Short: "Read review comments for the current branch",
+		Short: "Read comments for the current branch",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return nil
 		},
@@ -144,7 +144,7 @@ func firstLineTruncated(s string, max int) string {
 // ID, FILE:LINE, SUBMITTED, BODY. An empty slice yields a single message line.
 func commentsTable(comments []review.ReviewComment) string {
 	if len(comments) == 0 {
-		return "No review comments.\n"
+		return "No comments.\n"
 	}
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
@@ -171,7 +171,7 @@ func newCommentsLsCmd() *cobra.Command {
 	var baseFlag string
 	cmd := &cobra.Command{
 		Use:   "ls",
-		Short: "List review comments for the current branch in a compact table",
+		Short: "List comments for the current branch in a compact table",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
@@ -195,7 +195,7 @@ func newCommentsViewCmd() *cobra.Command {
 	var baseFlag string
 	cmd := &cobra.Command{
 		Use:   "view",
-		Short: "Print submitted review comments for the current branch as markdown",
+		Short: "Print submitted comments for the current branch as markdown",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true

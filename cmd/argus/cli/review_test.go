@@ -175,8 +175,8 @@ func TestFormatReviewMarkdown(t *testing.T) {
 
 	output := formatReviewMarkdown(r)
 
-	if !strings.Contains(output, "## Review") {
-		t.Error("missing ## Review header")
+	if !strings.Contains(output, "## Comments") {
+		t.Error("missing ## Comments header")
 	}
 	if !strings.Contains(output, "Branch: feat/auth-system vs main") {
 		t.Error("missing branch line")
@@ -316,7 +316,7 @@ func TestFormatReviewMarkdown_Empty(t *testing.T) {
 		Comments: []review.ReviewComment{},
 	}
 	output := formatReviewMarkdown(r)
-	want := "No submitted review comments for feat/test vs main."
+	want := "No submitted comments for feat/test vs main."
 	if !strings.Contains(output, want) {
 		t.Errorf("output = %q, want it to contain %q", output, want)
 	}

@@ -62,7 +62,7 @@ func TestCommentsTable_Rows(t *testing.T) {
 }
 
 func TestCommentsTable_Empty(t *testing.T) {
-	if out := commentsTable(nil); !strings.Contains(out, "No review comments") {
+	if out := commentsTable(nil); !strings.Contains(out, "No comments") {
 		t.Errorf("got %q, want a no-comments message", out)
 	}
 }
@@ -101,7 +101,7 @@ func TestCommentsLsCmd_EmptyReview(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(out, "No review comments") {
+	if !strings.Contains(out, "No comments") {
 		t.Errorf("output = %q, want a no-comments message", out)
 	}
 	if gotStatusPath == "" {
