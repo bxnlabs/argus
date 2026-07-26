@@ -134,6 +134,7 @@ export function ReviewSubmitButton({
         onClick={() => setOpen(!open)}
         className="gap-1.5"
       >
+        <MessageSquare className="h-3.5 w-3.5" />
         {buttonLabel}
         <ChevronDown className="h-3 w-3" />
       </Button>
