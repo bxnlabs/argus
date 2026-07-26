@@ -426,7 +426,7 @@ export function clearConfirmMessage(category: ClearCategory, count: number): str
 
 /** Label for the submit trigger; the count is dropped when nothing is pending. */
 export function submitButtonLabel(pendingCount: number): string {
-  return pendingCount > 0 ? `Submit comments (${pendingCount})` : "Submit comments";
+  return pendingCount > 0 ? `Submit (${pendingCount})` : "Submit";
 }
 
 // The panel opens regardless of pending count — the action also enables on a

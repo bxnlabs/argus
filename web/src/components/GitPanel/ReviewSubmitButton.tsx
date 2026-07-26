@@ -115,7 +115,6 @@ export function ReviewSubmitButton({
                 id={noteId}
                 value={localComment}
                 onChange={(e) => setLocalComment(e.target.value)}
-                placeholder="Optional…"
                 rows={4}
                 className="bg-background/60 border-border placeholder:text-muted-foreground/50 text-foreground w-full resize-y rounded border px-3 py-2 text-sm leading-relaxed focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
@@ -135,6 +134,7 @@ export function ReviewSubmitButton({
         onClick={() => setOpen(!open)}
         className="gap-1.5"
       >
+        <MessageSquare className="h-3.5 w-3.5" />
         {buttonLabel}
         <ChevronDown className="h-3 w-3" />
       </Button>
@@ -144,8 +144,7 @@ export function ReviewSubmitButton({
           ref={popoverRef}
           className="bg-popover border-border absolute right-0 top-full z-50 mt-1 w-[28rem] rounded-lg border p-4 shadow-lg"
         >
-          <p className="text-sm font-medium">{panelTitle}</p>
-          <label htmlFor={noteId} className="text-muted-foreground mt-2 mb-1.5 block text-sm">
+          <label htmlFor={noteId} className="text-muted-foreground mb-1.5 block text-sm">
             Notes
           </label>
           <textarea
@@ -158,7 +157,6 @@ export function ReviewSubmitButton({
                 if (pendingCount > 0 || localComment.trim()) handleSubmit();
               }
             }}
-            placeholder="Optional…"
             rows={4}
             className="bg-background border-border w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
