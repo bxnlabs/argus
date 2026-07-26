@@ -109,7 +109,7 @@ export function ReviewSubmitButton({
             </div>
             <div>
               <label htmlFor={noteId} className="text-muted-foreground mb-1.5 block text-sm">
-                Additional comments
+                Notes
               </label>
               <textarea
                 id={noteId}
@@ -146,7 +146,7 @@ export function ReviewSubmitButton({
         >
           <p className="text-sm font-medium">{panelTitle}</p>
           <label htmlFor={noteId} className="text-muted-foreground mt-2 mb-1.5 block text-sm">
-            Additional comments
+            Notes
           </label>
           <textarea
             id={noteId}

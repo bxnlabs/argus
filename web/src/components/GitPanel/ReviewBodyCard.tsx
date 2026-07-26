@@ -22,7 +22,7 @@ export function ReviewBodyCard({ body, onDelete }: ReviewBodyCardProps) {
           size="icon-sm"
           variant="ghost"
           onClick={onDelete}
-          aria-label="Delete comment"
+          aria-label="Delete notes"
           className="text-muted-foreground hover:text-destructive -mr-1 h-6 w-6"
         >
           <X className="h-3 w-3" />
