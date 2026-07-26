@@ -1,6 +1,6 @@
 ---
 name: argus
-description: Driving Argus node sessions from the CLI. Use when a request mentions Argus (or the `argus` command) and wants to spawn a headless coding-agent session (Claude, Codex, Gemini, or a shell), send it prompts or control keys, poll its status, read its tmux output, read review comments, or manage Argus git worktrees — e.g. "spin up an argus session", "peek at my argus session", "clean up dead argus sessions", "argus worktree". This skill is Argus-specific: do not use it for generic background jobs, plain tmux/ssh sessions, GitHub PR reviews, in-context research subagents, or raw `git worktree` when Argus isn't involved.
+description: Driving Argus node sessions from the CLI. Use when a request mentions Argus (or the `argus` command) and wants to spawn a headless coding-agent session (Claude, Codex, Gemini, or a shell), send it prompts or control keys, poll its status, read its tmux output, read comments, or manage Argus git worktrees — e.g. "spin up an argus session", "peek at my argus session", "clean up dead argus sessions", "argus worktree". This skill is Argus-specific: do not use it for generic background jobs, plain tmux/ssh sessions, GitHub PR reviews, in-context research subagents, or raw `git worktree` when Argus isn't involved.
 ---
 
 # Driving Argus sessions headlessly
@@ -29,7 +29,7 @@ node, and in practice you run the CLI **on the node's host**:
 
 - `peek`/`send` shell out to `tmux` against the node's socket.
 - `git comments` and `git wt` resolve the repo from your current directory, and
-  `comments` reads its review data from local Argus state on disk — so run them
+  `comments` reads its comment data from local Argus state on disk — so run them
   inside the repo, on the node's host.
 - `session new --src <path>` treats a local path as local to the node's
   filesystem. Only a remote git URL/shorthand source is portable across hosts.
@@ -147,9 +147,9 @@ itself:
 - `dead` is not terminal: `peek` and `send` transparently revive a dead tmux
   session before acting, so you can keep driving it.
 
-## 6. Review comments (read-only)
+## 6. Comments (read-only)
 
-Review comments are left by a human (or another tool) in the Argus web UI;
+Comments are left by a human (or another tool) in the Argus web UI;
 from the CLI you read them for the current branch:
 
 ```bash
@@ -202,7 +202,7 @@ confirm whether the branch was actually removed.
 | `argus session peek <id> [--tail N \| --head N \| --all] [-o file]` | Read the session's tmux contents |
 | `argus session pwd <id>` | Print the session's working directory |
 | `argus session rm <id> [--delete-branch] [--force]` | Delete a session |
-| `argus git comments ls [--base <b>]` | List review comments (table) |
+| `argus git comments ls [--base <b>]` | List comments (table) |
 | `argus git comments view [--base <b>]` | Show submitted comments as markdown |
 | `argus git wt co <branch>` | Create/reuse a worktree; prints its path |
 | `argus git wt ls` | List managed worktrees |
