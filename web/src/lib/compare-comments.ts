@@ -423,3 +423,16 @@ export function clearConfirmMessage(category: ClearCategory, count: number): str
   const noun = count === 1 ? "comment" : "comments";
   return `Delete ${count} ${CLEAR_QUALIFIER[category]}${noun}? This cannot be undone.`;
 }
+
+/** Label for the submit trigger; the count is dropped when nothing is pending. */
+export function submitButtonLabel(pendingCount: number): string {
+  return pendingCount > 0 ? `Submit comments (${pendingCount})` : "Submit comments";
+}
+
+// The panel opens regardless of pending count — the action also enables on a
+// non-empty note alone — so zero needs a title that doesn't read as a bug.
+/** Title for the desktop popover and mobile sheet. */
+export function submitPanelTitle(pendingCount: number): string {
+  if (pendingCount === 0) return "Submit a comment";
+  return `Submit ${pendingCount} comment${pendingCount === 1 ? "" : "s"}`;
+}
