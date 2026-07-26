@@ -612,7 +612,7 @@ func TestChangeProfile(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
-	stateDir := t.TempDir()
+	stateDir := shortTempDir(t)
 	workDir := t.TempDir()
 
 	// respawnTmux boots the dedicated server with the seeded config (NewSession
@@ -932,7 +932,7 @@ func TestCloneSession(t *testing.T) {
 		t.Skip("tmux not available")
 	}
 	gitRoot := resolveSymlinks(t, initTestGitRepo(t))
-	stateDir := resolveSymlinks(t, t.TempDir())
+	stateDir := shortTempDir(t)
 
 	// Create spawns tmux for the clone via the dedicated server, which is booted
 	// with the seeded config (-f). Point ARGUS_HOME at stateDir, force the

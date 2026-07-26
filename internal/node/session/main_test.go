@@ -16,7 +16,7 @@ import (
 // TMUX_TMPDIR also points into the throwaway dir so even a bare `tmux` lands on
 // a temp default socket rather than the user's real one, and TMUX is unset so we
 // never inherit an outer server. Individual tmux integration tests still override
-// ARGUS_HOME with their own t.TempDir() (and assert it via
+// ARGUS_HOME with their own shortTempDir (and assert it via
 // requireDedicatedSocketUnder); this baseline protects every other test, current
 // and future, by default.
 func TestMain(m *testing.M) {

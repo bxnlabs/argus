@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -17,9 +18,37 @@ func hasTmux() bool {
 	return err == nil
 }
 
+// shortTempDir returns a throwaway directory to point ARGUS_HOME at, and
+// registers its removal.
+//
+// t.TempDir() is unusable for anything that starts a tmux server: it names the
+// directory after the test function, and on macOS the resulting path plus
+// "/tmux/server" overruns sockaddr_un's 104-byte capacity, which tmux reports
+// as an opaque "File name too long". The name here is a fixed length instead,
+// so the socket path no longer depends on how a test is spelled and renaming
+// one can't break it. shared.TmuxSocketPath enforces the limit itself, so if
+// even this path is too long (a long TMPDIR) the guard below fails naming it.
+//
+// The path is symlink-resolved because macOS hands out /var/... paths that are
+// really /private/var/...; tests that compare against resolved worktree paths
+// need the real one.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "argus")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", dir, err)
+	}
+	return resolved
+}
+
 // requireDedicatedSocketUnder is a hard safety guard for tmux integration
 // tests. It fails the test unless Argus's resolved tmux socket lives under dir
-// (a t.TempDir). This guarantees a test can only ever create or kill sessions
+// (a shortTempDir). This guarantees a test can only ever create or kill sessions
 // on a throwaway dedicated server — never the user's real default or ~/.argus
 // tmux server. Call it immediately after t.Setenv("ARGUS_HOME", dir) and
 // before any tmux command.
@@ -181,7 +210,7 @@ func TestNewSession_AppliesSeededConfig(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
-	dir := t.TempDir()
+	dir := shortTempDir(t)
 	t.Setenv("ARGUS_HOME", dir)
 	requireDedicatedSocketUnder(t, dir)
 
@@ -218,7 +247,7 @@ func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
-	dir := t.TempDir()
+	dir := shortTempDir(t)
 	t.Setenv("ARGUS_HOME", dir)
 	requireDedicatedSocketUnder(t, dir)
 
@@ -231,8 +260,18 @@ func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 	sess := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
 	t.Cleanup(func() { killTestSession(sess) })
 
-	// Create a narrow (40-column) session on the dedicated socket.
-	newCmd, err := shared.TmuxCommand("new-session", "-d", "-s", sess, "-x", "40", "-y", "10")
+	// A line longer than the 40-column pane, so tmux wraps it across two rows
+	// and capture-pane -J has something to join.
+	longLine := "background tasks still running indicator test line"
+
+	// Print it from a fixed command rather than typing it into an interactive
+	// shell. A login shell renders whatever prompt the developer has
+	// configured, and a tall one (a two-line prompt wraps to seven rows at 40
+	// columns) scrolls the line off the top of a 10-row pane before it can be
+	// captured — making the test pass or fail on the reader's dotfiles. The
+	// sleep just holds the pane open; t.Cleanup kills the session.
+	newCmd, err := shared.TmuxCommand("new-session", "-d", "-s", sess, "-x", "40", "-y", "10",
+		fmt.Sprintf("printf '%%s\\n' '%s'; sleep 60", longLine))
 	if err != nil {
 		t.Fatalf("build new-session: %v", err)
 	}
@@ -240,25 +279,19 @@ func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 		t.Fatalf("new-session: %v: %s", err, out)
 	}
 
-	// Send a line longer than the pane width so tmux wraps it.
-	longLine := "background tasks still running indicator test line"
-	sendCmd, err := shared.TmuxCommand("send-keys", "-t", sess, fmt.Sprintf("echo '%s'", longLine), "Enter")
-	if err != nil {
-		t.Fatalf("build send-keys: %v", err)
-	}
-	if out, err := sendCmd.CombinedOutput(); err != nil {
-		t.Fatalf("send-keys: %v: %s", err, out)
-	}
-
-	// Give tmux a moment to render.
-	time.Sleep(500 * time.Millisecond)
-
-	content, err := CapturePaneContext(context.Background(), sess)
-	if err != nil {
-		t.Fatalf("CapturePaneContext: %v", err)
-	}
-
-	if !strings.Contains(content, longLine) {
-		t.Errorf("expected captured content to contain %q as a single logical line\ngot:\n%s", longLine, content)
+	// Poll until the pane has rendered rather than sleeping a guessed interval.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		content, err := CapturePaneContext(context.Background(), sess)
+		if err != nil {
+			t.Fatalf("CapturePaneContext: %v", err)
+		}
+		if strings.Contains(content, longLine) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected captured content to contain %q as a single logical line\ngot:\n%s", longLine, content)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
