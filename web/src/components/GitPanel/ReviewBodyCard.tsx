@@ -14,7 +14,6 @@ export function ReviewBodyCard({ body, onDelete }: ReviewBodyCardProps) {
     <div className="bg-card/80 border-border/60 font-sans rounded-md border shadow-sm">
       <div className="flex items-center gap-2 px-3 pt-2 pb-1">
         <MessageSquare className="text-muted-foreground h-3.5 w-3.5" />
-        <span className="text-muted-foreground text-xs font-medium">Review</span>
         <span className="bg-accent text-muted-foreground inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase">
           {body.submitted ? "Submitted" : "Draft"}
         </span>
@@ -23,7 +22,7 @@ export function ReviewBodyCard({ body, onDelete }: ReviewBodyCardProps) {
           size="icon-sm"
           variant="ghost"
           onClick={onDelete}
-          aria-label="Delete review comment"
+          aria-label="Delete comment"
           className="text-muted-foreground hover:text-destructive -mr-1 h-6 w-6"
         >
           <X className="h-3 w-3" />
