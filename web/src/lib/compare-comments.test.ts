@@ -521,12 +521,12 @@ describe("clearConfirmMessage", () => {
 
 describe("submitButtonLabel", () => {
   it("appends the pending count when there is one", () => {
-    expect(submitButtonLabel(3)).toBe("Submit comments (3)");
-    expect(submitButtonLabel(1)).toBe("Submit comments (1)");
+    expect(submitButtonLabel(3)).toBe("Submit (3)");
+    expect(submitButtonLabel(1)).toBe("Submit (1)");
   });
 
   it("omits the count when nothing is pending", () => {
-    expect(submitButtonLabel(0)).toBe("Submit comments");
+    expect(submitButtonLabel(0)).toBe("Submit");
   });
 });
 
