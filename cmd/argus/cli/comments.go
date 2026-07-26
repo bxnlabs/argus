@@ -116,7 +116,7 @@ func resolveReviewContext(baseFlag string) (*reviewContext, error) {
 func loadLocalReview(rc *reviewContext) (*review.Review, error) {
 	rv, err := review.Load(rc.projectDir, rc.repoDir, rc.branch, rc.base, "", "")
 	if err != nil {
-		return nil, fmt.Errorf("load review: %w", err)
+		return nil, fmt.Errorf("load comments: %w", err)
 	}
 	if rv == nil {
 		rv = &review.Review{Head: rc.branch, Base: rc.base}
