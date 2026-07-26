@@ -4,12 +4,28 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bxnlabs/argus/internal/source"
 )
+
+// renderNewOutput writes the machine-facing result of a non-attach create to
+// stdout: the pretty-printed record when asJSON, otherwise the bare session ID.
+func renderNewOutput(stdout io.Writer, raw json.RawMessage, info sessionInfo, asJSON bool) error {
+	if asJSON {
+		var pretty bytes.Buffer
+		if err := json.Indent(&pretty, raw, "", "  "); err != nil {
+			return fmt.Errorf("format json: %w", err)
+		}
+		fmt.Fprintln(stdout, pretty.String())
+		return nil
+	}
+	fmt.Fprintln(stdout, info.ID)
+	return nil
+}
 
 func newCreateCmd() *cobra.Command {
 	var (
@@ -18,11 +34,13 @@ func newCreateCmd() *cobra.Command {
 		yolo     bool
 		profile  string
 		branch   string
+		attach   bool
+		asJSON   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "new <name>",
-		Short: "Create a new session and attach",
+		Short: "Create a new session (headless by default; use --attach for interactive)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
@@ -73,16 +91,22 @@ func newCreateCmd() *cobra.Command {
 			}
 
 			var resp struct {
-				Session sessionInfo `json:"session"`
+				Session json.RawMessage `json:"session"`
 			}
 			if err := json.Unmarshal(body, &resp); err != nil {
 				return fmt.Errorf("parse response: %w", err)
 			}
+			var s sessionInfo
+			if err := json.Unmarshal(resp.Session, &s); err != nil {
+				return fmt.Errorf("parse response: %w", err)
+			}
 
-			s := resp.Session
 			fmt.Fprintf(os.Stderr, "Created session %q (%s)\n", s.Name, s.ProviderType)
 
-			return attachTmux(s.ID, s.TmuxName, c.baseURL)
+			if attach {
+				return attachTmux(s.ID, s.TmuxName, c.baseURL)
+			}
+			return renderNewOutput(os.Stdout, resp.Session, s, asJSON)
 		},
 	}
 
@@ -91,6 +115,11 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&yolo, "yolo", true, "Auto-approve tool calls (use --yolo=false to disable)")
 	cmd.Flags().StringVar(&profile, "profile", "", "Profile name for lifecycle hooks")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch name override (uses exact name, bypasses prefix/slug)")
+	cmd.Flags().BoolVar(&attach, "attach", false, "Attach to the session's tmux after creating (interactive; default is headless)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the full session record as JSON instead of the bare ID")
+	// --attach short-circuits to an interactive tmux attach and never prints the
+	// record, so --json would be silently ignored; make the conflict explicit.
+	cmd.MarkFlagsMutuallyExclusive("attach", "json")
 
 	return cmd
 }

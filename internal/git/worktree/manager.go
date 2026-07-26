@@ -10,6 +10,7 @@ import (
 
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git"
+	"github.com/bxnlabs/argus/internal/shared"
 	"github.com/bxnlabs/argus/internal/source"
 )
 
@@ -17,27 +18,60 @@ import (
 // uncommitted changes without the force flag.
 var ErrWorktreeDirty = errors.New("worktree has uncommitted changes")
 
+// ErrWorktreeConflict wraps user-actionable precondition conflicts from worktree
+// creation (as opposed to internal git/OS failures), so callers can surface them
+// as a client error rather than a generic internal error.
+var ErrWorktreeConflict = errors.New("worktree conflict")
+
 // Manager handles git worktree creation and remote repo cloning.
 type Manager struct {
-	stateDir string
-	cfg      *config.Config
+	// stateDir is the canonical (symlinks-resolved) ~/.argus directory, used to
+	// construct worktree paths. rawStateDir is the value as passed to
+	// NewManager, retained so IsManagedPath also recognizes paths spelled with
+	// the un-canonicalized prefix (e.g. session rows persisted before stateDir
+	// canonicalization on a symlinked ARGUS_HOME).
+	stateDir    string
+	rawStateDir string
+	cfg         *config.Config
 }
 
 // NewManager creates a new worktree Manager.
 // stateDir is the ~/.argus directory; cfg is the loaded user config.
+//
+// stateDir is canonicalized (symlinks resolved) so IsManagedPath's lexical
+// prefix check matches git's symlink-resolved worktree paths — e.g. when
+// ARGUS_HOME lives under a symlinked path such as /tmp or /var on macOS.
+// Resolution falls back to the raw value if it fails.
 func NewManager(stateDir string, cfg *config.Config) *Manager {
-	return &Manager{stateDir: stateDir, cfg: cfg}
+	resolved := stateDir
+	if r, err := shared.EvalSymlinks(stateDir); err == nil {
+		resolved = r
+	}
+	return &Manager{stateDir: resolved, rawStateDir: stateDir, cfg: cfg}
 }
 
 // IsManagedPath reports whether the given path matches the managed worktree
 // layout based solely on the path structure, without accessing the filesystem.
 // This is useful when the worktree directory may no longer exist.
+//
+// It accepts both the canonical stateDir prefix (matching git's
+// symlink-resolved worktree paths) and the raw, pre-canonicalization prefix
+// (matching paths persisted before stateDir was canonicalized), so a symlinked
+// ARGUS_HOME does not silently break managed-path detection for either.
 func (m *Manager) IsManagedPath(worktreePath string) bool {
-	worktreesRoot := filepath.Join(m.stateDir, "projects") + string(filepath.Separator)
+	if managedUnder(worktreePath, m.stateDir) {
+		return true
+	}
+	return m.rawStateDir != m.stateDir && managedUnder(worktreePath, m.rawStateDir)
+}
+
+// managedUnder reports whether worktreePath sits at the managed
+// <base>/projects/<parentKey>/worktrees/<name> layout depth.
+func managedUnder(worktreePath, base string) bool {
+	worktreesRoot := filepath.Join(base, "projects") + string(filepath.Separator)
 	if !strings.HasPrefix(worktreePath, worktreesRoot) {
 		return false
 	}
-	// Expected: <stateDir>/projects/<parentKey>/worktrees/<name>
 	rel := worktreePath[len(worktreesRoot):]
 	parts := strings.Split(rel, string(filepath.Separator))
 	return len(parts) == 3 && parts[1] == "worktrees"
@@ -147,6 +181,31 @@ func (m *Manager) FindWorktreeByPath(dir string) (branch string, err error) {
 	return "", nil
 }
 
+// ManagedWorktree is an Argus-managed linked worktree (living under
+// <stateDir>/projects/<key>/worktrees/), as returned by ListManaged.
+type ManagedWorktree struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch"`
+}
+
+// ListManaged returns the Argus-managed linked worktrees for the repo at
+// repoDir. The main working tree is always excluded (via listWorktrees), and
+// any linked worktree that is not under the managed
+// <stateDir>/projects/.../worktrees/ layout is filtered out.
+func (m *Manager) ListManaged(repoDir string) ([]ManagedWorktree, error) {
+	entries, err := listWorktrees(repoDir)
+	if err != nil {
+		return nil, err
+	}
+	managed := make([]ManagedWorktree, 0, len(entries))
+	for _, e := range entries {
+		if m.IsManagedPath(e.path) {
+			managed = append(managed, ManagedWorktree{Path: e.path, Branch: e.branch})
+		}
+	}
+	return managed, nil
+}
+
 func (m *Manager) createWorktree(repoDir, parentKey, sessionName string, branchOverride string) (worktreePath, branch string, worktreeCreated, branchCreated bool, err error) {
 	var baseBranch string
 	if branchOverride != "" {
@@ -202,9 +261,9 @@ func (m *Manager) createWorktree(repoDir, parentKey, sessionName string, branchO
 		}
 		if mainBranch == baseBranch {
 			return "", "", false, false, fmt.Errorf(
-				"branch %q is currently checked out in the main working tree at %s; "+
+				"%w: branch %q is currently checked out in the main working tree at %s; "+
 					"switch to a different branch there before starting this session",
-				baseBranch, repoDir,
+				ErrWorktreeConflict, baseBranch, repoDir,
 			)
 		}
 		if remoteOnly {

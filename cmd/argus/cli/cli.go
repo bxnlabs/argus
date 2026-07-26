@@ -30,6 +30,8 @@ func NewSessionCmd() *cobra.Command {
 		newRenameCmd(),
 		newProfileCmd(),
 		newPwdCmd(),
+		newPeekCmd(),
+		newSendCmd(),
 	)
 
 	return cmd

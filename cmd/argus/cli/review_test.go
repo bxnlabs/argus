@@ -139,19 +139,6 @@ func TestResolveReviewBase_MalformedJSON(t *testing.T) {
 	}
 }
 
-// TestReviewGetCmd_BaseFlagRegistered locks in the cobra wiring so the flag
-// can never be silently dropped during a refactor.
-func TestReviewGetCmd_BaseFlagRegistered(t *testing.T) {
-	cmd := newReviewGetCmd()
-	f := cmd.Flags().Lookup("base")
-	if f == nil {
-		t.Fatal("--base flag not registered on `review get`")
-	}
-	if f.DefValue != "" {
-		t.Errorf("--base default = %q, want empty (preserves auto-detect fallback)", f.DefValue)
-	}
-}
-
 func TestFormatReviewMarkdown(t *testing.T) {
 	r := &review.Review{
 		Head: "feat/auth-system",

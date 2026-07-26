@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/bxnlabs/argus/internal/git/worktree"
 	ghservice "github.com/bxnlabs/argus/internal/github"
 	"github.com/bxnlabs/argus/internal/node/db"
 	"github.com/bxnlabs/argus/internal/node/session"
@@ -18,6 +19,9 @@ type Deps struct {
 	RepoIndexer       *ghservice.RepoIndexer
 	UploadDirOverride string // override upload directory (for testing)
 	StateDir          string
+	// WorktreeManager backs the /git/worktree(s) routes. If nil, those routes
+	// are not registered.
+	WorktreeManager *worktree.Manager
 	// AllowOrigin reports whether a cross-origin request's Origin is permitted.
 	// If nil, only loopback origins are allowed (the safe default — e.g. an
 	// instance with Tailscale disabled has no remote peers anyway).
@@ -72,6 +76,14 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /git/review", rh.get)
 	mux.HandleFunc("POST /git/review", rh.post)
 	mux.HandleFunc("DELETE /git/review", rh.delete)
+
+	// Worktree routes
+	if deps.WorktreeManager != nil {
+		wh := &worktreeHandler{mgr: deps.WorktreeManager, db: deps.Database}
+		mux.HandleFunc("POST /git/worktree", wh.create)
+		mux.HandleFunc("DELETE /git/worktree", wh.delete)
+		mux.HandleFunc("GET /git/worktrees", wh.list)
+	}
 
 	// File routes
 	fh := &filesHandler{uploadDirOverride: deps.UploadDirOverride}
