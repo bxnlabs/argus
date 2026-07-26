@@ -49,7 +49,9 @@ func (f *fakeCompose) Down(_ context.Context, project, _ string, _ []string) err
 
 func dockerTestManager(t *testing.T) (*Manager, *fakeCompose, string) {
 	t.Helper()
-	state := t.TempDir()
+	// shortTempDir, not t.TempDir: two of this helper's callers are tmux
+	// integration tests whose ARGUS_HOME must hold a bindable socket.
+	state := shortTempDir(t)
 	database, err := db.Open(filepath.Join(state, "test.db"))
 	if err != nil {
 		t.Fatal(err)

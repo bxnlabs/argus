@@ -36,12 +36,24 @@ func tmuxStateDir() (string, error) {
 
 // TmuxSocketPath returns the path to Argus's dedicated tmux server socket:
 // <StateDir>/tmux/server.
+//
+// It rejects a path that cannot fit in sockaddr_un.sun_path (see
+// maxTmuxSocketPath). tmux reports that case as "File name too long" against a
+// path it only prints in passing, which reads as a missing-file problem rather
+// than a length one; failing here instead names the limit at the single point
+// every tmux caller goes through.
 func TmuxSocketPath() (string, error) {
 	dir, err := tmuxStateDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "server"), nil
+	sock := filepath.Join(dir, "server")
+	if len(sock) > maxTmuxSocketPath {
+		return "", fmt.Errorf(
+			"tmux socket path %q is %d bytes, over this platform's %d-byte unix socket limit; set ARGUS_HOME to a shorter path",
+			sock, len(sock), maxTmuxSocketPath)
+	}
+	return sock, nil
 }
 
 // TmuxConfigPath returns the path to Argus's tmux config: <StateDir>/tmux/tmux.conf.

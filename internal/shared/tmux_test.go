@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,58 @@ func TestTmuxSocketPathHonorsArgusHome(t *testing.T) {
 	want := filepath.Join("/custom/home", "tmux", "server")
 	if got != want {
 		t.Errorf("TmuxSocketPath() = %q, want %q", got, want)
+	}
+}
+
+// homeForSocketLen returns an ARGUS_HOME whose tmux socket path is exactly n
+// bytes long, so the boundary tests below don't hand-count separators.
+func homeForSocketLen(t *testing.T, n int) string {
+	t.Helper()
+	suffix := len(filepath.Join("/", "tmux", "server")) // "/tmux/server"
+	return "/" + strings.Repeat("a", n-suffix-1)
+}
+
+func TestTmuxSocketPathAcceptsPathAtLimit(t *testing.T) {
+	home := homeForSocketLen(t, maxTmuxSocketPath)
+	t.Setenv("ARGUS_HOME", home)
+	got, err := TmuxSocketPath()
+	if err != nil {
+		t.Fatalf("TmuxSocketPath at the %d-byte limit: %v", maxTmuxSocketPath, err)
+	}
+	if len(got) != maxTmuxSocketPath {
+		t.Fatalf("test bug: built a %d-byte socket path, want %d", len(got), maxTmuxSocketPath)
+	}
+}
+
+func TestTmuxSocketPathRejectsPathOverLimit(t *testing.T) {
+	// One byte over the platform's sockaddr_un capacity. tmux reports this as
+	// an opaque "File name too long" that points nowhere near the cause, so
+	// TmuxSocketPath rejects it up front with a message naming the limit.
+	home := homeForSocketLen(t, maxTmuxSocketPath+1)
+	t.Setenv("ARGUS_HOME", home)
+	_, err := TmuxSocketPath()
+	if err == nil {
+		t.Fatalf("TmuxSocketPath with a %d-byte socket path: got nil error, want over-limit error", maxTmuxSocketPath+1)
+	}
+	for _, want := range []string{
+		strconv.Itoa(maxTmuxSocketPath),
+		strconv.Itoa(maxTmuxSocketPath + 1),
+		"ARGUS_HOME",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+func TestTmuxCommandRejectsPathOverLimit(t *testing.T) {
+	// The limit must reach every tmux caller, not just direct TmuxSocketPath users.
+	t.Setenv("ARGUS_HOME", homeForSocketLen(t, maxTmuxSocketPath+1))
+	if _, err := TmuxCommand("has-session", "-t", "x"); err == nil {
+		t.Error("TmuxCommand: got nil error, want over-limit error")
+	}
+	if _, err := TmuxCommandContext(context.Background(), "list-sessions"); err == nil {
+		t.Error("TmuxCommandContext: got nil error, want over-limit error")
 	}
 }
 
