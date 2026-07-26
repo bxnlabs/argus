@@ -74,6 +74,74 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(data)
 }
 
+// captureStdoutStderr redirects both os.Stdout and os.Stderr for the duration
+// of fn and returns what was written to each. Headless `session new` splits its
+// output across both channels (machine ID on stdout, human summary on stderr),
+// so command-flow assertions need to inspect them separately.
+func captureStdoutStderr(t *testing.T, fn func()) (stdout, stderr string) {
+	t.Helper()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	rOut, wOut, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout, os.Stderr = wOut, wErr
+	defer func() { os.Stdout, os.Stderr = oldOut, oldErr }()
+	fn()
+	wOut.Close()
+	wErr.Close()
+	outData, err := io.ReadAll(rOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	errData, err := io.ReadAll(rErr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(outData), string(errData)
+}
+
+// TestCreateCmd_DefaultDumpsSummary verifies the headless path dumps the full
+// session summary to stderr (the human channel) while keeping stdout limited to
+// the bare ID so `id=$(argus session new ...)` still works.
+func TestCreateCmd_DefaultDumpsSummary(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"session": map[string]any{
+				"id": "sess_xyz", "name": "foo", "provider_type": "claude",
+				"working_directory": "/tmp/work", "worktree_branch": "jeev/foo",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	t.Setenv("ARGUS_HOME", dir)
+	writeTestDiscovery(t, dir, os.Getpid(), strings.TrimPrefix(srv.URL, "http://"))
+
+	stdout, stderr := captureStdoutStderr(t, func() {
+		cmd := newCreateCmd()
+		cmd.SetArgs([]string{"foo"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+	})
+
+	if stdout != "sess_xyz\n" {
+		t.Errorf("stdout = %q, want the bare session ID %q", stdout, "sess_xyz\n")
+	}
+	for _, want := range []string{"Session: foo", "sess_xyz", "claude", "/tmp/work", "jeev/foo"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to contain %q", stderr, want)
+		}
+	}
+}
+
 // TestCreateCmd_DefaultOutputsID drives `session new` end-to-end against a fake
 // node and asserts the default (non-attach) mode sends the expected request and
 // prints the bare session ID.

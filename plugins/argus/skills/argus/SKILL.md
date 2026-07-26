@@ -46,7 +46,7 @@ whereas a name can collide with another session.
 ## 3. Spawn (headless)
 
 `session new` is headless by default and prints the bare session ID to stdout
-(the human-readable "Created session" note goes to stderr), so capture it
+(the full human-readable session summary goes to stderr), so capture it
 directly:
 
 ```bash
