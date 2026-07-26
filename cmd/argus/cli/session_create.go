@@ -101,11 +101,17 @@ func newCreateCmd() *cobra.Command {
 				return fmt.Errorf("parse response: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "Created session %q (%s)\n", s.Name, s.ProviderType)
-
 			if attach {
+				fmt.Fprintf(os.Stderr, "Created session %q (%s)\n", s.Name, s.ProviderType)
 				return attachTmux(s.ID, s.TmuxName, c.baseURL)
 			}
+
+			// Headless: dump the full session summary to stderr (human channel)
+			// so the caller sees the created session's details, while stdout
+			// keeps the machine-facing contract (bare ID, or --json record).
+			// Status/home are unknown at create time without extra round-trips,
+			// so pass empty (rendered as "-" / uncompressed paths).
+			fmt.Fprint(os.Stderr, formatSessionDescribe(s, "", ""))
 			return renderNewOutput(os.Stdout, resp.Session, s, asJSON)
 		},
 	}
