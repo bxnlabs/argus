@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import { Button } from "@/components/ui/button";
 import { MessageSquare, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
+import { submitButtonLabel, submitPanelTitle } from "@/lib/compare-comments";
 import {
   Sheet,
   SheetContent,
@@ -59,9 +60,9 @@ export function ReviewSubmitButton({
     setOpen(false);
   };
 
-  const buttonLabel = pendingCount > 0
-    ? `Finish review (${pendingCount})`
-    : "Finish review";
+  const buttonLabel = submitButtonLabel(pendingCount);
+  const panelTitle = submitPanelTitle(pendingCount);
+  const noteId = useId();
 
   // Mobile: use bottom sheet
   if (isMobile) {
@@ -83,7 +84,7 @@ export function ReviewSubmitButton({
         }}>
           <SheetContent side="bottom" hideCloseButton className="top-0 flex flex-col px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
             <div className="flex items-center justify-between py-3">
-              <SheetTitle className="text-base font-semibold">Finish Review</SheetTitle>
+              <SheetTitle className="text-base font-semibold">{panelTitle}</SheetTitle>
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
@@ -102,18 +103,19 @@ export function ReviewSubmitButton({
                   onClick={handleSubmit}
                   disabled={pendingCount === 0 && !localComment.trim()}
                 >
-                  Submit Review
+                  Submit
                 </Button>
               </div>
             </div>
             <div>
-              <label className="text-muted-foreground mb-1.5 block text-sm">
-                Review Message
+              <label htmlFor={noteId} className="text-muted-foreground mb-1.5 block text-sm">
+                Notes
               </label>
               <textarea
+                id={noteId}
                 value={localComment}
                 onChange={(e) => setLocalComment(e.target.value)}
-                placeholder="Leave a comment..."
+                placeholder="Optional…"
                 rows={4}
                 className="bg-background/60 border-border placeholder:text-muted-foreground/50 text-foreground w-full resize-y rounded border px-3 py-2 text-sm leading-relaxed focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
@@ -142,8 +144,12 @@ export function ReviewSubmitButton({
           ref={popoverRef}
           className="bg-popover border-border absolute right-0 top-full z-50 mt-1 w-[28rem] rounded-lg border p-4 shadow-lg"
         >
-          <p className="mb-2 text-sm font-medium">Finish your review</p>
+          <p className="text-sm font-medium">{panelTitle}</p>
+          <label htmlFor={noteId} className="text-muted-foreground mt-2 mb-1.5 block text-sm">
+            Notes
+          </label>
           <textarea
+            id={noteId}
             value={localComment}
             onChange={(e) => setLocalComment(e.target.value)}
             onKeyDown={(e) => {
@@ -152,7 +158,7 @@ export function ReviewSubmitButton({
                 if (pendingCount > 0 || localComment.trim()) handleSubmit();
               }
             }}
-            placeholder="Leave a comment"
+            placeholder="Optional…"
             rows={4}
             className="bg-background border-border w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
@@ -175,7 +181,7 @@ export function ReviewSubmitButton({
               disabled={pendingCount === 0 && !localComment.trim()}
               className="gap-1.5"
             >
-              Submit review
+              Submit
               <kbd className="text-[10px] opacity-60">
                 {isMac() ? "⌘ ↵" : "Ctrl ↵"}
               </kbd>

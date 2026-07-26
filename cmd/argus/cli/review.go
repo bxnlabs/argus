@@ -68,11 +68,11 @@ func formatReviewMarkdown(r *review.Review) string {
 	hasBody := r.Body != nil && r.Body.Submitted && r.Body.Body != ""
 
 	if len(submitted) == 0 && !hasBody {
-		fmt.Fprintf(&b, "No submitted review comments for %s vs %s.\n", r.Head, r.Base)
+		fmt.Fprintf(&b, "No submitted comments for %s vs %s.\n", r.Head, r.Base)
 		return b.String()
 	}
 
-	b.WriteString("## Review\n")
+	b.WriteString("## Comments\n")
 	fmt.Fprintf(&b, "Branch: %s vs %s\n", r.Head, r.Base)
 
 	if hasBody {

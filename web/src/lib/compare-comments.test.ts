@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { partitionComments, sortCommentsByRenderOrder, coalesceAutoExpand, commentsAfterClear, clearCounts, clearMenuItems, clearConfirmMessage } from "./compare-comments";
+import { partitionComments, sortCommentsByRenderOrder, coalesceAutoExpand, commentsAfterClear, clearCounts, clearMenuItems, clearConfirmMessage, submitButtonLabel, submitPanelTitle } from "./compare-comments";
 import type { DiffHunk, ParsedDiff } from "./diff-parser";
 import type { AnchorStatus, CommitFile, ReviewComment } from "@/types";
 
@@ -516,5 +516,29 @@ describe("clearConfirmMessage", () => {
   it("uses singular noun for a count of 1", () => {
     expect(clearConfirmMessage("pending", 1)).toBe("Delete 1 pending comment? This cannot be undone.");
     expect(clearConfirmMessage("all", 1)).toBe("Delete 1 comment? This cannot be undone.");
+  });
+});
+
+describe("submitButtonLabel", () => {
+  it("appends the pending count when there is one", () => {
+    expect(submitButtonLabel(3)).toBe("Submit comments (3)");
+    expect(submitButtonLabel(1)).toBe("Submit comments (1)");
+  });
+
+  it("omits the count when nothing is pending", () => {
+    expect(submitButtonLabel(0)).toBe("Submit comments");
+  });
+});
+
+describe("submitPanelTitle", () => {
+  it("pluralizes on the pending count", () => {
+    expect(submitPanelTitle(3)).toBe("Submit 3 comments");
+    expect(submitPanelTitle(1)).toBe("Submit 1 comment");
+  });
+
+  it("reads as an invitation when nothing is pending", () => {
+    // The panel is reachable with zero pending comments — submitting a bare
+    // note is valid — so the title must not say "Submit 0 comments".
+    expect(submitPanelTitle(0)).toBe("Submit a comment");
   });
 });
