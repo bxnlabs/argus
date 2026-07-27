@@ -25,6 +25,7 @@ export function DesktopView({
   activeTab,
   showNewSessionDialog,
   setShowNewSessionDialog,
+  onCloseNewSessionDialog,
   showQuickSwitcher,
   setShowQuickSwitcher,
   attachToSession,
@@ -169,7 +170,7 @@ export function DesktopView({
       {/* Dialogs */}
       <NewSessionDialog
         open={showNewSessionDialog}
-        onClose={() => setShowNewSessionDialog(false)}
+        onClose={onCloseNewSessionDialog}
         onCreateSession={onCreateSession}
       />
       <QuickSwitcher

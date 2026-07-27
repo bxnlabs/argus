@@ -15,6 +15,14 @@ import {
 } from "@testing-library/react";
 import { NewSessionDialog } from "./index";
 
+const mocks = vi.hoisted(() => ({ isCreating: false }));
+vi.mock("@/hooks/useSessionMutationState", () => ({
+  useSessionMutationState: () => ({
+    isCreating: mocks.isCreating,
+    busySessions: {},
+  }),
+}));
+
 // --- Mock data hooks ---
 vi.mock("@/data/sessions", () => ({
   useProfilesQuery: () => ({
@@ -103,6 +111,9 @@ function profileTrigger(): HTMLElement {
 }
 
 afterEach(cleanup);
+afterEach(() => {
+  mocks.isCreating = false;
+});
 
 function renderDialog(
   overrides: Partial<Parameters<typeof NewSessionDialog>[0]> = {},
@@ -252,5 +263,59 @@ describe("NewSessionDialog keyboard flow", () => {
     fireEvent.click(trigger);
     fireEvent.click(screen.getByText("pick-source"));
     await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+});
+
+describe("NewSessionDialog busy state", () => {
+  it("does not close itself on submit — App closes it on success", async () => {
+    const { onCreateSession, onClose } = renderDialog();
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("shows a spinner and 'Creating…' on the submit button while creating", () => {
+    mocks.isCreating = true;
+    renderDialog();
+    const submit = screen.getByRole("button", {
+      name: /creating/i,
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(submit.textContent).toContain("Creating…");
+    expect(submit.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  // A disabled <fieldset> does NOT set the `disabled` IDL property on its
+  // descendants — that property reflects the content attribute only. Assert on
+  // the fieldset itself, and that the fields live inside it.
+  it("disables the form fields while creating", () => {
+    mocks.isCreating = true;
+    renderDialog();
+    const fieldset = document.querySelector("fieldset") as HTMLFieldSetElement;
+    expect(fieldset).not.toBeNull();
+    expect(fieldset.disabled).toBe(true);
+    expect(fieldset.contains(nameInput())).toBe(true);
+    expect(fieldset.contains(sourceTrigger())).toBe(true);
+  });
+
+  it("keeps Cancel live and outside the disabled fieldset while creating", () => {
+    mocks.isCreating = true;
+    const { onClose } = renderDialog();
+    const cancel = screen.getByRole("button", {
+      name: /cancel/i,
+    }) as HTMLButtonElement;
+    const fieldset = document.querySelector("fieldset") as HTMLFieldSetElement;
+    expect(cancel.disabled).toBe(false);
+    expect(fieldset.contains(cancel)).toBe(false);
+    fireEvent.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not submit again on Cmd+Enter while creating", () => {
+    mocks.isCreating = true;
+    const { onCreateSession } = renderDialog();
+    fireEvent.keyDown(nameInput(), { key: "Enter", metaKey: true });
+    expect(onCreateSession).not.toHaveBeenCalled();
   });
 });

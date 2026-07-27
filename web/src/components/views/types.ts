@@ -24,6 +24,10 @@ export interface ViewProps {
   // Dialogs
   showNewSessionDialog: boolean;
   setShowNewSessionDialog: (show: boolean) => void;
+  // Dismissal path for the New Session dialog. Distinct from
+  // setShowNewSessionDialog(false): App uses it to hand an in-flight create
+  // off to a toast when the user closes the dialog before it finishes.
+  onCloseNewSessionDialog: () => void;
   showQuickSwitcher: boolean;
   setShowQuickSwitcher: (show: boolean) => void;
 

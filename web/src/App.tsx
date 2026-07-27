@@ -17,6 +17,7 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession, useCloneSession } from "@/data/sessions/queries";
+import { useSessionMutationState } from "@/hooks/useSessionMutationState";
 import { apiTextFetch } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
@@ -108,6 +109,12 @@ function HomeContent({
   const cloneSessionMutation = useCloneSession();
   const cloneMutateRef = useRef(cloneSessionMutation.mutateAsync);
   cloneMutateRef.current = cloneSessionMutation.mutateAsync;
+
+  const { isCreating } = useSessionMutationState();
+  // Handoff bookkeeping: the name to show in the toast, and the id of the
+  // toast once one exists.
+  const pendingCreateNameRef = useRef("");
+  const createToastRef = useRef<string | number | null>(null);
 
   const focusedSession = activeTab?.sessionId
     ? sessions.find((s) => s.id === activeTab.sessionId)
@@ -319,10 +326,27 @@ function HomeContent({
     [sessions, attachToSession]
   );
 
+  // Resolves a handoff toast if the user dismissed the dialog mid-create.
+  // With no handoff toast the behaviour is unchanged from before: silence on
+  // success, an error toast on failure.
+  const resolveCreateToast = useCallback(
+    (outcome: "success" | "error", name: string) => {
+      const id = createToastRef.current;
+      createToastRef.current = null;
+      if (outcome === "error") {
+        toast.error("Failed to create session", id !== null ? { id } : undefined);
+        return;
+      }
+      if (id !== null) toast.success(`Created ${name}`, { id });
+    },
+    [],
+  );
+
   // Create session handler
   const handleCreateSession = useCallback(
     async (params: CreateSessionParams) => {
-      setShowNewSessionDialog(false);
+      const name = params.name?.trim() || "session";
+      pendingCreateNameRef.current = name;
 
       try {
         const result = await createMutateRef.current({
@@ -334,19 +358,32 @@ function HomeContent({
           branch: params.branch,
         });
 
+        setShowNewSessionDialog(false);
         if (result.session) {
           // Attach to the newly created session — Terminal will auto-connect
           // via WebSocket to /api/node/ws/sessions/{id}. Session list refreshes
           // automatically via TanStack Query's onSuccess invalidation.
           attachToSession(result.session);
         }
+        resolveCreateToast("success", name);
       } catch (err) {
         console.error("Failed to create session:", err);
-        toast.error("Failed to create session");
+        resolveCreateToast("error", name);
       }
     },
-    [attachToSession]
+    [attachToSession, resolveCreateToast],
   );
+
+  // Dismissing the dialog mid-create hands the work off to a toast, so a
+  // multi-minute clone never traps the modal.
+  const handleCloseNewSessionDialog = useCallback(() => {
+    setShowNewSessionDialog(false);
+    if (isCreating && createToastRef.current === null) {
+      createToastRef.current = toast.loading(
+        `Creating ${pendingCreateNameRef.current}…`,
+      );
+    }
+  }, [isCreating]);
 
   // Clone session handler — creates a sibling session sharing the same context
   // (worktree, profile, provider) and attaches to it.
@@ -489,6 +526,7 @@ function HomeContent({
     activeTab,
     showNewSessionDialog,
     setShowNewSessionDialog,
+    onCloseNewSessionDialog: handleCloseNewSessionDialog,
     showQuickSwitcher,
     setShowQuickSwitcher,
     attachToSession,

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { cn } from "@/lib/utils";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
+import { useSessionMutationState } from "@/hooks/useSessionMutationState";
 import type { ProviderType, CreateSessionParams } from "@/types";
 
 type SourceTab = "local" | "remote";
@@ -62,6 +64,7 @@ export function NewSessionDialog({
   const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
   const { isMobile } = useViewport();
+  const { isCreating } = useSessionMutationState();
 
   const isRemoteSource = sourceTab === "remote" && source !== "";
   const { data: isLocalGitRepo = false } = useGitCheckQuery(
@@ -101,6 +104,7 @@ export function NewSessionDialog({
   };
 
   const createSession = () => {
+    if (isCreating) return;
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
@@ -126,7 +130,8 @@ export function NewSessionDialog({
     }
 
     onCreateSession(params);
-    onClose();
+    // No onClose() here: App closes this dialog in its success branch, so a
+    // failed create leaves the form intact instead of discarding it.
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -177,100 +182,111 @@ export function NewSessionDialog({
             <DialogTitle>New Session</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <ProviderSelector value={providerType} onChange={setProviderType} />
+            <fieldset disabled={isCreating} className="min-w-0 space-y-4">
+              <ProviderSelector value={providerType} onChange={setProviderType} />
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Name</label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  // Enter never submits; submit is ⌘/Ctrl+Enter or the Create
-                  // button. Let ⌘/Ctrl+Enter bubble to the dialog handler.
-                  if (e.nativeEvent.isComposing) return;
-                  if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                  }
-                }}
-                placeholder="my-feature"
-                autoFocus
-              />
-            </div>
-
-            <PickerTriggerField
-              ref={sourceTriggerRef}
-              label="Source"
-              value={source}
-              placeholder="Select a folder or repository..."
-              onOpen={() => setShowSourcePicker(true)}
-              open={showSourcePicker}
-            />
-
-            {showBranchField && (
-              <PickerTriggerField
-                ref={branchTriggerRef}
-                label="Branch"
-                optional
-                value={branch}
-                placeholder="Select or type a branch..."
-                onOpen={() => setShowBranchPicker(true)}
-                open={showBranchPicker}
-              />
-            )}
-
-            {profiles.length > 0 && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Profile</label>
-                <Select
-                  value={profile || undefined}
-                  onValueChange={setProfile}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a profile..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {profiles.map((p) => (
-                      <SelectItem key={p.name} value={p.name}>
-                        <span className="flex items-center gap-2">
-                          {p.name}
-                          {p.type === "docker" && (
-                            <DockerizedBadge className="shrink-0" />
-                          )}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <label className="text-sm font-medium">Name</label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Enter never submits; submit is ⌘/Ctrl+Enter or the Create
+                    // button. Let ⌘/Ctrl+Enter bubble to the dialog handler.
+                    if (e.nativeEvent.isComposing) return;
+                    if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  placeholder="my-feature"
+                  autoFocus
+                />
               </div>
-            )}
 
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <label className="text-sm font-medium">Auto-approve</label>
-                <p className="text-muted-foreground text-xs">
-                  Skip permission prompts for tool calls
-                </p>
-              </div>
-              <Switch
-                checked={autoApprove}
-                onCheckedChange={setAutoApprove}
+              <PickerTriggerField
+                ref={sourceTriggerRef}
+                label="Source"
+                value={source}
+                placeholder="Select a folder or repository..."
+                onOpen={() => setShowSourcePicker(true)}
+                open={showSourcePicker}
               />
-            </div>
+
+              {showBranchField && (
+                <PickerTriggerField
+                  ref={branchTriggerRef}
+                  label="Branch"
+                  optional
+                  value={branch}
+                  placeholder="Select or type a branch..."
+                  onOpen={() => setShowBranchPicker(true)}
+                  open={showBranchPicker}
+                />
+              )}
+
+              {profiles.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Profile</label>
+                  <Select
+                    value={profile || undefined}
+                    onValueChange={setProfile}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a profile..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((p) => (
+                        <SelectItem key={p.name} value={p.name}>
+                          <span className="flex items-center gap-2">
+                            {p.name}
+                            {p.type === "docker" && (
+                              <DockerizedBadge className="shrink-0" />
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <label className="text-sm font-medium">Auto-approve</label>
+                  <p className="text-muted-foreground text-xs">
+                    Skip permission prompts for tool calls
+                  </p>
+                </div>
+                <Switch
+                  checked={autoApprove}
+                  onCheckedChange={setAutoApprove}
+                />
+              </div>
+            </fieldset>
 
             <DialogFooter className="sm:items-center">
               <div className="flex justify-end gap-2 sm:ml-auto">
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={!name.trim()}>
-                  Create
-                  {!isMobile && (
-                    <kbd
-                      aria-hidden="true"
-                      className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
-                    >
-                      {isMac() ? "⌘ ↵" : "Ctrl ↵"}
-                    </kbd>
+                <Button type="submit" disabled={!name.trim() || isCreating}>
+                  {isCreating ? (
+                    <>
+                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                      Creating…
+                    </>
+                  ) : (
+                    <>
+                      Create
+                      {!isMobile && (
+                        <kbd
+                          aria-hidden="true"
+                          className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
+                        >
+                          {isMac() ? "⌘ ↵" : "Ctrl ↵"}
+                        </kbd>
+                      )}
+                    </>
                   )}
                 </Button>
               </div>
