@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,7 @@ import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { useProfilesQuery } from "@/data/sessions";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
+import { useSessionMutationState } from "@/hooks/useSessionMutationState";
 import type { Session } from "@/types";
 
 // Sentinel for the "no profile" option. Radix Select disallows "", and the "@"
@@ -39,6 +41,8 @@ export function ChangeProfileDialog({
   const { data: profilesData } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
   const { isMobile } = useViewport();
+  const { busySessions } = useSessionMutationState();
+  const isApplying = session ? busySessions[session.id] === "profile" : false;
 
   const currentValue = session?.profile ?? NONE_VALUE;
   const [selected, setSelected] = useState(currentValue);
@@ -52,10 +56,11 @@ export function ChangeProfileDialog({
   }, [session?.id]);
 
   const handleApply = () => {
-    if (!session) return;
+    if (!session || isApplying) return;
     const profile = selected === NONE_VALUE ? null : selected;
     onApply(session.id, profile);
-    onClose();
+    // No onClose() here: App closes this dialog in its success branch, so a
+    // failed apply leaves the dialog open with the selection intact.
   };
 
   const unchanged = selected === currentValue;
@@ -94,7 +99,11 @@ export function ChangeProfileDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-medium">Profile</label>
-            <Select value={selected} onValueChange={setSelected}>
+            <Select
+              value={selected}
+              onValueChange={setSelected}
+              disabled={isApplying}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select a profile..." />
               </SelectTrigger>
@@ -123,15 +132,28 @@ export function ChangeProfileDialog({
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" onClick={handleApply} disabled={unchanged}>
-            Apply
-            {!isMobile && (
-              <kbd
-                aria-hidden="true"
-                className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
-              >
-                {isMac() ? "⌘ ↵" : "Ctrl ↵"}
-              </kbd>
+          <Button
+            type="button"
+            onClick={handleApply}
+            disabled={unchanged || isApplying}
+          >
+            {isApplying ? (
+              <>
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                Applying…
+              </>
+            ) : (
+              <>
+                Apply
+                {!isMobile && (
+                  <kbd
+                    aria-hidden="true"
+                    className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
+                  >
+                    {isMac() ? "⌘ ↵" : "Ctrl ↵"}
+                  </kbd>
+                )}
+              </>
             )}
           </Button>
         </DialogFooter>

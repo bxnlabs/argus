@@ -24,6 +24,14 @@ vi.mock("@/hooks/useViewport", () => ({
   useViewport: () => ({ isMobile: false, isDesktop: true, isHydrated: true }),
 }));
 
+const mocks = vi.hoisted(() => ({ busySessions: {} as Record<string, string> }));
+vi.mock("@/hooks/useSessionMutationState", () => ({
+  useSessionMutationState: () => ({
+    isCreating: false,
+    busySessions: mocks.busySessions,
+  }),
+}));
+
 // Radix Select renders internals that depend on these jsdom-missing APIs.
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
@@ -42,6 +50,9 @@ beforeAll(() => {
 });
 
 afterEach(cleanup);
+afterEach(() => {
+  mocks.busySessions = {};
+});
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -96,7 +107,7 @@ describe("ChangeProfileDialog keyboard submit", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("applies the changed profile and closes on Cmd+Enter", async () => {
+  it("applies the changed profile on Cmd+Enter", async () => {
     const { onApply, onClose } = renderDialog({ id: "sess-1", profile: null });
     await screen.findByRole("dialog");
     await selectProfile("default");
@@ -105,7 +116,8 @@ describe("ChangeProfileDialog keyboard submit", () => {
       metaKey: true,
     });
     expect(onApply).toHaveBeenCalledWith("sess-1", "default");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // The dialog does not close itself — App closes it in its success branch.
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("applies on Ctrl+Enter as well", async () => {
@@ -117,7 +129,7 @@ describe("ChangeProfileDialog keyboard submit", () => {
       ctrlKey: true,
     });
     expect(onApply).toHaveBeenCalledWith("sess-1", "review");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("does not apply a stale profile on Cmd+Enter while the dropdown is open", async () => {
@@ -144,7 +156,7 @@ describe("ChangeProfileDialog keyboard submit", () => {
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "Enter", metaKey: true });
     expect(onApply).toHaveBeenCalledWith("sess-1", "review");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("is a no-op (does not open the dropdown) on unchanged Cmd+Enter from the focused trigger", async () => {
@@ -188,5 +200,66 @@ describe("ChangeProfileDialog keyboard submit", () => {
     // The kbd hint is aria-hidden, so the button's accessible name stays "Apply".
     const apply = screen.getByRole("button", { name: "Apply" });
     expect(apply.textContent).toMatch(/↵/);
+  });
+});
+
+describe("ChangeProfileDialog busy state", () => {
+  it("does not close itself on apply — App closes it on success", async () => {
+    const onApply = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <ChangeProfileDialog
+        session={makeSession({ id: "sess-1", profile: null })}
+        onClose={onClose}
+        onApply={onApply}
+      />,
+    );
+    await screen.findByRole("dialog");
+    // Select a different profile so Apply is genuinely enabled, then submit.
+    await selectProfile("default");
+    fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+    expect(onApply).toHaveBeenCalledWith("sess-1", "default");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("shows a spinner and 'Applying…' while the profile change is in flight", () => {
+    const session = makeSession();
+    mocks.busySessions = { [session.id]: "profile" };
+    render(
+      <ChangeProfileDialog session={session} onClose={() => {}} onApply={() => {}} />,
+    );
+    const apply = screen.getByRole("button", {
+      name: /applying/i,
+    }) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    expect(apply.textContent).toContain("Applying…");
+    expect(apply.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  it("keeps Cancel live while applying", () => {
+    const session = makeSession();
+    mocks.busySessions = { [session.id]: "profile" };
+    const onClose = vi.fn();
+    render(
+      <ChangeProfileDialog session={session} onClose={onClose} onApply={() => {}} />,
+    );
+    const cancel = screen.getByRole("button", {
+      name: /cancel/i,
+    }) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(false);
+    fireEvent.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores another session's in-flight profile change", () => {
+    mocks.busySessions = { "some-other-session": "profile" };
+    render(
+      <ChangeProfileDialog
+        session={makeSession()}
+        onClose={() => {}}
+        onApply={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /applying/i })).toBeNull();
   });
 });

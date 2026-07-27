@@ -438,6 +438,7 @@ function HomeContent({
     async (sessionId: string, profile: string | null) => {
       try {
         await changeProfile(sessionId, profile);
+        setChangeProfileSessionId(null);
       } catch (err) {
         console.error("Failed to change profile:", err);
         toast.error("Failed to change profile");
