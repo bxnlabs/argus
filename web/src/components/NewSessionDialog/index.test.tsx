@@ -315,6 +315,9 @@ describe("NewSessionDialog busy state", () => {
   it("does not submit again on Cmd+Enter while creating", () => {
     mocks.isCreating = true;
     const { onCreateSession } = renderDialog();
+    fireEvent.change(nameInput(), {
+      target: { value: "my-feature" },
+    });
     fireEvent.keyDown(nameInput(), { key: "Enter", metaKey: true });
     expect(onCreateSession).not.toHaveBeenCalled();
   });
