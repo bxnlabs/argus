@@ -33,7 +33,7 @@ export interface ViewProps {
 
   // Session operations
   attachToSession: (session: Session) => void;
-  onCreateSession: (params: CreateSessionParams) => void;
+  onCreateSession: (params: CreateSessionParams) => void | Promise<void>;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
   onCloneSession: (sessionId: string) => void;

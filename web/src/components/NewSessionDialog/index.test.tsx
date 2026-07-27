@@ -12,6 +12,7 @@ import {
   fireEvent,
   cleanup,
   waitFor,
+  act,
 } from "@testing-library/react";
 import { NewSessionDialog } from "./index";
 
@@ -278,6 +279,62 @@ describe("NewSessionDialog busy state", () => {
     fireEvent.click(screen.getByRole("button", { name: /^create/i }));
     expect(onCreateSession).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // A create still in flight, as a real one is for most of its life.
+  function pendingCreate() {
+    return vi.fn(() => new Promise<void>(() => {}));
+  }
+
+  // The serialisation guard cannot lean on `isCreating` alone: TanStack
+  // recomputes its snapshot on each cache event but schedules React's re-read,
+  // so `isCreating` is still false for anything dispatched in the same tick as
+  // the first submit. Holding the mock false reproduces that window — App's
+  // single-slot toast handoff breaks if a second create slips through it.
+  it("submits once for repeat submits inside the isCreating gap", async () => {
+    const onCreateSession = pendingCreate();
+    renderDialog({ onCreateSession });
+    await screen.findByRole("dialog");
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+
+    fireEvent.keyDown(screen.getByRole("dialog"), {
+      key: "Enter",
+      metaKey: true,
+    });
+    fireEvent.keyDown(screen.getByRole("dialog"), {
+      key: "Enter",
+      metaKey: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
+
+  // The flip side of that lock: it must release on settle, and it must do so
+  // without depending on ever having *seen* `isCreating` go true. A create
+  // that settles before TanStack's scheduled notify reaches React never
+  // renders a pending snapshot — an immediately-rejecting fetch dispatches
+  // pending then error in the same task — so `isCreating` stays false for the
+  // whole of this test. App leaves the dialog open on failure, so a lock
+  // stranded by that ordering means the user can never retry.
+  it("stays retryable when the create settles unobserved", async () => {
+    let settle!: () => void;
+    const onCreateSession = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    renderDialog({ onCreateSession });
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => settle());
+    expect(mocks.isCreating).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(2);
   });
 
   // `isCreating` must go true *after* this form submits, or the submit is
