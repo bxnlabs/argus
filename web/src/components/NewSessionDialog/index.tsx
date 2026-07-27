@@ -58,6 +58,10 @@ export function NewSessionDialog({
   const [branch, setBranch] = useState("");
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
+  // `isCreating` is node-wide: it says *a* create is in flight, not that *this*
+  // form submitted it. Reopening the dialog mid-create would otherwise show a
+  // blank form claiming to be "Creating…". This flag distinguishes the two.
+  const [submitted, setSubmitted] = useState(false);
   const childPickerClosingRef = useRef(false);
   const sourceTriggerRef = useRef<HTMLButtonElement>(null);
   const branchTriggerRef = useRef<HTMLButtonElement>(null);
@@ -65,6 +69,9 @@ export function NewSessionDialog({
   const profiles = profilesData?.profiles ?? [];
   const { isMobile } = useViewport();
   const { isCreating } = useSessionMutationState();
+  // This form is submitting; vs. someone else's create holding the lock.
+  const isSubmitting = isCreating && submitted;
+  const isOtherCreatePending = isCreating && !submitted;
 
   const isRemoteSource = sourceTab === "remote" && source !== "";
   const { data: isLocalGitRepo = false } = useGitCheckQuery(
@@ -85,6 +92,7 @@ export function NewSessionDialog({
       setShowSourcePicker(false);
       setBranch("");
       setShowBranchPicker(false);
+      setSubmitted(false);
       childPickerClosingRef.current = false;
     }
   }, [open]);
@@ -104,6 +112,8 @@ export function NewSessionDialog({
   };
 
   const createSession = () => {
+    // Creates are serialised: one at a time, so App's single-slot toast
+    // handoff bookkeeping stays correct.
     if (isCreating) return;
     const trimmedName = name.trim();
     if (!trimmedName) return;
@@ -129,6 +139,7 @@ export function NewSessionDialog({
       params.branch = branch;
     }
 
+    setSubmitted(true);
     onCreateSession(params);
     // No onClose() here: App closes this dialog in its success branch, so a
     // failed create leaves the form intact instead of discarding it.
@@ -264,13 +275,20 @@ export function NewSessionDialog({
               </div>
             </fieldset>
 
+            {/* Outside the fieldset so it stays legible while the fields grey out. */}
+            {isOtherCreatePending && (
+              <p className="text-muted-foreground text-sm">
+                Another session is still being created…
+              </p>
+            )}
+
             <DialogFooter className="sm:items-center">
               <div className="flex justify-end gap-2 sm:ml-auto">
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
                 </Button>
                 <Button type="submit" disabled={!name.trim() || isCreating}>
-                  {isCreating ? (
+                  {isSubmitting ? (
                     <>
                       <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
                       Creating…

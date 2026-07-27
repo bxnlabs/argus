@@ -120,15 +120,20 @@ function renderDialog(
 ) {
   const onCreateSession = vi.fn();
   const onClose = vi.fn();
-  render(
+  // A fresh element each time: React bails out of a re-render when handed the
+  // referentially identical element.
+  const element = () => (
     <NewSessionDialog
       open
       onClose={onClose}
       onCreateSession={onCreateSession}
       {...overrides}
-    />,
+    />
   );
-  return { onCreateSession, onClose };
+  const { rerender } = render(element());
+  // Re-renders the same tree (state preserved) so a test can flip the
+  // useSessionMutationState mock and have the component read the new value.
+  return { onCreateSession, onClose, rerender: () => rerender(element()) };
 }
 
 function sourceTrigger(): HTMLButtonElement {
@@ -275,15 +280,50 @@ describe("NewSessionDialog busy state", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("shows a spinner and 'Creating…' on the submit button while creating", () => {
+  // `isCreating` must go true *after* this form submits, or the submit is
+  // swallowed by createSession's serialisation guard and `submitted` never
+  // gets set — which is exactly the state a reopened dialog is in.
+  function submitThenGoBusy() {
+    const handles = renderDialog();
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
     mocks.isCreating = true;
-    renderDialog();
+    handles.rerender();
+    return handles;
+  }
+
+  it("shows a spinner and 'Creating…' on the submit button for its own create", () => {
+    const { onCreateSession } = submitThenGoBusy();
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
     const submit = screen.getByRole("button", {
       name: /creating/i,
     }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     expect(submit.textContent).toContain("Creating…");
     expect(submit.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  // A dialog reopened mid-create sees a global `isCreating` it did not cause.
+  // It must not claim to be creating the blank form it is showing.
+  it("reads 'Create' and explains itself when another create is in flight", () => {
+    mocks.isCreating = true;
+    renderDialog();
+    const submit = screen.getByRole("button", {
+      name: /^create/i,
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(submit.textContent).not.toContain("Creating…");
+    expect(submit.querySelector(".animate-spin")).toBeNull();
+    expect(
+      screen.getByText("Another session is still being created…"),
+    ).toBeTruthy();
+  });
+
+  it("omits the other-create note while creating its own session", () => {
+    submitThenGoBusy();
+    expect(
+      screen.queryByText("Another session is still being created…"),
+    ).toBeNull();
   });
 
   // A disabled <fieldset> does NOT set the `disabled` IDL property on its
