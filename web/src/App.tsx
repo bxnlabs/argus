@@ -353,7 +353,7 @@ function HomeContent({
   const handleCloneSession = useCallback(
     async (sessionId: string) => {
       try {
-        const result = await cloneMutateRef.current(sessionId);
+        const result = await cloneMutateRef.current({ sessionId });
         if (result.session) {
           attachToSession(result.session);
         }

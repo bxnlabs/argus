@@ -38,6 +38,7 @@ export function useCreateSession() {
   const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
+    mutationKey: sessionKeys.mutation(scope, "create"),
     mutationFn: (input: CreateSessionInput) =>
       apiFetch<CreateSessionResponse>(baseUrl, "/api/node/sessions", {
         method: "POST",
@@ -54,7 +55,8 @@ export function useCloneSession() {
   const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
-    mutationFn: (sessionId: string) =>
+    mutationKey: sessionKeys.mutation(scope, "clone"),
+    mutationFn: ({ sessionId }: { sessionId: string }) =>
       apiFetch<CreateSessionResponse>(
         baseUrl,
         `/api/node/sessions/${encodeURIComponent(sessionId)}/clone`,
@@ -76,6 +78,7 @@ export function useDeleteSession() {
   const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
+    mutationKey: sessionKeys.mutation(scope, "delete"),
     mutationFn: ({
       sessionId,
       deleteBranch,
@@ -143,6 +146,7 @@ export function useChangeSessionProfile() {
   const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
+    mutationKey: sessionKeys.mutation(scope, "profile"),
     mutationFn: ({
       sessionId,
       profile,
