@@ -292,124 +292,136 @@ export const SessionItem = memo(function SessionItem({
         )}
       </div>
 
-      {/* Actions menu — always visible on touch, hover on desktop */}
-      {!busy && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              onClick={(e) => e.stopPropagation()}
-              className="text-muted-foreground hover:text-foreground flex-shrink-0 rounded-md p-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:data-[state=open]:opacity-100"
-              aria-label="Session actions"
-            >
-              <Ellipsis className="h-4 w-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            onCloseAutoFocus={(e) => {
-              if (renamePendingRef.current) {
-                e.preventDefault();
-                renamePendingRef.current = false;
-              }
+      {/* Actions menu — always visible on touch, hover on desktop. While busy
+          it stays mounted and focusable, just inert: choosing Clone/Delete
+          closes the menu in the same commit that makes the row busy, and Radix
+          restores focus to the trigger right after. Unmounting it — or setting
+          the `disabled` attribute, which makes it un-focusable — drops focus to
+          <body>, so the next Tab restarts from the top of the document.
+          aria-disabled keeps it a focus target; preventDefault on the opening
+          gestures stops Radix's composed handlers from opening the menu. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            onClick={(e) => e.stopPropagation()}
+            aria-disabled={busy !== undefined}
+            onPointerDown={(e) => {
+              if (busy) e.preventDefault();
+            }}
+            onKeyDown={(e) => {
+              if (busy) e.preventDefault();
+            }}
+            className="text-muted-foreground hover:text-foreground flex-shrink-0 rounded-md p-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:data-[state=open]:opacity-100"
+            aria-label="Session actions"
+          >
+            <Ellipsis className="h-4 w-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          onCloseAutoFocus={(e) => {
+            if (renamePendingRef.current) {
+              e.preventDefault();
+              renamePendingRef.current = false;
+            }
+          }}
+        >
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin(session.id, !session.pinned);
             }}
           >
+            <Pin
+              className={cn("mr-2 h-3 w-3", session.pinned && "fill-current")}
+            />
+            {session.pinned ? "Unpin" : "Pin"}
+          </DropdownMenuItem>
+          {showMarkRead && (
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                onTogglePin(session.id, !session.pinned);
+                onMarkRead(session.id);
               }}
             >
-              <Pin
-                className={cn("mr-2 h-3 w-3", session.pinned && "fill-current")}
-              />
-              {session.pinned ? "Unpin" : "Pin"}
+              <MailOpen className="mr-2 h-3 w-3" />
+              Mark as read
             </DropdownMenuItem>
-            {showMarkRead && (
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMarkRead(session.id);
-                }}
-              >
-                <MailOpen className="mr-2 h-3 w-3" />
-                Mark as read
-              </DropdownMenuItem>
-            )}
-            {showMarkUnread && (
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMarkUnread(session.id);
-                }}
-              >
-                <Mail className="mr-2 h-3 w-3" />
-                Mark as unread
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
+          )}
+          {showMarkUnread && (
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                onStartRename(session);
+                onMarkUnread(session.id);
               }}
             >
-              <Pencil className="mr-2 h-3 w-3" />
-              Rename
+              <Mail className="mr-2 h-3 w-3" />
+              Mark as unread
             </DropdownMenuItem>
-            {canChangeProfile && (
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onChangeProfile(session);
-                }}
-              >
-                <Settings2 className="mr-2 h-3 w-3" />
-                Change profile
-              </DropdownMenuItem>
-            )}
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartRename(session);
+            }}
+          >
+            <Pencil className="mr-2 h-3 w-3" />
+            Rename
+          </DropdownMenuItem>
+          {canChangeProfile && (
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                onCloneSession(session.id);
+                onChangeProfile(session);
               }}
             >
-              <Copy className="mr-2 h-3 w-3" />
-              Clone
+              <Settings2 className="mr-2 h-3 w-3" />
+              Change profile
             </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onCloneSession(session.id);
+            }}
+          >
+            <Copy className="mr-2 h-3 w-3" />
+            Clone
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewInfo(session);
+            }}
+          >
+            <Info className="mr-2 h-3 w-3" />
+            Info
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteSession(session.id);
+            }}
+            className="text-red-500 focus:text-red-500"
+          >
+            <Trash2 className="mr-2 h-3 w-3" />
+            Delete
+          </DropdownMenuItem>
+          {session.worktree_branch && (
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                onViewInfo(session);
-              }}
-            >
-              <Info className="mr-2 h-3 w-3" />
-              Info
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteSession(session.id);
+                onDeleteSession(session.id, true);
               }}
               className="text-red-500 focus:text-red-500"
             >
-              <Trash2 className="mr-2 h-3 w-3" />
-              Delete
+              <BrushCleaning className="mr-2 h-3 w-3" />
+              Delete with branch
             </DropdownMenuItem>
-            {session.worktree_branch && (
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteSession(session.id, true);
-                }}
-                className="text-red-500 focus:text-red-500"
-              >
-                <BrushCleaning className="mr-2 h-3 w-3" />
-                Delete with branch
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 });
