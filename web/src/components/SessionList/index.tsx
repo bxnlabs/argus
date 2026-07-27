@@ -309,7 +309,12 @@ export const SessionItem = memo(function SessionItem({
               if (busy) e.preventDefault();
             }}
             onKeyDown={(e) => {
-              if (busy) e.preventDefault();
+              // Exactly the keys Radix's trigger opens on. Anything wider
+              // swallows Tab and traps focus on a control we deliberately kept
+              // focusable — the same failure this whole branch exists to avoid.
+              if (busy && ["Enter", " ", "ArrowDown"].includes(e.key)) {
+                e.preventDefault();
+              }
             }}
             className="text-muted-foreground hover:text-foreground flex-shrink-0 rounded-md p-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:data-[state=open]:opacity-100"
             aria-label="Session actions"

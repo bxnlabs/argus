@@ -170,6 +170,28 @@ describe("SessionItem busy state", () => {
     },
   );
 
+  // Only the keys Radix's trigger opens on may be cancelled. jsdom does not
+  // move focus on Tab, so assert what the browser actually keys off —
+  // cancelling Tab pins focus to a trigger we deliberately kept focusable.
+  it.each([
+    ["Enter", true],
+    [" ", true],
+    ["ArrowDown", true],
+    ["Tab", false],
+    ["Escape", false],
+    ["ArrowUp", false],
+  ] as const)("while busy, cancels %s: %s", (key, cancelled) => {
+    renderItem("deleting");
+    const trigger = screen.getByLabelText("Session actions");
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    trigger.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(cancelled);
+  });
+
   it("ignores clicks while busy", () => {
     const { onAttachSession, row } = renderItem("deleting");
     fireEvent.click(row);
