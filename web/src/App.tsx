@@ -112,7 +112,10 @@ function HomeContent({
 
   const { isCreating } = useSessionMutationState();
   // Handoff bookkeeping: the name to show in the toast, and the id of the
-  // toast once one exists.
+  // toast once one exists. Single-slot by design — it assumes at most one
+  // create in flight, which holds only because NewSessionDialog refuses to
+  // submit while `isCreating` (creates are serialised). Allowing concurrent
+  // creates means making both of these per-create too.
   const pendingCreateNameRef = useRef("");
   const createToastRef = useRef<string | number | null>(null);
 

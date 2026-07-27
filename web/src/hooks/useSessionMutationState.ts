@@ -59,6 +59,13 @@ export function toBusyState(
  *
  * Scoped to the active node: the filter key carries the node scope, so a
  * delete on one node never marks a row busy on another.
+ *
+ * Remount invariant: `useMutationState` computes its result at mount and
+ * thereafter only from the mutation-cache subscription — it never recomputes
+ * merely because `filters` changed. Node-safety therefore depends on every
+ * consumer living under App's `<TabProvider key={scope}>`, which remounts them
+ * on node switch. Hoist a consumer above that key and a pending create on node
+ * A would silently keep `isCreating` true on node B until the next cache event.
  */
 export function useSessionMutationState(): SessionMutationState {
   const { scope } = useActiveNode();
