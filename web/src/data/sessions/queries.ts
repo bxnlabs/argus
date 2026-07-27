@@ -91,7 +91,15 @@ export function useDeleteSession() {
         `/api/node/sessions/${encodeURIComponent(sessionId)}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
         { method: "DELETE" },
       ),
-    onSuccess: () => {
+    onSuccess: (_data, { sessionId }) => {
+      // Drop the row immediately rather than waiting for the refetch. Without
+      // this the row un-busies and flashes back to normal for a frame before
+      // the invalidation removes it.
+      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(scope), (old) =>
+        old
+          ? { ...old, sessions: old.sessions.filter((s) => s.id !== sessionId) }
+          : old,
+      );
       queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
     },
   });
