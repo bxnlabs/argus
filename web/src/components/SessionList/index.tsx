@@ -9,11 +9,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight, Copy } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight, Copy, Loader2 } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
+import type { BusyKind } from "@/hooks/useSessionMutationState";
+import { useSessionMutationState } from "@/hooks/useSessionMutationState";
 import {
   loadSectionCollapse,
   saveSectionCollapse,
@@ -64,6 +66,29 @@ export function resolveStatusDisplay(
     return { label: "Unread", dotColor: "bg-blue-500", animation: "" };
   }
   return { label: statusMeta.label, dotColor: statusMeta.color, animation: statusMeta.animation };
+}
+
+const BUSY_LABEL: Record<BusyKind, string> = {
+  cloning: "Cloning…",
+  deleting: "Deleting…",
+  profile: "Updating profile…",
+};
+
+// Row display with in-flight mutations folded in. Busy outranks everything:
+// a row being deleted shows that, not its last known status or unread marker.
+export function resolveRowDisplay(
+  busy: BusyKind | undefined,
+  statusValue: string | undefined,
+  unreadSince: string | null | undefined,
+  userMarkedUnreadAt: string | null | undefined,
+): { label: string; dotColor: string; animation: string; spinner: boolean } {
+  if (busy) {
+    return { label: BUSY_LABEL[busy], dotColor: "", animation: "", spinner: true };
+  }
+  return {
+    ...resolveStatusDisplay(statusValue, unreadSince, userMarkedUnreadAt),
+    spinner: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -130,9 +155,10 @@ interface SessionItemProps {
   onMarkRead: (sessionId: string) => void;
   onMarkUnread: (sessionId: string) => void;
   renamePendingRef: React.RefObject<boolean>;
+  busy?: BusyKind;
 }
 
-const SessionItem = memo(function SessionItem({
+export const SessionItem = memo(function SessionItem({
   session,
   homeDir,
   isActive,
@@ -157,12 +183,14 @@ const SessionItem = memo(function SessionItem({
   onMarkRead,
   onMarkUnread,
   renamePendingRef,
+  busy,
 }: SessionItemProps) {
   const repoPath = session.git_remote_url
     ? parseRepoFromRemoteURL(session.git_remote_url)
     : null;
   const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, userMarkedUnreadAt);
-  const { label: statusLabel, dotColor, animation } = resolveStatusDisplay(
+  const { label: statusLabel, dotColor, animation, spinner } = resolveRowDisplay(
+    busy,
     statusValue,
     unreadSince,
     userMarkedUnreadAt,
@@ -170,11 +198,14 @@ const SessionItem = memo(function SessionItem({
 
   return (
     <div
+      aria-busy={busy ? true : undefined}
       className={cn(
         "hover:bg-accent/50 has-[[data-state=open]]:bg-accent/50 group relative flex cursor-pointer items-center gap-1.5 rounded px-2 py-2",
-        isActive && "bg-accent -ml-1.5 rounded-l-none pl-3.5"
+        isActive && "bg-accent -ml-1.5 rounded-l-none pl-3.5",
+        busy && "pointer-events-none opacity-60",
       )}
       onClick={() => {
+        if (busy) return;
         if (!isRenaming) {
           onAttachSession(session.id);
         }
@@ -209,13 +240,20 @@ const SessionItem = memo(function SessionItem({
               {session.name || "Unnamed Session"}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
-              <div
-                className={cn(
-                  "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                  dotColor,
-                  animation
-                )}
-              />
+              {spinner ? (
+                <Loader2
+                  aria-hidden="true"
+                  className="text-muted-foreground h-3 w-3 flex-shrink-0 animate-spin"
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "h-1.5 w-1.5 flex-shrink-0 rounded-full",
+                    dotColor,
+                    animation
+                  )}
+                />
+              )}
               <span className="text-muted-foreground min-w-0 truncate text-xs">
                 {statusLabel ? `${statusLabel} · ` : ""}
                 {formatRelativeTime(session.updated_at)}
@@ -255,121 +293,123 @@ const SessionItem = memo(function SessionItem({
       </div>
 
       {/* Actions menu — always visible on touch, hover on desktop */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            onClick={(e) => e.stopPropagation()}
-            className="text-muted-foreground hover:text-foreground flex-shrink-0 rounded-md p-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:data-[state=open]:opacity-100"
-            aria-label="Session actions"
-          >
-            <Ellipsis className="h-4 w-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          onCloseAutoFocus={(e) => {
-            if (renamePendingRef.current) {
-              e.preventDefault();
-              renamePendingRef.current = false;
-            }
-          }}
-        >
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onTogglePin(session.id, !session.pinned);
+      {!busy && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              onClick={(e) => e.stopPropagation()}
+              className="text-muted-foreground hover:text-foreground flex-shrink-0 rounded-md p-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:data-[state=open]:opacity-100"
+              aria-label="Session actions"
+            >
+              <Ellipsis className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            onCloseAutoFocus={(e) => {
+              if (renamePendingRef.current) {
+                e.preventDefault();
+                renamePendingRef.current = false;
+              }
             }}
           >
-            <Pin
-              className={cn("mr-2 h-3 w-3", session.pinned && "fill-current")}
-            />
-            {session.pinned ? "Unpin" : "Pin"}
-          </DropdownMenuItem>
-          {showMarkRead && (
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                onMarkRead(session.id);
+                onTogglePin(session.id, !session.pinned);
               }}
             >
-              <MailOpen className="mr-2 h-3 w-3" />
-              Mark as read
+              <Pin
+                className={cn("mr-2 h-3 w-3", session.pinned && "fill-current")}
+              />
+              {session.pinned ? "Unpin" : "Pin"}
             </DropdownMenuItem>
-          )}
-          {showMarkUnread && (
+            {showMarkRead && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMarkRead(session.id);
+                }}
+              >
+                <MailOpen className="mr-2 h-3 w-3" />
+                Mark as read
+              </DropdownMenuItem>
+            )}
+            {showMarkUnread && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMarkUnread(session.id);
+                }}
+              >
+                <Mail className="mr-2 h-3 w-3" />
+                Mark as unread
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                onMarkUnread(session.id);
+                onStartRename(session);
               }}
             >
-              <Mail className="mr-2 h-3 w-3" />
-              Mark as unread
+              <Pencil className="mr-2 h-3 w-3" />
+              Rename
             </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onStartRename(session);
-            }}
-          >
-            <Pencil className="mr-2 h-3 w-3" />
-            Rename
-          </DropdownMenuItem>
-          {canChangeProfile && (
+            {canChangeProfile && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChangeProfile(session);
+                }}
+              >
+                <Settings2 className="mr-2 h-3 w-3" />
+                Change profile
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                onChangeProfile(session);
+                onCloneSession(session.id);
               }}
             >
-              <Settings2 className="mr-2 h-3 w-3" />
-              Change profile
+              <Copy className="mr-2 h-3 w-3" />
+              Clone
             </DropdownMenuItem>
-          )}
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onCloneSession(session.id);
-            }}
-          >
-            <Copy className="mr-2 h-3 w-3" />
-            Clone
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onViewInfo(session);
-            }}
-          >
-            <Info className="mr-2 h-3 w-3" />
-            Info
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeleteSession(session.id);
-            }}
-            className="text-red-500 focus:text-red-500"
-          >
-            <Trash2 className="mr-2 h-3 w-3" />
-            Delete
-          </DropdownMenuItem>
-          {session.worktree_branch && (
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                onDeleteSession(session.id, true);
+                onViewInfo(session);
+              }}
+            >
+              <Info className="mr-2 h-3 w-3" />
+              Info
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteSession(session.id);
               }}
               className="text-red-500 focus:text-red-500"
             >
-              <BrushCleaning className="mr-2 h-3 w-3" />
-              Delete with branch
+              <Trash2 className="mr-2 h-3 w-3" />
+              Delete
             </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            {session.worktree_branch && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteSession(session.id, true);
+                }}
+                className="text-red-500 focus:text-red-500"
+              >
+                <BrushCleaning className="mr-2 h-3 w-3" />
+                Delete with branch
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 });
@@ -482,6 +522,7 @@ export const SessionList = memo(function SessionList({
 
   const { data: profilesData } = useProfilesQuery();
   const hasProfiles = (profilesData?.profiles?.length ?? 0) > 0;
+  const { busySessions } = useSessionMutationState();
 
   const renderItem = (session: Session) => {
     const isRenaming = renamingSessionId === session.id;
@@ -512,6 +553,7 @@ export const SessionList = memo(function SessionList({
         onMarkRead={onMarkRead}
         onMarkUnread={onMarkUnread}
         renamePendingRef={renamePendingRef}
+        busy={busySessions[session.id]}
       />
     );
   };

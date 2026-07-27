@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { partitionSessions, readMenuState, resolveStatusDisplay } from "./index";
+import { partitionSessions, readMenuState, resolveStatusDisplay, resolveRowDisplay } from "./index";
 import type { Session } from "@/types";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -98,5 +98,48 @@ describe("resolveStatusDisplay", () => {
   it("falls back to the plain status meta when not unread", () => {
     expect(resolveStatusDisplay("idle", null, null).label).toBe("Idle");
     expect(resolveStatusDisplay("active", null, null).dotColor).toBe("bg-green-500");
+  });
+});
+
+describe("resolveRowDisplay", () => {
+  it("shows a spinner and the busy label for each busy kind", () => {
+    expect(resolveRowDisplay("deleting", "idle", null, null)).toEqual({
+      label: "Deleting…",
+      dotColor: "",
+      animation: "",
+      spinner: true,
+    });
+    expect(resolveRowDisplay("cloning", "idle", null, null).label).toBe("Cloning…");
+    expect(resolveRowDisplay("profile", "idle", null, null).label).toBe(
+      "Updating profile…",
+    );
+  });
+
+  // Busy is the most urgent thing happening to the row, so it outranks both
+  // the live status and the unread marker.
+  it("takes precedence over an active session", () => {
+    const active = resolveRowDisplay(undefined, "active", null, null);
+    const busy = resolveRowDisplay("deleting", "active", null, null);
+    expect(active.spinner).toBe(false);
+    expect(busy.spinner).toBe(true);
+    expect(busy.label).toBe("Deleting…");
+  });
+
+  it("takes precedence over an unread session", () => {
+    expect(resolveRowDisplay(undefined, "idle", "2026-01-01", null).label).toBe(
+      "Unread",
+    );
+    expect(resolveRowDisplay("deleting", "idle", "2026-01-01", null).label).toBe(
+      "Deleting…",
+    );
+  });
+
+  it("matches resolveStatusDisplay when not busy", () => {
+    for (const status of ["active", "idle", "waiting", undefined]) {
+      expect(resolveRowDisplay(undefined, status, null, null)).toEqual({
+        ...resolveStatusDisplay(status, null, null),
+        spinner: false,
+      });
+    }
   });
 });
