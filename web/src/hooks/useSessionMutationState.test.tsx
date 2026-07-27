@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { useState } from "react";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import {
   QueryClient,
@@ -54,7 +55,9 @@ describe("toBusyState", () => {
 
 describe("useSessionMutationState", () => {
   function wrapper({ children }: { children: React.ReactNode }) {
-    const qc = new QueryClient();
+    // Held in state so a re-render of the wrapper can never swap the client
+    // out from under the provider mid-test.
+    const [qc] = useState(() => new QueryClient());
     return (
       <QueryClientProvider client={qc}>
         <StubNodeProvider>{children}</StubNodeProvider>
