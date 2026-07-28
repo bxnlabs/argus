@@ -112,11 +112,13 @@ function HomeContent({
   cloneMutateRef.current = cloneSessionMutation.mutateAsync;
 
   // Handoff bookkeeping: the name to show in the toast, and the id of the
-  // toast once one exists. Single-slot by design — it assumes at most one
-  // create in flight, which holds only because NewSessionDialog serialises
-  // submits, and does so with its own synchronous lock rather than `isCreating`
-  // alone (which is delivered asynchronously). Allowing concurrent creates
-  // means making both of these per-create too.
+  // toast once one exists. Single-slot by design — at most one create in
+  // flight, enforced by the guard at the top of `handleCreateSession` so the
+  // constraint lives with the state it protects. (NewSessionDialog also
+  // serialises submits, with its own synchronous lock rather than `isCreating`
+  // alone, which is delivered asynchronously — but that is the dialog keeping
+  // its form honest, not what makes these refs safe.) Allowing concurrent
+  // creates means making both of these per-create too.
   const pendingCreateNameRef = useRef("");
   const createToastRef = useRef<string | number | null>(null);
   // Whether the create this component dispatched is still in flight. Set
@@ -399,6 +401,12 @@ function HomeContent({
   // Create session handler
   const handleCreateSession = useCallback(
     async (params: CreateSessionParams) => {
+      // Defensive: NewSessionDialog serialises submits with a synchronous lock,
+      // so this is unreachable today. The bookkeeping below is single-slot, and
+      // a second create would silently retarget this one's toast — cheap to
+      // make that impossible here rather than by a comment pointing elsewhere.
+      if (createInFlightRef.current) return;
+
       const name = params.name?.trim() || "session";
       pendingCreateNameRef.current = name;
       createInFlightRef.current = true;
