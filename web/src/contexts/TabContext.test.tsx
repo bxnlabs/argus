@@ -16,7 +16,7 @@ function Probe() {
 }
 
 function renderTabs() {
-  render(
+  return render(
     <TabProvider nodeScope="test-scope">
       <Probe />
     </TabProvider>,
@@ -150,5 +150,25 @@ describe("attachSessionToTab", () => {
 
     expect(attached).toBe(false);
     expect(ctx.tabs.some((t) => t.id === closingTarget)).toBe(false);
+  });
+
+  // App keys TabProvider on the node scope, so switching nodes unmounts this
+  // instance mid-flight. The guard above still passes against the mirror and
+  // setState no-ops, so without a liveness check the caller is told it attached
+  // — while the write reaches no render and the persist effect, torn down with
+  // the provider, never saves it either. The caller needs the false so it can
+  // fall back to a toast instead of completing in silence.
+  it("does not attach once the provider has unmounted", async () => {
+    const { unmount } = renderTabs();
+    const target = ctx.activeTabId;
+    unmount();
+
+    let attached!: boolean;
+    await act(async () => {
+      attached = ctx.attachSessionToTab(target, "sess-1", null);
+    });
+
+    expect(attached).toBe(false);
+    expect(JSON.stringify(localStorage)).not.toContain("sess-1");
   });
 });

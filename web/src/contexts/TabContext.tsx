@@ -70,6 +70,22 @@ export function TabProvider({
   const [hydrated, setHydrated] = useState(false);
   const { isMobile } = useViewport();
 
+  // Whether this provider is still the live one. App keys TabProvider on the
+  // node scope, so switching nodes unmounts this instance while async work it
+  // started keeps running against these closures. `stateRef` stays readable and
+  // still matches, so the attach guard below would pass and `setState` would
+  // no-op — reporting success for a write nobody will ever see, and which the
+  // persist effect (already torn down) will never save either.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    // Set on the way in, not just cleared on the way out: StrictMode's
+    // double-invoke runs the cleanup before re-running this effect.
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   // Single writer for tab state: updates the mirror and React state with the
   // same result, so `stateRef` is never stale for a synchronous read that
   // happens before the next render. `attachSessionToTab` depends on that.
@@ -180,6 +196,10 @@ export function TabProvider({
   // the caller can say something instead of failing silently.
   const attachSessionToTab = useCallback(
     (tabId: string, sessionId: string, expected: string | null): boolean => {
+      // Nothing this provider writes can reach the user any more, so an attach
+      // is not something it can honestly claim to have done.
+      if (!mountedRef.current) return false;
+
       const tab = stateRef.current.tabs.find((t) => t.id === tabId);
       if (!tab || tab.sessionId !== expected) return false;
 
