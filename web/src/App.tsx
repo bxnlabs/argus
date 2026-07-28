@@ -17,7 +17,6 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession, useCloneSession } from "@/data/sessions/queries";
-import { useSessionMutationState } from "@/hooks/useSessionMutationState";
 import { apiTextFetch } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import { ChangeProfileDialog } from "@/components/ChangeProfileDialog";
@@ -110,7 +109,6 @@ function HomeContent({
   const cloneMutateRef = useRef(cloneSessionMutation.mutateAsync);
   cloneMutateRef.current = cloneSessionMutation.mutateAsync;
 
-  const { isCreating } = useSessionMutationState();
   // Handoff bookkeeping: the name to show in the toast, and the id of the
   // toast once one exists. Single-slot by design — it assumes at most one
   // create in flight, which holds only because NewSessionDialog serialises
@@ -119,6 +117,12 @@ function HomeContent({
   // means making both of these per-create too.
   const pendingCreateNameRef = useRef("");
   const createToastRef = useRef<string | number | null>(null);
+  // Whether the create this component dispatched is still in flight. Set
+  // synchronously around the call rather than read from `isCreating`, for the
+  // same reason the dialog holds its submit lock in a ref: `isCreating` is
+  // delivered asynchronously, so a close arriving before that snapshot reaches
+  // React would skip the handoff toast and complete the create in silence.
+  const createInFlightRef = useRef(false);
 
   const focusedSession = activeTab?.sessionId
     ? sessions.find((s) => s.id === activeTab.sessionId)
@@ -351,6 +355,7 @@ function HomeContent({
     async (params: CreateSessionParams) => {
       const name = params.name?.trim() || "session";
       pendingCreateNameRef.current = name;
+      createInFlightRef.current = true;
 
       try {
         const result = await createMutateRef.current({
@@ -362,7 +367,11 @@ function HomeContent({
           branch: params.branch,
         });
 
-        setShowNewSessionDialog(false);
+        // A handoff toast is the record that the user dismissed the dialog
+        // mid-create. Whatever is on screen now is not this create's form —
+        // most likely one they reopened to queue up the next session — so
+        // closing it here would yank it away on someone else's completion.
+        if (createToastRef.current === null) setShowNewSessionDialog(false);
         if (result.session) {
           // Attach to the newly created session — Terminal will auto-connect
           // via WebSocket to /api/node/ws/sessions/{id}. Session list refreshes
@@ -373,21 +382,25 @@ function HomeContent({
       } catch (err) {
         console.error("Failed to create session:", err);
         resolveCreateToast("error", name);
+      } finally {
+        createInFlightRef.current = false;
       }
     },
     [attachToSession, resolveCreateToast],
   );
 
   // Dismissing the dialog mid-create hands the work off to a toast, so a
-  // multi-minute clone never traps the modal.
+  // multi-minute clone never traps the modal. A create that already settled
+  // leaves the ref false, so the behaviour there is unchanged: silence on
+  // success, an error toast on failure.
   const handleCloseNewSessionDialog = useCallback(() => {
     setShowNewSessionDialog(false);
-    if (isCreating && createToastRef.current === null) {
+    if (createInFlightRef.current && createToastRef.current === null) {
       createToastRef.current = toast.loading(
         `Creating ${pendingCreateNameRef.current}…`,
       );
     }
-  }, [isCreating]);
+  }, []);
 
   // Clone session handler — creates a sibling session sharing the same context
   // (worktree, profile, provider) and attaches to it.
@@ -442,7 +455,13 @@ function HomeContent({
     async (sessionId: string, profile: string | null) => {
       try {
         await changeProfile(sessionId, profile);
-        setChangeProfileSessionId(null);
+        // Only close if the dialog is still showing the session that just
+        // finished. A restart takes seconds, so dismissing it and opening
+        // another session's dialog meanwhile is ordinary — and closing that
+        // one on this result would yank it out from under the user.
+        setChangeProfileSessionId((current) =>
+          current === sessionId ? null : current,
+        );
       } catch (err) {
         console.error("Failed to change profile:", err);
         toast.error("Failed to change profile");
