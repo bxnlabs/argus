@@ -15,6 +15,10 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useViewport } from "@/hooks/useViewport";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
+import {
+  useSessionDeepLink,
+  notifySessionDeepLink,
+} from "@/hooks/useSessionDeepLink";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession, useCloneSession } from "@/data/sessions/queries";
 import { apiTextFetch } from "@/api/client";
@@ -128,6 +132,19 @@ function HomeContent({
   // React would skip the handoff toast and complete the create in silence.
   const createInFlightRef = useRef(false);
 
+  // Whether this workspace is still the live one. AppInner keys the whole tree
+  // on the node scope, so switching nodes unmounts HomeContent while a create
+  // or clone it started keeps running against these closures.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    // Set on the way in, not just cleared on the way out: StrictMode's
+    // double-invoke runs the cleanup before re-running this effect.
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const focusedSession = activeTab?.sessionId
     ? sessions.find((s) => s.id === activeTab.sessionId)
     : null;
@@ -212,14 +229,22 @@ function HomeContent({
     [attachSession, acknowledgeUnread],
   );
 
-  // Where background work should land: the tab that started it, and what that
-  // tab held at the time. Held in a ref so the async handlers below stay stable
-  // across tab switches, matching the mutate-ref pattern above.
-  const attachTargetRef = useRef<{ tabId: string; sessionId: string | null }>({
+  // Where background work should land: the node it was started on, the tab that
+  // started it, and what that tab held at the time. Held in a ref so the async
+  // handlers below stay stable across tab switches, matching the mutate-ref
+  // pattern above. The node is part of the target because the recovery toast
+  // has to get back to it — see `openCreatedSession`.
+  const attachTargetRef = useRef<{
+    nodeId: string | null;
+    tabId: string;
+    sessionId: string | null;
+  }>({
+    nodeId: activeNode?.id ?? null,
     tabId: activeTabId,
     sessionId: null,
   });
   attachTargetRef.current = {
+    nodeId: activeNode?.id ?? null,
     tabId: activeTabId,
     sessionId: activeTab?.sessionId ?? null,
   };
@@ -244,29 +269,51 @@ function HomeContent({
     [attachSessionToTab, acknowledgeUnread],
   );
 
-  // Deep-link: auto-attach session from ?session= query param (e.g. from Slack notification)
-  const deepLinkHandled = useRef(false);
-  useEffect(() => {
-    if (!sessionsLoaded || deepLinkHandled.current) return;
+  // The recovery affordance behind the "Open" action on a create/clone toast:
+  // the work finished but could not be attached to the tab that started it.
+  //
+  // On the node it started on that is just an attach. If the user has since
+  // switched nodes this instance is unmounted — its `attachSession` would write
+  // to a provider nobody is looking at — so hand the session over through the
+  // deep-link param instead, which survives the remount, and switch back to the
+  // node that owns it. `useSessionDeepLink` picks it up exactly as it does a
+  // link out of Slack — and holds the param until the session actually shows up
+  // in the list, which matters here: the remounted workspace starts from that
+  // node's cached list, which predates the session this is trying to open.
+  const openCreatedSession = useCallback(
+    (session: Session, nodeId: string | null) => {
+      if (mountedRef.current) {
+        attachToSession(session);
+        return;
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set("session", session.id);
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+      // Wake the live workspace explicitly. `setActiveNode` below no-ops when
+      // the user has already navigated back here themselves, and nothing else
+      // about writing the URL re-renders anyone.
+      notifySessionDeepLink();
+      if (nodeId) setActiveNode(nodeId);
+    },
+    [attachToSession, setActiveNode],
+  );
 
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get("session");
-    if (!sessionId) return;
-
-    deepLinkHandled.current = true;
-
-    const session = sessions.find((s) => s.id === sessionId);
-    if (session) {
+  // Deep-link: auto-attach session from ?session= query param — from a Slack
+  // notification, or from the "Open" action above once the workspace has moved
+  // to another node.
+  const attachFromDeepLink = useCallback(
+    (session: Session) => {
       attachToSession(session);
       // Open sidebar on mobile so user can see the session
       if (isMobile) setSidebarOpen(true);
-    }
-
-    // Clear query param to avoid re-triggering on refresh
-    const url = new URL(window.location.href);
-    url.searchParams.delete("session");
-    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-  }, [sessionsLoaded, sessions, attachToSession, isMobile]);
+    },
+    [attachToSession, isMobile],
+  );
+  useSessionDeepLink({
+    sessionsLoaded,
+    sessions,
+    onAttach: attachFromDeepLink,
+  });
 
   // Open sidebar on desktop at startup (mobile starts collapsed)
   useEffect(() => {
@@ -445,7 +492,7 @@ function HomeContent({
           if (!attachToTarget(target, session)) {
             openAction = {
               label: "Open",
-              onClick: () => attachToSession(session),
+              onClick: () => openCreatedSession(session, target.nodeId),
             };
           }
         }
@@ -457,7 +504,7 @@ function HomeContent({
         createInFlightRef.current = false;
       }
     },
-    [attachToTarget, attachToSession, resolveCreateToast],
+    [attachToTarget, openCreatedSession, resolveCreateToast],
   );
 
   // Dismissing the dialog mid-create hands the work off to a toast, so a
@@ -483,13 +530,14 @@ function HomeContent({
         if (result.session) {
           const session = result.session;
           if (!attachToTarget(target, session)) {
-            // The tab that started this is gone or in use. A clone can take
-            // minutes, so say it finished rather than leaving the user to
-            // notice a new sidebar row.
+            // The tab that started this is gone or in use, or the whole
+            // workspace has moved to another node. A clone can take minutes, so
+            // say it finished rather than leaving the user to notice a new
+            // sidebar row.
             toast.success(`Cloned ${session.name}`, {
               action: {
                 label: "Open",
-                onClick: () => attachToSession(session),
+                onClick: () => openCreatedSession(session, target.nodeId),
               },
               // Longer than sonner's ~4s default: this is the only recovery
               // affordance for the clone, and the user may be looking at
@@ -503,7 +551,7 @@ function HomeContent({
         toast.error("Failed to clone session");
       }
     },
-    [attachToTarget, attachToSession]
+    [attachToTarget, openCreatedSession]
   );
 
   // Delete session handler
