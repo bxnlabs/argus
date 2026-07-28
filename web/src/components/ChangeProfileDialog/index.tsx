@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -30,7 +30,9 @@ const NONE_VALUE = "@@none@@";
 interface ChangeProfileDialogProps {
   session: Session | null;
   onClose: () => void;
-  onApply: (sessionId: string, profile: string | null) => void;
+  // Returning a promise is what lets the dialog hold its apply lock for the
+  // life of the change; a void return narrows the lock to the current tick.
+  onApply: (sessionId: string, profile: string | null) => void | Promise<void>;
 }
 
 export function ChangeProfileDialog({
@@ -44,6 +46,26 @@ export function ChangeProfileDialog({
   const { busySessions } = useSessionMutationState();
   const isApplying = session ? busySessions[session.id] === "profile" : false;
 
+  // Synchronous mirror of `isApplying`, which reaches this component
+  // asynchronously — TanStack recomputes its snapshot on each cache event but
+  // schedules React's re-read — so it cannot lock out a second apply dispatched
+  // in the same tick (the button and the Cmd/Ctrl+Enter handler are separate
+  // entry points into `handleApply`). Serialising matters more here than for a
+  // create: a profile change restarts the session, so a duplicate is a second
+  // restart whose request races the resulting id change.
+  const applyingRef = useRef(false);
+  // Which apply the lock currently belongs to. A settled apply may land long
+  // after the dialog moved on — retargeted, or reopened on the same session —
+  // and an ungated release would then clear a *newer* apply's lock.
+  const applyGenerationRef = useRef(0);
+  // Render mirror of that lock. The ref is what serialises applies, but a ref
+  // change does not re-render, so the button and Select would stay visually
+  // live for the whole task it takes `isApplying` to arrive — locked but not
+  // looking it. Setting state alongside the ref disables them in the same
+  // commit as the dispatch.
+  const [submitted, setSubmitted] = useState(false);
+  const applying = isApplying || submitted;
+
   const currentValue = session?.profile ?? NONE_VALUE;
   const [selected, setSelected] = useState(currentValue);
 
@@ -52,13 +74,40 @@ export function ChangeProfileDialog({
   // that touches this session, clobbering an in-progress selection.
   useEffect(() => {
     setSelected(session?.profile ?? NONE_VALUE);
+    // Retarget drops the lock too: it guards one session's apply, and the
+    // dialog outlives that apply (App keeps it open on failure). The mirror
+    // goes with it, so a new target never opens already claiming to apply.
+    applyGenerationRef.current += 1;
+    applyingRef.current = false;
+    setSubmitted(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
 
   const handleApply = () => {
-    if (!session || isApplying) return;
+    if (!session || applying || applyingRef.current) return;
     const profile = selected === NONE_VALUE ? null : selected;
-    onApply(session.id, profile);
+
+    const generation = ++applyGenerationRef.current;
+    applyingRef.current = true;
+    setSubmitted(true);
+    // Release on settle, from the call itself rather than from watching
+    // `isApplying` fall: an apply that settles before TanStack's scheduled
+    // notify reaches React never renders a pending snapshot at all, and a
+    // release keyed on that transition would strand the dialog. Errors stay the
+    // caller's — App resolves them into a toast.
+    const release = () => {
+      if (applyGenerationRef.current !== generation) return;
+      applyingRef.current = false;
+      setSubmitted(false);
+    };
+    try {
+      Promise.resolve(onApply(session.id, profile)).then(release, release);
+    } catch (err) {
+      // A synchronous throw escapes the promise chain and would strand the lock
+      // the same way an unobserved settle does. Release, then let it propagate.
+      release();
+      throw err;
+    }
     // No onClose() here: App closes this dialog in its success branch, so a
     // failed apply leaves the dialog open with the selection intact.
   };
@@ -102,7 +151,7 @@ export function ChangeProfileDialog({
             <Select
               value={selected}
               onValueChange={setSelected}
-              disabled={isApplying}
+              disabled={applying}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select a profile..." />
@@ -135,9 +184,9 @@ export function ChangeProfileDialog({
           <Button
             type="button"
             onClick={handleApply}
-            disabled={unchanged || isApplying}
+            disabled={unchanged || applying}
           >
-            {isApplying ? (
+            {applying ? (
               <>
                 <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
                 Applying…
