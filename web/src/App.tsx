@@ -30,6 +30,7 @@ import { useGitCheckQuery } from "@/data/git";
 import { isMac, isTouchDevice, isPhoneSized } from "@/lib/device";
 import { buildNodeSwitchBindings } from "@/lib/nodeShortcuts";
 import { nodeScope } from "@/lib/nodeScope";
+import { resolveCreateToastDecision } from "@/lib/createSessionToast";
 import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
 import type { GitTab, GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
@@ -384,17 +385,13 @@ function HomeContent({
     ) => {
       const id = createToastRef.current;
       createToastRef.current = null;
-      if (outcome === "error") {
-        toast.error("Failed to create session", id !== null ? { id } : undefined);
-        return;
+      const decision = resolveCreateToastDecision(outcome, name, id, action);
+      if (!decision) return;
+      if (decision.kind === "error") {
+        toast.error(decision.message, decision.options);
+      } else {
+        toast.success(decision.message, decision.options);
       }
-      // Nothing to say: the dialog was never dismissed and the session landed
-      // where it was meant to.
-      if (id === null && !action) return;
-      toast.success(`Created ${name}`, {
-        ...(id !== null ? { id } : {}),
-        ...(action ? { action } : {}),
-      });
     },
     [],
   );
@@ -419,13 +416,20 @@ function HomeContent({
 
         // A handoff toast is the record that the user dismissed the dialog
         // mid-create. Whatever is on screen now is not this create's form —
-        // most likely one they reopened to queue up the next session — so
-        // closing it here would yank it away on someone else's completion.
+        // most likely one reopened while the first create was still in
+        // flight (its fieldset stays disabled until that settles, so it's
+        // inert, not a queued second submit) — so closing it here would yank
+        // it away on someone else's completion.
         if (createToastRef.current === null) setShowNewSessionDialog(false);
 
         let openAction: { label: string; onClick: () => void } | undefined;
+        // The server may normalise or dedupe the requested name, so prefer
+        // what it actually created — falling back to the request only if the
+        // response somehow carries no session (the toast still needs a name).
+        let displayName = name;
         if (result.session) {
           const session = result.session;
+          displayName = session.name;
           // Attach to the tab that opened the dialog — Terminal will
           // auto-connect via WebSocket to /api/node/ws/sessions/{id}. Session
           // list refreshes automatically via TanStack Query's onSuccess
@@ -437,7 +441,7 @@ function HomeContent({
             };
           }
         }
-        resolveCreateToast("success", name, openAction);
+        resolveCreateToast("success", displayName, openAction);
       } catch (err) {
         console.error("Failed to create session:", err);
         resolveCreateToast("error", name);
@@ -479,6 +483,10 @@ function HomeContent({
                 label: "Open",
                 onClick: () => attachToSession(session),
               },
+              // Longer than sonner's ~4s default: this is the only recovery
+              // affordance for the clone, and the user may be looking at
+              // another tab when it appears.
+              duration: 10000,
             });
           }
         }
