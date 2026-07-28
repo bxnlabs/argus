@@ -107,6 +107,18 @@ describe("SessionItem busy state", () => {
     expect(row.className).toContain("opacity-60");
   });
 
+  // The primary pointer guard, and the only one real pointer input ever meets:
+  // it takes the whole row out of hit testing, actions trigger included. Asserted
+  // on the class because jsdom does not do hit testing — dispatching a pointer
+  // event at the trigger reaches its handler regardless of this, so no
+  // event-based test in this suite can notice if it goes away.
+  it("takes the busy row out of hit testing", () => {
+    expect(renderItem("deleting").row.className).toContain("pointer-events-none");
+    expect(renderItem(undefined).row.className).not.toContain(
+      "pointer-events-none",
+    );
+  });
+
   // Kept mounted AND focusable so Radix's focus restore on menu close has a
   // live target — unmounting it, or disabling it, drops focus to <body>.
   it("keeps the actions menu trigger focusable but inert while busy", () => {
@@ -153,8 +165,15 @@ describe("SessionItem busy state", () => {
   // Radix opens the menu asynchronously, and its open/close is a *toggle* —
   // so each gesture is fired and settled on its own, or a second gesture would
   // close a menu the first one wrongly opened and the test would pass blind.
+  //
+  // Both gestures are dispatched straight at the trigger, which is the whole
+  // story for keyDown — the row's pointer-events-none does not apply to the
+  // keyboard and the trigger stays focusable, so this is the real user path.
+  // For pointerDown it is not: real pointer input never gets past the row, so
+  // this covers only the synthesised/programmatic backstop. The guarantee that
+  // matters for a mouse is asserted in "takes the busy row out of hit testing".
   it.each(["keyDown", "pointerDown"] as const)(
-    "does not open the actions menu on %s while busy",
+    "does not open the actions menu on a %s dispatched at the trigger while busy",
     async (gesture) => {
       renderItem("deleting");
       const trigger = screen.getByLabelText("Session actions");

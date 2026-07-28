@@ -299,7 +299,15 @@ export const SessionItem = memo(function SessionItem({
           the `disabled` attribute, which makes it un-focusable — drops focus to
           <body>, so the next Tab restarts from the top of the document.
           aria-disabled keeps it a focus target; preventDefault on the opening
-          gestures stops Radix's composed handlers from opening the menu. */}
+          gestures stops Radix's composed handlers from opening the menu.
+
+          The two gesture guards are not equals. onKeyDown is the load-bearing
+          one: the row's `pointer-events-none` does not apply to the keyboard,
+          and the trigger is deliberately still focusable. onPointerDown is a
+          backstop — real pointer input never reaches it through that row, so it
+          only catches synthesised/programmatic events, which is also why its
+          test has to dispatch the event directly. Removing it is safe; removing
+          `pointer-events-none` in favour of it is not. */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
