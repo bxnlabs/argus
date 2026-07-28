@@ -70,6 +70,12 @@ export function NewSessionDialog({
   // dispatched in the same tick. App's single-slot toast handoff assumes
   // creates are serialised, so the lock has to hold synchronously.
   const submittingRef = useRef(false);
+  // Which create the lock currently belongs to. A settled create may land
+  // long after the dialog moved on — reopened for the next session while the
+  // first is still running in the background (App hands it off to a toast on
+  // dismiss) — and an ungated release would then clear a *newer* create's
+  // lock.
+  const createGenerationRef = useRef(0);
   // Render mirror of that lock: a ref change does not re-render, so the form
   // would stay visually live for the whole task it takes `isCreating` to
   // arrive — locked but not looking it. Kept distinct from `submitted`, which
@@ -113,6 +119,11 @@ export function NewSessionDialog({
       setDispatched(false);
       submittingRef.current = false;
       childPickerClosingRef.current = false;
+      // Reopening drops the lock too: it guards one create, and the dialog
+      // outlives that create (App leaves it closed once the toast has taken
+      // over, but reuses this same instance for the next open). The mirror
+      // goes with it, so a new submit never opens already claiming to create.
+      createGenerationRef.current += 1;
     }
   }, [open]);
 
@@ -158,6 +169,7 @@ export function NewSessionDialog({
       params.branch = branch;
     }
 
+    const generation = ++createGenerationRef.current;
     submittingRef.current = true;
     setSubmitted(true);
     setDispatched(true);
@@ -168,6 +180,7 @@ export function NewSessionDialog({
     // task), and a release keyed on that transition would strand the form.
     // Errors stay the caller's — App resolves them into a toast.
     const release = () => {
+      if (createGenerationRef.current !== generation) return;
       submittingRef.current = false;
       setDispatched(false);
     };

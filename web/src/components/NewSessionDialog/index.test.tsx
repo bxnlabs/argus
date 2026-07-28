@@ -455,4 +455,53 @@ describe("NewSessionDialog busy state", () => {
     fireEvent.keyDown(nameInput(), { key: "Enter", metaKey: true });
     expect(onCreateSession).not.toHaveBeenCalled();
   });
+
+  // A create outlives the dialog's target: the user can dismiss the dialog
+  // mid-create (App hands it off to a toast) and reopen it to start the next
+  // session. The late settle from the abandoned create must not clear the
+  // lock the *new* submit is holding.
+  it("does not let a stale release clear a retargeted submit's lock", async () => {
+    const settles: Array<() => void> = [];
+    const onCreateSession = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          settles.push(resolve);
+        }),
+    );
+    const { rerender } = render(
+      <NewSessionDialog open onClose={() => {}} onCreateSession={onCreateSession} />,
+    );
+    await screen.findByRole("dialog");
+    fireEvent.change(nameInput(), { target: { value: "first" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+
+    // Dismiss and reopen — the dialog's own lock resets even though the
+    // first create keeps running in the background.
+    rerender(
+      <NewSessionDialog
+        open={false}
+        onClose={() => {}}
+        onCreateSession={onCreateSession}
+      />,
+    );
+    rerender(
+      <NewSessionDialog open onClose={() => {}} onCreateSession={onCreateSession} />,
+    );
+    await screen.findByRole("dialog");
+    fireEvent.change(nameInput(), { target: { value: "second" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(2);
+
+    // The first create finally settles. Its release belongs to a generation
+    // the dialog has moved past, so the second create keeps both the lock
+    // and the pending look.
+    await act(async () => settles[0]());
+    expect(screen.getByRole("button", { name: /creating/i })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), {
+      key: "Enter",
+      metaKey: true,
+    });
+    expect(onCreateSession).toHaveBeenCalledTimes(2);
+  });
 });
