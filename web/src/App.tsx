@@ -704,6 +704,18 @@ export function App() {
       <NodeProvider>
         <AppInner />
       </NodeProvider>
+      {/* Above the node-keyed TabProvider *and* AppInner's isLoaded gate, so it
+          is never unmounted. sonner keeps its toast list in Toaster's own state
+          and only ever appends to it from a subscription — a remount resets
+          that list, so mounting this any lower would wipe every visible toast
+          on a node switch, including the "Creating…" handoff toast whose whole
+          job is to outlive the dialog. */}
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        richColors
+        toastOptions={{ className: "argus-toast" }}
+      />
     </TooltipProvider>
   );
 }
@@ -732,12 +744,6 @@ function AppInner() {
   return (
     <TabProvider key={scope} nodeScope={scope}>
       <HomeContent railOpen={railOpen} setRailOpen={setRailOpen} />
-      <Toaster
-        theme="dark"
-        position="bottom-right"
-        richColors
-        toastOptions={{ className: "argus-toast" }}
-      />
     </TabProvider>
   );
 }
