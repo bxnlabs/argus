@@ -131,4 +131,24 @@ describe("attachSessionToTab", () => {
     expect(second).toBe(false);
     expect(tabById(target)?.sessionId).toBe("sess-1");
   });
+
+  // The mirror has to stay fresh for every mutator, not just
+  // attachSessionToTab's own writes. Close a tab and, in the same tick with no
+  // intervening render, target it with attachSessionToTab: a stale mirror
+  // would still see the pre-close tab, pass the guard, and report success —
+  // while the tab it "attached" to is actually gone from the committed state.
+  it("sees a tab closed by a different mutator in the same tick", async () => {
+    renderTabs();
+    const closingTarget = ctx.activeTabId;
+    await act(async () => ctx.addTab());
+
+    let attached!: boolean;
+    await act(async () => {
+      ctx.closeTab(closingTarget);
+      attached = ctx.attachSessionToTab(closingTarget, "sess-1", null);
+    });
+
+    expect(attached).toBe(false);
+    expect(ctx.tabs.some((t) => t.id === closingTarget)).toBe(false);
+  });
 });

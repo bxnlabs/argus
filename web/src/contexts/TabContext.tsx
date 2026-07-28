@@ -61,20 +61,31 @@ export function TabProvider({
   children: ReactNode;
 }) {
   const [state, setState] = useState<TabState>(createInitialTabState);
-  // Mirrors `state` for synchronous reads. `attachSessionToTab` has to decide
-  // whether its target is still valid *and report that back*, which a setState
-  // updater cannot do.
+  // Mirrors `state`, kept in lockstep by every writer via `applyTabState`
+  // below. `attachSessionToTab` has to decide whether its target is still
+  // valid *and report that back*, which a setState updater cannot do — it
+  // needs a synchronous read that is never stale, even for another writer's
+  // update landing in the same tick with no render between them.
   const stateRef = useRef(state);
-  stateRef.current = state;
   const [hydrated, setHydrated] = useState(false);
   const { isMobile } = useViewport();
+
+  // Single writer for tab state: updates the mirror and React state with the
+  // same result, so `stateRef` is never stale for a synchronous read that
+  // happens before the next render. `attachSessionToTab` depends on that.
+  const applyTabState = useCallback((update: (prev: TabState) => TabState) => {
+    const next = update(stateRef.current);
+    if (next === stateRef.current) return;
+    stateRef.current = next;
+    setState(next);
+  }, []);
 
   // ------ Load this node's persisted state from localStorage on mount ------
   useEffect(() => {
     const saved = loadTabState(nodeScope);
-    if (saved) setState(saved);
+    if (saved) applyTabState(() => saved);
     setHydrated(true);
-  }, [nodeScope]);
+  }, [nodeScope, applyTabState]);
 
   // ------ Persist to this node's key on every state change ------
   useEffect(() => {
@@ -84,39 +95,45 @@ export function TabProvider({
   // ------ Tab management ------
 
   const addTab = useCallback(() => {
-    setState((prev) => {
+    applyTabState((prev) => {
       const newTab = createTab();
       return {
         tabs: [...prev.tabs, newTab],
         activeTabId: newTab.id,
       };
     });
-  }, []);
+  }, [applyTabState]);
 
-  const closeTab = useCallback((tabId: string) => {
-    setState((prev) => {
-      if (prev.tabs.length <= 1) return prev; // keep at least one tab
+  const closeTab = useCallback(
+    (tabId: string) => {
+      applyTabState((prev) => {
+        if (prev.tabs.length <= 1) return prev; // keep at least one tab
 
-      const closingIndex = prev.tabs.findIndex((t) => t.id === tabId);
-      const newTabs = prev.tabs.filter((t) => t.id !== tabId);
-      const newActiveTabId =
-        prev.activeTabId === tabId
-          ? newTabs[Math.min(closingIndex, newTabs.length - 1)].id
-          : prev.activeTabId;
+        const closingIndex = prev.tabs.findIndex((t) => t.id === tabId);
+        const newTabs = prev.tabs.filter((t) => t.id !== tabId);
+        const newActiveTabId =
+          prev.activeTabId === tabId
+            ? newTabs[Math.min(closingIndex, newTabs.length - 1)].id
+            : prev.activeTabId;
 
-      return { tabs: newTabs, activeTabId: newActiveTabId };
-    });
-  }, []);
+        return { tabs: newTabs, activeTabId: newActiveTabId };
+      });
+    },
+    [applyTabState],
+  );
 
-  const switchTab = useCallback((tabId: string) => {
-    setState((prev) => ({ ...prev, activeTabId: tabId }));
-  }, []);
+  const switchTab = useCallback(
+    (tabId: string) => {
+      applyTabState((prev) => ({ ...prev, activeTabId: tabId }));
+    },
+    [applyTabState],
+  );
 
   // ------ Session attach / detach (on active tab) ------
 
   const attachSession = useCallback(
     (sessionId: string) => {
-      setState((prev) => ({
+      applyTabState((prev) => ({
         ...prev,
         tabs: prev.tabs.map((tab) =>
           tab.id === prev.activeTabId
@@ -125,11 +142,11 @@ export function TabProvider({
         ),
       }));
     },
-    [],
+    [applyTabState],
   );
 
   const detachSession = useCallback(() => {
-    setState((prev) => ({
+    applyTabState((prev) => ({
       ...prev,
       tabs: prev.tabs.map((tab) =>
         tab.id === prev.activeTabId
@@ -137,21 +154,24 @@ export function TabProvider({
           : tab,
       ),
     }));
-  }, []);
+  }, [applyTabState]);
 
-  const detachSessionById = useCallback((sessionId: string) => {
-    setState((prev) => {
-      let anyChanged = false;
-      const newTabs = prev.tabs.map((tab) => {
-        if (tab.sessionId === sessionId) {
-          anyChanged = true;
-          return { ...tab, sessionId: null };
-        }
-        return tab;
+  const detachSessionById = useCallback(
+    (sessionId: string) => {
+      applyTabState((prev) => {
+        let anyChanged = false;
+        const newTabs = prev.tabs.map((tab) => {
+          if (tab.sessionId === sessionId) {
+            anyChanged = true;
+            return { ...tab, sessionId: null };
+          }
+          return tab;
+        });
+        return anyChanged ? { ...prev, tabs: newTabs } : prev;
       });
-      return anyChanged ? { ...prev, tabs: newTabs } : prev;
-    });
-  }, []);
+    },
+    [applyTabState],
+  );
 
   // Attach to a specific tab, but only if it still holds what it held when the
   // caller snapshotted it. Work that resolves asynchronously (create, clone)
@@ -163,16 +183,11 @@ export function TabProvider({
       const tab = stateRef.current.tabs.find((t) => t.id === tabId);
       if (!tab || tab.sessionId !== expected) return false;
 
-      // Write through the mirror before queueing the update. React refreshes
-      // `stateRef` only on render, so two calls landing in one tick would
-      // otherwise both read the pre-update snapshot, both pass the guard, and
-      // both return true — while the second write silently replaced the first.
-      const tabs = stateRef.current.tabs.map((t) =>
-        t.id === tabId ? { ...t, sessionId } : t,
-      );
-      stateRef.current = { ...stateRef.current, tabs };
-
-      setState((prev) => ({
+      // Routed through `applyTabState`, whose mirror write-through is what
+      // makes this safe: two calls landing in one tick would otherwise both
+      // read the pre-update snapshot, both pass the guard above, and both
+      // return true — while the second write silently replaced the first.
+      applyTabState((prev) => ({
         ...prev,
         tabs: prev.tabs.map((t) =>
           t.id === tabId ? { ...t, sessionId } : t,
@@ -180,7 +195,7 @@ export function TabProvider({
       }));
       return true;
     },
-    [],
+    [applyTabState],
   );
 
   // ------ Active tab ------
