@@ -163,6 +163,15 @@ export function TabProvider({
       const tab = stateRef.current.tabs.find((t) => t.id === tabId);
       if (!tab || tab.sessionId !== expected) return false;
 
+      // Write through the mirror before queueing the update. React refreshes
+      // `stateRef` only on render, so two calls landing in one tick would
+      // otherwise both read the pre-update snapshot, both pass the guard, and
+      // both return true — while the second write silently replaced the first.
+      const tabs = stateRef.current.tabs.map((t) =>
+        t.id === tabId ? { ...t, sessionId } : t,
+      );
+      stateRef.current = { ...stateRef.current, tabs };
+
       setState((prev) => ({
         ...prev,
         tabs: prev.tabs.map((t) =>

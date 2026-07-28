@@ -111,4 +111,24 @@ describe("attachSessionToTab", () => {
     expect(tabById(other)?.sessionId).toBeNull();
     expect(ctx.activeTabId).toBe(other);
   });
+
+  // Two completions landing in one tick, with no render between them, is the
+  // case the mirror exists for: without a write-through the second call reads
+  // a stale snapshot, passes the guard, and clobbers the first write while
+  // both callers are told they attached.
+  it("rejects a second same-tick call against the same snapshot", async () => {
+    renderTabs();
+    const target = ctx.activeTabId;
+
+    let first!: boolean;
+    let second!: boolean;
+    await act(async () => {
+      first = ctx.attachSessionToTab(target, "sess-1", null);
+      second = ctx.attachSessionToTab(target, "sess-2", null);
+    });
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    expect(tabById(target)?.sessionId).toBe("sess-1");
+  });
 });
