@@ -70,6 +70,13 @@ export function NewSessionDialog({
   // dispatched in the same tick. App's single-slot toast handoff assumes
   // creates are serialised, so the lock has to hold synchronously.
   const submittingRef = useRef(false);
+  // Render mirror of that lock: a ref change does not re-render, so the form
+  // would stay visually live for the whole task it takes `isCreating` to
+  // arrive — locked but not looking it. Kept distinct from `submitted`, which
+  // marks *ownership* of the pending create and deliberately outlives the
+  // settle so `isOtherCreatePending` cannot misfire on the way down; this one
+  // clears with the lock.
+  const [dispatched, setDispatched] = useState(false);
   const childPickerClosingRef = useRef(false);
   const sourceTriggerRef = useRef<HTMLButtonElement>(null);
   const branchTriggerRef = useRef<HTMLButtonElement>(null);
@@ -77,8 +84,10 @@ export function NewSessionDialog({
   const profiles = profilesData?.profiles ?? [];
   const { isMobile } = useViewport();
   const { isCreating } = useSessionMutationState();
+  // Anything holding the create lock, whether or not React has seen it yet.
+  const creating = isCreating || dispatched;
   // This form is submitting; vs. someone else's create holding the lock.
-  const isSubmitting = isCreating && submitted;
+  const isSubmitting = (isCreating && submitted) || dispatched;
   const isOtherCreatePending = isCreating && !submitted;
 
   const isRemoteSource = sourceTab === "remote" && source !== "";
@@ -101,6 +110,7 @@ export function NewSessionDialog({
       setBranch("");
       setShowBranchPicker(false);
       setSubmitted(false);
+      setDispatched(false);
       submittingRef.current = false;
       childPickerClosingRef.current = false;
     }
@@ -123,7 +133,7 @@ export function NewSessionDialog({
   const createSession = () => {
     // Creates are serialised: one at a time, so App's single-slot toast
     // handoff bookkeeping stays correct.
-    if (isCreating || submittingRef.current) return;
+    if (creating || submittingRef.current) return;
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
@@ -150,6 +160,7 @@ export function NewSessionDialog({
 
     submittingRef.current = true;
     setSubmitted(true);
+    setDispatched(true);
     // Release on settle, from the call itself rather than from watching
     // `isCreating` fall: a create that settles before TanStack's scheduled
     // notify reaches React never renders a pending snapshot at all (an
@@ -158,6 +169,7 @@ export function NewSessionDialog({
     // Errors stay the caller's — App resolves them into a toast.
     const release = () => {
       submittingRef.current = false;
+      setDispatched(false);
     };
     try {
       Promise.resolve(onCreateSession(params)).then(release, release);
@@ -222,7 +234,7 @@ export function NewSessionDialog({
             <DialogTitle>New Session</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <fieldset disabled={isCreating} className="min-w-0 space-y-4">
+            <fieldset disabled={creating} className="min-w-0 space-y-4">
               <ProviderSelector value={providerType} onChange={setProviderType} />
 
               <div className="space-y-2">
@@ -316,7 +328,7 @@ export function NewSessionDialog({
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={!name.trim() || isCreating}>
+                <Button type="submit" disabled={!name.trim() || creating}>
                   {isSubmitting ? (
                     <>
                       <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />

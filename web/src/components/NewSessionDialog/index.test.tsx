@@ -301,13 +301,22 @@ describe("NewSessionDialog busy state", () => {
       key: "Enter",
       metaKey: true,
     });
+    // Keyboard submit runs off the dialog's capture handler, so it reaches
+    // `createSession` even once the button is disabled — the ref is the only
+    // thing standing between this and a second create.
     fireEvent.keyDown(screen.getByRole("dialog"), {
       key: "Enter",
       metaKey: true,
     });
-    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
 
     expect(onCreateSession).toHaveBeenCalledTimes(1);
+    // And the button is already out of reach for a pointer submit, with
+    // `isCreating` still false — that is the render mirror, not the query.
+    const submit = screen.getByRole("button", {
+      name: /creating/i,
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(mocks.isCreating).toBe(false);
   });
 
   // The flip side of that lock: it must release on settle, and it must do so
@@ -332,9 +341,37 @@ describe("NewSessionDialog busy state", () => {
 
     await act(async () => settle());
     expect(mocks.isCreating).toBe(false);
+    // The render mirror has to come back down with the lock, or the form stays
+    // greyed out with no way to retry.
+    expect(
+      (document.querySelector("fieldset") as HTMLFieldSetElement).disabled,
+    ).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: /^create/i }));
     expect(onCreateSession).toHaveBeenCalledTimes(2);
+  });
+
+  // Same mirror as ChangeProfileDialog: locked and looking it, in the commit
+  // that dispatches rather than a task later when `isCreating` lands.
+  it("looks creating as soon as the submit is dispatched, before isCreating arrives", () => {
+    const onCreateSession = pendingCreate();
+    renderDialog({ onCreateSession });
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+
+    const submit = screen.getByRole("button", {
+      name: /creating/i,
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(submit.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      (document.querySelector("fieldset") as HTMLFieldSetElement).disabled,
+    ).toBe(true);
+    expect(mocks.isCreating).toBe(false);
+    // Its own create — not someone else's.
+    expect(
+      screen.queryByText("Another session is still being created…"),
+    ).toBeNull();
   });
 
   // `isCreating` must go true *after* this form submits, or the submit is
