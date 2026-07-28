@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sessionKeys, sessionMutationKind } from "./keys";
+import { sessionKeys, sessionMutationKind, sessionMutationScope } from "./keys";
 
 describe("sessionKeys.mutation", () => {
   it("builds the scoped prefix when no kind is given", () => {
@@ -65,5 +65,56 @@ describe("sessionMutationKind", () => {
 
   it("returns undefined when the mutation has no key", () => {
     expect(sessionMutationKind(undefined)).toBeUndefined();
+  });
+});
+
+describe("sessionKeys.anyMutation", () => {
+  // useSessionMutationState subscribes with this and narrows by scope itself,
+  // so it has to stay a prefix of every node's every kind.
+  it("stays a prefix of every scope and kind", () => {
+    const prefix = sessionKeys.anyMutation();
+    for (const scope of ["local:", "m1:http://gpu:80"]) {
+      for (const kind of ["create", "clone", "delete", "profile"] as const) {
+        expect(
+          sessionKeys.mutation(scope, kind).slice(0, prefix.length),
+        ).toEqual([...prefix]);
+      }
+    }
+  });
+});
+
+describe("sessionMutationScope", () => {
+  it("round-trips every scope", () => {
+    for (const scope of ["local:", "m1:http://gpu:80"]) {
+      expect(sessionMutationScope(sessionKeys.mutation(scope, "clone"))).toBe(
+        scope,
+      );
+    }
+  });
+
+  it("returns undefined for the bare prefix", () => {
+    expect(sessionMutationScope(sessionKeys.mutation("local:"))).toBeUndefined();
+  });
+
+  it("returns undefined for a session query key", () => {
+    expect(sessionMutationScope(sessionKeys.list("local:"))).toBeUndefined();
+  });
+
+  it("returns undefined for another feature's mutation key", () => {
+    expect(
+      sessionMutationScope(["files", "local:", "mutation", "delete"]),
+    ).toBeUndefined();
+  });
+
+  // A non-string scope would compare unequal to the active scope anyway, but
+  // returning it typed as a string would be a lie.
+  it("returns undefined for a non-string scope segment", () => {
+    expect(
+      sessionMutationScope(["sessions", 42, "mutation", "delete"]),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when the mutation has no key", () => {
+    expect(sessionMutationScope(undefined)).toBeUndefined();
   });
 });

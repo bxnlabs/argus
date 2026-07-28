@@ -3,6 +3,7 @@ import { useActiveNode } from "@/hooks/useActiveNode";
 import {
   sessionKeys,
   sessionMutationKind,
+  sessionMutationScope,
   type SessionMutationKind,
 } from "@/data/sessions/keys";
 
@@ -10,8 +11,11 @@ import {
 // kind names the mutation, this names the row state.
 export type BusyKind = "cloning" | "deleting" | "profile";
 
-// One pending mutation, flattened to the two fields the UI cares about.
+// One pending mutation, flattened to the fields the UI cares about. `scope` is
+// the node it belongs to, carried through so the caller can narrow to the
+// active one rather than the subscription doing it — see the hook below.
 export interface PendingSessionMutation {
+  scope: string | undefined;
   kind: SessionMutationKind | undefined;
   sessionId: string | undefined;
 }
@@ -28,19 +32,23 @@ const BUSY_BY_KIND: Partial<Record<SessionMutationKind, BusyKind>> = {
 };
 
 /**
- * Shapes the pending mutation set into the two things the UI reads. Pure and
- * exported so the mapping is unit-testable without a QueryClient.
+ * Shapes the pending mutation set into the two things the UI reads, keeping
+ * only the mutations belonging to `scope`. Pure and exported so the mapping is
+ * unit-testable without a QueryClient.
  *
  * Two mutations on the same session (e.g. a profile change then a delete) is
  * not a case the UI prevents; last one wins, which is the more urgent state.
  */
 export function toBusyState(
   entries: PendingSessionMutation[],
+  scope: string,
 ): SessionMutationState {
   const busySessions: Record<string, BusyKind> = {};
   let isCreating = false;
 
-  for (const { kind, sessionId } of entries) {
+  for (const { scope: entryScope, kind, sessionId } of entries) {
+    // A delete on one node must never mark a row busy on another.
+    if (entryScope !== scope) continue;
     if (kind === "create") {
       isCreating = true;
       continue;
@@ -57,27 +65,28 @@ export function toBusyState(
  * mutation cache rather than tracked by hand — so busy state clears itself on
  * settle (success or failure) and concurrent operations are correct for free.
  *
- * Scoped to the active node: the filter key carries the node scope, so a
- * delete on one node never marks a row busy on another.
- *
- * Remount invariant: `useMutationState` computes its result at mount and
- * thereafter only from the mutation-cache subscription — it never recomputes
- * merely because `filters` changed. Node-safety therefore depends on every
- * consumer living under App's `<TabProvider key={scope}>`, which remounts them
- * on node switch. Hoist a consumer above that key and a pending create on node
- * A would silently keep `isCreating` true on node B until the next cache event.
+ * Scoped to the active node, but deliberately *not* by the subscription filter:
+ * `useMutationState` computes its result at mount and thereafter only from the
+ * mutation-cache subscription — it never recomputes merely because `filters`
+ * changed. Filtering on the scope there would make node-safety depend on every
+ * consumer being remounted on node switch (true today only because they all sit
+ * under App's `<TabProvider key={scope}>`, and silently wrong for any consumer
+ * hoisted above it). So subscribe to session mutations on *every* node and let
+ * `toBusyState` narrow to the current scope on each render instead, which needs
+ * no remount to stay correct.
  */
 export function useSessionMutationState(): SessionMutationState {
   const { scope } = useActiveNode();
 
   const entries = useMutationState({
-    filters: { mutationKey: sessionKeys.mutation(scope), status: "pending" },
+    filters: { mutationKey: sessionKeys.anyMutation(), status: "pending" },
     select: (mutation): PendingSessionMutation => ({
+      scope: sessionMutationScope(mutation.options.mutationKey),
       kind: sessionMutationKind(mutation.options.mutationKey),
       sessionId: (mutation.state.variables as { sessionId?: string } | undefined)
         ?.sessionId,
     }),
   });
 
-  return toBusyState(entries);
+  return toBusyState(entries, scope);
 }
