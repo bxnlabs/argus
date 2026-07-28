@@ -75,6 +75,7 @@ function HomeContent({
     closeTab,
     switchTab,
     attachSession,
+    attachSessionToTab,
     detachSession,
     detachSessionById,
   } = useTabs();
@@ -183,23 +184,61 @@ function HomeContent({
     checkStateChanges,
   });
 
+  // Acknowledge the automatic unread_since when a session is opened.
+  // Acknowledge leaves the manual user_marked_unread_at intact, so a sticky
+  // "Mark as unread" survives selection. Split out so a *skipped* attach does
+  // not acknowledge a session the user never actually opened.
+  const acknowledgeUnread = useCallback(
+    (session: Session) => {
+      const status = sessionStatuses[session.id];
+      if (!status?.unreadSince) return;
+      apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
+        method: "POST",
+      }).catch(() => {});
+    },
+    [sessionStatuses, baseUrl],
+  );
+
   // Attach session to active tab — just updates tab state.
   // The Terminal component handles WebSocket connection based on the session ID.
   const attachToSession = useCallback(
     (session: Session) => {
       attachSession(session.id);
-
-      // Acknowledge the automatic unread_since when selecting a session.
-      // Acknowledge leaves the manual user_marked_unread_at intact, so a sticky
-      // "Mark as unread" survives selection.
-      const status = sessionStatuses[session.id];
-      if (status?.unreadSince) {
-        apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
-          method: "POST",
-        }).catch(() => {});
-      }
+      acknowledgeUnread(session);
     },
-    [attachSession, sessionStatuses, baseUrl]
+    [attachSession, acknowledgeUnread],
+  );
+
+  // Where background work should land: the tab that started it, and what that
+  // tab held at the time. Held in a ref so the async handlers below stay stable
+  // across tab switches, matching the mutate-ref pattern above.
+  const attachTargetRef = useRef<{ tabId: string; sessionId: string | null }>({
+    tabId: activeTabId,
+    sessionId: null,
+  });
+  attachTargetRef.current = {
+    tabId: activeTabId,
+    sessionId: activeTab?.sessionId ?? null,
+  };
+
+  // Attach the result of background work to the tab that started it — but only
+  // if that tab is still what it was. Returns whether it attached, so callers
+  // can fall back to a toast rather than dropping the session into whatever tab
+  // the user has moved to.
+  const attachToTarget = useCallback(
+    (
+      target: { tabId: string; sessionId: string | null },
+      session: Session,
+    ): boolean => {
+      const attached = attachSessionToTab(
+        target.tabId,
+        session.id,
+        target.sessionId,
+      );
+      if (attached) acknowledgeUnread(session);
+      return attached;
+    },
+    [attachSessionToTab, acknowledgeUnread],
   );
 
   // Deep-link: auto-attach session from ?session= query param (e.g. from Slack notification)
@@ -406,17 +445,29 @@ function HomeContent({
   // (worktree, profile, provider) and attaches to it.
   const handleCloneSession = useCallback(
     async (sessionId: string) => {
+      const target = attachTargetRef.current;
       try {
         const result = await cloneMutateRef.current({ sessionId });
         if (result.session) {
-          attachToSession(result.session);
+          const session = result.session;
+          if (!attachToTarget(target, session)) {
+            // The tab that started this is gone or in use. A clone can take
+            // minutes, so say it finished rather than leaving the user to
+            // notice a new sidebar row.
+            toast.success(`Cloned ${session.name}`, {
+              action: {
+                label: "Open",
+                onClick: () => attachToSession(session),
+              },
+            });
+          }
         }
       } catch (err) {
         console.error("Failed to clone session:", err);
         toast.error("Failed to clone session");
       }
     },
-    [attachToSession]
+    [attachToTarget, attachToSession]
   );
 
   // Delete session handler
