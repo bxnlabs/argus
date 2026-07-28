@@ -373,18 +373,28 @@ function HomeContent({
     [sessions, attachToSession]
   );
 
-  // Resolves a handoff toast if the user dismissed the dialog mid-create.
-  // With no handoff toast the behaviour is unchanged from before: silence on
-  // success, an error toast on failure.
+  // Resolves a handoff toast if the user dismissed the dialog mid-create, and
+  // is also the fallback when the create could not be attached to the tab that
+  // started it. With neither, success stays silent as it always has.
   const resolveCreateToast = useCallback(
-    (outcome: "success" | "error", name: string) => {
+    (
+      outcome: "success" | "error",
+      name: string,
+      action?: { label: string; onClick: () => void },
+    ) => {
       const id = createToastRef.current;
       createToastRef.current = null;
       if (outcome === "error") {
         toast.error("Failed to create session", id !== null ? { id } : undefined);
         return;
       }
-      if (id !== null) toast.success(`Created ${name}`, { id });
+      // Nothing to say: the dialog was never dismissed and the session landed
+      // where it was meant to.
+      if (id === null && !action) return;
+      toast.success(`Created ${name}`, {
+        ...(id !== null ? { id } : {}),
+        ...(action ? { action } : {}),
+      });
     },
     [],
   );
@@ -395,6 +405,7 @@ function HomeContent({
       const name = params.name?.trim() || "session";
       pendingCreateNameRef.current = name;
       createInFlightRef.current = true;
+      const target = attachTargetRef.current;
 
       try {
         const result = await createMutateRef.current({
@@ -411,13 +422,22 @@ function HomeContent({
         // most likely one they reopened to queue up the next session — so
         // closing it here would yank it away on someone else's completion.
         if (createToastRef.current === null) setShowNewSessionDialog(false);
+
+        let openAction: { label: string; onClick: () => void } | undefined;
         if (result.session) {
-          // Attach to the newly created session — Terminal will auto-connect
-          // via WebSocket to /api/node/ws/sessions/{id}. Session list refreshes
-          // automatically via TanStack Query's onSuccess invalidation.
-          attachToSession(result.session);
+          const session = result.session;
+          // Attach to the tab that opened the dialog — Terminal will
+          // auto-connect via WebSocket to /api/node/ws/sessions/{id}. Session
+          // list refreshes automatically via TanStack Query's onSuccess
+          // invalidation.
+          if (!attachToTarget(target, session)) {
+            openAction = {
+              label: "Open",
+              onClick: () => attachToSession(session),
+            };
+          }
         }
-        resolveCreateToast("success", name);
+        resolveCreateToast("success", name, openAction);
       } catch (err) {
         console.error("Failed to create session:", err);
         resolveCreateToast("error", name);
@@ -425,7 +445,7 @@ function HomeContent({
         createInFlightRef.current = false;
       }
     },
-    [attachToSession, resolveCreateToast],
+    [attachToTarget, attachToSession, resolveCreateToast],
   );
 
   // Dismissing the dialog mid-create hands the work off to a toast, so a
