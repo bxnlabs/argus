@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
   type ReactNode,
 } from "react";
 import {
@@ -35,6 +36,13 @@ interface TabContextValue {
   attachSession: (sessionId: string) => void;
   detachSession: () => void;
   detachSessionById: (sessionId: string) => void;
+
+  // Session management (targeted — for work that resolves asynchronously)
+  attachSessionToTab: (
+    tabId: string,
+    sessionId: string,
+    expected: string | null,
+  ) => boolean;
 }
 
 const TabContext = createContext<TabContextValue | null>(null);
@@ -53,6 +61,11 @@ export function TabProvider({
   children: ReactNode;
 }) {
   const [state, setState] = useState<TabState>(createInitialTabState);
+  // Mirrors `state` for synchronous reads. `attachSessionToTab` has to decide
+  // whether its target is still valid *and report that back*, which a setState
+  // updater cannot do.
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [hydrated, setHydrated] = useState(false);
   const { isMobile } = useViewport();
 
@@ -140,6 +153,27 @@ export function TabProvider({
     });
   }, []);
 
+  // Attach to a specific tab, but only if it still holds what it held when the
+  // caller snapshotted it. Work that resolves asynchronously (create, clone)
+  // otherwise attaches to whatever tab is active at *completion*, landing the
+  // session wherever the user has since moved. Returns whether it attached, so
+  // the caller can say something instead of failing silently.
+  const attachSessionToTab = useCallback(
+    (tabId: string, sessionId: string, expected: string | null): boolean => {
+      const tab = stateRef.current.tabs.find((t) => t.id === tabId);
+      if (!tab || tab.sessionId !== expected) return false;
+
+      setState((prev) => ({
+        ...prev,
+        tabs: prev.tabs.map((t) =>
+          t.id === tabId ? { ...t, sessionId } : t,
+        ),
+      }));
+      return true;
+    },
+    [],
+  );
+
   // ------ Active tab ------
 
   const activeTab =
@@ -156,6 +190,7 @@ export function TabProvider({
         closeTab,
         switchTab,
         attachSession,
+        attachSessionToTab,
         detachSession,
         detachSessionById,
       }}
