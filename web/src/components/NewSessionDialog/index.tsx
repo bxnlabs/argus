@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
 import { useSessionMutationState } from "@/hooks/useSessionMutationState";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import type { ProviderType, CreateSessionParams } from "@/types";
 
 type SourceTab = "local" | "remote";
@@ -60,29 +61,23 @@ export function NewSessionDialog({
   const [branch, setBranch] = useState("");
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
-  // `isCreating` is node-wide: it says *a* create is in flight, not that *this*
-  // form submitted it. Reopening the dialog mid-create would otherwise show a
-  // blank form claiming to be "Creating…". This flag distinguishes the two.
-  const [submitted, setSubmitted] = useState(false);
-  // Synchronous mirror of `submitted`. `isCreating` reaches this component
-  // asynchronously — TanStack recomputes its snapshot on each cache event but
-  // schedules React's re-read — so it cannot lock out a second submit
-  // dispatched in the same tick. App's single-slot toast handoff assumes
-  // creates are serialised, so the lock has to hold synchronously.
-  const submittingRef = useRef(false);
-  // Which create the lock currently belongs to. A settled create may land
-  // long after the dialog moved on — reopened for the next session while the
-  // first is still running in the background (App hands it off to a toast on
-  // dismiss) — and an ungated release would then clear a *newer* create's
-  // lock.
-  const createGenerationRef = useRef(0);
-  // Render mirror of that lock: a ref change does not re-render, so the form
-  // would stay visually live for the whole task it takes `isCreating` to
-  // arrive — locked but not looking it. Kept distinct from `submitted`, which
-  // marks *ownership* of the pending create and deliberately outlives the
-  // settle so `isOtherCreatePending` cannot misfire on the way down; this one
-  // clears with the lock.
-  const [dispatched, setDispatched] = useState(false);
+  // Ownership, not a lock. `isCreating` is node-wide: it says *a* create is in
+  // flight, not that *this* form submitted it. Reopening the dialog mid-create
+  // would otherwise show a blank form claiming to be "Creating…". Deliberately
+  // outlives the settle — unlike the lock below, which clears on it — so
+  // `isOtherCreatePending` cannot misfire on the way down, while `isCreating`
+  // is still falling asynchronously.
+  const [ownsCreate, setOwnsCreate] = useState(false);
+  // Serialises submits: App's single-slot toast handoff assumes creates are
+  // serialised, and `isCreating` arrives too late to lock out a second submit
+  // in the same tick — see useSingleFlight for why. `dispatched` is the render
+  // mirror of that lock, so the form disables in the same commit as the
+  // dispatch rather than a task later.
+  const {
+    pending: dispatched,
+    run: runCreate,
+    reset: resetCreate,
+  } = useSingleFlight();
   const childPickerClosingRef = useRef(false);
   const sourceTriggerRef = useRef<HTMLButtonElement>(null);
   const branchTriggerRef = useRef<HTMLButtonElement>(null);
@@ -93,8 +88,8 @@ export function NewSessionDialog({
   // Anything holding the create lock, whether or not React has seen it yet.
   const creating = isCreating || dispatched;
   // This form is submitting; vs. someone else's create holding the lock.
-  const isSubmitting = (isCreating && submitted) || dispatched;
-  const isOtherCreatePending = isCreating && !submitted;
+  const isSubmitting = (isCreating && ownsCreate) || dispatched;
+  const isOtherCreatePending = isCreating && !ownsCreate;
 
   const isRemoteSource = sourceTab === "remote" && source !== "";
   const { data: isLocalGitRepo = false } = useGitCheckQuery(
@@ -115,15 +110,13 @@ export function NewSessionDialog({
       setShowSourcePicker(false);
       setBranch("");
       setShowBranchPicker(false);
-      setSubmitted(false);
-      setDispatched(false);
-      submittingRef.current = false;
+      setOwnsCreate(false);
       childPickerClosingRef.current = false;
       // Reopening drops the lock too: it guards one create, and the dialog
       // outlives that create (App leaves it closed once the toast has taken
-      // over, but reuses this same instance for the next open). The mirror
-      // goes with it, so a new submit never opens already claiming to create.
-      createGenerationRef.current += 1;
+      // over, but reuses this same instance for the next open). So a new submit
+      // never opens already claiming to create.
+      resetCreate();
     }
   }, [open]);
 
@@ -143,8 +136,9 @@ export function NewSessionDialog({
 
   const createSession = () => {
     // Creates are serialised: one at a time, so App's single-slot toast
-    // handoff bookkeeping stays correct.
-    if (creating || submittingRef.current) return;
+    // handoff bookkeeping stays correct. `runCreate` holds the same line
+    // synchronously for a second submit in this same tick.
+    if (creating) return;
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
@@ -169,32 +163,9 @@ export function NewSessionDialog({
       params.branch = branch;
     }
 
-    const generation = ++createGenerationRef.current;
-    submittingRef.current = true;
-    setSubmitted(true);
-    setDispatched(true);
-    // Release on settle, from the call itself rather than from watching
-    // `isCreating` fall: a create that settles before TanStack's scheduled
-    // notify reaches React never renders a pending snapshot at all (an
-    // immediately-rejecting fetch dispatches pending then error in the same
-    // task), and a release keyed on that transition would strand the form.
+    setOwnsCreate(true);
     // Errors stay the caller's — App resolves them into a toast.
-    const release = () => {
-      if (createGenerationRef.current !== generation) return;
-      submittingRef.current = false;
-      setDispatched(false);
-    };
-    try {
-      Promise.resolve(onCreateSession(params)).then(release, release);
-    } catch (err) {
-      // A synchronous throw escapes the promise chain, and would strand the
-      // lock the same way an unobserved settle does. Release, then let it
-      // propagate as it did before. Untested: React reports handler throws to
-      // the global instead of rethrowing, which vitest scores as an unhandled
-      // error — and no conforming async caller can reach this branch anyway.
-      release();
-      throw err;
-    }
+    runCreate(() => onCreateSession(params));
     // No onClose() here: App closes this dialog in its success branch, so a
     // failed create leaves the form intact instead of discarding it.
   };

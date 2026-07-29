@@ -37,7 +37,11 @@ const BUSY_BY_KIND: Partial<Record<SessionMutationKind, BusyKind>> = {
  * unit-testable without a QueryClient.
  *
  * Two mutations on the same session (e.g. a profile change then a delete) is
- * not a case the UI prevents; last one wins, which is the more urgent state.
+ * not reachable through the UI: every one of them is launched from that row's
+ * own actions menu, and a busy row takes no pointer input and refuses the
+ * keys that open the menu. So there is no priority order to encode here —
+ * should one ever land anyway, last wins, and since TanStack iterates its
+ * mutation cache in insertion order that is the most recently started.
  */
 export function toBusyState(
   entries: PendingSessionMutation[],
