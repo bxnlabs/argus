@@ -15,6 +15,10 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useViewport } from "@/hooks/useViewport";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
+import {
+  useSessionDeepLink,
+  notifySessionDeepLink,
+} from "@/hooks/useSessionDeepLink";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useCreateSession, useCloneSession } from "@/data/sessions/queries";
 import { apiTextFetch } from "@/api/client";
@@ -30,6 +34,7 @@ import { useGitCheckQuery } from "@/data/git";
 import { isMac, isTouchDevice, isPhoneSized } from "@/lib/device";
 import { buildNodeSwitchBindings } from "@/lib/nodeShortcuts";
 import { nodeScope } from "@/lib/nodeScope";
+import { resolveCreateToastDecision } from "@/lib/createSessionToast";
 import type { Session, CreateSessionParams } from "@/types";
 import type { SidePanel } from "@/components/views/types";
 import type { GitTab, GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
@@ -75,6 +80,7 @@ function HomeContent({
     closeTab,
     switchTab,
     attachSession,
+    attachSessionToTab,
     detachSession,
     detachSessionById,
   } = useTabs();
@@ -108,6 +114,36 @@ function HomeContent({
   const cloneSessionMutation = useCloneSession();
   const cloneMutateRef = useRef(cloneSessionMutation.mutateAsync);
   cloneMutateRef.current = cloneSessionMutation.mutateAsync;
+
+  // Handoff bookkeeping: the name to show in the toast, and the id of the
+  // toast once one exists. Single-slot by design — at most one create in
+  // flight, enforced by the guard at the top of `handleCreateSession` so the
+  // constraint lives with the state it protects. (NewSessionDialog also
+  // serialises submits, with its own synchronous lock rather than `isCreating`
+  // alone, which is delivered asynchronously — but that is the dialog keeping
+  // its form honest, not what makes these refs safe.) Allowing concurrent
+  // creates means making both of these per-create too.
+  const pendingCreateNameRef = useRef("");
+  const createToastRef = useRef<string | number | null>(null);
+  // Whether the create this component dispatched is still in flight. Set
+  // synchronously around the call rather than read from `isCreating`, for the
+  // same reason the dialog holds its submit lock in a ref: `isCreating` is
+  // delivered asynchronously, so a close arriving before that snapshot reaches
+  // React would skip the handoff toast and complete the create in silence.
+  const createInFlightRef = useRef(false);
+
+  // Whether this workspace is still the live one. AppInner keys the whole tree
+  // on the node scope, so switching nodes unmounts HomeContent while a create
+  // or clone it started keeps running against these closures.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    // Set on the way in, not just cleared on the way out: StrictMode's
+    // double-invoke runs the cleanup before re-running this effect.
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const focusedSession = activeTab?.sessionId
     ? sessions.find((s) => s.id === activeTab.sessionId)
@@ -168,48 +204,116 @@ function HomeContent({
     checkStateChanges,
   });
 
+  // Acknowledge the automatic unread_since when a session is opened.
+  // Acknowledge leaves the manual user_marked_unread_at intact, so a sticky
+  // "Mark as unread" survives selection. Split out so a *skipped* attach does
+  // not acknowledge a session the user never actually opened.
+  const acknowledgeUnread = useCallback(
+    (session: Session) => {
+      const status = sessionStatuses[session.id];
+      if (!status?.unreadSince) return;
+      apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
+        method: "POST",
+      }).catch(() => {});
+    },
+    [sessionStatuses, baseUrl],
+  );
+
   // Attach session to active tab — just updates tab state.
   // The Terminal component handles WebSocket connection based on the session ID.
   const attachToSession = useCallback(
     (session: Session) => {
       attachSession(session.id);
-
-      // Acknowledge the automatic unread_since when selecting a session.
-      // Acknowledge leaves the manual user_marked_unread_at intact, so a sticky
-      // "Mark as unread" survives selection.
-      const status = sessionStatuses[session.id];
-      if (status?.unreadSince) {
-        apiTextFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(session.id)}/acknowledge`, {
-          method: "POST",
-        }).catch(() => {});
-      }
+      acknowledgeUnread(session);
     },
-    [attachSession, sessionStatuses, baseUrl]
+    [attachSession, acknowledgeUnread],
   );
 
-  // Deep-link: auto-attach session from ?session= query param (e.g. from Slack notification)
-  const deepLinkHandled = useRef(false);
-  useEffect(() => {
-    if (!sessionsLoaded || deepLinkHandled.current) return;
+  // Where background work should land: the node it was started on, the tab that
+  // started it, and what that tab held at the time. Held in a ref so the async
+  // handlers below stay stable across tab switches, matching the mutate-ref
+  // pattern above. The node is part of the target because the recovery toast
+  // has to get back to it — see `openCreatedSession`.
+  const attachTargetRef = useRef<{
+    nodeId: string | null;
+    tabId: string;
+    sessionId: string | null;
+  }>({
+    nodeId: activeNode?.id ?? null,
+    tabId: activeTabId,
+    sessionId: null,
+  });
+  attachTargetRef.current = {
+    nodeId: activeNode?.id ?? null,
+    tabId: activeTabId,
+    sessionId: activeTab?.sessionId ?? null,
+  };
 
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get("session");
-    if (!sessionId) return;
+  // Attach the result of background work to the tab that started it — but only
+  // if that tab is still what it was. Returns whether it attached, so callers
+  // can fall back to a toast rather than dropping the session into whatever tab
+  // the user has moved to.
+  const attachToTarget = useCallback(
+    (
+      target: { tabId: string; sessionId: string | null },
+      session: Session,
+    ): boolean => {
+      const attached = attachSessionToTab(
+        target.tabId,
+        session.id,
+        target.sessionId,
+      );
+      if (attached) acknowledgeUnread(session);
+      return attached;
+    },
+    [attachSessionToTab, acknowledgeUnread],
+  );
 
-    deepLinkHandled.current = true;
+  // The recovery affordance behind the "Open" action on a create/clone toast:
+  // the work finished but could not be attached to the tab that started it.
+  //
+  // On the node it started on that is just an attach. If the user has since
+  // switched nodes this instance is unmounted — its `attachSession` would write
+  // to a provider nobody is looking at — so hand the session over through the
+  // deep-link param instead, which survives the remount, and switch back to the
+  // node that owns it. `useSessionDeepLink` picks it up exactly as it does a
+  // link out of Slack — and holds the param until the session actually shows up
+  // in the list, which matters here: the remounted workspace starts from that
+  // node's cached list, which predates the session this is trying to open.
+  const openCreatedSession = useCallback(
+    (session: Session, nodeId: string | null) => {
+      if (mountedRef.current) {
+        attachToSession(session);
+        return;
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set("session", session.id);
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+      // Wake the live workspace explicitly. `setActiveNode` below no-ops when
+      // the user has already navigated back here themselves, and nothing else
+      // about writing the URL re-renders anyone.
+      notifySessionDeepLink();
+      if (nodeId) setActiveNode(nodeId);
+    },
+    [attachToSession, setActiveNode],
+  );
 
-    const session = sessions.find((s) => s.id === sessionId);
-    if (session) {
+  // Deep-link: auto-attach session from ?session= query param — from a Slack
+  // notification, or from the "Open" action above once the workspace has moved
+  // to another node.
+  const attachFromDeepLink = useCallback(
+    (session: Session) => {
       attachToSession(session);
       // Open sidebar on mobile so user can see the session
       if (isMobile) setSidebarOpen(true);
-    }
-
-    // Clear query param to avoid re-triggering on refresh
-    const url = new URL(window.location.href);
-    url.searchParams.delete("session");
-    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-  }, [sessionsLoaded, sessions, attachToSession, isMobile]);
+    },
+    [attachToSession, isMobile],
+  );
+  useSessionDeepLink({
+    sessionsLoaded,
+    sessions,
+    onAttach: attachFromDeepLink,
+  });
 
   // Open sidebar on desktop at startup (mobile starts collapsed)
   useEffect(() => {
@@ -319,10 +423,41 @@ function HomeContent({
     [sessions, attachToSession]
   );
 
+  // Resolves a handoff toast if the user dismissed the dialog mid-create, and
+  // is also the fallback when the create could not be attached to the tab that
+  // started it. With neither, success stays silent as it always has.
+  const resolveCreateToast = useCallback(
+    (
+      outcome: "success" | "error",
+      name: string,
+      action?: { label: string; onClick: () => void },
+    ) => {
+      const id = createToastRef.current;
+      createToastRef.current = null;
+      const decision = resolveCreateToastDecision(outcome, name, id, action);
+      if (!decision) return;
+      if (decision.kind === "error") {
+        toast.error(decision.message, decision.options);
+      } else {
+        toast.success(decision.message, decision.options);
+      }
+    },
+    [],
+  );
+
   // Create session handler
   const handleCreateSession = useCallback(
     async (params: CreateSessionParams) => {
-      setShowNewSessionDialog(false);
+      // Defensive: NewSessionDialog serialises submits with a synchronous lock,
+      // so this is unreachable today. The bookkeeping below is single-slot, and
+      // a second create would silently retarget this one's toast — cheap to
+      // make that impossible here rather than by a comment pointing elsewhere.
+      if (createInFlightRef.current) return;
+
+      const name = params.name?.trim() || "session";
+      pendingCreateNameRef.current = name;
+      createInFlightRef.current = true;
+      const target = attachTargetRef.current;
 
       try {
         const result = await createMutateRef.current({
@@ -334,35 +469,89 @@ function HomeContent({
           branch: params.branch,
         });
 
+        // A handoff toast is the record that the user dismissed the dialog
+        // mid-create. Whatever is on screen now is not this create's form —
+        // most likely one reopened while the first create was still in
+        // flight (its fieldset stays disabled until that settles, so it's
+        // inert, not a queued second submit) — so closing it here would yank
+        // it away on someone else's completion.
+        if (createToastRef.current === null) setShowNewSessionDialog(false);
+
+        let openAction: { label: string; onClick: () => void } | undefined;
+        // The server may normalise or dedupe the requested name, so prefer
+        // what it actually created — falling back to the request only if the
+        // response somehow carries no session (the toast still needs a name).
+        let displayName = name;
         if (result.session) {
-          // Attach to the newly created session — Terminal will auto-connect
-          // via WebSocket to /api/node/ws/sessions/{id}. Session list refreshes
-          // automatically via TanStack Query's onSuccess invalidation.
-          attachToSession(result.session);
+          const session = result.session;
+          displayName = session.name;
+          // Attach to the tab that opened the dialog — Terminal will
+          // auto-connect via WebSocket to /api/node/ws/sessions/{id}. Session
+          // list refreshes automatically via TanStack Query's onSuccess
+          // invalidation.
+          if (!attachToTarget(target, session)) {
+            openAction = {
+              label: "Open",
+              onClick: () => openCreatedSession(session, target.nodeId),
+            };
+          }
         }
+        resolveCreateToast("success", displayName, openAction);
       } catch (err) {
         console.error("Failed to create session:", err);
-        toast.error("Failed to create session");
+        resolveCreateToast("error", name);
+      } finally {
+        createInFlightRef.current = false;
       }
     },
-    [attachToSession]
+    [attachToTarget, openCreatedSession, resolveCreateToast],
   );
+
+  // Dismissing the dialog mid-create hands the work off to a toast, so a
+  // multi-minute clone never traps the modal. A create that already settled
+  // leaves the ref false, so the behaviour there is unchanged: silence on
+  // success, an error toast on failure.
+  const handleCloseNewSessionDialog = useCallback(() => {
+    setShowNewSessionDialog(false);
+    if (createInFlightRef.current && createToastRef.current === null) {
+      createToastRef.current = toast.loading(
+        `Creating ${pendingCreateNameRef.current}…`,
+      );
+    }
+  }, []);
 
   // Clone session handler — creates a sibling session sharing the same context
   // (worktree, profile, provider) and attaches to it.
   const handleCloneSession = useCallback(
     async (sessionId: string) => {
+      const target = attachTargetRef.current;
       try {
-        const result = await cloneMutateRef.current(sessionId);
+        const result = await cloneMutateRef.current({ sessionId });
         if (result.session) {
-          attachToSession(result.session);
+          const session = result.session;
+          if (!attachToTarget(target, session)) {
+            // The tab that started this is gone or in use, or the whole
+            // workspace has moved to another node. A clone can take minutes, so
+            // say it finished rather than leaving the user to notice a new
+            // sidebar row.
+            toast.success(`Cloned ${session.name}`, {
+              action: {
+                label: "Open",
+                onClick: () => openCreatedSession(session, target.nodeId),
+              },
+              // Longer than sonner's ~4s default: this is the only recovery
+              // affordance for the clone, and the user may be looking at
+              // another tab when it appears.
+              duration: 10000,
+            });
+          }
         }
       } catch (err) {
         console.error("Failed to clone session:", err);
         toast.error("Failed to clone session");
       }
     },
-    [attachToSession]
+    [attachToTarget, openCreatedSession]
   );
 
   // Delete session handler
@@ -401,6 +590,13 @@ function HomeContent({
     async (sessionId: string, profile: string | null) => {
       try {
         await changeProfile(sessionId, profile);
+        // Only close if the dialog is still showing the session that just
+        // finished. A restart takes seconds, so dismissing it and opening
+        // another session's dialog meanwhile is ordinary — and closing that
+        // one on this result would yank it out from under the user.
+        setChangeProfileSessionId((current) =>
+          current === sessionId ? null : current,
+        );
       } catch (err) {
         console.error("Failed to change profile:", err);
         toast.error("Failed to change profile");
@@ -489,6 +685,7 @@ function HomeContent({
     activeTab,
     showNewSessionDialog,
     setShowNewSessionDialog,
+    onCloseNewSessionDialog: handleCloseNewSessionDialog,
     showQuickSwitcher,
     setShowQuickSwitcher,
     attachToSession,
@@ -555,6 +752,18 @@ export function App() {
       <NodeProvider>
         <AppInner />
       </NodeProvider>
+      {/* Above the node-keyed TabProvider *and* AppInner's isLoaded gate, so it
+          is never unmounted. sonner keeps its toast list in Toaster's own state
+          and only ever appends to it from a subscription — a remount resets
+          that list, so mounting this any lower would wipe every visible toast
+          on a node switch, including the "Creating…" handoff toast whose whole
+          job is to outlive the dialog. */}
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        richColors
+        toastOptions={{ className: "argus-toast" }}
+      />
     </TooltipProvider>
   );
 }
@@ -583,12 +792,6 @@ function AppInner() {
   return (
     <TabProvider key={scope} nodeScope={scope}>
       <HomeContent railOpen={railOpen} setRailOpen={setRailOpen} />
-      <Toaster
-        theme="dark"
-        position="bottom-right"
-        richColors
-        toastOptions={{ className: "argus-toast" }}
-      />
     </TabProvider>
   );
 }

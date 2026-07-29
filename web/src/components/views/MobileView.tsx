@@ -19,6 +19,7 @@ export function MobileView({
   activeTab,
   showNewSessionDialog,
   setShowNewSessionDialog,
+  onCloseNewSessionDialog,
   showQuickSwitcher,
   setShowQuickSwitcher,
   attachToSession,
@@ -154,7 +155,7 @@ export function MobileView({
       {/* Dialogs */}
       <NewSessionDialog
         open={showNewSessionDialog}
-        onClose={() => setShowNewSessionDialog(false)}
+        onClose={onCloseNewSessionDialog}
         onCreateSession={onCreateSession}
       />
       <QuickSwitcher

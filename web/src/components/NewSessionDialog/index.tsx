@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,8 @@ import { DockerizedBadge } from "@/components/DockerizedBadge";
 import { cn } from "@/lib/utils";
 import { isMac } from "@/lib/device";
 import { useViewport } from "@/hooks/useViewport";
+import { useSessionMutationState } from "@/hooks/useSessionMutationState";
+import { useSingleFlight } from "@/hooks/useSingleFlight";
 import type { ProviderType, CreateSessionParams } from "@/types";
 
 type SourceTab = "local" | "remote";
@@ -39,7 +42,9 @@ type SourceTab = "local" | "remote";
 interface NewSessionDialogProps {
   open: boolean;
   onClose: () => void;
-  onCreateSession: (params: CreateSessionParams) => void;
+  // Returning a promise is what lets the dialog hold its submit lock for the
+  // life of the create; a void return narrows the lock to the current tick.
+  onCreateSession: (params: CreateSessionParams) => void | Promise<void>;
 }
 
 export function NewSessionDialog({
@@ -56,12 +61,35 @@ export function NewSessionDialog({
   const [branch, setBranch] = useState("");
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
+  // Ownership, not a lock. `isCreating` is node-wide: it says *a* create is in
+  // flight, not that *this* form submitted it. Reopening the dialog mid-create
+  // would otherwise show a blank form claiming to be "Creating…". Deliberately
+  // outlives the settle — unlike the lock below, which clears on it — so
+  // `isOtherCreatePending` cannot misfire on the way down, while `isCreating`
+  // is still falling asynchronously.
+  const [ownsCreate, setOwnsCreate] = useState(false);
+  // Serialises submits: App's single-slot toast handoff assumes creates are
+  // serialised, and `isCreating` arrives too late to lock out a second submit
+  // in the same tick — see useSingleFlight for why. `dispatched` is the render
+  // mirror of that lock, so the form disables in the same commit as the
+  // dispatch rather than a task later.
+  const {
+    pending: dispatched,
+    run: runCreate,
+    reset: resetCreate,
+  } = useSingleFlight();
   const childPickerClosingRef = useRef(false);
   const sourceTriggerRef = useRef<HTMLButtonElement>(null);
   const branchTriggerRef = useRef<HTMLButtonElement>(null);
   const { data: profilesData, refetch: refetchProfiles } = useProfilesQuery();
   const profiles = profilesData?.profiles ?? [];
   const { isMobile } = useViewport();
+  const { isCreating } = useSessionMutationState();
+  // Anything holding the create lock, whether or not React has seen it yet.
+  const creating = isCreating || dispatched;
+  // This form is submitting; vs. someone else's create holding the lock.
+  const isSubmitting = (isCreating && ownsCreate) || dispatched;
+  const isOtherCreatePending = isCreating && !ownsCreate;
 
   const isRemoteSource = sourceTab === "remote" && source !== "";
   const { data: isLocalGitRepo = false } = useGitCheckQuery(
@@ -82,7 +110,13 @@ export function NewSessionDialog({
       setShowSourcePicker(false);
       setBranch("");
       setShowBranchPicker(false);
+      setOwnsCreate(false);
       childPickerClosingRef.current = false;
+      // Reopening drops the lock too: it guards one create, and the dialog
+      // outlives that create (App leaves it closed once the toast has taken
+      // over, but reuses this same instance for the next open). So a new submit
+      // never opens already claiming to create.
+      resetCreate();
     }
   }, [open]);
 
@@ -101,6 +135,10 @@ export function NewSessionDialog({
   };
 
   const createSession = () => {
+    // Creates are serialised: one at a time, so App's single-slot toast
+    // handoff bookkeeping stays correct. `runCreate` holds the same line
+    // synchronously for a second submit in this same tick.
+    if (creating) return;
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
@@ -125,8 +163,11 @@ export function NewSessionDialog({
       params.branch = branch;
     }
 
-    onCreateSession(params);
-    onClose();
+    setOwnsCreate(true);
+    // Errors stay the caller's — App resolves them into a toast.
+    runCreate(() => onCreateSession(params));
+    // No onClose() here: App closes this dialog in its success branch, so a
+    // failed create leaves the form intact instead of discarding it.
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -177,100 +218,118 @@ export function NewSessionDialog({
             <DialogTitle>New Session</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <ProviderSelector value={providerType} onChange={setProviderType} />
+            <fieldset disabled={creating} className="min-w-0 space-y-4">
+              <ProviderSelector value={providerType} onChange={setProviderType} />
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Name</label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  // Enter never submits; submit is ⌘/Ctrl+Enter or the Create
-                  // button. Let ⌘/Ctrl+Enter bubble to the dialog handler.
-                  if (e.nativeEvent.isComposing) return;
-                  if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                  }
-                }}
-                placeholder="my-feature"
-                autoFocus
-              />
-            </div>
-
-            <PickerTriggerField
-              ref={sourceTriggerRef}
-              label="Source"
-              value={source}
-              placeholder="Select a folder or repository..."
-              onOpen={() => setShowSourcePicker(true)}
-              open={showSourcePicker}
-            />
-
-            {showBranchField && (
-              <PickerTriggerField
-                ref={branchTriggerRef}
-                label="Branch"
-                optional
-                value={branch}
-                placeholder="Select or type a branch..."
-                onOpen={() => setShowBranchPicker(true)}
-                open={showBranchPicker}
-              />
-            )}
-
-            {profiles.length > 0 && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Profile</label>
-                <Select
-                  value={profile || undefined}
-                  onValueChange={setProfile}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a profile..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {profiles.map((p) => (
-                      <SelectItem key={p.name} value={p.name}>
-                        <span className="flex items-center gap-2">
-                          {p.name}
-                          {p.type === "docker" && (
-                            <DockerizedBadge className="shrink-0" />
-                          )}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <label className="text-sm font-medium">Name</label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Enter never submits; submit is ⌘/Ctrl+Enter or the Create
+                    // button. Let ⌘/Ctrl+Enter bubble to the dialog handler.
+                    if (e.nativeEvent.isComposing) return;
+                    if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  placeholder="my-feature"
+                  autoFocus
+                />
               </div>
-            )}
 
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <label className="text-sm font-medium">Auto-approve</label>
-                <p className="text-muted-foreground text-xs">
-                  Skip permission prompts for tool calls
-                </p>
-              </div>
-              <Switch
-                checked={autoApprove}
-                onCheckedChange={setAutoApprove}
+              <PickerTriggerField
+                ref={sourceTriggerRef}
+                label="Source"
+                value={source}
+                placeholder="Select a folder or repository..."
+                onOpen={() => setShowSourcePicker(true)}
+                open={showSourcePicker}
               />
-            </div>
+
+              {showBranchField && (
+                <PickerTriggerField
+                  ref={branchTriggerRef}
+                  label="Branch"
+                  optional
+                  value={branch}
+                  placeholder="Select or type a branch..."
+                  onOpen={() => setShowBranchPicker(true)}
+                  open={showBranchPicker}
+                />
+              )}
+
+              {profiles.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Profile</label>
+                  <Select
+                    value={profile || undefined}
+                    onValueChange={setProfile}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a profile..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((p) => (
+                        <SelectItem key={p.name} value={p.name}>
+                          <span className="flex items-center gap-2">
+                            {p.name}
+                            {p.type === "docker" && (
+                              <DockerizedBadge className="shrink-0" />
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <label className="text-sm font-medium">Auto-approve</label>
+                  <p className="text-muted-foreground text-xs">
+                    Skip permission prompts for tool calls
+                  </p>
+                </div>
+                <Switch
+                  checked={autoApprove}
+                  onCheckedChange={setAutoApprove}
+                />
+              </div>
+            </fieldset>
+
+            {/* Outside the fieldset so it stays legible while the fields grey out. */}
+            {isOtherCreatePending && (
+              <p className="text-muted-foreground text-sm">
+                Another session is still being created…
+              </p>
+            )}
 
             <DialogFooter className="sm:items-center">
               <div className="flex justify-end gap-2 sm:ml-auto">
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={!name.trim()}>
-                  Create
-                  {!isMobile && (
-                    <kbd
-                      aria-hidden="true"
-                      className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
-                    >
-                      {isMac() ? "⌘ ↵" : "Ctrl ↵"}
-                    </kbd>
+                <Button type="submit" disabled={!name.trim() || creating}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                      Creating…
+                    </>
+                  ) : (
+                    <>
+                      Create
+                      {!isMobile && (
+                        <kbd
+                          aria-hidden="true"
+                          className="bg-primary-foreground/15 hidden rounded px-1 py-0.5 text-[10px] sm:inline-block"
+                        >
+                          {isMac() ? "⌘ ↵" : "Ctrl ↵"}
+                        </kbd>
+                      )}
+                    </>
                   )}
                 </Button>
               </div>

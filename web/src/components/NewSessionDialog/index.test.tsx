@@ -12,8 +12,17 @@ import {
   fireEvent,
   cleanup,
   waitFor,
+  act,
 } from "@testing-library/react";
 import { NewSessionDialog } from "./index";
+
+const mocks = vi.hoisted(() => ({ isCreating: false }));
+vi.mock("@/hooks/useSessionMutationState", () => ({
+  useSessionMutationState: () => ({
+    isCreating: mocks.isCreating,
+    busySessions: {},
+  }),
+}));
 
 // --- Mock data hooks ---
 vi.mock("@/data/sessions", () => ({
@@ -103,21 +112,29 @@ function profileTrigger(): HTMLElement {
 }
 
 afterEach(cleanup);
+afterEach(() => {
+  mocks.isCreating = false;
+});
 
 function renderDialog(
   overrides: Partial<Parameters<typeof NewSessionDialog>[0]> = {},
 ) {
   const onCreateSession = vi.fn();
   const onClose = vi.fn();
-  render(
+  // A fresh element each time: React bails out of a re-render when handed the
+  // referentially identical element.
+  const element = () => (
     <NewSessionDialog
       open
       onClose={onClose}
       onCreateSession={onCreateSession}
       {...overrides}
-    />,
+    />
   );
-  return { onCreateSession, onClose };
+  const { rerender } = render(element());
+  // Re-renders the same tree (state preserved) so a test can flip the
+  // useSessionMutationState mock and have the component read the new value.
+  return { onCreateSession, onClose, rerender: () => rerender(element()) };
 }
 
 function sourceTrigger(): HTMLButtonElement {
@@ -252,5 +269,239 @@ describe("NewSessionDialog keyboard flow", () => {
     fireEvent.click(trigger);
     fireEvent.click(screen.getByText("pick-source"));
     await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+});
+
+describe("NewSessionDialog busy state", () => {
+  it("does not close itself on submit — App closes it on success", async () => {
+    const { onCreateSession, onClose } = renderDialog();
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // A create still in flight, as a real one is for most of its life.
+  function pendingCreate() {
+    return vi.fn(() => new Promise<void>(() => {}));
+  }
+
+  // The serialisation guard cannot lean on `isCreating` alone: TanStack
+  // recomputes its snapshot on each cache event but schedules React's re-read,
+  // so `isCreating` is still false for anything dispatched in the same tick as
+  // the first submit. Holding the mock false reproduces that window — App's
+  // single-slot toast handoff breaks if a second create slips through it.
+  it("submits once for repeat submits inside the isCreating gap", async () => {
+    const onCreateSession = pendingCreate();
+    renderDialog({ onCreateSession });
+    await screen.findByRole("dialog");
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+
+    fireEvent.keyDown(screen.getByRole("dialog"), {
+      key: "Enter",
+      metaKey: true,
+    });
+    // Keyboard submit runs off the dialog's capture handler, so it reaches
+    // `createSession` even once the button is disabled — the ref is the only
+    // thing standing between this and a second create.
+    fireEvent.keyDown(screen.getByRole("dialog"), {
+      key: "Enter",
+      metaKey: true,
+    });
+
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    // And the button is already out of reach for a pointer submit, with
+    // `isCreating` still false — that is the render mirror, not the query.
+    const submit = screen.getByRole("button", {
+      name: /creating/i,
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(mocks.isCreating).toBe(false);
+  });
+
+  // The flip side of that lock: it must release on settle, and it must do so
+  // without depending on ever having *seen* `isCreating` go true. A create
+  // that settles before TanStack's scheduled notify reaches React never
+  // renders a pending snapshot — an immediately-rejecting fetch dispatches
+  // pending then error in the same task — so `isCreating` stays false for the
+  // whole of this test. App leaves the dialog open on failure, so a lock
+  // stranded by that ordering means the user can never retry.
+  it("stays retryable when the create settles unobserved", async () => {
+    let settle!: () => void;
+    const onCreateSession = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    renderDialog({ onCreateSession });
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => settle());
+    expect(mocks.isCreating).toBe(false);
+    // The render mirror has to come back down with the lock, or the form stays
+    // greyed out with no way to retry.
+    expect(
+      (document.querySelector("fieldset") as HTMLFieldSetElement).disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(2);
+  });
+
+  // Same mirror as ChangeProfileDialog: locked and looking it, in the commit
+  // that dispatches rather than a task later when `isCreating` lands.
+  it("looks creating as soon as the submit is dispatched, before isCreating arrives", () => {
+    const onCreateSession = pendingCreate();
+    renderDialog({ onCreateSession });
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+
+    const submit = screen.getByRole("button", {
+      name: /creating/i,
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(submit.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      (document.querySelector("fieldset") as HTMLFieldSetElement).disabled,
+    ).toBe(true);
+    expect(mocks.isCreating).toBe(false);
+    // Its own create — not someone else's.
+    expect(
+      screen.queryByText("Another session is still being created…"),
+    ).toBeNull();
+  });
+
+  // `isCreating` must go true *after* this form submits, or the submit is
+  // swallowed by createSession's serialisation guard and `submitted` never
+  // gets set — which is exactly the state a reopened dialog is in.
+  function submitThenGoBusy() {
+    const handles = renderDialog();
+    fireEvent.change(nameInput(), { target: { value: "my-feature" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    mocks.isCreating = true;
+    handles.rerender();
+    return handles;
+  }
+
+  it("shows a spinner and 'Creating…' on the submit button for its own create", () => {
+    const { onCreateSession } = submitThenGoBusy();
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    const submit = screen.getByRole("button", {
+      name: /creating/i,
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(submit.textContent).toContain("Creating…");
+    expect(submit.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  // A dialog reopened mid-create sees a global `isCreating` it did not cause.
+  // It must not claim to be creating the blank form it is showing.
+  it("reads 'Create' and explains itself when another create is in flight", () => {
+    mocks.isCreating = true;
+    renderDialog();
+    const submit = screen.getByRole("button", {
+      name: /^create/i,
+    }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(submit.textContent).not.toContain("Creating…");
+    expect(submit.querySelector(".animate-spin")).toBeNull();
+    expect(
+      screen.getByText("Another session is still being created…"),
+    ).toBeTruthy();
+  });
+
+  it("omits the other-create note while creating its own session", () => {
+    submitThenGoBusy();
+    expect(
+      screen.queryByText("Another session is still being created…"),
+    ).toBeNull();
+  });
+
+  // A disabled <fieldset> does NOT set the `disabled` IDL property on its
+  // descendants — that property reflects the content attribute only. Assert on
+  // the fieldset itself, and that the fields live inside it.
+  it("disables the form fields while creating", () => {
+    mocks.isCreating = true;
+    renderDialog();
+    const fieldset = document.querySelector("fieldset") as HTMLFieldSetElement;
+    expect(fieldset).not.toBeNull();
+    expect(fieldset.disabled).toBe(true);
+    expect(fieldset.contains(nameInput())).toBe(true);
+    expect(fieldset.contains(sourceTrigger())).toBe(true);
+  });
+
+  it("keeps Cancel live and outside the disabled fieldset while creating", () => {
+    mocks.isCreating = true;
+    const { onClose } = renderDialog();
+    const cancel = screen.getByRole("button", {
+      name: /cancel/i,
+    }) as HTMLButtonElement;
+    const fieldset = document.querySelector("fieldset") as HTMLFieldSetElement;
+    expect(cancel.disabled).toBe(false);
+    expect(fieldset.contains(cancel)).toBe(false);
+    fireEvent.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not submit again on Cmd+Enter while creating", () => {
+    mocks.isCreating = true;
+    const { onCreateSession } = renderDialog();
+    fireEvent.change(nameInput(), {
+      target: { value: "my-feature" },
+    });
+    fireEvent.keyDown(nameInput(), { key: "Enter", metaKey: true });
+    expect(onCreateSession).not.toHaveBeenCalled();
+  });
+
+  // A create outlives the dialog's target: the user can dismiss the dialog
+  // mid-create (App hands it off to a toast) and reopen it to start the next
+  // session. The late settle from the abandoned create must not clear the
+  // lock the *new* submit is holding.
+  it("does not let a stale release clear a retargeted submit's lock", async () => {
+    const settles: Array<() => void> = [];
+    const onCreateSession = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          settles.push(resolve);
+        }),
+    );
+    const { rerender } = render(
+      <NewSessionDialog open onClose={() => {}} onCreateSession={onCreateSession} />,
+    );
+    await screen.findByRole("dialog");
+    fireEvent.change(nameInput(), { target: { value: "first" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+
+    // Dismiss and reopen — the dialog's own lock resets even though the
+    // first create keeps running in the background.
+    rerender(
+      <NewSessionDialog
+        open={false}
+        onClose={() => {}}
+        onCreateSession={onCreateSession}
+      />,
+    );
+    rerender(
+      <NewSessionDialog open onClose={() => {}} onCreateSession={onCreateSession} />,
+    );
+    await screen.findByRole("dialog");
+    fireEvent.change(nameInput(), { target: { value: "second" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create/i }));
+    expect(onCreateSession).toHaveBeenCalledTimes(2);
+
+    // The first create finally settles. Its release belongs to a generation
+    // the dialog has moved past, so the second create keeps both the lock
+    // and the pending look.
+    await act(async () => settles[0]());
+    expect(screen.getByRole("button", { name: /creating/i })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), {
+      key: "Enter",
+      metaKey: true,
+    });
+    expect(onCreateSession).toHaveBeenCalledTimes(2);
   });
 });

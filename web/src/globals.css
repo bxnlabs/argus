@@ -310,6 +310,13 @@ body {
 /* Toast prominence */
 [data-sonner-toaster] {
   --offset: 16px !important;
+  /* Radix's dismissable-layer sets `pointer-events: none` on <body> while a
+     modal dialog is open, and only the dialog layer gets it back. That value
+     inherits, and sonner ships no `pointer-events: auto` rule of its own
+     (only a `none` on invisible toasts) — so without this, a toast rendered
+     while a dialog is open renders inert: visible, but its action button
+     unclickable. Keep this even if it looks redundant with a default. */
+  pointer-events: auto;
 }
 
 [data-sonner-toast].argus-toast {

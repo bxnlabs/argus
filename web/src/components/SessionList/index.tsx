@@ -9,11 +9,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight, Copy } from "lucide-react";
+import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight, Copy, Loader2 } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
 import { useProfilesQuery } from "@/data/sessions";
+import type { BusyKind } from "@/hooks/useSessionMutationState";
+import { useSessionMutationState } from "@/hooks/useSessionMutationState";
 import {
   loadSectionCollapse,
   saveSectionCollapse,
@@ -64,6 +66,29 @@ export function resolveStatusDisplay(
     return { label: "Unread", dotColor: "bg-blue-500", animation: "" };
   }
   return { label: statusMeta.label, dotColor: statusMeta.color, animation: statusMeta.animation };
+}
+
+const BUSY_LABEL: Record<BusyKind, string> = {
+  cloning: "Cloning…",
+  deleting: "Deleting…",
+  profile: "Updating profile…",
+};
+
+// Row display with in-flight mutations folded in. Busy outranks everything:
+// a row being deleted shows that, not its last known status or unread marker.
+export function resolveRowDisplay(
+  busy: BusyKind | undefined,
+  statusValue: string | undefined,
+  unreadSince: string | null | undefined,
+  userMarkedUnreadAt: string | null | undefined,
+): { label: string; dotColor: string; animation: string; spinner: boolean } {
+  if (busy) {
+    return { label: BUSY_LABEL[busy], dotColor: "", animation: "", spinner: true };
+  }
+  return {
+    ...resolveStatusDisplay(statusValue, unreadSince, userMarkedUnreadAt),
+    spinner: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -130,9 +155,10 @@ interface SessionItemProps {
   onMarkRead: (sessionId: string) => void;
   onMarkUnread: (sessionId: string) => void;
   renamePendingRef: React.RefObject<boolean>;
+  busy?: BusyKind;
 }
 
-const SessionItem = memo(function SessionItem({
+export const SessionItem = memo(function SessionItem({
   session,
   homeDir,
   isActive,
@@ -157,12 +183,14 @@ const SessionItem = memo(function SessionItem({
   onMarkRead,
   onMarkUnread,
   renamePendingRef,
+  busy,
 }: SessionItemProps) {
   const repoPath = session.git_remote_url
     ? parseRepoFromRemoteURL(session.git_remote_url)
     : null;
   const { showMarkRead, showMarkUnread } = readMenuState(unreadSince, userMarkedUnreadAt);
-  const { label: statusLabel, dotColor, animation } = resolveStatusDisplay(
+  const { label: statusLabel, dotColor, animation, spinner } = resolveRowDisplay(
+    busy,
     statusValue,
     unreadSince,
     userMarkedUnreadAt,
@@ -170,11 +198,14 @@ const SessionItem = memo(function SessionItem({
 
   return (
     <div
+      aria-busy={busy ? true : undefined}
       className={cn(
         "hover:bg-accent/50 has-[[data-state=open]]:bg-accent/50 group relative flex cursor-pointer items-center gap-1.5 rounded px-2 py-2",
-        isActive && "bg-accent -ml-1.5 rounded-l-none pl-3.5"
+        isActive && "bg-accent -ml-1.5 rounded-l-none pl-3.5",
+        busy && "pointer-events-none opacity-60",
       )}
       onClick={() => {
+        if (busy) return;
         if (!isRenaming) {
           onAttachSession(session.id);
         }
@@ -209,13 +240,20 @@ const SessionItem = memo(function SessionItem({
               {session.name || "Unnamed Session"}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5">
-              <div
-                className={cn(
-                  "h-1.5 w-1.5 flex-shrink-0 rounded-full",
-                  dotColor,
-                  animation
-                )}
-              />
+              {spinner ? (
+                <Loader2
+                  aria-hidden="true"
+                  className="text-muted-foreground h-3 w-3 flex-shrink-0 animate-spin"
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "h-1.5 w-1.5 flex-shrink-0 rounded-full",
+                    dotColor,
+                    animation
+                  )}
+                />
+              )}
               <span className="text-muted-foreground min-w-0 truncate text-xs">
                 {statusLabel ? `${statusLabel} · ` : ""}
                 {formatRelativeTime(session.updated_at)}
@@ -254,11 +292,38 @@ const SessionItem = memo(function SessionItem({
         )}
       </div>
 
-      {/* Actions menu — always visible on touch, hover on desktop */}
+      {/* Actions menu — always visible on touch, hover on desktop. While busy
+          it stays mounted and focusable, just inert: choosing Clone/Delete
+          closes the menu in the same commit that makes the row busy, and Radix
+          restores focus to the trigger right after. Unmounting it — or setting
+          the `disabled` attribute, which makes it un-focusable — drops focus to
+          <body>, so the next Tab restarts from the top of the document.
+          aria-disabled keeps it a focus target; preventDefault on the opening
+          gestures stops Radix's composed handlers from opening the menu.
+
+          The two gesture guards are not equals. onKeyDown is the load-bearing
+          one: the row's `pointer-events-none` does not apply to the keyboard,
+          and the trigger is deliberately still focusable. onPointerDown is a
+          backstop — real pointer input never reaches it through that row, so it
+          only catches synthesised/programmatic events, which is also why its
+          test has to dispatch the event directly. Removing it is safe; removing
+          `pointer-events-none` in favour of it is not. */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             onClick={(e) => e.stopPropagation()}
+            aria-disabled={busy !== undefined}
+            onPointerDown={(e) => {
+              if (busy) e.preventDefault();
+            }}
+            onKeyDown={(e) => {
+              // Exactly the keys Radix's trigger opens on. Anything wider
+              // swallows Tab and traps focus on a control we deliberately kept
+              // focusable — the same failure this whole branch exists to avoid.
+              if (busy && ["Enter", " ", "ArrowDown"].includes(e.key)) {
+                e.preventDefault();
+              }
+            }}
             className="text-muted-foreground hover:text-foreground flex-shrink-0 rounded-md p-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:data-[state=open]:opacity-100"
             aria-label="Session actions"
           >
@@ -482,6 +547,7 @@ export const SessionList = memo(function SessionList({
 
   const { data: profilesData } = useProfilesQuery();
   const hasProfiles = (profilesData?.profiles?.length ?? 0) > 0;
+  const { busySessions } = useSessionMutationState();
 
   const renderItem = (session: Session) => {
     const isRenaming = renamingSessionId === session.id;
@@ -512,6 +578,7 @@ export const SessionList = memo(function SessionList({
         onMarkRead={onMarkRead}
         onMarkUnread={onMarkUnread}
         renamePendingRef={renamePendingRef}
+        busy={busySessions[session.id]}
       />
     );
   };

@@ -38,6 +38,7 @@ export function useCreateSession() {
   const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
+    mutationKey: sessionKeys.mutation(scope, "create"),
     mutationFn: (input: CreateSessionInput) =>
       apiFetch<CreateSessionResponse>(baseUrl, "/api/node/sessions", {
         method: "POST",
@@ -54,7 +55,8 @@ export function useCloneSession() {
   const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
-    mutationFn: (sessionId: string) =>
+    mutationKey: sessionKeys.mutation(scope, "clone"),
+    mutationFn: ({ sessionId }: { sessionId: string }) =>
       apiFetch<CreateSessionResponse>(
         baseUrl,
         `/api/node/sessions/${encodeURIComponent(sessionId)}/clone`,
@@ -76,6 +78,7 @@ export function useDeleteSession() {
   const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
+    mutationKey: sessionKeys.mutation(scope, "delete"),
     mutationFn: ({
       sessionId,
       deleteBranch,
@@ -88,7 +91,15 @@ export function useDeleteSession() {
         `/api/node/sessions/${encodeURIComponent(sessionId)}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
         { method: "DELETE" },
       ),
-    onSuccess: () => {
+    onSuccess: (_data, { sessionId }) => {
+      // Drop the row immediately rather than waiting for the refetch. Without
+      // this the row un-busies and flashes back to normal for a frame before
+      // the invalidation removes it.
+      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(scope), (old) =>
+        old
+          ? { ...old, sessions: old.sessions.filter((s) => s.id !== sessionId) }
+          : old,
+      );
       queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
     },
   });
@@ -143,6 +154,7 @@ export function useChangeSessionProfile() {
   const { scope, baseUrl } = useActiveNode();
 
   return useMutation({
+    mutationKey: sessionKeys.mutation(scope, "profile"),
     mutationFn: ({
       sessionId,
       profile,
