@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -31,6 +32,10 @@ type session struct {
 	wsMu      sync.Mutex
 	done      chan struct{}
 	closeOnce sync.Once
+	// exitPaneMode cancels any tmux pane mode (copy-mode, choose-tree, ...)
+	// before compose text is injected. nil for the raw-shell route, which has
+	// no tmux session.
+	exitPaneMode func() error
 }
 
 func (s *session) close() {
@@ -143,7 +148,7 @@ func (s *session) readWS() {
 					// Submit defaults to true for backwards compatibility
 					// (old clients don't send the field).
 					submit := msg.Submit == nil || *msg.Submit
-					if err := injectCompose(s.ptmx, time.Sleep, msg.Text, submit); err != nil {
+					if err := handleTextMessage(s.ptmx, time.Sleep, s.exitPaneMode, msg.Text, submit); err != nil {
 						return
 					}
 				}
@@ -209,6 +214,45 @@ func injectCompose(w io.Writer, sleep func(time.Duration), text string, submit b
 		}
 	}
 	return nil
+}
+
+// exitPaneModeTimeout bounds the tmux call so a wedged tmux cannot stall the
+// WebSocket read loop, which is what calls this.
+const exitPaneModeTimeout = 2 * time.Second
+
+// newExitPaneMode returns a func that cancels any mode the session's active
+// pane is in, or nil when there is no tmux session (the raw-shell route).
+//
+// This matters because the PTY we write compose text to is a tmux *client*: a
+// pane sitting in copy-mode routes those bytes through the copy-mode key table
+// instead of to the pane's process, so the paste never reaches the agent and
+// its characters fire copy-mode bindings instead ('q' cancels, '/' opens
+// search, digits become repeat counts). Cancelling first also snaps the pane
+// back to live output, which is the feedback the user wants after sending.
+func newExitPaneMode(sessionName string) func() error {
+	if sessionName == "" {
+		return nil
+	}
+	return func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), exitPaneModeTimeout)
+		defer cancel()
+		cmd, err := shared.TmuxCommandContext(ctx, "send-keys", "-t", sessionName, "-X", "cancel")
+		if err != nil {
+			return err
+		}
+		// Errors here are expected and benign: tmux fails this when the pane is
+		// not in a mode, which is the common case.
+		return cmd.Run()
+	}
+}
+
+// handleTextMessage injects a compose "text" message, cancelling any tmux pane
+// mode first. A failing cancel never blocks the send — see newExitPaneMode.
+func handleTextMessage(w io.Writer, sleep func(time.Duration), exitMode func() error, text string, submit bool) error {
+	if exitMode != nil {
+		_ = exitMode()
+	}
+	return injectCompose(w, sleep, text, submit)
 }
 
 // ping sends periodic WebSocket pings to detect dead connections.
@@ -310,10 +354,11 @@ func handleConnection(w http.ResponseWriter, r *http.Request, cmd *exec.Cmd, ses
 	}
 
 	s := &session{
-		ws:   ws,
-		ptmx: ptmx,
-		cmd:  cmd,
-		done: make(chan struct{}),
+		ws:           ws,
+		ptmx:         ptmx,
+		cmd:          cmd,
+		done:         make(chan struct{}),
+		exitPaneMode: newExitPaneMode(sessionName),
 	}
 
 	if err := s.writeJSON(controlMessage{

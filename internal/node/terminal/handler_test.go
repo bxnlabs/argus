@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -97,5 +98,73 @@ func TestInjectComposeNoSubmitWritesOnlyBlock(t *testing.T) {
 	}
 	if string(w.writes[0]) != "\x1b[200~hello\x1b[201~" {
 		t.Fatalf("write must be the paste block only, got %q", w.writes[0])
+	}
+}
+
+// orderRecorder records exitPaneMode calls and PTY writes in one ordered log so
+// tests can assert the copy-mode cancel happens BEFORE the paste block.
+type orderRecorder struct{ events []string }
+
+func (r *orderRecorder) Write(p []byte) (int, error) {
+	r.events = append(r.events, "write:"+string(p))
+	return len(p), nil
+}
+
+func TestHandleTextMessageCancelsPaneModeBeforePaste(t *testing.T) {
+	r := &orderRecorder{}
+	exitMode := func() error {
+		r.events = append(r.events, "exit")
+		return nil
+	}
+
+	if err := handleTextMessage(r, func(time.Duration) {}, exitMode, "hello", true); err != nil {
+		t.Fatalf("handleTextMessage: %v", err)
+	}
+
+	if len(r.events) != 3 {
+		t.Fatalf("want 3 events (exit, paste, return), got %d: %v", len(r.events), r.events)
+	}
+	if r.events[0] != "exit" {
+		t.Fatalf("copy-mode cancel must come first, got %q", r.events[0])
+	}
+	if r.events[1] != "write:\x1b[200~hello\x1b[201~" {
+		t.Fatalf("second event must be the paste block, got %q", r.events[1])
+	}
+	if r.events[2] != "write:\r" {
+		t.Fatalf("third event must be the submit Return, got %q", r.events[2])
+	}
+}
+
+func TestHandleTextMessageIgnoresExitPaneModeError(t *testing.T) {
+	r := &orderRecorder{}
+	exitMode := func() error { return errors.New("no current mode") }
+
+	if err := handleTextMessage(r, func(time.Duration) {}, exitMode, "hello", false); err != nil {
+		t.Fatalf("a failing cancel must not fail the send: %v", err)
+	}
+	if len(r.events) != 1 || r.events[0] != "write:\x1b[200~hello\x1b[201~" {
+		t.Fatalf("paste must still be written, got %v", r.events)
+	}
+}
+
+func TestHandleTextMessageSkipsNilExitMode(t *testing.T) {
+	r := &orderRecorder{}
+
+	if err := handleTextMessage(r, func(time.Duration) {}, nil, "hello", false); err != nil {
+		t.Fatalf("handleTextMessage: %v", err)
+	}
+	if len(r.events) != 1 || r.events[0] != "write:\x1b[200~hello\x1b[201~" {
+		t.Fatalf("nil exitMode must write only the paste block, got %v", r.events)
+	}
+}
+
+func TestNewExitPaneModeNilForRawShellRoute(t *testing.T) {
+	// The raw-shell route (/ws/terminal) has no tmux session, so there is no
+	// pane to cancel.
+	if newExitPaneMode("") != nil {
+		t.Fatal("empty session name must yield a nil exitMode")
+	}
+	if newExitPaneMode("argus-abc123") == nil {
+		t.Fatal("named session must yield a non-nil exitMode")
 	}
 }
