@@ -32,6 +32,10 @@ export const ComposeBar = memo(function ComposeBar({
   // spacer's h-11 is only a pre-measurement fallback; everything downstream
   // uses the measured value, so no hardcoded pixel height can drift.
   const collapsedHeightRef = useRef<number | null>(null);
+  // Read through a ref so an unstable onOverlayHeightChange identity can't
+  // force the effect below to rebuild.
+  const onOverlayHeightChangeRef = useRef(onOverlayHeightChange);
+  onOverlayHeightChangeRef.current = onOverlayHeightChange;
 
   useEffect(() => {
     const el = panelRef.current;
@@ -42,14 +46,19 @@ export const ComposeBar = memo(function ComposeBar({
       if (collapsedHeightRef.current === null) {
         collapsedHeightRef.current = height;
       }
-      onOverlayHeightChange?.(
+      onOverlayHeightChangeRef.current?.(
         Math.max(0, height - (collapsedHeightRef.current ?? height)),
       );
     });
 
     ro.observe(el);
     return () => ro.disconnect();
-  }, [onOverlayHeightChange]);
+    // Empty deps: the observer must be built exactly once. collapsedHeightRef
+    // is defined as "the first height observed after mount" — rebuilding the
+    // observer mid-life (e.g. because a parent passes an inline callback)
+    // would recapture that baseline at an already-grown height and
+    // under-report the overlay for the rest of the component's life.
+  }, []);
 
   const canSend = connected && text.trim().length > 0;
   // An empty, unfocused bar stays quiet chrome — but a draft must remain

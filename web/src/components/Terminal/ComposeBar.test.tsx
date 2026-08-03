@@ -189,7 +189,57 @@ describe("ComposeBar overlay height", () => {
 
     observer().emit(44);
 
-    expect(onOverlayHeightChange).toHaveBeenCalledWith(0);
+    // toHaveBeenCalledWith only checks that SOME call matched; pin down the
+    // call count too so an implementation that fires onOverlayHeightChange(0)
+    // unconditionally (regardless of the observed height) can't pass this in
+    // isolation.
+    expect(onOverlayHeightChange).toHaveBeenCalledTimes(1);
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("keeps the collapsed baseline and never rebuilds the observer when onOverlayHeightChange's identity churns before an early re-render", () => {
+    // Regression test for a baseline-corruption race: if the ResizeObserver
+    // effect depended on onOverlayHeightChange, a parent that doesn't
+    // memoize its callback (a fresh function identity every render) would
+    // tear down and rebuild the observer. The component's contract is that
+    // collapsedHeight is the first height observed after mount; rebuilding
+    // mid-life risks recapturing that baseline at an already-grown height.
+    // The fix builds the observer exactly once and reads the callback
+    // through a ref, so this must hold regardless of how often the parent
+    // re-renders with a new callback identity.
+    const calls: number[] = [];
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const tree = (onOverlayHeightChange: (height: number) => void) => (
+      <QueryClientProvider client={queryClient}>
+        <StubNodeProvider>
+          <ComposeBar
+            onSend={() => {}}
+            connected={true}
+            onOverlayHeightChange={onOverlayHeightChange}
+          />
+        </StubNodeProvider>
+      </QueryClientProvider>
+    );
+
+    // A fresh inline callback on the first render, like an unmemoized parent.
+    const { rerender } = render(tree((h) => calls.push(h)));
+
+    observer().emit(44); // baseline, one line
+
+    // Force a parent re-render that changes onOverlayHeightChange's identity
+    // before any further observation fires.
+    rerender(tree((h) => calls.push(h)));
+
+    observer().emit(84); // grown
+
+    // Exactly one ResizeObserver should ever be constructed for the life of
+    // the component instance.
+    expect(MockResizeObserver.instances.length).toBe(1);
+    // The overlay must still be measured against the ORIGINAL 44px
+    // baseline, not a baseline recaptured mid-life.
+    expect(calls).toEqual([0, 40]);
   });
 
   it("reports the overflow past the collapsed baseline as the panel grows", () => {
@@ -221,7 +271,7 @@ describe("ComposeBar overlay height", () => {
     expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
   });
 
-  it("returns to zero when the draft is cleared by sending", () => {
+  it("returns to zero when the panel shrinks back down to its collapsed baseline", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
       onSend: () => {},
@@ -246,5 +296,26 @@ describe("ComposeBar overlay height", () => {
     const mirror = document.querySelector("[data-testid='compose-mirror']");
     // The trailing space is what makes a trailing newline reserve a line.
     expect(mirror?.textContent).toBe("line one\nline two ");
+  });
+
+  it("keeps the mirror and textarea sizing/typography classes identical, since jsdom does no layout to catch drift itself", () => {
+    renderComposeBar({ onSend: () => {}, connected: true });
+
+    const mirror = document.querySelector("[data-testid='compose-mirror']");
+    const ta = textarea();
+
+    // The mirror legitimately carries break-words/whitespace-pre-wrap that
+    // the textarea doesn't — a native textarea already wraps via the UA
+    // stylesheet — so full class-string equality is the wrong assertion.
+    // What must never drift is the set of tokens that determine each
+    // line's rendered height (padding + font size): if only one element
+    // keeps py-1.5 or text-sm, the mirror mis-measures the textarea's
+    // content and the grid row sizes to the wrong height, so the bar grows
+    // early or late.
+    const sharedSizingTokens = ["py-1.5", "text-sm"];
+    for (const token of sharedSizingTokens) {
+      expect(mirror?.className.split(" ")).toContain(token);
+      expect(ta.className.split(" ")).toContain(token);
+    }
   });
 });
