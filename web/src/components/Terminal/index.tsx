@@ -37,15 +37,13 @@ interface TerminalProps {
   selectMode?: boolean;
   /** Called when files are dropped onto the terminal (desktop drag-drop) */
   onFilesDropped?: (files: File[]) => void;
-  /** Called when the attachments button is clicked */
-  onAttachments?: () => void;
   /** Session working directory, used to anchor file search */
   workingDirectory?: string | null;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
-    { sessionName, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, onAttachments, workingDirectory },
+    { sessionName, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, workingDirectory },
     ref
   ) {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -228,7 +226,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
               workingDirectory={workingDirectory}
               onOverlayHeightChange={setComposeOverlay}
             />
-            <TerminalToolbar onKeyPress={sendInput} onSendText={sendText} />
+            <TerminalToolbar onKeyPress={sendInput} />
           </>
         )}
 

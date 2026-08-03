@@ -258,7 +258,6 @@ export const Workspace = memo(function Workspace({
                       sessionName={getTabSessionId(tab)}
                       selectMode={isActive ? selectMode : false}
                       onFilesDropped={handleFilesDropped}
-                      onAttachments={() => setShowFilePicker(true)}
                       workingDirectory={activeWorkingDirectory}
                     />
                   </div>
