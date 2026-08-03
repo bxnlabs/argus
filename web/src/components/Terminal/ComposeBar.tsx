@@ -1,0 +1,117 @@
+import { memo, useCallback, useRef, useState } from "react";
+import { SendHorizontal, Paperclip } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { FilePicker } from "@/components/FilePicker";
+import { insertPaths } from "./insertPaths";
+
+interface ComposeBarProps {
+  onSend: (text: string) => void;
+  /** Send is disabled while the socket is down; the draft is kept. */
+  connected: boolean;
+  /** Session working directory, used to anchor file search. */
+  workingDirectory?: string | null;
+  /**
+   * Reports how far the panel currently overflows its one-line spacer, so the
+   * terminal can be shifted up by the same amount. Wired in Task 4.
+   */
+  onOverlayHeightChange?: (height: number) => void;
+}
+
+export const ComposeBar = memo(function ComposeBar({
+  onSend,
+  connected,
+  workingDirectory,
+}: ComposeBarProps) {
+  const [text, setText] = useState("");
+  const [focused, setFocused] = useState(false);
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const canSend = connected && text.trim().length > 0;
+  // An empty, unfocused bar stays quiet chrome — but a draft must remain
+  // sendable after the user taps away to the terminal to hit a special key.
+  const showSend = focused || text.length > 0;
+
+  const handleSend = useCallback(() => {
+    if (!canSend) return;
+    onSend(text);
+    setText("");
+    // Keep the keyboard up for the next message.
+    textareaRef.current?.focus();
+  }, [canSend, onSend, text]);
+
+  const handleFilesPicked = useCallback(
+    (paths: string[]) => {
+      const ta = textareaRef.current;
+      const start = ta?.selectionStart ?? text.length;
+      const end = ta?.selectionEnd ?? text.length;
+      const result = insertPaths(text, start, end, paths);
+      setText(result.text);
+      requestAnimationFrame(() => {
+        ta?.focus();
+        ta?.setSelectionRange(result.cursor, result.cursor);
+      });
+    },
+    [text],
+  );
+
+  return (
+    <>
+      {/* Spacer: holds the one-line height in flow. The panel below is
+          absolutely positioned against its bottom edge and grows UPWARD, so
+          growing the input never changes the terminal's laid-out height and
+          never triggers a FitAddon refit. */}
+      <div className="relative h-11 flex-shrink-0">
+        <div
+          className={cn(
+            "absolute inset-x-0 bottom-0 flex items-end gap-1.5 border-t px-2 py-1.5 backdrop-blur transition-colors",
+            focused
+              ? "border-white/25 bg-secondary/50"
+              : "border-white/10 bg-transparent",
+          )}
+        >
+          <button
+            type="button"
+            aria-label="Attach files"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setShowFilePicker(true)}
+            className="text-secondary-foreground flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/20"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder={focused ? "Message…" : "Tap to compose"}
+            className="min-h-8 w-full flex-1 resize-none bg-transparent py-1.5 text-sm focus:outline-none"
+          />
+
+          {showSend && (
+            <button
+              type="button"
+              aria-label="Send"
+              disabled={!canSend}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleSend}
+              className="text-secondary-foreground flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/20 disabled:opacity-30"
+            >
+              <SendHorizontal className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <FilePicker
+        open={showFilePicker}
+        onOpenChange={setShowFilePicker}
+        onPick={handleFilesPicked}
+        searchPath={workingDirectory ?? undefined}
+      />
+    </>
+  );
+});
