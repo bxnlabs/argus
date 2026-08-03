@@ -128,6 +128,16 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     // and reflow wrapped scrollback out from under the user).
     const [composeOverlay, setComposeOverlay] = useState(0);
 
+    // ComposeBar is unmounted outside mobile compose mode, and its
+    // ResizeObserver never reports 0 on the way out — so derive the shift
+    // from whether the bar is actually mounted rather than trusting the last
+    // height it reported. This also guards against a mid-draft viewport
+    // change (foldable, tablet rotate, split-screen) crossing the mobile
+    // breakpoint and leaving a stale nonzero composeOverlay with nothing
+    // mounted to justify it.
+    const composeBarVisible = isMobile && !selectMode;
+    const terminalShift = composeBarVisible ? composeOverlay : 0;
+
     // Sending while scrolled up must bring the user back to the live output —
     // xterm deliberately holds its scroll position when new output arrives, so
     // the reply would otherwise land off-screen and the terminal would look
@@ -180,7 +190,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
             selectMode && "ring-primary ring-2 ring-inset"
           )}
           style={{
-            transform: composeOverlay ? `translateY(-${composeOverlay}px)` : undefined,
+            transform: terminalShift ? `translateY(-${terminalShift}px)` : undefined,
             transition: "transform 150ms ease-out",
           }}
           onClick={handleContainerClick}
@@ -208,9 +218,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         )}
 
         {/* Mobile: persistent compose input plus the special-keys toolbar.
-            Both stay mounted so there is no layout shift and ^C / esc are
-            always one tap away. */}
-        {isMobile && !selectMode && (
+            Unlike the old mount-on-demand modal, the compose input stays
+            mounted across focus/blur so ^C / esc are always one tap away. */}
+        {composeBarVisible && (
           <>
             <ComposeBar
               onSend={handleSend}
