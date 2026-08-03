@@ -318,4 +318,39 @@ describe("ComposeBar overlay height", () => {
       expect(ta.className.split(" ")).toContain(token);
     }
   });
+
+  it("caps the mirror's own max-height, not just the wrapper's, so the textarea scrolls past three lines instead of being clipped", () => {
+    // jsdom has no layout engine, so this cannot assert real pixel heights
+    // or that ta.scrollTop actually moves — that was verified by hand in a
+    // real browser (see the fix commit / task report). What this CAN prove
+    // is the class/style contract the fix depends on: the wrapper and,
+    // critically, the MIRROR both carry the same derived max-height driven
+    // by one CSS variable. Before the fix, only the wrapper had a max-h
+    // (coincidentally equal to 3 * its own inherited 24px line-height); the
+    // mirror was uncapped, so the grid row still sized to the mirror's full
+    // content and the textarea just got clipped by overflow-hidden rather
+    // than becoming scrollable. A test that only checked the wrapper's
+    // max-height would pass on that broken code too, so it's the mirror's
+    // cap specifically that this asserts.
+    renderComposeBar({ onSend: () => {}, connected: true });
+
+    const wrapper = screen.getByTestId("compose-grow-wrapper");
+    const mirror = screen.getByTestId("compose-mirror");
+    const ta = textarea();
+
+    expect(wrapper.className).toMatch(/max-h-\[var\(--compose-max-h\)\]/);
+    expect(mirror.className).toMatch(/max-h-\[var\(--compose-max-h\)\]/);
+
+    // The cap must be a derived expression — 3 lines at text-sm's
+    // line-height (1.25rem) plus the shared py-1.5 vertical padding
+    // (0.75rem top+bottom total) — not a magic pixel value that only
+    // happens to match the wrapper's unrelated inherited line-height.
+    expect(wrapper.style.getPropertyValue("--compose-max-h")).toBe(
+      "calc(3 * 1.25rem + 0.75rem)",
+    );
+
+    // The textarea must be set up to scroll internally once it exceeds the
+    // capped grid row, rather than relying on the wrapper alone to grow.
+    expect(ta.className.split(" ")).toContain("overflow-y-auto");
+  });
 });

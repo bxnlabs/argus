@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { SendHorizontal, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FilePicker } from "@/components/FilePicker";
@@ -115,13 +116,33 @@ export const ComposeBar = memo(function ComposeBar({
           </button>
 
           {/* CSS-only auto-grow: an invisible mirror in the same grid cell
-              sizes the row to the content, so no JS measures anything. The
-              wrapper caps at three lines and the textarea scrolls inside it. */}
-          <div className="grid max-h-[3lh] flex-1 overflow-hidden">
+              sizes the row to the content, so no JS measures anything.
+              --compose-max-h caps growth at exactly three lines: 3 * the
+              compose text's line-height (text-sm => 1.25rem) plus the
+              shared vertical padding (py-1.5 => 0.75rem top+bottom total).
+              It must be applied to the MIRROR itself, not just this
+              wrapper — capping only the wrapper's own box still lets the
+              grid row size to the mirror's full, uncapped content, so the
+              textarea lays out taller than the wrapper and is merely
+              clipped by overflow-hidden rather than made scrollable
+              (scrollHeight === clientHeight in that case). Keep the "3 *
+              line-height + padding" derivation in sync with the
+              text-sm/py-1.5 classes shared by the mirror and textarea
+              below — this must never regress into a hardcoded pixel
+              value that only happens to match by coincidence. */}
+          <div
+            data-testid="compose-grow-wrapper"
+            className="grid max-h-[var(--compose-max-h)] flex-1 overflow-hidden"
+            style={
+              {
+                "--compose-max-h": "calc(3 * 1.25rem + 0.75rem)",
+              } as CSSProperties
+            }
+          >
             <div
               data-testid="compose-mirror"
               aria-hidden="true"
-              className="invisible [grid-area:1/1/2/2] py-1.5 text-sm break-words whitespace-pre-wrap"
+              className="invisible max-h-[var(--compose-max-h)] [grid-area:1/1/2/2] py-1.5 text-sm break-words whitespace-pre-wrap"
             >
               {text + " "}
             </div>
