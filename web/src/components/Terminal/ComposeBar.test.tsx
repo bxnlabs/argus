@@ -1,5 +1,11 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ComposeBar } from "./ComposeBar";
@@ -7,6 +13,42 @@ import { StubNodeProvider } from "@/test/node-context";
 import type { ComponentProps } from "react";
 
 afterEach(cleanup);
+
+// jsdom has no ResizeObserver and no layout engine, so tests drive the observer
+// by hand to assert the observed-height -> overlay-height conversion.
+class MockResizeObserver {
+  static instances: MockResizeObserver[] = [];
+  callback: ResizeObserverCallback;
+
+  constructor(cb: ResizeObserverCallback) {
+    this.callback = cb;
+    MockResizeObserver.instances.push(this);
+  }
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+
+  emit(height: number) {
+    act(() => {
+      this.callback(
+        [{ contentRect: { height } } as ResizeObserverEntry],
+        this as unknown as ResizeObserver,
+      );
+    });
+  }
+}
+
+beforeEach(() => {
+  MockResizeObserver.instances = [];
+  globalThis.ResizeObserver =
+    MockResizeObserver as unknown as typeof ResizeObserver;
+});
+
+function observer() {
+  const ro = MockResizeObserver.instances[0];
+  if (!ro) throw new Error("ComposeBar did not observe its panel");
+  return ro;
+}
 
 // ComposeBar renders FilePicker (Task 2's insertPaths consumer), which pulls
 // in the upload mutation (useQueryClient) and the active-node scope
@@ -133,5 +175,76 @@ describe("ComposeBar", () => {
     fireEvent.click(screen.getByRole("button", { name: /attach/i }));
 
     expect(screen.queryByRole("dialog")).not.toBeNull();
+  });
+});
+
+describe("ComposeBar overlay height", () => {
+  it("reports zero for the first observed height, which is the collapsed baseline", () => {
+    const onOverlayHeightChange = vi.fn();
+    renderComposeBar({
+      onSend: () => {},
+      connected: true,
+      onOverlayHeightChange,
+    });
+
+    observer().emit(44);
+
+    expect(onOverlayHeightChange).toHaveBeenCalledWith(0);
+  });
+
+  it("reports the overflow past the collapsed baseline as the panel grows", () => {
+    const onOverlayHeightChange = vi.fn();
+    renderComposeBar({
+      onSend: () => {},
+      connected: true,
+      onOverlayHeightChange,
+    });
+
+    observer().emit(44); // baseline, one line
+    observer().emit(64); // two lines
+    observer().emit(84); // three lines
+
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(40);
+  });
+
+  it("never reports a negative height if the panel measures under its baseline", () => {
+    const onOverlayHeightChange = vi.fn();
+    renderComposeBar({
+      onSend: () => {},
+      connected: true,
+      onOverlayHeightChange,
+    });
+
+    observer().emit(44);
+    observer().emit(30);
+
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("returns to zero when the draft is cleared by sending", () => {
+    const onOverlayHeightChange = vi.fn();
+    renderComposeBar({
+      onSend: () => {},
+      connected: true,
+      onOverlayHeightChange,
+    });
+
+    observer().emit(44);
+    observer().emit(84);
+    observer().emit(44);
+
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("mirrors the draft text so the grid row grows without measuring", () => {
+    renderComposeBar({ onSend: () => {}, connected: true });
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "line one\nline two" },
+    });
+
+    const mirror = document.querySelector("[data-testid='compose-mirror']");
+    // The trailing space is what makes a trailing newline reserve a line.
+    expect(mirror?.textContent).toBe("line one\nline two ");
   });
 });

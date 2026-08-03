@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { SendHorizontal, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FilePicker } from "@/components/FilePicker";
@@ -21,11 +21,35 @@ export const ComposeBar = memo(function ComposeBar({
   onSend,
   connected,
   workingDirectory,
+  onOverlayHeightChange,
 }: ComposeBarProps) {
   const [text, setText] = useState("");
   const [focused, setFocused] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Height of the panel at one line, captured from the first observation. The
+  // spacer's h-11 is only a pre-measurement fallback; everything downstream
+  // uses the measured value, so no hardcoded pixel height can drift.
+  const collapsedHeightRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+
+    const ro = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect.height ?? 0;
+      if (collapsedHeightRef.current === null) {
+        collapsedHeightRef.current = height;
+      }
+      onOverlayHeightChange?.(
+        Math.max(0, height - (collapsedHeightRef.current ?? height)),
+      );
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onOverlayHeightChange]);
 
   const canSend = connected && text.trim().length > 0;
   // An empty, unfocused bar stays quiet chrome — but a draft must remain
@@ -63,6 +87,7 @@ export const ComposeBar = memo(function ComposeBar({
           never triggers a FitAddon refit. */}
       <div className="relative h-11 flex-shrink-0">
         <div
+          ref={panelRef}
           className={cn(
             "absolute inset-x-0 bottom-0 flex items-end gap-1.5 border-t px-2 py-1.5 backdrop-blur transition-colors",
             focused
@@ -80,16 +105,28 @@ export const ComposeBar = memo(function ComposeBar({
             <Paperclip className="h-4 w-4" />
           </button>
 
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder={focused ? "Message…" : "Tap to compose"}
-            className="min-h-8 w-full flex-1 resize-none bg-transparent py-1.5 text-sm focus:outline-none"
-          />
+          {/* CSS-only auto-grow: an invisible mirror in the same grid cell
+              sizes the row to the content, so no JS measures anything. The
+              wrapper caps at three lines and the textarea scrolls inside it. */}
+          <div className="grid max-h-[3lh] flex-1 overflow-hidden">
+            <div
+              data-testid="compose-mirror"
+              aria-hidden="true"
+              className="invisible [grid-area:1/1/2/2] py-1.5 text-sm break-words whitespace-pre-wrap"
+            >
+              {text + " "}
+            </div>
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder={focused ? "Message…" : "Tap to compose"}
+              className="min-h-8 w-full resize-none overflow-y-auto bg-transparent py-1.5 text-sm [grid-area:1/1/2/2] focus:outline-none"
+            />
+          </div>
 
           {showSend && (
             <button
