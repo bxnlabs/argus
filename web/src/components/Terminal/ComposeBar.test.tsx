@@ -164,6 +164,27 @@ describe("ComposeBar", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("prevents default on mousedown for the send button, so tapping it never blurs the textarea and drops the mobile keyboard", () => {
+    renderComposeBar({ onSend: () => {}, connected: true });
+
+    fireEvent.focus(textarea());
+    fireEvent.change(textarea(), { target: { value: "hi" } });
+
+    // fireEvent returns false when the event's default was prevented. This
+    // is the actual mechanism the mobile keyboard-stays-up UX rests on:
+    // handleSend's explicit re-focus only matters because the mousedown
+    // that precedes the click never gets a chance to blur the textarea.
+    const sendButton = screen.getByRole("button", { name: /send/i });
+    expect(fireEvent.mouseDown(sendButton)).toBe(false);
+  });
+
+  it("prevents default on mousedown for the attach button, for the same reason as the send button", () => {
+    renderComposeBar({ onSend: () => {}, connected: true });
+
+    const attachButton = screen.getByRole("button", { name: /attach/i });
+    expect(fireEvent.mouseDown(attachButton)).toBe(false);
+  });
+
   it("opens the file picker from the attach button", () => {
     renderComposeBar({
       onSend: () => {},

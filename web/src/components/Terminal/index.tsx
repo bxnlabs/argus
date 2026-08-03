@@ -3,6 +3,7 @@ import {
   forwardRef,
   useImperativeHandle,
   useCallback,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -136,12 +137,25 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     const composeBarVisible = isMobile && !selectMode;
     const terminalShift = composeBarVisible ? composeOverlay : 0;
 
+    // composeOverlay itself must also be reset when the bar unmounts: without
+    // this, toggling select mode off can apply a stale nonzero overlay in the
+    // same commit as the remount (terminalShift briefly reads that stale
+    // value before the fresh observer reports 0), producing a visible slide
+    // as it animates back down. terminalShift above remains the source of
+    // truth for the actual shift; this is just about not carrying a stale
+    // value across a remount.
+    useEffect(() => {
+      if (!composeBarVisible) setComposeOverlay(0);
+    }, [composeBarVisible]);
+
     // Sending while scrolled up must bring the user back to the live output —
     // xterm deliberately holds its scroll position when new output arrives, so
     // the reply would otherwise land off-screen and the terminal would look
     // frozen. (Attached tmux sessions are additionally snapped back server-side
-    // by the copy-mode cancel; this covers the raw-shell route, which has no
-    // tmux at all.)
+    // by the copy-mode cancel; but hooks/touch-scroll.ts scrolls xterm's local
+    // scrollback directly without ever reaching tmux, so this client-side
+    // scroll is the primary mechanism for attached sessions too, not merely a
+    // raw-shell fallback.)
     const handleSend = useCallback(
       (text: string) => {
         sendText(text);

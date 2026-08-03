@@ -43,12 +43,19 @@ export const ComposeBar = memo(function ComposeBar({
     if (!el || typeof ResizeObserver === "undefined") return;
 
     const ro = new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect.height ?? 0;
+      const entry = entries[0];
+      // A missing entry must be skipped, not recorded: this callback's first
+      // delivery seeds collapsedHeightRef's permanent baseline, and falling
+      // back to 0 here would lock that baseline at 0 forever, making every
+      // later report the panel's full height and permanently shifting the
+      // terminal up.
+      if (!entry) return;
+      const height = entry.contentRect.height;
       if (collapsedHeightRef.current === null) {
         collapsedHeightRef.current = height;
       }
       onOverlayHeightChangeRef.current?.(
-        Math.max(0, height - (collapsedHeightRef.current ?? height)),
+        Math.max(0, height - collapsedHeightRef.current),
       );
     });
 
