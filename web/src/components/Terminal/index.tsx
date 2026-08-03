@@ -4,11 +4,13 @@ import {
   useImperativeHandle,
   useCallback,
   useMemo,
+  useState,
 } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { WifiOff, Paperclip } from "lucide-react";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { cn } from "@/lib/utils";
+import { ComposeBar } from "./ComposeBar";
 import { SearchBar } from "./SearchBar";
 import { TerminalToolbar } from "./TerminalToolbar";
 import { useTerminalConnection, useTerminalSearch } from "./hooks";
@@ -119,6 +121,27 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
 
     const handleContainerClick = useCallback(() => focus(), [focus]);
 
+    // How far the compose panel currently overflows its one-line spacer. The
+    // terminal is shifted up by this much with a transform rather than being
+    // resized: transforms don't affect layout, so FitAddon never refits and the
+    // PTY never sees a SIGWINCH mid-typing (which would repaint the agent's TUI
+    // and reflow wrapped scrollback out from under the user).
+    const [composeOverlay, setComposeOverlay] = useState(0);
+
+    // Sending while scrolled up must bring the user back to the live output —
+    // xterm deliberately holds its scroll position when new output arrives, so
+    // the reply would otherwise land off-screen and the terminal would look
+    // frozen. (Attached tmux sessions are additionally snapped back server-side
+    // by the copy-mode cancel; this covers the raw-shell route, which has no
+    // tmux at all.)
+    const handleSend = useCallback(
+      (text: string) => {
+        sendText(text);
+        xtermRef.current?.scrollToBottom();
+      },
+      [sendText, xtermRef]
+    );
+
     return (
       <div
         ref={containerRef}
@@ -156,6 +179,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
             "terminal-container min-h-0 w-full flex-1 overflow-hidden",
             selectMode && "ring-primary ring-2 ring-inset"
           )}
+          style={{
+            transform: composeOverlay ? `translateY(-${composeOverlay}px)` : undefined,
+            transition: "transform 150ms ease-out",
+          }}
           onClick={handleContainerClick}
           onTouchStart={selectMode ? (e) => e.stopPropagation() : undefined}
           onTouchEnd={selectMode ? (e) => e.stopPropagation() : undefined}
@@ -180,15 +207,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           </div>
         )}
 
-        {/* Mobile: Toolbar with special keys (native keyboard handles text) */}
-        {isMobile && (
-          <TerminalToolbar
-            onKeyPress={sendInput}
-            onSendText={sendText}
-            onAttachments={isConnected ? onAttachments : undefined}
-            visible={!selectMode}
-            workingDirectory={workingDirectory}
-          />
+        {/* Mobile: persistent compose input plus the special-keys toolbar.
+            Both stay mounted so there is no layout shift and ^C / esc are
+            always one tap away. */}
+        {isMobile && !selectMode && (
+          <>
+            <ComposeBar
+              onSend={handleSend}
+              connected={isConnected}
+              workingDirectory={workingDirectory}
+              onOverlayHeightChange={setComposeOverlay}
+            />
+            <TerminalToolbar onKeyPress={sendInput} onSendText={sendText} />
+          </>
         )}
 
         {/* Connection status overlays */}
