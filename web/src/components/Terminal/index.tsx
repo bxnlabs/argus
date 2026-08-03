@@ -231,9 +231,14 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
 
         {/* Mobile: persistent compose input plus the special-keys toolbar.
             Unlike the old mount-on-demand modal, the compose input stays
-            mounted across focus/blur so ^C / esc are always one tap away. */}
-        {composeBarVisible && (
-          <>
+            mounted across focus/blur — AND across select mode — so ^C / esc
+            are always one tap away and an in-progress draft is never
+            destroyed by tapping into select mode to copy something out of
+            the terminal. Select mode only hides this wrapper (display:none
+            via the "hidden" class); it never unmounts ComposeBar, so its
+            text state survives. */}
+        {isMobile && (
+          <div className={composeBarVisible ? "contents" : "hidden"}>
             <ComposeBar
               onSend={handleSend}
               connected={isConnected}
@@ -241,7 +246,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
               onOverlayHeightChange={setComposeOverlay}
             />
             <TerminalToolbar onKeyPress={sendInput} />
-          </>
+          </div>
         )}
 
         {/* Connection status overlays */}

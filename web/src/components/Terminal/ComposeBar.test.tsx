@@ -292,6 +292,36 @@ describe("ComposeBar overlay height", () => {
     expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
   });
 
+  it("ignores a zero-height observation instead of taking it as the collapsed baseline", () => {
+    // Reachable today: an inactive tab is mounted inside a display:none
+    // ancestor (Workspace hides inactive tabs with `hidden`). A
+    // ResizeObserver on an element inside a display:none ancestor fires
+    // immediately with contentRect.height === 0, then fires again with the
+    // true height once the ancestor becomes visible — measured in a real
+    // browser as [0, 18]. Zero is never a valid collapsed baseline: taking
+    // it would make the real height read as pure overflow and permanently
+    // shift the terminal up when the tab is later selected.
+    const onOverlayHeightChange = vi.fn();
+    renderComposeBar({
+      onSend: () => {},
+      connected: true,
+      onOverlayHeightChange,
+    });
+
+    observer().emit(0); // hidden mount — must be ignored entirely
+    observer().emit(44); // real collapsed baseline, once shown
+
+    // The zero observation must not even reach onOverlayHeightChange as a
+    // spurious "0 overlay" call — it should be skipped outright.
+    expect(onOverlayHeightChange).toHaveBeenCalledTimes(1);
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
+
+    // Now the panel grows: the overlay must be measured against the real
+    // 44px baseline, not the poisoned 0.
+    observer().emit(84);
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(40);
+  });
+
   it("returns to zero when the panel shrinks back down to its collapsed baseline", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({

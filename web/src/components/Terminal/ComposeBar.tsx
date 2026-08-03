@@ -51,6 +51,11 @@ export const ComposeBar = memo(function ComposeBar({
       // terminal up.
       if (!entry) return;
       const height = entry.contentRect.height;
+      // An inactive tab mounts inside a display:none ancestor, where a
+      // ResizeObserver fires at 0 before any layout happens. Zero is never a
+      // valid collapsed baseline — taking it would make every later
+      // observation read as pure overflow and shift the terminal permanently.
+      if (height === 0) return;
       if (collapsedHeightRef.current === null) {
         collapsedHeightRef.current = height;
       }
