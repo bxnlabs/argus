@@ -75,7 +75,7 @@ function textarea() {
 
 describe("ComposeBar", () => {
   it("sends the typed text and clears the input", () => {
-    const onSend = vi.fn();
+    const onSend = vi.fn(() => true);
     renderComposeBar({ onSend, connected: true });
 
     fireEvent.change(textarea(), { target: { value: "run the tests" } });
@@ -86,7 +86,7 @@ describe("ComposeBar", () => {
   });
 
   it("keeps focus on the input after sending so the keyboard stays up", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     fireEvent.focus(textarea());
     fireEvent.change(textarea(), { target: { value: "hi" } });
@@ -96,7 +96,7 @@ describe("ComposeBar", () => {
   });
 
   it("disables send when the draft is only whitespace", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     fireEvent.change(textarea(), { target: { value: "   " } });
 
@@ -107,7 +107,7 @@ describe("ComposeBar", () => {
   });
 
   it("disables send while disconnected but preserves the draft", () => {
-    renderComposeBar({ onSend: () => {}, connected: false });
+    renderComposeBar({ onSend: () => true, connected: false });
 
     fireEvent.change(textarea(), { target: { value: "queued message" } });
 
@@ -118,8 +118,23 @@ describe("ComposeBar", () => {
     expect(textarea().value).toBe("queued message");
   });
 
+  it("keeps the draft when the send never reached the socket", () => {
+    // `connected` is a render-time snapshot, so the socket can close between
+    // the last connected render and the tap — the send button is still
+    // enabled at that instant. onSend reports whether the write actually
+    // landed; a draft must never be cleared on a write that went nowhere.
+    const onSend = vi.fn(() => false);
+    renderComposeBar({ onSend, connected: true });
+
+    fireEvent.change(textarea(), { target: { value: "queued message" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    expect(onSend).toHaveBeenCalledWith("queued message");
+    expect(textarea().value).toBe("queued message");
+  });
+
   it("hides the send button only when the bar is unfocused AND empty", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     expect(screen.queryByRole("button", { name: /send/i })).toBeNull();
 
@@ -133,7 +148,7 @@ describe("ComposeBar", () => {
   });
 
   it("swaps the placeholder between focused and unfocused", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     expect(textarea().placeholder).toBe("Tap to compose");
 
@@ -145,7 +160,7 @@ describe("ComposeBar", () => {
   });
 
   it("never dims the draft text itself when focus leaves", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     fireEvent.change(textarea(), { target: { value: "still readable" } });
     fireEvent.blur(textarea());
@@ -155,7 +170,7 @@ describe("ComposeBar", () => {
   });
 
   it("does not send on Enter — Enter inserts a newline", () => {
-    const onSend = vi.fn();
+    const onSend = vi.fn(() => true);
     renderComposeBar({ onSend, connected: true });
 
     fireEvent.change(textarea(), { target: { value: "line one" } });
@@ -165,7 +180,7 @@ describe("ComposeBar", () => {
   });
 
   it("prevents default on mousedown for the send button, so tapping it never blurs the textarea and drops the mobile keyboard", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     fireEvent.focus(textarea());
     fireEvent.change(textarea(), { target: { value: "hi" } });
@@ -179,7 +194,7 @@ describe("ComposeBar", () => {
   });
 
   it("prevents default on mousedown for the attach button, for the same reason as the send button", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     const attachButton = screen.getByRole("button", { name: /attach/i });
     expect(fireEvent.mouseDown(attachButton)).toBe(false);
@@ -187,7 +202,7 @@ describe("ComposeBar", () => {
 
   it("opens the file picker from the attach button", () => {
     renderComposeBar({
-      onSend: () => {},
+      onSend: () => true,
       connected: true,
       workingDirectory: "/w",
     });
@@ -203,7 +218,7 @@ describe("ComposeBar overlay height", () => {
   it("reports zero for the first observed height, which is the collapsed baseline", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
-      onSend: () => {},
+      onSend: () => true,
       connected: true,
       onOverlayHeightChange,
     });
@@ -236,7 +251,7 @@ describe("ComposeBar overlay height", () => {
       <QueryClientProvider client={queryClient}>
         <StubNodeProvider>
           <ComposeBar
-            onSend={() => {}}
+            onSend={() => true}
             connected={true}
             onOverlayHeightChange={onOverlayHeightChange}
           />
@@ -266,7 +281,7 @@ describe("ComposeBar overlay height", () => {
   it("reports the overflow past the collapsed baseline as the panel grows", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
-      onSend: () => {},
+      onSend: () => true,
       connected: true,
       onOverlayHeightChange,
     });
@@ -281,7 +296,7 @@ describe("ComposeBar overlay height", () => {
   it("never reports a negative height if the panel measures under its baseline", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
-      onSend: () => {},
+      onSend: () => true,
       connected: true,
       onOverlayHeightChange,
     });
@@ -303,7 +318,7 @@ describe("ComposeBar overlay height", () => {
     // shift the terminal up when the tab is later selected.
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
-      onSend: () => {},
+      onSend: () => true,
       connected: true,
       onOverlayHeightChange,
     });
@@ -325,7 +340,7 @@ describe("ComposeBar overlay height", () => {
   it("returns to zero when the panel shrinks back down to its collapsed baseline", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
-      onSend: () => {},
+      onSend: () => true,
       connected: true,
       onOverlayHeightChange,
     });
@@ -338,7 +353,7 @@ describe("ComposeBar overlay height", () => {
   });
 
   it("mirrors the draft text so the grid row grows without measuring", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "line one\nline two" },
@@ -350,7 +365,7 @@ describe("ComposeBar overlay height", () => {
   });
 
   it("keeps the mirror and textarea sizing/typography classes identical, since jsdom does no layout to catch drift itself", () => {
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     const mirror = document.querySelector("[data-testid='compose-mirror']");
     const ta = textarea();
@@ -383,7 +398,7 @@ describe("ComposeBar overlay height", () => {
     // than becoming scrollable. A test that only checked the wrapper's
     // max-height would pass on that broken code too, so it's the mirror's
     // cap specifically that this asserts.
-    renderComposeBar({ onSend: () => {}, connected: true });
+    renderComposeBar({ onSend: () => true, connected: true });
 
     const wrapper = screen.getByTestId("compose-grow-wrapper");
     const mirror = screen.getByTestId("compose-mirror");

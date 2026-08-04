@@ -120,30 +120,20 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
 
     const handleContainerClick = useCallback(() => focus(), [focus]);
 
-    // How far the compose panel currently overflows its one-line spacer. The
-    // terminal is shifted up by this much with a transform rather than being
-    // resized: transforms don't affect layout, so FitAddon never refits and the
-    // PTY never sees a SIGWINCH mid-typing (which would repaint the agent's TUI
-    // and reflow wrapped scrollback out from under the user).
+    // How far the compose panel overflows its one-line spacer. The terminal is
+    // shifted by this much with a transform rather than resized: transforms
+    // don't affect layout, so FitAddon never refits and the PTY never sees a
+    // SIGWINCH mid-typing (which would repaint the agent's TUI and reflow
+    // wrapped scrollback out from under the user).
     const [composeOverlay, setComposeOverlay] = useState(0);
 
-    // ComposeBar is unmounted outside mobile compose mode, and its
-    // ResizeObserver never reports 0 on the way out — so derive the shift
-    // from whether the bar is actually mounted rather than trusting the last
-    // height it reported. This also guards against a mid-draft viewport
-    // change (foldable, tablet rotate, split-screen) crossing the mobile
-    // breakpoint and leaving a stale nonzero composeOverlay with nothing
-    // mounted to justify it.
+    // Select mode only hides ComposeBar, but crossing the mobile breakpoint
+    // mid-draft unmounts it — and an unmounting observer never reports 0. Gate
+    // the shift on mount state, and clear the height too so a stale one can't
+    // be applied for a frame on the way back in.
     const composeBarVisible = isMobile && !selectMode;
     const terminalShift = composeBarVisible ? composeOverlay : 0;
 
-    // composeOverlay itself must also be reset when the bar unmounts: without
-    // this, toggling select mode off can apply a stale nonzero overlay in the
-    // same commit as the remount (terminalShift briefly reads that stale
-    // value before the fresh observer reports 0), producing a visible slide
-    // as it animates back down. terminalShift above remains the source of
-    // truth for the actual shift; this is just about not carrying a stale
-    // value across a remount.
     useEffect(() => {
       if (!composeBarVisible) setComposeOverlay(0);
     }, [composeBarVisible]);
@@ -156,10 +146,15 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     // scrollback directly without ever reaching tmux, so this client-side
     // scroll is the primary mechanism for attached sessions too, not merely a
     // raw-shell fallback.)
+    // Reports back whether the text actually went out, so ComposeBar keeps the
+    // draft when the socket closed between its last `connected` render and the
+    // tap — the window where the send button is still enabled but the write
+    // would go nowhere.
     const handleSend = useCallback(
       (text: string) => {
-        sendText(text);
+        if (!sendText(text)) return false;
         xtermRef.current?.scrollToBottom();
+        return true;
       },
       [sendText, xtermRef]
     );
@@ -230,13 +225,15 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         )}
 
         {/* Mobile: persistent compose input plus the special-keys toolbar.
-            Unlike the old mount-on-demand modal, the compose input stays
-            mounted across focus/blur — AND across select mode — so ^C / esc
-            are always one tap away and an in-progress draft is never
-            destroyed by tapping into select mode to copy something out of
-            the terminal. Select mode only hides this wrapper (display:none
-            via the "hidden" class); it never unmounts ComposeBar, so its
-            text state survives. */}
+            Unlike the old mount-on-demand modal, both bars stay mounted across
+            focus/blur, so ^C / esc are one tap away while watching output
+            without raising the keyboard.
+
+            Select mode hides both bars (per spec), but only by hiding this
+            wrapper (display:none via the "hidden" class) — it never unmounts
+            ComposeBar. That is what keeps an in-progress draft alive when the
+            user taps into select mode to copy something out of the terminal
+            and back out again. */}
         {isMobile && (
           <div className={composeBarVisible ? "contents" : "hidden"}>
             <ComposeBar

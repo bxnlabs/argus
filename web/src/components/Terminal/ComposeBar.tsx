@@ -6,14 +6,15 @@ import { FilePicker } from "@/components/FilePicker";
 import { insertPaths } from "./insertPaths";
 
 interface ComposeBarProps {
-  onSend: (text: string) => void;
+  /** Returns false when the text never reached the socket — keep the draft. */
+  onSend: (text: string) => boolean;
   /** Send is disabled while the socket is down; the draft is kept. */
   connected: boolean;
   /** Session working directory, used to anchor file search. */
   workingDirectory?: string | null;
   /**
-   * Reports how far the panel currently overflows its one-line spacer, so the
-   * terminal can be shifted up by the same amount. Wired in Task 4.
+   * Reports how far the panel overflows its one-line spacer, so the terminal
+   * can be shifted up by the same amount.
    */
   onOverlayHeightChange?: (height: number) => void;
 }
@@ -29,12 +30,11 @@ export const ComposeBar = memo(function ComposeBar({
   const [showFilePicker, setShowFilePicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  // Height of the panel at one line, captured from the first observation. The
-  // spacer's h-11 is only a pre-measurement fallback; everything downstream
-  // uses the measured value, so no hardcoded pixel height can drift.
+  // Panel height at one line, measured rather than hardcoded so it can't drift
+  // from the spacer's h-11.
   const collapsedHeightRef = useRef<number | null>(null);
-  // Read through a ref so an unstable onOverlayHeightChange identity can't
-  // force the effect below to rebuild.
+  // Read through a ref so an unstable callback identity can't rebuild the
+  // observer and recapture the baseline at an already-grown height.
   const onOverlayHeightChangeRef = useRef(onOverlayHeightChange);
   onOverlayHeightChangeRef.current = onOverlayHeightChange;
 
@@ -43,34 +43,22 @@ export const ComposeBar = memo(function ComposeBar({
     if (!el || typeof ResizeObserver === "undefined") return;
 
     const ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      // A missing entry must be skipped, not recorded: this callback's first
-      // delivery seeds collapsedHeightRef's permanent baseline, and falling
-      // back to 0 here would lock that baseline at 0 forever, making every
-      // later report the panel's full height and permanently shifting the
-      // terminal up.
-      if (!entry) return;
-      const height = entry.contentRect.height;
-      // An inactive tab mounts inside a display:none ancestor, where a
-      // ResizeObserver fires at 0 before any layout happens. Zero is never a
-      // valid collapsed baseline — taking it would make every later
-      // observation read as pure overflow and shift the terminal permanently.
-      if (height === 0) return;
-      if (collapsedHeightRef.current === null) {
-        collapsedHeightRef.current = height;
-      }
+      const height = entries[0]?.contentRect.height ?? 0;
+      // Skip missing and zero observations rather than recording them: the
+      // first delivery seeds the permanent baseline, and an inactive tab
+      // observes 0 inside its display:none ancestor. A zero baseline would
+      // make every later observation read as pure overflow.
+      if (!height) return;
+      collapsedHeightRef.current ??= height;
       onOverlayHeightChangeRef.current?.(
         Math.max(0, height - collapsedHeightRef.current),
       );
     });
 
     ro.observe(el);
+    // Empty deps: build the observer once, so the baseline stays "the first
+    // height observed after mount".
     return () => ro.disconnect();
-    // Empty deps: the observer must be built exactly once. collapsedHeightRef
-    // is defined as "the first height observed after mount" — rebuilding the
-    // observer mid-life (e.g. because a parent passes an inline callback)
-    // would recapture that baseline at an already-grown height and
-    // under-report the overlay for the rest of the component's life.
   }, []);
 
   const canSend = connected && text.trim().length > 0;
@@ -80,7 +68,10 @@ export const ComposeBar = memo(function ComposeBar({
 
   const handleSend = useCallback(() => {
     if (!canSend) return;
-    onSend(text);
+    // `connected` is a render-time snapshot, so the socket can close between
+    // the last connected render and this tap. Clearing on a write that went
+    // nowhere is exactly the silent draft loss this bar exists to prevent.
+    if (!onSend(text)) return;
     setText("");
     // Keep the keyboard up for the next message.
     textareaRef.current?.focus();

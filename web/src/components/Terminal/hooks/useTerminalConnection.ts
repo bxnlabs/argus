@@ -58,12 +58,15 @@ export function useTerminalConnection({
     }
   }, []);
 
-  const sendText = useCallback((text: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({ version: 1, type: "text", text, submit: true })
-      );
-    }
+  // Returns whether the text actually reached the socket. Callers hold user
+  // drafts: a send that silently no-ops on a closed socket must not read as
+  // success, or the draft is cleared and the message is lost.
+  const sendText = useCallback((text: string): boolean => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return false;
+    wsRef.current.send(
+      JSON.stringify({ version: 1, type: "text", text, submit: true })
+    );
+    return true;
   }, []);
 
   const focus = useCallback(() => xtermRef.current?.focus(), []);

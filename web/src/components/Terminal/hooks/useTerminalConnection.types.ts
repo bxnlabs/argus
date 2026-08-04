@@ -26,7 +26,8 @@ export interface UseTerminalConnectionReturn {
   searchAddonRef: RefObject<SearchAddon | null>;
 
   sendInput: (data: string) => void;
-  sendText: (text: string) => void;
+  /** Returns false when the socket was not open and nothing was sent. */
+  sendText: (text: string) => boolean;
   focus: () => void;
   getScrollState: () => TerminalScrollState | null;
   restoreScrollState: (state: TerminalScrollState) => void;
