@@ -54,6 +54,8 @@ const TOOLBAR_BUTTONS: ToolbarButton[] = [
 
 interface TerminalToolbarProps {
   onKeyPress: (key: string) => void;
+  /** Mirrors ComposeBar's focus so both halves of the card brighten together. */
+  focused?: boolean;
 }
 
 interface PopoverState {
@@ -64,6 +66,7 @@ interface PopoverState {
 
 export const TerminalToolbar = memo(function TerminalToolbar({
   onKeyPress,
+  focused = false,
 }: TerminalToolbarProps) {
   const [popover, setPopover] = useState<PopoverState | null>(null);
 
@@ -81,10 +84,21 @@ export const TerminalToolbar = memo(function TerminalToolbar({
       )}
       <div
         data-testid="terminal-toolbar"
-        // Shares ComposeBar's surface so the two rows read as one input zone.
-        // The border-t stays but goes transparent: the shared surface already
-        // groups them, and keeping the 1px preserves the row's height.
-        className="scrollbar-none bg-input flex items-center min-[500px]:justify-center overflow-x-auto border-t border-transparent"
+        className={cn(
+          // The card's bottom half — see the matching comment on ComposeBar's
+          // panel for why the card is two boxes rather than one.
+          "scrollbar-none bg-input flex items-center min-[500px]:justify-center overflow-x-auto rounded-b-lg border-x border-t border-b mx-2 mb-1.5",
+          focused ? "border-[hsl(0_0%_30%)]" : "border-[hsl(0_0%_20%)]",
+          // The seam where the two halves meet is the row divider, at --border
+          // (14%) — quieter than the card's own edge so it separates without
+          // competing. It stays a border rather than becoming a child element
+          // so the row height is unchanged and the divider costs nothing.
+          //
+          // MUST come last. twMerge treats `border-t-<color>` and
+          // `border-<color>` as conflicting groups, so a generic border colour
+          // appearing after this line would silently delete the divider.
+          "border-t-[hsl(0_0%_14%)]",
+        )}
       >
         {/* Special keys */}
         {TOOLBAR_BUTTONS.map((btn, index) => {

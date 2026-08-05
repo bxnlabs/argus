@@ -128,6 +128,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     // SIGWINCH mid-typing (which would repaint the agent's TUI and reflow
     // wrapped scrollback out from under the user).
     const [composeOverlay, setComposeOverlay] = useState(0);
+    // The card's edge spans two sibling components, so its focus state lives
+    // here rather than inside either half.
+    const [composeFocused, setComposeFocused] = useState(false);
 
     // Select mode only hides ComposeBar, but crossing the mobile breakpoint
     // mid-draft unmounts it — and an unmounting observer never reports 0. Gate
@@ -137,7 +140,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     const terminalShift = composeBarVisible ? composeOverlay : 0;
 
     useEffect(() => {
-      if (!composeBarVisible) setComposeOverlay(0);
+      if (!composeBarVisible) {
+        setComposeOverlay(0);
+        setComposeFocused(false);
+      }
     }, [composeBarVisible]);
 
     // Sending while scrolled up must bring the user back to the live output —
@@ -250,8 +256,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
               workingDirectory={workingDirectory}
               sessionSlug={sessionSlug}
               onOverlayHeightChange={setComposeOverlay}
+              onFocusedChange={setComposeFocused}
             />
-            <TerminalToolbar onKeyPress={sendInput} />
+            <TerminalToolbar onKeyPress={sendInput} focused={composeFocused} />
           </div>
         )}
 

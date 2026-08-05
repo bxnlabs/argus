@@ -467,21 +467,23 @@ describe("ComposeBar overlay height", () => {
     const spacer = panel.parentElement!;
 
     expect(spacer.style.getPropertyValue("--compose-row-h")).toBe("21px");
-    // one row (line-height + the mirror's py-1.5) + the panel's py-1.5 + its
-    // 1px border-t
+    // one row (line-height + the mirror's py-1.5) + the panel's py-1 + its
+    // 1px border-t. The panel's padding is compacted to pay for the card's
+    // four-sided margin; the MIRROR keeps py-1.5, which is why
+    // --compose-max-h below is untouched.
     expect(spacer.style.height).toBe(
-      "calc(var(--compose-row-h) + 1.5rem + 1px)",
+      "calc(var(--compose-row-h) + 1.25rem + 1px)",
     );
     expect(wrapper.style.getPropertyValue("--compose-max-h")).toContain(
       "var(--compose-row-h)",
     );
 
     // The formula's other two terms are class-driven, so pin them too: the
-    // 1.5rem is the mirror's py-1.5 PLUS the panel's py-1.5, and the 1px is
-    // the panel's border-t. Without these, changing the panel to py-2 or
-    // dropping the border leaves the spacer at 46px while the panel resting
+    // 1.25rem is the mirror's py-1.5 (12px) PLUS the panel's py-1 (8px), and
+    // the 1px is the panel's border-t. Without these, changing the panel's
+    // padding leaves the spacer at its old value while the panel resting
     // height moves — silent drift that every assertion above still passes.
-    expect(panel.className.split(" ")).toContain("py-1.5");
+    expect(panel.className.split(" ")).toContain("py-1");
     expect(panel.className.split(" ")).toContain("border-t");
     expect(mirror.className.split(" ")).toContain("py-1.5");
 
@@ -523,5 +525,35 @@ describe("ComposeBar overlay height", () => {
     // The textarea must be set up to scroll internally once it exceeds the
     // capped grid row, rather than relying on the wrapper alone to grow.
     expect(ta.className.split(" ")).toContain("overflow-y-auto");
+  });
+
+  it("renders the panel as the card's top half", () => {
+    renderComposeBar({ onSend: () => true, connected: true });
+
+    const panel = screen.getByTestId("compose-grow-wrapper").parentElement!;
+    const spacer = panel.parentElement!;
+
+    // The panel and the toolbar are separate boxes that meet flush; each
+    // renders half the card's border.
+    expect(panel.className).toContain("rounded-t-lg");
+    expect(panel.className).toContain("border-x");
+    expect(panel.className).toContain("inset-x-2");
+    expect(panel.className).toContain("border-[hsl(0_0%_20%)]");
+    expect(spacer.className).toContain("mt-1.5");
+  });
+
+  it("reports focus changes so the toolbar half can brighten with the panel", () => {
+    const onFocusedChange = vi.fn();
+    renderComposeBar({
+      onSend: () => true,
+      connected: true,
+      onFocusedChange,
+    });
+
+    fireEvent.focus(textarea());
+    expect(onFocusedChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.blur(textarea());
+    expect(onFocusedChange).toHaveBeenLastCalledWith(false);
   });
 });
