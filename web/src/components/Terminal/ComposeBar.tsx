@@ -21,7 +21,10 @@ import { insertPaths } from "./insertPaths";
 const MAX_SLUG_CHARS = 22;
 
 function composePlaceholder(slug?: string | null): string {
-  if (!slug) return "Message";
+  // No slug means no session behind this tab — a raw shell. There is no
+  // channel to name, so the destination stays generic rather than borrowing
+  // the "#" that stands for a specific session everywhere else.
+  if (!slug) return "Message session";
   return `Message #${truncateRight(slug, MAX_SLUG_CHARS)}`;
 }
 

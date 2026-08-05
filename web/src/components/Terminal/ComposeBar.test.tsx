@@ -198,9 +198,11 @@ describe("ComposeBar", () => {
   });
 
   it("drops the channel when there is no session, as on a raw-shell tab", () => {
+    // No "#": that prefix stands for a specific session everywhere else, and
+    // a raw shell has none to name.
     renderComposeBar({ onSend: () => true, connected: true });
 
-    expect(textarea().placeholder).toBe("Message");
+    expect(textarea().placeholder).toBe("Message session");
   });
 
   it("truncates a long slug rather than letting it clip mid-word at the input edge", () => {
