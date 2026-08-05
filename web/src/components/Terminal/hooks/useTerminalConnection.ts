@@ -20,7 +20,7 @@ export type { TerminalScrollState } from "./useTerminalConnection.types";
 
 export function useTerminalConnection({
   terminalRef,
-  sessionName,
+  sessionId,
   onConnected,
   onDisconnected,
   onBeforeUnmount,
@@ -102,8 +102,8 @@ export function useTerminalConnection({
     reconnectFnRef.current?.();
   }, []);
 
-  // Main setup effect — depends on sessionName so it reconnects when session changes.
-  // sessionName=null spawns a raw shell; sessionName="..." attaches to session by ID.
+  // Main setup effect — depends on sessionId so it reconnects when session changes.
+  // sessionId=null spawns a raw shell; sessionId="..." attaches to session by ID.
   useEffect(() => {
     if (!terminalRef.current) return;
 
@@ -130,12 +130,12 @@ export function useTerminalConnection({
     // Setup touch scroll
     cleanupTouchScroll = setupTouchScroll({ term, selectModeRef, wsRef });
 
-    // Setup WebSocket — pass sessionName for session-specific connection
+    // Setup WebSocket — pass sessionId for session-specific connection
     let scrollRestoreTimer: ReturnType<typeof setTimeout> | null = null;
     const wsManager = createWebSocketConnection(
       term,
       baseUrl,
-      sessionName,
+      sessionId,
       {
         onConnected: () => {
           callbacksRef.current.onConnected?.();
@@ -210,7 +210,7 @@ export function useTerminalConnection({
       fitAddonRef.current = null;
       searchAddonRef.current = null;
     };
-  }, [isMobile, terminalRef, sessionName, baseUrl]);
+  }, [isMobile, terminalRef, sessionId, baseUrl]);
 
   // Handle isMobile changes dynamically
   useEffect(() => {

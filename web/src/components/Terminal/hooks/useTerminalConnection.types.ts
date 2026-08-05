@@ -11,7 +11,7 @@ export interface TerminalScrollState {
 export interface UseTerminalConnectionProps {
   terminalRef: RefObject<HTMLDivElement | null>;
   /** Session ID to connect to. When null, terminal shows placeholder. */
-  sessionName: string | null;
+  sessionId: string | null;
   onConnected?: () => void;
   onDisconnected?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;

@@ -255,7 +255,7 @@ export const Workspace = memo(function Workspace({
                           terminalRefs.current.delete(tab.id);
                         }
                       }}
-                      sessionName={getTabSessionId(tab)}
+                      sessionId={getTabSessionId(tab)}
                       selectMode={isActive ? selectMode : false}
                       onFilesDropped={handleFilesDropped}
                       workingDirectory={activeWorkingDirectory}

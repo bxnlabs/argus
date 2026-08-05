@@ -29,7 +29,7 @@ export interface TerminalHandle {
 
 interface TerminalProps {
   /** Session ID — WebSocket connects to /api/node/ws/sessions/{id} */
-  sessionName: string | null;
+  sessionId: string | null;
   onConnected?: () => void;
   onDisconnected?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
@@ -44,7 +44,7 @@ interface TerminalProps {
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
-    { sessionName, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, workingDirectory },
+    { sessionId, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, workingDirectory },
     ref
   ) {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -64,7 +64,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       reconnect,
     } = useTerminalConnection({
       terminalRef,
-      sessionName,
+      sessionId,
       onConnected,
       onDisconnected,
       onBeforeUnmount,

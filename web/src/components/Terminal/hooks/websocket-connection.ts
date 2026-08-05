@@ -24,7 +24,7 @@ const textEncoder = new TextEncoder();
 export function createWebSocketConnection(
   term: XTerm,
   baseUrl: string,
-  sessionName: string | null,
+  sessionId: string | null,
   callbacks: WebSocketCallbacks,
   wsRef: React.MutableRefObject<WebSocket | null>,
   reconnectTimeoutRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
@@ -33,7 +33,7 @@ export function createWebSocketConnection(
 ): WebSocketManager {
   // Captured once at setup so this socket — and its reconnects — always target
   // the node that owned it, even if the active node changes elsewhere.
-  const wsUrl = nodeWsUrl(baseUrl, sessionName);
+  const wsUrl = nodeWsUrl(baseUrl, sessionId);
   const ws = new WebSocket(wsUrl);
   ws.binaryType = "arraybuffer";
   wsRef.current = ws;
@@ -249,7 +249,7 @@ export function createWebSocketConnection(
       reconnectTimeoutRef.current = null;
     }
     // Detach handlers before closing to prevent stale onclose callbacks.
-    // When sessionName changes, React runs cleanup then setup synchronously,
+    // When sessionId changes, React runs cleanup then setup synchronously,
     // but WebSocket onclose fires async. By that time, the new setup has
     // reset intentionalCloseRef to false, so the stale onclose would
     // incorrectly schedule reconnection against the new connection.
