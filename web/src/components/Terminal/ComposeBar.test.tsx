@@ -493,6 +493,19 @@ describe("ComposeBar overlay height", () => {
     expect(panel.className.split(" ")).toContain("border-t");
     expect(mirror.className.split(" ")).toContain("py-1.5");
 
+    // The action buttons feed the resting height too, and none of the
+    // assertions above would notice if they grew. The panel is `items-end`,
+    // so its content height is max(row, button): the row is 33px (21px
+    // line-height + the mirror's 12px py-1.5) and h-8 is 32px, so the buttons
+    // clear it by ONE pixel. At h-10 the panel becomes 49px against a 42px
+    // spacer — the exact permanent overflow this test exists to prevent.
+    expect(
+      screen.getByRole("button", { name: /attach/i }).className.split(" "),
+    ).toContain("h-8");
+    expect(
+      screen.getByRole("button", { name: /send/i }).className.split(" "),
+    ).toContain("h-8");
+
     // A literal height on the spacer is exactly the regression this guards:
     // it would keep passing the cap test above while silently decoupling the
     // spacer from the row size.

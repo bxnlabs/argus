@@ -35,7 +35,10 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	s.Pinned = pinned != 0
 	// Derived, not scanned — see the field comment in models.go. Doing it
 	// here rather than at each call site is what guarantees every response
-	// path carries it: Create and Update both re-read through GetSession.
+	// path carries it: every query that selects sessionColumns lands in this
+	// function, which covers Get, List, and Update's UPDATE ... RETURNING.
+	// Create does not read at all, so the lifecycle layer re-fetches through
+	// GetSession before returning the new session.
 	s.Slug = slug.Make(s.Name)
 	return &s, nil
 }
