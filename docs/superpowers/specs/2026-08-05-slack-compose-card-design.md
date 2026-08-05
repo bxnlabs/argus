@@ -100,6 +100,19 @@ mb-* gap below              0          8           6
                            95        104          96
 ```
 
+**Verified after implementation.** Measured in Chrome at 390×844 (`pointer:
+coarse`) against a live session: spacer 42px, panel 42px, toolbar 42px, seam
+gap 0px, total zone including margins 96px. The spacer/panel invariant holds
+exactly, so the `ResizeObserver` reports no overlay at rest and the terminal
+carries no constant shift. Border colours resolve as specified — card edge
+`rgb(51,51,51)` at rest and `rgb(77,77,77)` focused, row divider
+`rgb(36,36,36)` — with both halves brightening together and the divider
+surviving `twMerge`. Growth was confirmed not to refit the terminal: the
+terminal container stayed 704px and `.xterm-screen` 702px while the panel grew
+42px → 84px and the terminal shifted by `translateY(-42px)`; past three lines
+the textarea scrolls (`scrollHeight` 117 > `clientHeight` 75) rather than
+clipping. The numbers above are therefore measured, not derived.
+
 Two cuts, both cheap:
 
 - **Card margins 8px → 6px** (−4px). The parent spec sized the top gap at 8px
@@ -167,10 +180,25 @@ it can honestly go.
 When there is no session (a raw-shell tab, `sessionId === null`), the
 placeholder is plain `Message`.
 
-Slugs longer than 28 characters truncate with an ellipsis. A textarea
+Slugs longer than 22 characters truncate with an ellipsis. A textarea
 placeholder cannot ellipsize on its own, and clipping mid-word at the input
 edge looks like a bug; `review-mike-dp-host-self-registration` is a real
 session name at 36 characters.
+
+**Amended after implementation.** This spec originally said 28, and 28 did not
+work. Measured in Chrome at 390×844, the input offers 276px, and that same
+`review-mike-dp-host-self-registration` renders at 282px when cut to 28
+characters — it still clipped mid-word, which is precisely what the cap exists
+to prevent. The deeper error is that a character count cannot express "what
+fits" in a proportional font: cut to one length, real session slugs span
+279–318px. 22 is the length at which every slug in a sample of real
+`argus session ls` names fits.
+
+So the cap bounds the common case rather than guaranteeing the general one — a
+slug of unusually wide glyphs can still clip. Closing that gap needs
+render-time text measurement (canvas `measureText`, plus font-load and resize
+handling) inside `ComposeBar`, which is not worth its machinery for a
+placeholder. Accepted deliberately.
 
 ### The slug is computed server-side
 
@@ -295,7 +323,7 @@ New:
 - `slug.Make` — the moved table
 - `scanSession` populates `Slug` from `Name`
 - create and rename round-trips both return a slug matching the name
-- placeholder composition: slug pass-through, 28-character truncation, and the
+- placeholder composition: slug pass-through, 22-character truncation, and the
   no-session `Message` fallback
 
 Visual verification repeats the established browser pass: emulated iPhone at
