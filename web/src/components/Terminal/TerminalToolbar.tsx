@@ -27,12 +27,13 @@ type ToolbarButton =
   | { label: string; key: string; icon?: React.ComponentType<{ className?: string }>; menu?: never }
   | { label: string; icon?: React.ComponentType<{ className?: string }>; menu: MenuOption[]; key?: never };
 
+// Render order is left-to-right in the key row. The two modifiers lead, the
+// arrows sit in the middle where a thumb reaches them, and the two menu-less
+// terminators (tab, return) close the run of real keys. `more` is last
+// because it is the only button that opens a menu rather than sending a key \u2014
+// keeping it out of the run means a mis-tap at the end of a scroll lands on a
+// popover that can be dismissed, not on a keystroke already sent to the pane.
 const TOOLBAR_BUTTONS: ToolbarButton[] = [
-  {
-    label: "more",
-    icon: Globe,
-    menu: [{ label: "\u21e7-tab", key: SPECIAL_KEYS.SHIFT_TAB }, { label: "^Y", key: SPECIAL_KEYS.CTRL_Y }],
-  },
   { label: "esc", key: SPECIAL_KEYS.ESC },
   {
     label: "ctrl",
@@ -50,6 +51,11 @@ const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { label: "\u2193", key: SPECIAL_KEYS.DOWN },
   { label: "tab", key: SPECIAL_KEYS.TAB },
   { label: "return", key: SPECIAL_KEYS.RETURN, icon: CornerDownLeft },
+  {
+    label: "more",
+    icon: Globe,
+    menu: [{ label: "\u21e7-tab", key: SPECIAL_KEYS.SHIFT_TAB }, { label: "^Y", key: SPECIAL_KEYS.CTRL_Y }],
+  },
 ];
 
 interface TerminalToolbarProps {
@@ -108,6 +114,11 @@ export const TerminalToolbar = memo(function TerminalToolbar({
             <button
               type="button"
               key={btn.label}
+              // Icon-only buttons render no text, so without this they reach
+              // assistive tech unnamed. Text buttons are left alone: their
+              // visible label already is the accessible name, and an
+              // aria-label would override it with an identical string.
+              aria-label={btn.icon ? btn.label : undefined}
               onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();

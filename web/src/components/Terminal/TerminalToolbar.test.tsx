@@ -12,6 +12,30 @@ describe("TerminalToolbar", () => {
     expect(buttons).toHaveLength(9);
   });
 
+  it("lays the keys out left to right as esc, ctrl, arrows, tab, return, more", () => {
+    // The order is a deliberate reach decision, not incidental: modifiers
+    // lead, arrows sit mid-row under the thumb, and `more` trails because it
+    // is the only button that opens a menu instead of sending a keystroke.
+    // Nothing else pins it, so a reorder would otherwise pass silently.
+    render(<TerminalToolbar onKeyPress={() => {}} />);
+
+    const labels = screen
+      .getAllByRole("button")
+      .map((b) => b.getAttribute("aria-label") ?? b.textContent);
+
+    expect(labels).toEqual([
+      "esc",
+      "ctrl",
+      "←",
+      "→",
+      "↑",
+      "↓",
+      "tab",
+      "return",
+      "more",
+    ]);
+  });
+
   it("no longer offers compose or attach — those live in the ComposeBar", () => {
     render(<TerminalToolbar onKeyPress={() => {}} />);
 
