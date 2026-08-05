@@ -10,8 +10,8 @@ var ErrDuplicateURL = errors.New("node url already exists")
 
 // Session represents a tmux-backed coding session.
 type Session struct {
-	ID                 string  `json:"id"`
-	Name               string  `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 	// Slug is derived from Name, not a column. scanSession computes it on
 	// every read so all API responses carry it; CreateSession names its
 	// columns explicitly and so never writes it. Deriving rather than
