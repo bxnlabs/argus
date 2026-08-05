@@ -79,9 +79,6 @@ export const ComposeBar = memo(function ComposeBar({
   }, []);
 
   const canSend = connected && text.trim().length > 0;
-  // An empty, unfocused bar stays quiet chrome — but a draft must remain
-  // sendable after the user taps away to the terminal to hit a special key.
-  const showSend = focused || text.length > 0;
 
   const handleSend = useCallback(() => {
     if (!canSend) return;
@@ -169,7 +166,7 @@ export const ComposeBar = memo(function ComposeBar({
             // programmatic/AT focus — never from the touch path.
             // Full-opacity ring, not /50: blended at 50% the ring is ~2:1
             // against these dark fills, under the 3:1 non-text contrast bar.
-            className="focus-visible:ring-ring flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[hsl(0_0%_16%)] text-[hsl(0_0%_76%)] outline-none focus-visible:ring-2"
+            className="focus-visible:ring-ring flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[hsl(0_0%_60%)] outline-none focus-visible:ring-2"
           >
             <Paperclip className="h-4 w-4" />
           </button>
@@ -216,21 +213,22 @@ export const ComposeBar = memo(function ComposeBar({
             />
           </div>
 
-          {showSend && (
-            <button
-              type="button"
-              aria-label="Send"
-              disabled={!canSend}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={handleSend}
-              // Disabled is a solid dim fill at full opacity, not a faded
-              // outline: a ghost of a ghost reads as broken, where a filled but
-              // dim control reads as "present, not yet available".
-              className="bg-primary text-primary-foreground disabled:bg-[hsl(0_0%_18%)] disabled:text-[hsl(0_0%_48%)] focus-visible:ring-ring flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2"
-            >
-              <SendHorizontal className="h-4 w-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            aria-label="Send"
+            disabled={!canSend}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleSend}
+            // Always mounted, as in Slack. Disabled is a dimmer glyph rather
+            // than a hidden control: at ghost weight it is quiet enough at
+            // rest that hiding it bought nothing, and a visible-but-dim
+            // control reads as "present, not yet available".
+            // 45% is 3.86:1 on this surface — under the 4.5:1 text bar the
+            // placeholder must clear, but over the 3:1 bar for glyphs.
+            className="text-primary disabled:text-[hsl(0_0%_45%)] focus-visible:ring-ring flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2"
+          >
+            <SendHorizontal className="h-4 w-4" />
+          </button>
         </div>
       </div>
 

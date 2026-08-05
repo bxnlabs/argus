@@ -133,18 +133,40 @@ describe("ComposeBar", () => {
     expect(textarea().value).toBe("queued message");
   });
 
-  it("hides the send button only when the bar is unfocused AND empty", () => {
+  it("keeps the send button mounted at all times, as Slack does", () => {
+    // Replaces the old focus/draft-gated visibility. A ghost glyph is quiet
+    // enough at rest that hiding it buys nothing, and its disabled state now
+    // carries "present, not yet available" on its own.
     renderComposeBar({ onSend: () => true, connected: true });
 
-    expect(screen.queryByRole("button", { name: /send/i })).toBeNull();
+    const send = () => screen.getByRole("button", { name: /send/i });
+    expect(send()).toHaveProperty("disabled", true);
 
     fireEvent.focus(textarea());
-    expect(screen.queryByRole("button", { name: /send/i })).not.toBeNull();
+    expect(send()).toHaveProperty("disabled", true);
 
     fireEvent.change(textarea(), { target: { value: "draft" } });
+    expect(send()).toHaveProperty("disabled", false);
+
     fireEvent.blur(textarea());
     // A draft must stay sendable after tapping away to the terminal.
-    expect(screen.queryByRole("button", { name: /send/i })).not.toBeNull();
+    expect(send()).toHaveProperty("disabled", false);
+  });
+
+  it("renders both actions as ghost glyphs, with send the only coloured one", () => {
+    renderComposeBar({ onSend: () => true, connected: true });
+
+    const attach = screen.getByRole("button", { name: /attach/i });
+    const send = screen.getByRole("button", { name: /send/i });
+
+    // No filled circles: a filled attach beside a ghost send would make the
+    // secondary action heavier than the primary one.
+    expect(attach.className).not.toMatch(/\bbg-\[hsl/);
+    expect(send.className).not.toMatch(/\bbg-(primary|\[hsl)/);
+
+    expect(attach.className).toContain("text-[hsl(0_0%_60%)]");
+    expect(send.className).toContain("text-primary");
+    expect(send.className).toContain("disabled:text-[hsl(0_0%_45%)]");
   });
 
   it("names the session in the placeholder, Slack-style", () => {
