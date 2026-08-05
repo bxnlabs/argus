@@ -35,7 +35,9 @@ Two specific gaps against that reference:
 
 - **No change to the growth architecture.** The spacer / absolutely-positioned
   panel / terminal-transform design from the parent spec stays exactly as it
-  is, and growing the draft still never refits the terminal.
+  is, and growing the draft still never refits the terminal. Compaction moves
+  the spacer *constant* (see "The spacer constant moves"), but not the
+  mechanism or the invariant that binds the two.
 - Desktop is untouched — all of this is inside the `isMobile` branch.
 - The compose row and the key toolbar stay as two rows. Merging them into a
   single Slack-style action row was considered and rejected: the toolbar
@@ -53,8 +55,8 @@ on a shared edge:
 
 | | classes |
 |---|---|
-| Panel | `border-x border-t rounded-t-xl`, `inset-x-3` (was `inset-x-0`) |
-| Toolbar | `border-x border-b rounded-b-xl`, `mx-3 mb-2`, `border-t` at `hsl(0 0% 14%)` |
+| Panel | `border-x border-t rounded-t-lg`, `inset-x-2` (was `inset-x-0`), `py-1` (was `py-1.5`) |
+| Toolbar | `border-x border-b rounded-b-lg`, `mx-2 mb-1.5`, `border-t` at `hsl(0 0% 14%)` |
 
 The panel sits exactly on the spacer's bottom edge and the toolbar begins
 immediately after the spacer in flow, so the two halves are flush and the seam
@@ -78,25 +80,73 @@ callback and `TerminalToolbar` a `focused` prop, lifted through
 `Terminal/index.tsx` — the same shape as the existing `onOverlayHeightChange`,
 and `Terminal` already re-renders on that.
 
-### Geometry: +9px, and why the spacer is untouched
+### Geometry: the card is compacted to +1px
 
-Added: the toolbar's `border-b` (1px) and `mb-2` (8px). Nothing is added at the
-top — the parent spec's `mt-2` becomes the card's top margin.
+A card needs margin on all four sides to read as a card, and margin is exactly
+what the parent spec spent two rounds minimising. So the interior is tightened
+to pay for the exterior. Full accounting of the zone's resting height:
 
-The bottom margin is load-bearing, not decoration. A card flush against the
-bottom of the viewport has three visible edges and reads as a panel, not a
-card. Whether the 9px costs a terminal row is `containerHeight mod cellHeight`,
-the same arithmetic the parent spec documents for its 8px gap; it is measured
-in the browser pass, not assumed.
+```
+                          today   naive card   compact
+mt-* gap above              8          8           6
+panel border-t              1          1           1
+panel py                   12         12           8
+row (mirror py + 21px)     33         33          33
+toolbar border-t            1          1           1
+toolbar button             40         40          40
+toolbar border-b            0          1           1
+mb-* gap below              0          8           6
+                          ----       ----        ----
+                           95        104          96
+```
 
-**The spacer formula does not change.** The `ResizeObserver` reads
-`contentRect.height`, which is the content box — it excludes border and
-padding — so adding `border-x` contributes nothing vertically. The observer
-also compares against a captured baseline, so any constant offset cancels
-regardless. The existing drift guard still pins 46px.
+Two cuts, both cheap:
 
-Insetting the toolbar costs 24px of key-row width in the horizontal scroller.
-Accepted.
+- **Card margins 8px → 6px** (−4px). The parent spec sized the top gap at 8px
+  to turn an accidental sub-row remainder into a deliberate one. A bordered
+  card states that boundary outright, so the gap no longer has to carry the
+  separation by itself.
+- **Panel `py-1.5` → `py-1`** (−4px). This is the *panel's* padding, not the
+  mirror's: the draft text keeps its own 6px of breathing room inside the card,
+  and `--compose-max-h` is therefore untouched.
+
+Deliberately not cut: the toolbar's `py-2.5`. Dropping it to `py-2` would save
+another 4px but takes the button from 40px tall to 36px, and 40px is already
+under the 44px touch-target guideline. Shrinking the most-tapped control in the
+app to buy 4px is the wrong trade.
+
+Net **+1px** against today. Whether even that costs a terminal row is
+`containerHeight mod cellHeight`, the same arithmetic the parent spec documents;
+measured in the browser pass, not assumed.
+
+The radius comes down with the padding — `rounded-lg` (10px) rather than
+`rounded-xl` (14px). On a 42px panel half a 14px radius consumes a third of the
+edge, which reads as a pill rather than a card, and it is also what would push
+the first and last keys into the toolbar's rounded corners.
+
+Horizontal inset is `2` (8px) to sit closer to square against the 6px vertical
+margins. That costs 16px of key-row width in the horizontal scroller, down from
+24px at `mx-3`.
+
+### The spacer constant moves; the architecture does not
+
+The panel's resting height and the spacer must stay equal — that invariant is
+the whole reason the parent spec exists. Cutting the panel's padding moves both:
+
+```
+row          = 21px line-height + 12px (mirror's own py-1.5)   = 33px
+panel height = 4px + 33px + 4px (panel py-1) + 1px border-t    = 42px
+```
+
+So the spacer goes `calc(var(--compose-row-h) + 1.5rem + 1px)` →
+`calc(var(--compose-row-h) + 1.25rem + 1px)`, where the constant is still the
+sum of the two `py` levels (mirror 12px + panel 8px = 20px = 1.25rem). The
+drift guard moves 46px → 42px.
+
+Nothing else in the measurement path changes. The `ResizeObserver` reads
+`contentRect.height`, which is the content box and so excludes border and
+padding entirely — `border-x` contributes nothing vertically, and the observer
+compares against a captured baseline, so any constant offset cancels anyway.
 
 ### Placeholder: `Message #<slug>`
 
@@ -218,8 +268,8 @@ anywhere in the codebase. Dead field, unrelated chain.
 | `internal/node/db/models.go` | derived `Slug` field |
 | `internal/node/db/sessions.go` | populate `Slug` in `scanSession` |
 | `web/src/types.ts` | `Session.slug` |
-| `web/src/components/Terminal/ComposeBar.tsx` | card half, `inset-x-3`, placeholder, ghost actions, `onFocusedChange`, drop `showSend` |
-| `web/src/components/Terminal/TerminalToolbar.tsx` | card half, `mx-3 mb-2`, visible `border-t`, `focused` prop |
+| `web/src/components/Terminal/ComposeBar.tsx` | card half, `inset-x-2`, `py-1` and the spacer constant, placeholder, ghost actions, `onFocusedChange`, drop `showSend` |
+| `web/src/components/Terminal/TerminalToolbar.tsx` | card half, `mx-2 mb-1.5`, visible `border-t`, `focused` prop |
 | `web/src/components/Terminal/index.tsx` | lift `focused`; `sessionName` → `sessionId`; pass `sessionSlug` |
 | `web/src/components/Terminal/hooks/*` | `sessionName` → `sessionId` |
 | `web/src/components/Workspace/index.tsx` | `sessionId` prop; resolve `sessionSlug` per tab |
@@ -229,11 +279,16 @@ anywhere in the codebase. Dead field, unrelated chain.
 
 Existing coverage that must keep passing unchanged: growth clamps at three
 lines then scrolls, send clears the draft on success and preserves it on
-failure, draft text is never dimmed, and the resting-panel-equals-spacer drift
-guard.
+failure, and draft text is never dimmed. `--compose-max-h` keeps its current
+derivation, since only the panel's padding moved.
 
-Changed: send visibility no longer swaps on focus/blur, and the placeholder no
-longer swaps.
+Changed: send visibility no longer swaps on focus/blur; the placeholder no
+longer swaps; and the drift guard's pinned values move with the compaction —
+spacer formula to `+ 1.25rem + 1px`, panel padding to `py-1`, resting height to
+42px. The guard itself must keep asserting the same thing it does today, that
+the resting panel height *equals* the spacer height. Compaction is exactly the
+kind of edit that guard exists to catch, so re-deriving it by hand from the new
+constants would defeat it.
 
 New:
 
