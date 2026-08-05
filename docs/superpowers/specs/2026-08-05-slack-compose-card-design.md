@@ -178,7 +178,8 @@ hsl(0 0% 50%)  ->  4.6:1    passes
 it can honestly go.
 
 When there is no session (a raw-shell tab, `sessionId === null`), the
-placeholder is plain `Message`.
+placeholder is `Message session`. No `#`: that prefix stands for a specific
+session everywhere else, and a raw shell has none to name.
 
 Slugs longer than 22 characters truncate with an ellipsis. A textarea
 placeholder cannot ellipsize on its own, and clipping mid-word at the input
@@ -324,7 +325,7 @@ New:
 - `scanSession` populates `Slug` from `Name`
 - create and rename round-trips both return a slug matching the name
 - placeholder composition: slug pass-through, 22-character truncation, and the
-  no-session `Message` fallback
+  no-session `Message session` fallback
 
 Visual verification repeats the established browser pass: emulated iPhone at
 390×844 with `pointer: coarse`, driving the growth range and reading back
