@@ -34,11 +34,16 @@ side by side:
 
 ## Non-goals
 
-- **No layout or interaction change.** The spacer / absolute panel / transform
-  architecture stays exactly as it is. Growth still never refits the terminal.
-- **No space reclamation.** The compose + toolbar chrome keeps its current
-  footprint (see "Height impact" for the one unavoidable exception).
+- **No interaction change**, and no change to the growth architecture. The
+  spacer / absolute panel / transform design stays exactly as it is, and growth
+  still never refits the terminal.
 - Desktop is untouched — all of this is inside the `isMobile` branch.
+
+**Amended after implementation.** This section originally also claimed no layout
+change and an unchanged footprint. That is no longer accurate: the terminal
+container is now bottom-aligned, and an 8px gap was added above the compose
+zone, taking the resting chrome to +10px. See "Height impact" for the reasoning
+and the row-cost tradeoff.
 
 ## Decisions
 
@@ -164,9 +169,10 @@ would be counted as usable row space.
 
 | File | Change |
 |---|---|
-| `web/src/components/Terminal/ComposeBar.tsx` | surface + edge, button fills, 15px/21px type, `--compose-max-h` 72 → 75, spacer `h-11` → 46px, focus edge brightening |
+| `web/src/components/Terminal/ComposeBar.tsx` | surface (`bg-input`) + edge, button fills, 15px/21px type, `--compose-row-h` as the single row constant with the spacer height and `--compose-max-h` derived from it, focus edge brightening, `mt-2` gap |
 | `web/src/components/Terminal/TerminalToolbar.tsx` | shared surface, transparent `border-t`, label colour, dot → underline |
-| `web/src/components/Terminal/ComposeBar.test.tsx` | cap assertion updated to 75px; new resting-panel-equals-spacer assertion |
+| `web/src/components/Terminal/index.tsx` | bottom-align the terminal container so FitAddon's sub-row remainder falls at the top rather than against the compose bar |
+| `web/src/components/Terminal/ComposeBar.test.tsx` | cap assertion updated to the derived expression; new drift guard pinning the row variable, the spacer formula, and the panel/mirror padding and border that feed it |
 
 ## Testing
 
