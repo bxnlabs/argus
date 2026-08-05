@@ -1120,3 +1120,85 @@ CREATE TABLE _migrations (
 		t.Error("expected user_marked_unread_at column to be added by migration")
 	}
 }
+
+func TestGetSessionDerivesSlugFromName(t *testing.T) {
+	db := testDB(t)
+
+	s := &Session{
+		ID:               "sess-slug-1",
+		Name:             "Fix Auth Bug!",
+		TmuxName:         "claude-sess-slug-1",
+		WorkingDirectory: "~/code",
+		ProviderType:     "claude",
+	}
+	if err := db.CreateSession(s); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetSession("sess-slug-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Slug != "fix-auth-bug" {
+		t.Errorf("slug = %q, want %q", got.Slug, "fix-auth-bug")
+	}
+}
+
+func TestUpdateSessionRecomputesSlug(t *testing.T) {
+	// The slug is derived, not stored, so a rename must be reflected with no
+	// migration and no recompute-on-write. This is the test that would fail
+	// if someone later "optimised" it into a column.
+	db := testDB(t)
+
+	s := &Session{
+		ID:               "sess-slug-2",
+		Name:             "Old Name",
+		TmuxName:         "claude-sess-slug-2",
+		WorkingDirectory: "~/code",
+		ProviderType:     "claude",
+	}
+	if err := db.CreateSession(s); err != nil {
+		t.Fatal(err)
+	}
+
+	newName := "Brand New Name"
+	updated, err := db.UpdateSession("sess-slug-2", SessionUpdate{Name: &newName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Slug != "brand-new-name" {
+		t.Errorf("slug after rename = %q, want %q", updated.Slug, "brand-new-name")
+	}
+}
+
+func TestListSessionsCarriesSlug(t *testing.T) {
+	db := testDB(t)
+
+	s := &Session{
+		ID:               "sess-slug-3",
+		Name:             "UPPER CASE",
+		TmuxName:         "claude-sess-slug-3",
+		WorkingDirectory: "~/code",
+		ProviderType:     "claude",
+	}
+	if err := db.CreateSession(s); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := db.ListSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *Session
+	for _, sess := range sessions {
+		if sess.ID == "sess-slug-3" {
+			found = sess
+		}
+	}
+	if found == nil {
+		t.Fatal("session not in list")
+	}
+	if found.Slug != "upper-case" {
+		t.Errorf("slug = %q, want %q", found.Slug, "upper-case")
+	}
+}

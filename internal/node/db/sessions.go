@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/bxnlabs/argus/internal/slug"
 )
 
 // sessionColumns is the explicit column list matching scanSession's scan order.
@@ -31,6 +33,10 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	s.AutoApprove = autoApprove != 0
 	s.BranchCreated = branchCreated != 0
 	s.Pinned = pinned != 0
+	// Derived, not scanned — see the field comment in models.go. Doing it
+	// here rather than at each call site is what guarantees every response
+	// path carries it: Create and Update both re-read through GetSession.
+	s.Slug = slug.Make(s.Name)
 	return &s, nil
 }
 
