@@ -84,7 +84,7 @@ export const TerminalToolbar = memo(function TerminalToolbar({
         // Shares ComposeBar's surface so the two rows read as one input zone.
         // The border-t stays but goes transparent: the shared surface already
         // groups them, and keeping the 1px preserves the row's height.
-        className="scrollbar-none flex items-center min-[500px]:justify-center overflow-x-auto border-t border-transparent bg-[hsl(0_0%_8%)]"
+        className="scrollbar-none bg-input flex items-center min-[500px]:justify-center overflow-x-auto border-t border-transparent"
       >
         {/* Special keys */}
         {TOOLBAR_BUTTONS.map((btn, index) => {

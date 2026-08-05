@@ -400,6 +400,7 @@ describe("ComposeBar overlay height", () => {
     renderComposeBar({ onSend: () => true, connected: true });
 
     const wrapper = screen.getByTestId("compose-grow-wrapper");
+    const mirror = screen.getByTestId("compose-mirror");
     const panel = wrapper.parentElement!;
     const spacer = panel.parentElement!;
 
@@ -412,6 +413,15 @@ describe("ComposeBar overlay height", () => {
     expect(wrapper.style.getPropertyValue("--compose-max-h")).toContain(
       "var(--compose-row-h)",
     );
+
+    // The formula's other two terms are class-driven, so pin them too: the
+    // 1.5rem is the mirror's py-1.5 PLUS the panel's py-1.5, and the 1px is
+    // the panel's border-t. Without these, changing the panel to py-2 or
+    // dropping the border leaves the spacer at 46px while the panel resting
+    // height moves — silent drift that every assertion above still passes.
+    expect(panel.className.split(" ")).toContain("py-1.5");
+    expect(panel.className.split(" ")).toContain("border-t");
+    expect(mirror.className.split(" ")).toContain("py-1.5");
 
     // A literal height on the spacer is exactly the regression this guards:
     // it would keep passing the cap test above while silently decoupling the

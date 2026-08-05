@@ -135,7 +135,7 @@ export const ComposeBar = memo(function ComposeBar({
             // One surface shared with TerminalToolbar, and one zone edge at its
             // top — the toolbar's own border-t is transparent so the two rows
             // read as a single input zone rather than three stacked hairlines.
-            "absolute inset-x-0 bottom-0 flex items-end gap-1.5 border-t bg-[hsl(0_0%_8%)] px-2 py-1.5 transition-colors",
+            "absolute inset-x-0 bottom-0 flex items-end gap-1.5 border-t bg-input px-2 py-1.5 transition-colors",
             // Focus is carried by the placeholder swap and the send button
             // appearing; this edge lift is the quiet third signal. Only the
             // border animates, so the zone never changes value underfoot.

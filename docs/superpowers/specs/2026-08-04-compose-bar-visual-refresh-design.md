@@ -136,11 +136,29 @@ the assertion that would have caught the drift, and it is cheap — the existing
 
 ### Height impact
 
-Keeping `py-1.5` rather than widening the panel padding holds the growth to
-**+2px of resting chrome** (44 → 46), entirely from the larger text. Widening
-the padding to 8px would look marginally more open but costs +6px. Given that
-space usage was explicitly scoped out of this pass, the recommendation is to
-keep `py-1.5` and accept +2px.
+Keeping `py-1.5` rather than widening the panel padding holds the spacer growth
+to **+2px** (44 → 46), entirely from the larger text. Widening the padding to
+8px would look marginally more open but costs +6px, so `py-1.5` stays.
+
+**Amended after implementation.** A follow-up added an 8px `mt-2` above the
+compose zone, so the real resting chrome cost is **+10px**, not +2px.
+
+That gap is not decoration for its own sake. FitAddon fits whole rows, so any
+container height that isn't a multiple of the cell height leaves a sub-row
+remainder — and that remainder used to land between the terminal's last row and
+the compose bar, varying with the container height (11px at 390×844, 17px with
+the keyboard up). Invisible while the bar was `bg-transparent`; the new solid
+surface turned it into a stripe that read as misalignment. The fix bottom-aligns
+the terminal so the remainder falls at the top under the header, then adds a
+fixed 8px gap so the breathing room is deliberate and constant.
+
+Row cost: 8px fits inside the 11px remainder that was already being wasted at
+390×844, so 45 rows are preserved. 12px crosses a row boundary and costs one.
+Neither is *reliably* free — the remainder is `containerHeight mod cellHeight`,
+so at other heights the arithmetic differs; 8px is simply more often free.
+
+Margin, not padding: FitAddon measures the terminal container, so padding there
+would be counted as usable row space.
 
 ## Files
 
