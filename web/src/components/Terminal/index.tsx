@@ -193,7 +193,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         <div
           ref={terminalRef}
           className={cn(
-            "terminal-container min-h-0 w-full flex-1 overflow-hidden",
+            // FitAddon fits whole rows, so any height that isn't an exact
+            // multiple of the cell height leaves a sub-row remainder. Bottom-
+            // align the terminal so that remainder falls at the TOP, under the
+            // header, instead of as a dead band between the last row and the
+            // compose bar — which the compose bar's solid surface turns into a
+            // visible misaligned stripe.
+            "terminal-container flex min-h-0 w-full flex-1 flex-col justify-end overflow-hidden",
             selectMode && "ring-primary ring-2 ring-inset"
           )}
           style={{

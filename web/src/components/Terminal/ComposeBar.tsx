@@ -113,7 +113,15 @@ export const ComposeBar = memo(function ComposeBar({
                         + the panel's 1px border-t
                         = var + 0.75rem + 0.75rem + 1px. */}
       <div
-        className="relative flex-shrink-0"
+        // mt-2 is deliberate breathing room between the terminal's last row and
+        // the input zone. It replaces the sub-row remainder that used to land
+        // here by accident — that gap varied with the container height (11px at
+        // one size, 17px at another), which is what made it read as inconsistent.
+        // 8px also happens to fit inside the remainder that was being wasted, so
+        // it usually costs no terminal row; 12px crosses a row boundary and does.
+        // Margin, not padding: FitAddon measures the terminal container, and
+        // padding would be counted as usable row space.
+        className="relative mt-2 flex-shrink-0"
         style={
           {
             "--compose-row-h": "21px",
