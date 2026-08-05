@@ -1,6 +1,8 @@
 export interface Session {
   id: string;
   name: string;
+  /** Server-derived from `name`; see internal/slug. Safe for display as a channel. */
+  slug: string;
   tmux_name: string;
   created_at: string;
   updated_at: string;

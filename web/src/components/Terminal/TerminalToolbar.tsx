@@ -1,9 +1,7 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Globe, PenLine, SendHorizontal, CornerDownLeft, Paperclip } from "lucide-react";
+import { memo, useState } from "react";
+import { Globe, CornerDownLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { KeyPopover } from "./KeyPopover";
-import { FilePicker } from "@/components/FilePicker";
-import { shellEscape } from "@/lib/shell";
 
 // ANSI escape sequences
 const SPECIAL_KEYS = {
@@ -29,12 +27,13 @@ type ToolbarButton =
   | { label: string; key: string; icon?: React.ComponentType<{ className?: string }>; menu?: never }
   | { label: string; icon?: React.ComponentType<{ className?: string }>; menu: MenuOption[]; key?: never };
 
+// Render order is left-to-right in the key row. The two modifiers lead, the
+// arrows sit in the middle where a thumb reaches them, and the two menu-less
+// terminators (tab, return) close the run of real keys. `more` is last
+// because it is the only button that opens a menu rather than sending a key \u2014
+// keeping it out of the run means a mis-tap at the end of a scroll lands on a
+// popover that can be dismissed, not on a keystroke already sent to the pane.
 const TOOLBAR_BUTTONS: ToolbarButton[] = [
-  {
-    label: "more",
-    icon: Globe,
-    menu: [{ label: "\u21e7-tab", key: SPECIAL_KEYS.SHIFT_TAB }, { label: "^Y", key: SPECIAL_KEYS.CTRL_Y }],
-  },
   { label: "esc", key: SPECIAL_KEYS.ESC },
   {
     label: "ctrl",
@@ -52,14 +51,17 @@ const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { label: "\u2193", key: SPECIAL_KEYS.DOWN },
   { label: "tab", key: SPECIAL_KEYS.TAB },
   { label: "return", key: SPECIAL_KEYS.RETURN, icon: CornerDownLeft },
+  {
+    label: "more",
+    icon: Globe,
+    menu: [{ label: "\u21e7-tab", key: SPECIAL_KEYS.SHIFT_TAB }, { label: "^Y", key: SPECIAL_KEYS.CTRL_Y }],
+  },
 ];
 
 interface TerminalToolbarProps {
   onKeyPress: (key: string) => void;
-  onSendText: (text: string) => void;
-  onAttachments?: () => void;
-  visible?: boolean;
-  workingDirectory?: string | null;
+  /** Mirrors ComposeBar's focus so both halves of the card brighten together. */
+  focused?: boolean;
 }
 
 interface PopoverState {
@@ -68,138 +70,11 @@ interface PopoverState {
   triggerRect: DOMRect;
 }
 
-// Compose modal for typing/pasting text with native keyboard features
-function ComposeInput({
-  open,
-  onClose,
-  onSend,
-  workingDirectory,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSend: (text: string) => void;
-  workingDirectory?: string | null;
-}) {
-  const [text, setText] = useState("");
-  const [showFilePicker, setShowFilePicker] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleSend = useCallback(() => {
-    if (text.trim()) {
-      onSend(text);
-      setText("");
-      onClose();
-    }
-  }, [text, onSend, onClose]);
-
-  // Insert shell-escaped paths at the cursor position in the textarea
-  const handleFilesPicked = useCallback(
-    (paths: string[]) => {
-      const insert = paths.map(shellEscape).join(" ");
-      const ta = textareaRef.current;
-      if (!ta) {
-        setText((prev) => (prev ? prev + " " + insert : insert));
-        return;
-      }
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const before = text.slice(0, start);
-      const after = text.slice(end);
-      // Add a space separator if there's adjacent text
-      const needsLeadingSpace = before.length > 0 && !before.endsWith(" ");
-      const needsTrailingSpace = after.length > 0 && !after.startsWith(" ");
-      const full =
-        before +
-        (needsLeadingSpace ? " " : "") +
-        insert +
-        (needsTrailingSpace ? " " : "") +
-        after;
-      setText(full);
-      // Restore cursor after the inserted text
-      const cursorPos =
-        before.length + (needsLeadingSpace ? 1 : 0) + insert.length;
-      requestAnimationFrame(() => {
-        ta.focus();
-        ta.setSelectionRange(cursorPos, cursorPos);
-      });
-    },
-    [text],
-  );
-
-  // Focus textarea on open, reset on close
-  useEffect(() => {
-    if (open) {
-      textareaRef.current?.focus();
-    } else {
-      setText("");
-      setShowFilePicker(false);
-    }
-  }, [open]);
-
-  // Re-focus textarea when file picker closes
-  useEffect(() => {
-    if (!showFilePicker && open) {
-      requestAnimationFrame(() => textareaRef.current?.focus());
-    }
-  }, [showFilePicker, open]);
-
-  if (!open) return null;
-
-  return (
-    <div
-      className="fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-black/50 pb-2"
-      style={{ height: "var(--app-height, 100vh)" }}
-      onClick={() => { if (!showFilePicker) onClose(); }}
-    >
-      <div
-        className="bg-background flex w-[90%] max-w-md flex-col rounded-xl border border-white/20"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Type or paste..."
-          autoFocus
-          className="min-h-[4lh] max-h-60 w-full resize-none bg-transparent px-3 pt-3 pb-3 text-sm focus:outline-none"
-        />
-        <div className="flex items-center justify-between px-2.5 pt-2 pb-2.5">
-          <button
-            onClick={() => setShowFilePicker(true)}
-            className="text-secondary-foreground flex h-8 w-8 items-center justify-center rounded-full border border-white/20"
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={!text.trim()}
-            className="text-secondary-foreground flex h-8 w-8 items-center justify-center rounded-full border border-white/20 disabled:opacity-30"
-          >
-            <SendHorizontal className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-      <FilePicker
-        open={showFilePicker}
-        onOpenChange={setShowFilePicker}
-        onPick={handleFilesPicked}
-        searchPath={workingDirectory ?? undefined}
-      />
-    </div>
-  );
-}
-
 export const TerminalToolbar = memo(function TerminalToolbar({
   onKeyPress,
-  onSendText,
-  onAttachments,
-  visible = true,
-  workingDirectory,
+  focused = false,
 }: TerminalToolbarProps) {
-  const [showCompose, setShowCompose] = useState(false);
   const [popover, setPopover] = useState<PopoverState | null>(null);
-
-  if (!visible) return null;
 
   return (
     <>
@@ -213,15 +88,23 @@ export const TerminalToolbar = memo(function TerminalToolbar({
           onClose={() => setPopover(null)}
         />
       )}
-      <ComposeInput
-        open={showCompose}
-        onClose={() => setShowCompose(false)}
-        onSend={onSendText}
-        workingDirectory={workingDirectory}
-      />
       <div
         data-testid="terminal-toolbar"
-        className="bg-secondary/50 scrollbar-none flex items-center min-[500px]:justify-center overflow-x-auto border-t border-white/5 backdrop-blur"
+        className={cn(
+          // The card's bottom half — see the matching comment on ComposeBar's
+          // panel for why the card is two boxes rather than one.
+          "scrollbar-none bg-input flex items-center min-[500px]:justify-center overflow-x-auto rounded-b-lg border-x border-t border-b mx-2 mb-1.5 transition-colors",
+          focused ? "border-[hsl(0_0%_30%)]" : "border-[hsl(0_0%_20%)]",
+          // The seam where the two halves meet is the row divider, at --border
+          // (14%) — quieter than the card's own edge so it separates without
+          // competing. It stays a border rather than becoming a child element
+          // so the row height is unchanged and the divider costs nothing.
+          //
+          // MUST come last. twMerge treats `border-t-<color>` and
+          // `border-<color>` as conflicting groups, so a generic border colour
+          // appearing after this line would silently delete the divider.
+          "border-t-[hsl(0_0%_14%)]",
+        )}
       >
         {/* Special keys */}
         {TOOLBAR_BUTTONS.map((btn, index) => {
@@ -231,6 +114,11 @@ export const TerminalToolbar = memo(function TerminalToolbar({
             <button
               type="button"
               key={btn.label}
+              // Icon-only buttons render no text, so without this they reach
+              // assistive tech unnamed. Text buttons are left alone: their
+              // visible label already is the accessible name, and an
+              // aria-label would override it with an identical string.
+              aria-label={btn.icon ? btn.label : undefined}
               onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -254,7 +142,15 @@ export const TerminalToolbar = memo(function TerminalToolbar({
               }}
               className={cn(
                 "relative flex-shrink-0 select-none px-3.5 py-2.5 text-sm font-medium",
-                "text-secondary-foreground active:bg-white/10"
+                "text-[hsl(0_0%_72%)] active:bg-white/10",
+                // focus-visible only: onMouseDown preventDefault above means a
+                // tap never focuses these, so the ring comes from keyboard or
+                // programmatic/AT focus — never from the touch path.
+                // ring-inset because the toolbar scrolls horizontally, which
+                // makes overflow-y compute to auto and would clip an outset
+                // ring at the row's top and bottom edges. Full opacity, not
+                // /50, which blends to ~2:1 against this surface.
+                "focus-visible:ring-ring outline-none focus-visible:ring-2 focus-visible:ring-inset"
               )}
             >
               {btn.icon ? (
@@ -262,49 +158,15 @@ export const TerminalToolbar = memo(function TerminalToolbar({
               ) : (
                 btn.label
               )}
+              {/* Underline rather than the old 1x1px corner dot, which
+                  rendered as roughly one physical pixel and read as dust
+                  instead of "this key opens a menu". */}
               {isMenu && (
-                <span className="absolute top-0.5 right-0.5 h-1 w-1 rounded-full bg-white/30" />
+                <span className="absolute bottom-1 left-1/2 h-[1.5px] w-2.5 -translate-x-1/2 rounded-[1px] bg-[hsl(0_0%_45%)]" />
               )}
             </button>
           );
         })}
-
-        {/* Compose button */}
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowCompose((v) => !v);
-          }}
-          className={cn(
-            "flex-shrink-0 select-none px-3.5 py-2.5 text-sm font-medium",
-            showCompose
-              ? "text-primary-foreground bg-white/10"
-              : "text-secondary-foreground active:bg-white/10"
-          )}
-        >
-          <PenLine className="h-4 w-4" />
-        </button>
-
-        {/* Attachments button */}
-        {onAttachments && (
-          <>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onAttachments();
-              }}
-              className="flex-shrink-0 select-none px-3.5 py-2.5 text-sm font-medium text-secondary-foreground active:bg-white/10"
-              aria-label="Attach files"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
-          </>
-        )}
-
       </div>
     </>
   );

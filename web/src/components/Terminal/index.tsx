@@ -3,12 +3,15 @@ import {
   forwardRef,
   useImperativeHandle,
   useCallback,
+  useEffect,
   useMemo,
+  useState,
 } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { WifiOff, Paperclip } from "lucide-react";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { cn } from "@/lib/utils";
+import { ComposeBar } from "./ComposeBar";
 import { SearchBar } from "./SearchBar";
 import { TerminalToolbar } from "./TerminalToolbar";
 import { useTerminalConnection, useTerminalSearch } from "./hooks";
@@ -26,7 +29,7 @@ export interface TerminalHandle {
 
 interface TerminalProps {
   /** Session ID — WebSocket connects to /api/node/ws/sessions/{id} */
-  sessionName: string | null;
+  sessionId: string | null;
   onConnected?: () => void;
   onDisconnected?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
@@ -35,15 +38,15 @@ interface TerminalProps {
   selectMode?: boolean;
   /** Called when files are dropped onto the terminal (desktop drag-drop) */
   onFilesDropped?: (files: File[]) => void;
-  /** Called when the attachments button is clicked */
-  onAttachments?: () => void;
   /** Session working directory, used to anchor file search */
   workingDirectory?: string | null;
+  /** Server-derived session slug, shown in the compose placeholder */
+  sessionSlug?: string | null;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
-    { sessionName, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, onAttachments, workingDirectory },
+    { sessionId, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, workingDirectory, sessionSlug },
     ref
   ) {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -63,7 +66,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       reconnect,
     } = useTerminalConnection({
       terminalRef,
-      sessionName,
+      sessionId,
       onConnected,
       onDisconnected,
       onBeforeUnmount,
@@ -119,6 +122,60 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
 
     const handleContainerClick = useCallback(() => focus(), [focus]);
 
+    // How far the compose panel overflows its one-line spacer. The terminal is
+    // shifted by this much with a transform rather than resized: transforms
+    // don't affect layout, so FitAddon never refits and the PTY never sees a
+    // SIGWINCH mid-typing (which would repaint the agent's TUI and reflow
+    // wrapped scrollback out from under the user).
+    const [composeOverlay, setComposeOverlay] = useState(0);
+    // The card's edge spans two sibling components, so its focus state lives
+    // here rather than inside either half.
+    const [composeFocused, setComposeFocused] = useState(false);
+
+    // Select mode only hides ComposeBar, but crossing the mobile breakpoint
+    // mid-draft unmounts it — and an unmounting observer never reports 0. Gate
+    // the shift on mount state, and clear the height too so a stale one can't
+    // be applied for a frame on the way back in.
+    const composeBarVisible = isMobile && !selectMode;
+    const terminalShift = composeBarVisible ? composeOverlay : 0;
+
+    useEffect(() => {
+      if (!composeBarVisible) {
+        setComposeOverlay(0);
+        // ComposeBar stays mounted under display:none rather than
+        // unmounting, so its own internal `focused` state is not reset by
+        // this effect — only this parent copy is. In practice a browser
+        // blurs a focused element when an ancestor becomes display:none, so
+        // ComposeBar's onBlur fires and the two copies converge anyway. This
+        // reset exists as a belt-and-braces guarantee for the case that blur
+        // is ever not delivered (e.g. a future change swaps display:none for
+        // something that doesn't trigger it): without it, the toolbar half
+        // could be left bright with no compose bar visible to un-focus.
+        setComposeFocused(false);
+      }
+    }, [composeBarVisible]);
+
+    // Sending while scrolled up must bring the user back to the live output —
+    // xterm deliberately holds its scroll position when new output arrives, so
+    // the reply would otherwise land off-screen and the terminal would look
+    // frozen. (Attached tmux sessions are additionally snapped back server-side
+    // by the copy-mode cancel; but hooks/touch-scroll.ts scrolls xterm's local
+    // scrollback directly without ever reaching tmux, so this client-side
+    // scroll is the primary mechanism for attached sessions too, not merely a
+    // raw-shell fallback.)
+    // Reports back whether the text actually went out, so ComposeBar keeps the
+    // draft when the socket closed between its last `connected` render and the
+    // tap — the window where the send button is still enabled but the write
+    // would go nowhere.
+    const handleSend = useCallback(
+      (text: string) => {
+        if (!sendText(text)) return false;
+        xtermRef.current?.scrollToBottom();
+        return true;
+      },
+      [sendText, xtermRef]
+    );
+
     return (
       <div
         ref={containerRef}
@@ -153,9 +210,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         <div
           ref={terminalRef}
           className={cn(
-            "terminal-container min-h-0 w-full flex-1 overflow-hidden",
+            // FitAddon fits whole rows, so any height that isn't an exact
+            // multiple of the cell height leaves a sub-row remainder. Bottom-
+            // align the terminal so that remainder falls at the TOP, under the
+            // header, instead of as a dead band between the last row and the
+            // compose bar — which the compose bar's solid surface turns into a
+            // visible misaligned stripe.
+            "terminal-container flex min-h-0 w-full flex-1 flex-col justify-end overflow-hidden",
             selectMode && "ring-primary ring-2 ring-inset"
           )}
+          style={{
+            transform: terminalShift ? `translateY(-${terminalShift}px)` : undefined,
+            transition: "transform 150ms ease-out",
+          }}
           onClick={handleContainerClick}
           onTouchStart={selectMode ? (e) => e.stopPropagation() : undefined}
           onTouchEnd={selectMode ? (e) => e.stopPropagation() : undefined}
@@ -180,15 +247,28 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           </div>
         )}
 
-        {/* Mobile: Toolbar with special keys (native keyboard handles text) */}
+        {/* Mobile: persistent compose input plus the special-keys toolbar.
+            Unlike the old mount-on-demand modal, both bars stay mounted across
+            focus/blur, so ^C / esc are one tap away while watching output
+            without raising the keyboard.
+
+            Select mode hides both bars (per spec), but only by hiding this
+            wrapper (display:none via the "hidden" class) — it never unmounts
+            ComposeBar. That is what keeps an in-progress draft alive when the
+            user taps into select mode to copy something out of the terminal
+            and back out again. */}
         {isMobile && (
-          <TerminalToolbar
-            onKeyPress={sendInput}
-            onSendText={sendText}
-            onAttachments={isConnected ? onAttachments : undefined}
-            visible={!selectMode}
-            workingDirectory={workingDirectory}
-          />
+          <div className={composeBarVisible ? "contents" : "hidden"}>
+            <ComposeBar
+              onSend={handleSend}
+              connected={isConnected}
+              workingDirectory={workingDirectory}
+              sessionSlug={sessionSlug}
+              onOverlayHeightChange={setComposeOverlay}
+              onFocusedChange={setComposeFocused}
+            />
+            <TerminalToolbar onKeyPress={sendInput} focused={composeFocused} />
+          </div>
         )}
 
         {/* Connection status overlays */}

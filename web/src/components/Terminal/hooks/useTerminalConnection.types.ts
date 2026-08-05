@@ -11,7 +11,7 @@ export interface TerminalScrollState {
 export interface UseTerminalConnectionProps {
   terminalRef: RefObject<HTMLDivElement | null>;
   /** Session ID to connect to. When null, terminal shows placeholder. */
-  sessionName: string | null;
+  sessionId: string | null;
   onConnected?: () => void;
   onDisconnected?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
@@ -26,7 +26,8 @@ export interface UseTerminalConnectionReturn {
   searchAddonRef: RefObject<SearchAddon | null>;
 
   sendInput: (data: string) => void;
-  sendText: (text: string) => void;
+  /** Returns false when the socket was not open and nothing was sent. */
+  sendText: (text: string) => boolean;
   focus: () => void;
   getScrollState: () => TerminalScrollState | null;
   restoreScrollState: (state: TerminalScrollState) => void;

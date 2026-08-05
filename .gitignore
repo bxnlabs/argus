@@ -48,3 +48,6 @@ Thumbs.db
 
 # MCP config (user-specific)
 .mcp.json
+
+# Scratch artifacts from superpowers subagent-driven development runs
+.superpowers/

@@ -255,10 +255,12 @@ export const Workspace = memo(function Workspace({
                           terminalRefs.current.delete(tab.id);
                         }
                       }}
-                      sessionName={getTabSessionId(tab)}
+                      sessionId={getTabSessionId(tab)}
+                      sessionSlug={
+                        sessions.find((s) => s.id === tab.sessionId)?.slug
+                      }
                       selectMode={isActive ? selectMode : false}
                       onFilesDropped={handleFilesDropped}
-                      onAttachments={() => setShowFilePicker(true)}
                       workingDirectory={activeWorkingDirectory}
                     />
                   </div>
