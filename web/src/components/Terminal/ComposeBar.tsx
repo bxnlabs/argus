@@ -5,11 +5,20 @@ import { cn, truncateRight } from "@/lib/utils";
 import { FilePicker } from "@/components/FilePicker";
 import { insertPaths } from "./insertPaths";
 
-// Longest slug that fits the input at 15px on a 390px-wide phone alongside
-// both action glyphs. A textarea placeholder cannot ellipsize itself, so
-// without this a long name simply clips mid-word at the input edge and reads
-// as a bug. `review-mike-dp-host-self-registration` is a real session name.
-const MAX_SLUG_CHARS = 28;
+// A textarea placeholder cannot ellipsize itself, so without a cap a long name
+// clips mid-word at the input edge and reads as a bug.
+//
+// A character count cannot express "what fits" in a proportional font — at the
+// same length, real slugs span 279-318px against the 276px the input offers at
+// 390px wide alongside both action glyphs. 22 is the measured length at which
+// every slug in a sample of real `argus session ls` names fits; the plan's
+// original 28 overflowed by 6px on `review-mike-dp-host-self-registration`,
+// the very name it was chosen to accommodate. Measured in Chrome at 390x844.
+//
+// So this bounds the common case rather than guaranteeing the general one: a
+// slug of unusually wide glyphs can still clip. Fixing that needs render-time
+// text measurement, which is not worth its machinery for a placeholder.
+const MAX_SLUG_CHARS = 22;
 
 function composePlaceholder(slug?: string | null): string {
   if (!slug) return "Message";

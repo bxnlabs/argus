@@ -170,13 +170,15 @@ describe("ComposeBar", () => {
   });
 
   it("names the session in the placeholder, Slack-style", () => {
+    // Deliberately under MAX_SLUG_CHARS so this stays a test about naming;
+    // truncation has its own test below.
     renderComposeBar({
       onSend: () => true,
       connected: true,
-      sessionSlug: "mobile-persistent-input",
+      sessionSlug: "slack-compose-card",
     });
 
-    expect(textarea().placeholder).toBe("Message #mobile-persistent-input");
+    expect(textarea().placeholder).toBe("Message #slack-compose-card");
   });
 
   it("keeps one placeholder across focus and blur", () => {
@@ -202,16 +204,20 @@ describe("ComposeBar", () => {
   });
 
   it("truncates a long slug rather than letting it clip mid-word at the input edge", () => {
-    // A textarea placeholder cannot ellipsize itself. 36 chars is a real
-    // session name from `argus session ls`.
+    // A textarea placeholder cannot ellipsize itself. This is a real session
+    // name from `argus session ls`, and the one the cap was measured against:
+    // in Chrome at 390x844 it renders at 282px against 276px of room when cut
+    // to the plan's original 28 chars, so it still clipped. jsdom has no
+    // layout engine, so this asserts the length the browser measurement
+    // settled on rather than re-deriving it.
     renderComposeBar({
       onSend: () => true,
       connected: true,
       sessionSlug: "review-mike-dp-host-self-registration",
     });
 
-    expect(textarea().placeholder).toBe("Message #review-mike-dp-host-self-re…");
-    expect(textarea().placeholder.length).toBe("Message #".length + 28);
+    expect(textarea().placeholder).toBe("Message #review-mike-dp-host-s…");
+    expect(textarea().placeholder.length).toBe("Message #".length + 22);
   });
 
   it("dims the placeholder without dimming the draft", () => {
