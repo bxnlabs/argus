@@ -150,9 +150,9 @@ export const ComposeBar = memo(function ComposeBar({
             // top — the toolbar's own border-t is transparent so the two rows
             // read as a single input zone rather than three stacked hairlines.
             "absolute inset-x-0 bottom-0 flex items-end gap-1.5 border-t bg-input px-2 py-1.5 transition-colors",
-            // Focus is carried by the send button appearing; this edge lift
-            // is the quiet second signal. Only the border animates, so the
-            // zone never changes value underfoot.
+            // The border edge is the sole focus signal: the send button is
+            // always mounted, and the placeholder no longer swaps. Only the
+            // border animates, so the zone never changes value underfoot.
             focused ? "border-[hsl(0_0%_24%)]" : "border-[hsl(0_0%_16%)]",
           )}
         >

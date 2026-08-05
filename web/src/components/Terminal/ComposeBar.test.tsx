@@ -161,7 +161,7 @@ describe("ComposeBar", () => {
 
     // No filled circles: a filled attach beside a ghost send would make the
     // secondary action heavier than the primary one.
-    expect(attach.className).not.toMatch(/\bbg-\[hsl/);
+    expect(attach.className).not.toMatch(/\bbg-(?:[a-z]+(?:-\d+)?|\[[^\]]*\])/);
     expect(send.className).not.toMatch(/\bbg-(primary|\[hsl)/);
 
     expect(attach.className).toContain("text-[hsl(0_0%_60%)]");
