@@ -147,7 +147,10 @@ export const ComposeBar = memo(function ComposeBar({
             aria-label="Attach files"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setShowFilePicker(true)}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[hsl(0_0%_16%)] text-[hsl(0_0%_76%)]"
+            // focus-visible only: onMouseDown preventDefault above means a tap
+            // never focuses this button, so the ring can only ever come from
+            // Tab. The touch appearance is unreachable by it.
+            className="focus-visible:ring-ring/50 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[hsl(0_0%_16%)] text-[hsl(0_0%_76%)] outline-none focus-visible:ring-2"
           >
             <Paperclip className="h-4 w-4" />
           </button>
@@ -204,7 +207,7 @@ export const ComposeBar = memo(function ComposeBar({
               // Disabled is a solid dim fill at full opacity, not a faded
               // outline: a ghost of a ghost reads as broken, where a filled but
               // dim control reads as "present, not yet available".
-              className="bg-primary text-primary-foreground disabled:bg-[hsl(0_0%_18%)] disabled:text-[hsl(0_0%_48%)] flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full"
+              className="bg-primary text-primary-foreground disabled:bg-[hsl(0_0%_18%)] disabled:text-[hsl(0_0%_48%)] focus-visible:ring-ring/50 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2"
             >
               <SendHorizontal className="h-4 w-4" />
             </button>

@@ -117,7 +117,13 @@ export const TerminalToolbar = memo(function TerminalToolbar({
               }}
               className={cn(
                 "relative flex-shrink-0 select-none px-3.5 py-2.5 text-sm font-medium",
-                "text-[hsl(0_0%_72%)] active:bg-white/10"
+                "text-[hsl(0_0%_72%)] active:bg-white/10",
+                // focus-visible only: onMouseDown preventDefault above means a
+                // tap never focuses these, so the ring is reachable solely by
+                // Tab. ring-inset because the toolbar scrolls horizontally,
+                // which makes overflow-y compute to auto and clip an outset
+                // ring at the row's top and bottom edges.
+                "focus-visible:ring-ring/50 outline-none focus-visible:ring-2 focus-visible:ring-inset"
               )}
             >
               {btn.icon ? (
