@@ -11,6 +11,7 @@ import (
 	"github.com/bxnlabs/argus/internal/config"
 	"github.com/bxnlabs/argus/internal/git"
 	"github.com/bxnlabs/argus/internal/shared"
+	"github.com/bxnlabs/argus/internal/slug"
 	"github.com/bxnlabs/argus/internal/source"
 )
 
@@ -211,8 +212,7 @@ func (m *Manager) createWorktree(repoDir, parentKey, sessionName string, branchO
 	if branchOverride != "" {
 		baseBranch = branchOverride
 	} else {
-		slug := slugify(sessionName)
-		baseBranch = m.branchName(slug)
+		baseBranch = m.branchName(slug.Make(sessionName))
 	}
 
 	// Check if a worktree already exists for this branch.
