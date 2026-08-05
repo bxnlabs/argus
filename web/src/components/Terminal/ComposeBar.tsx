@@ -64,7 +64,8 @@ export const ComposeBar = memo(function ComposeBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   // Panel height at one line, measured rather than hardcoded so it can't drift
-  // from the spacer's h-11.
+  // from the spacer's height, which is derived as
+  // calc(var(--compose-row-h) + 1.25rem + 1px) below.
   const collapsedHeightRef = useRef<number | null>(null);
   // Read through a ref so an unstable callback identity can't rebuild the
   // observer and recapture the baseline at an already-grown height.
@@ -195,7 +196,9 @@ export const ComposeBar = memo(function ComposeBar({
             // never focuses this button, so the ring comes from keyboard or
             // programmatic/AT focus — never from the touch path.
             // Full-opacity ring, not /50: blended at 50% the ring is ~2:1
-            // against these dark fills, under the 3:1 non-text contrast bar.
+            // against the card's bg-input surface, under the 3:1 non-text
+            // contrast bar. (These buttons are ghost glyphs with no fill of
+            // their own — the surface behind the ring is the card's.)
             className="focus-visible:ring-ring flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[hsl(0_0%_60%)] outline-none focus-visible:ring-2"
           >
             <Paperclip className="h-4 w-4" />

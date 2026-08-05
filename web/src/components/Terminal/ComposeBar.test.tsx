@@ -541,11 +541,20 @@ describe("ComposeBar overlay height", () => {
 
     // The panel and the toolbar are separate boxes that meet flush; each
     // renders half the card's border.
-    expect(panel.className).toContain("rounded-t-lg");
-    expect(panel.className).toContain("border-x");
-    expect(panel.className).toContain("inset-x-2");
-    expect(panel.className).toContain("border-[hsl(0_0%_20%)]");
-    expect(spacer.className).toContain("mt-1.5");
+    const panelClasses = panel.className.split(" ");
+    expect(panelClasses).toContain("rounded-t-lg");
+    expect(panelClasses).toContain("border-x");
+    expect(panelClasses).toContain("inset-x-2");
+    expect(panelClasses).toContain("border-[hsl(0_0%_20%)]");
+    expect(spacer.className.split(" ")).toContain("mt-1.5");
+
+    // Pin the focused value too: TerminalToolbar.test.tsx already asserts
+    // both of its border states, but this file only asserted the resting
+    // one. Without this, the two halves could be given different focused
+    // colours and every test would still pass — the card would visibly
+    // split in two on focus even though each half's own tests are green.
+    fireEvent.focus(textarea());
+    expect(panel.className.split(" ")).toContain("border-[hsl(0_0%_30%)]");
   });
 
   it("reports focus changes so the toolbar half can brighten with the panel", () => {

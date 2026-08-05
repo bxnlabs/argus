@@ -142,6 +142,15 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     useEffect(() => {
       if (!composeBarVisible) {
         setComposeOverlay(0);
+        // ComposeBar stays mounted under display:none rather than
+        // unmounting, so its own internal `focused` state is not reset by
+        // this effect — only this parent copy is. In practice a browser
+        // blurs a focused element when an ancestor becomes display:none, so
+        // ComposeBar's onBlur fires and the two copies converge anyway. This
+        // reset exists as a belt-and-braces guarantee for the case that blur
+        // is ever not delivered (e.g. a future change swaps display:none for
+        // something that doesn't trigger it): without it, the toolbar half
+        // could be left bright with no compose bar visible to un-focus.
         setComposeFocused(false);
       }
     }, [composeBarVisible]);

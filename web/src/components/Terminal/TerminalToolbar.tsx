@@ -87,7 +87,7 @@ export const TerminalToolbar = memo(function TerminalToolbar({
         className={cn(
           // The card's bottom half — see the matching comment on ComposeBar's
           // panel for why the card is two boxes rather than one.
-          "scrollbar-none bg-input flex items-center min-[500px]:justify-center overflow-x-auto rounded-b-lg border-x border-t border-b mx-2 mb-1.5",
+          "scrollbar-none bg-input flex items-center min-[500px]:justify-center overflow-x-auto rounded-b-lg border-x border-t border-b mx-2 mb-1.5 transition-colors",
           focused ? "border-[hsl(0_0%_30%)]" : "border-[hsl(0_0%_20%)]",
           // The seam where the two halves meet is the row divider, at --border
           // (14%) — quieter than the card's own edge so it separates without

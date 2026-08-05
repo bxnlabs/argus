@@ -42,11 +42,12 @@ describe("TerminalToolbar", () => {
     render(<TerminalToolbar onKeyPress={() => {}} />);
 
     const bar = screen.getByTestId("terminal-toolbar");
-    expect(bar.className).toContain("rounded-b-lg");
-    expect(bar.className).toContain("border-x");
-    expect(bar.className).toContain("border-b");
-    expect(bar.className).toContain("mx-2");
-    expect(bar.className).toContain("mb-1.5");
+    const classes = bar.className.split(" ");
+    expect(classes).toContain("rounded-b-lg");
+    expect(classes).toContain("border-x");
+    expect(classes).toContain("border-b");
+    expect(classes).toContain("mx-2");
+    expect(classes).toContain("mb-1.5");
   });
 
   it("brightens its card edge with the compose bar, so the halves move together", () => {
@@ -54,10 +55,23 @@ describe("TerminalToolbar", () => {
       <TerminalToolbar onKeyPress={() => {}} focused={false} />,
     );
     const bar = () => screen.getByTestId("terminal-toolbar");
-    expect(bar().className).toContain("border-[hsl(0_0%_20%)]");
+    expect(bar().className.split(" ")).toContain("border-[hsl(0_0%_20%)]");
 
     rerender(<TerminalToolbar onKeyPress={() => {}} focused={true} />);
-    expect(bar().className).toContain("border-[hsl(0_0%_30%)]");
+    expect(bar().className.split(" ")).toContain("border-[hsl(0_0%_30%)]");
+  });
+
+  it("animates its border colour, so both halves of the card's shared edge fade together", () => {
+    // The card's left and right edges are one continuous vertical line split
+    // across this box and ComposeBar's panel. If only one half transitions,
+    // the edge resolves two-tone over the transition instead of moving as a
+    // single line — the exact artifact the two-box construction exists to
+    // hide. ComposeBar's panel already carries transition-colors; this pins
+    // the toolbar's matching half so the two can't drift apart again.
+    render(<TerminalToolbar onKeyPress={() => {}} />);
+
+    const bar = screen.getByTestId("terminal-toolbar");
+    expect(bar.className.split(" ")).toContain("transition-colors");
   });
 
   it("keeps the row divider a distinct value from the card edge", () => {
@@ -71,6 +85,6 @@ describe("TerminalToolbar", () => {
     // `border-t-[...]` in the cn() arguments silently deletes the divider.
     // The divider must therefore be the LAST border colour passed.
     const bar = screen.getByTestId("terminal-toolbar");
-    expect(bar.className).toContain("border-t-[hsl(0_0%_14%)]");
+    expect(bar.className.split(" ")).toContain("border-t-[hsl(0_0%_14%)]");
   });
 });
