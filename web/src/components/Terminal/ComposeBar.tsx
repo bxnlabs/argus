@@ -97,15 +97,41 @@ export const ComposeBar = memo(function ComposeBar({
       {/* Spacer: holds the one-line height in flow. The panel below is
           absolutely positioned against its bottom edge and grows UPWARD, so
           growing the input never changes the terminal's laid-out height and
-          never triggers a FitAddon refit. */}
-      <div className="relative h-11 flex-shrink-0">
+          never triggers a FitAddon refit.
+
+          --compose-row-h is the single source of truth for one line of compose
+          text, and BOTH the spacer's height and the three-line cap derive from
+          it. That coupling is not decorative: this spacer's height must equal
+          the panel's resting height, or the panel permanently overflows it, the
+          observer reports a nonzero overlay at rest, and the terminal carries a
+          constant shift — silently breaking the very invariant the transform
+          exists to protect. Deriving both from one variable means they cannot
+          drift; a hardcoded 44px and a hardcoded 1.25rem line-height can.
+
+          Spacer height = one row (line-height + the mirror's own py-1.5)
+                        + the panel's py-1.5
+                        + the panel's 1px border-t
+                        = var + 0.75rem + 0.75rem + 1px. */}
+      <div
+        className="relative flex-shrink-0"
+        style={
+          {
+            "--compose-row-h": "21px",
+            height: "calc(var(--compose-row-h) + 1.5rem + 1px)",
+          } as CSSProperties
+        }
+      >
         <div
           ref={panelRef}
           className={cn(
-            "absolute inset-x-0 bottom-0 flex items-end gap-1.5 border-t px-2 py-1.5 backdrop-blur transition-colors",
-            focused
-              ? "border-white/25 bg-secondary/50"
-              : "border-white/10 bg-transparent",
+            // One surface shared with TerminalToolbar, and one zone edge at its
+            // top — the toolbar's own border-t is transparent so the two rows
+            // read as a single input zone rather than three stacked hairlines.
+            "absolute inset-x-0 bottom-0 flex items-end gap-1.5 border-t bg-[hsl(0_0%_8%)] px-2 py-1.5 transition-colors",
+            // Focus is carried by the placeholder swap and the send button
+            // appearing; this edge lift is the quiet third signal. Only the
+            // border animates, so the zone never changes value underfoot.
+            focused ? "border-[hsl(0_0%_24%)]" : "border-[hsl(0_0%_16%)]",
           )}
         >
           <button
@@ -113,39 +139,38 @@ export const ComposeBar = memo(function ComposeBar({
             aria-label="Attach files"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setShowFilePicker(true)}
-            className="text-secondary-foreground flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/20"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[hsl(0_0%_16%)] text-[hsl(0_0%_76%)]"
           >
             <Paperclip className="h-4 w-4" />
           </button>
 
           {/* CSS-only auto-grow: an invisible mirror in the same grid cell
               sizes the row to the content, so no JS measures anything.
-              --compose-max-h caps growth at exactly three lines: 3 * the
-              compose text's line-height (text-sm => 1.25rem) plus the
-              shared vertical padding (py-1.5 => 0.75rem top+bottom total).
+              --compose-max-h caps growth at exactly three lines: 3 * one row
+              (--compose-row-h, set on the spacer above) plus the shared
+              vertical padding (py-1.5 => 0.75rem top+bottom total).
               It must be applied to the MIRROR itself, not just this
               wrapper — capping only the wrapper's own box still lets the
               grid row size to the mirror's full, uncapped content, so the
               textarea lays out taller than the wrapper and is merely
               clipped by overflow-hidden rather than made scrollable
-              (scrollHeight === clientHeight in that case). Keep the "3 *
-              line-height + padding" derivation in sync with the
-              text-sm/py-1.5 classes shared by the mirror and textarea
-              below — this must never regress into a hardcoded pixel
-              value that only happens to match by coincidence. */}
+              (scrollHeight === clientHeight in that case). The mirror and
+              textarea must keep identical py-1.5 / text size / line-height,
+              or the mirror mis-measures the textarea and the row sizes to
+              the wrong number of lines. */}
           <div
             data-testid="compose-grow-wrapper"
             className="grid max-h-[var(--compose-max-h)] flex-1 overflow-hidden"
             style={
               {
-                "--compose-max-h": "calc(3 * 1.25rem + 0.75rem)",
+                "--compose-max-h": "calc(3 * var(--compose-row-h) + 0.75rem)",
               } as CSSProperties
             }
           >
             <div
               data-testid="compose-mirror"
               aria-hidden="true"
-              className="invisible max-h-[var(--compose-max-h)] [grid-area:1/1/2/2] py-1.5 text-sm break-words whitespace-pre-wrap"
+              className="invisible max-h-[var(--compose-max-h)] [grid-area:1/1/2/2] py-1.5 text-[15px] leading-[var(--compose-row-h)] break-words whitespace-pre-wrap"
             >
               {text + " "}
             </div>
@@ -157,7 +182,7 @@ export const ComposeBar = memo(function ComposeBar({
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               placeholder={focused ? "Message…" : "Tap to compose"}
-              className="min-h-8 w-full resize-none overflow-y-auto bg-transparent py-1.5 text-sm [grid-area:1/1/2/2] focus:outline-none"
+              className="w-full resize-none overflow-y-auto bg-transparent py-1.5 text-[15px] leading-[var(--compose-row-h)] [grid-area:1/1/2/2] focus:outline-none"
             />
           </div>
 
@@ -168,7 +193,10 @@ export const ComposeBar = memo(function ComposeBar({
               disabled={!canSend}
               onMouseDown={(e) => e.preventDefault()}
               onClick={handleSend}
-              className="text-secondary-foreground flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/20 disabled:opacity-30"
+              // Disabled is a solid dim fill at full opacity, not a faded
+              // outline: a ghost of a ghost reads as broken, where a filled but
+              // dim control reads as "present, not yet available".
+              className="bg-primary text-primary-foreground disabled:bg-[hsl(0_0%_18%)] disabled:text-[hsl(0_0%_48%)] flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full"
             >
               <SendHorizontal className="h-4 w-4" />
             </button>

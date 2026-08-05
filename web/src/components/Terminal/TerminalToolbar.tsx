@@ -81,7 +81,10 @@ export const TerminalToolbar = memo(function TerminalToolbar({
       )}
       <div
         data-testid="terminal-toolbar"
-        className="bg-secondary/50 scrollbar-none flex items-center min-[500px]:justify-center overflow-x-auto border-t border-white/5 backdrop-blur"
+        // Shares ComposeBar's surface so the two rows read as one input zone.
+        // The border-t stays but goes transparent: the shared surface already
+        // groups them, and keeping the 1px preserves the row's height.
+        className="scrollbar-none flex items-center min-[500px]:justify-center overflow-x-auto border-t border-transparent bg-[hsl(0_0%_8%)]"
       >
         {/* Special keys */}
         {TOOLBAR_BUTTONS.map((btn, index) => {
@@ -114,7 +117,7 @@ export const TerminalToolbar = memo(function TerminalToolbar({
               }}
               className={cn(
                 "relative flex-shrink-0 select-none px-3.5 py-2.5 text-sm font-medium",
-                "text-secondary-foreground active:bg-white/10"
+                "text-[hsl(0_0%_72%)] active:bg-white/10"
               )}
             >
               {btn.icon ? (
@@ -122,8 +125,11 @@ export const TerminalToolbar = memo(function TerminalToolbar({
               ) : (
                 btn.label
               )}
+              {/* Underline rather than the old 1x1px corner dot, which
+                  rendered as roughly one physical pixel and read as dust
+                  instead of "this key opens a menu". */}
               {isMenu && (
-                <span className="absolute top-0.5 right-0.5 h-1 w-1 rounded-full bg-white/30" />
+                <span className="absolute bottom-1 left-1/2 h-[1.5px] w-2.5 -translate-x-1/2 rounded-[1px] bg-[hsl(0_0%_45%)]" />
               )}
             </button>
           );

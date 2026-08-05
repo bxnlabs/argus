@@ -374,15 +374,49 @@ describe("ComposeBar overlay height", () => {
     // the textarea doesn't — a native textarea already wraps via the UA
     // stylesheet — so full class-string equality is the wrong assertion.
     // What must never drift is the set of tokens that determine each
-    // line's rendered height (padding + font size): if only one element
-    // keeps py-1.5 or text-sm, the mirror mis-measures the textarea's
-    // content and the grid row sizes to the wrong height, so the bar grows
-    // early or late.
-    const sharedSizingTokens = ["py-1.5", "text-sm"];
+    // line's rendered height (padding + font size + line-height): if only
+    // one element keeps py-1.5, the font size, or the line-height, the
+    // mirror mis-measures the textarea's content and the grid row sizes to
+    // the wrong height, so the bar grows early or late.
+    const sharedSizingTokens = [
+      "py-1.5",
+      "text-[15px]",
+      "leading-[var(--compose-row-h)]",
+    ];
     for (const token of sharedSizingTokens) {
       expect(mirror?.className.split(" ")).toContain(token);
       expect(ta.className.split(" ")).toContain(token);
     }
+  });
+
+  it("derives the spacer height and the three-line cap from one row variable, so they cannot drift apart", () => {
+    // The spacer's height IS the panel's resting height — the panel is
+    // anchored to its bottom edge. If the two disagree, the panel overflows
+    // the spacer at rest, the observer reports a nonzero overlay with an
+    // empty draft, and the terminal sits permanently shifted. jsdom has no
+    // layout engine so this cannot compare real pixels; what it CAN pin is
+    // that both numbers are derived from the same variable rather than
+    // being two independently hardcoded values that happen to agree today.
+    renderComposeBar({ onSend: () => true, connected: true });
+
+    const wrapper = screen.getByTestId("compose-grow-wrapper");
+    const panel = wrapper.parentElement!;
+    const spacer = panel.parentElement!;
+
+    expect(spacer.style.getPropertyValue("--compose-row-h")).toBe("21px");
+    // one row (line-height + the mirror's py-1.5) + the panel's py-1.5 + its
+    // 1px border-t
+    expect(spacer.style.height).toBe(
+      "calc(var(--compose-row-h) + 1.5rem + 1px)",
+    );
+    expect(wrapper.style.getPropertyValue("--compose-max-h")).toContain(
+      "var(--compose-row-h)",
+    );
+
+    // A literal height on the spacer is exactly the regression this guards:
+    // it would keep passing the cap test above while silently decoupling the
+    // spacer from the row size.
+    expect(spacer.className).not.toMatch(/\bh-\d/);
   });
 
   it("caps the mirror's own max-height, not just the wrapper's, so the textarea scrolls past three lines instead of being clipped", () => {
@@ -407,12 +441,11 @@ describe("ComposeBar overlay height", () => {
     expect(wrapper.className).toMatch(/max-h-\[var\(--compose-max-h\)\]/);
     expect(mirror.className).toMatch(/max-h-\[var\(--compose-max-h\)\]/);
 
-    // The cap must be a derived expression — 3 lines at text-sm's
-    // line-height (1.25rem) plus the shared py-1.5 vertical padding
-    // (0.75rem top+bottom total) — not a magic pixel value that only
-    // happens to match the wrapper's unrelated inherited line-height.
+    // The cap must be a derived expression — 3 rows of --compose-row-h plus
+    // the shared py-1.5 vertical padding (0.75rem top+bottom total) — not a
+    // magic pixel value that only happens to match by coincidence.
     expect(wrapper.style.getPropertyValue("--compose-max-h")).toBe(
-      "calc(3 * 1.25rem + 0.75rem)",
+      "calc(3 * var(--compose-row-h) + 0.75rem)",
     );
 
     // The textarea must be set up to scroll internally once it exceeds the
