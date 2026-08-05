@@ -256,6 +256,9 @@ export const Workspace = memo(function Workspace({
                         }
                       }}
                       sessionId={getTabSessionId(tab)}
+                      sessionSlug={
+                        sessions.find((s) => s.id === tab.sessionId)?.slug
+                      }
                       selectMode={isActive ? selectMode : false}
                       onFilesDropped={handleFilesDropped}
                       workingDirectory={activeWorkingDirectory}

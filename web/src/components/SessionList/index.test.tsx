@@ -6,6 +6,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     id: "id",
     name: "name",
+    slug: "name",
     tmux_name: "claude-id",
     created_at: "2026-01-01 00:00:00",
     updated_at: "2026-01-01 00:00:00",

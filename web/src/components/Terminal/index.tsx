@@ -40,11 +40,13 @@ interface TerminalProps {
   onFilesDropped?: (files: File[]) => void;
   /** Session working directory, used to anchor file search */
   workingDirectory?: string | null;
+  /** Server-derived session slug, shown in the compose placeholder */
+  sessionSlug?: string | null;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
-    { sessionId, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, workingDirectory },
+    { sessionId, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, workingDirectory, sessionSlug },
     ref
   ) {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -246,6 +248,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
               onSend={handleSend}
               connected={isConnected}
               workingDirectory={workingDirectory}
+              sessionSlug={sessionSlug}
               onOverlayHeightChange={setComposeOverlay}
             />
             <TerminalToolbar onKeyPress={sendInput} />

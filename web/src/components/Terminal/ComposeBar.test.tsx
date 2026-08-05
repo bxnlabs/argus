@@ -147,16 +147,56 @@ describe("ComposeBar", () => {
     expect(screen.queryByRole("button", { name: /send/i })).not.toBeNull();
   });
 
-  it("swaps the placeholder between focused and unfocused", () => {
+  it("names the session in the placeholder, Slack-style", () => {
+    renderComposeBar({
+      onSend: () => true,
+      connected: true,
+      sessionSlug: "mobile-persistent-input",
+    });
+
+    expect(textarea().placeholder).toBe("Message #mobile-persistent-input");
+  });
+
+  it("keeps one placeholder across focus and blur", () => {
+    // Replaces the old focused/unfocused swap. Focus is now carried by the
+    // card edge brightening alone, so the placeholder must hold still.
+    renderComposeBar({
+      onSend: () => true,
+      connected: true,
+      sessionSlug: "argus",
+    });
+
+    expect(textarea().placeholder).toBe("Message #argus");
+    fireEvent.focus(textarea());
+    expect(textarea().placeholder).toBe("Message #argus");
+    fireEvent.blur(textarea());
+    expect(textarea().placeholder).toBe("Message #argus");
+  });
+
+  it("drops the channel when there is no session, as on a raw-shell tab", () => {
     renderComposeBar({ onSend: () => true, connected: true });
 
-    expect(textarea().placeholder).toBe("Tap to compose");
+    expect(textarea().placeholder).toBe("Message");
+  });
 
-    fireEvent.focus(textarea());
-    expect(textarea().placeholder).toBe("Message…");
+  it("truncates a long slug rather than letting it clip mid-word at the input edge", () => {
+    // A textarea placeholder cannot ellipsize itself. 36 chars is a real
+    // session name from `argus session ls`.
+    renderComposeBar({
+      onSend: () => true,
+      connected: true,
+      sessionSlug: "review-mike-dp-host-self-registration",
+    });
 
-    fireEvent.blur(textarea());
-    expect(textarea().placeholder).toBe("Tap to compose");
+    expect(textarea().placeholder).toBe("Message #review-mike-dp-host-self-re…");
+    expect(textarea().placeholder.length).toBe("Message #".length + 28);
+  });
+
+  it("dims the placeholder without dimming the draft", () => {
+    renderComposeBar({ onSend: () => true, connected: true });
+
+    expect(textarea().className).toContain("placeholder:text-[hsl(0_0%_50%)]");
+    expect(textarea().className).not.toMatch(/(^|\s)text-\[hsl/);
   });
 
   it("never dims the draft text itself when focus leaves", () => {

@@ -1,9 +1,20 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { SendHorizontal, Paperclip } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, truncateRight } from "@/lib/utils";
 import { FilePicker } from "@/components/FilePicker";
 import { insertPaths } from "./insertPaths";
+
+// Longest slug that fits the input at 15px on a 390px-wide phone alongside
+// both action glyphs. A textarea placeholder cannot ellipsize itself, so
+// without this a long name simply clips mid-word at the input edge and reads
+// as a bug. `review-mike-dp-host-self-registration` is a real session name.
+const MAX_SLUG_CHARS = 28;
+
+function composePlaceholder(slug?: string | null): string {
+  if (!slug) return "Message";
+  return `Message #${truncateRight(slug, MAX_SLUG_CHARS)}`;
+}
 
 interface ComposeBarProps {
   /** Returns false when the text never reached the socket — keep the draft. */
@@ -12,6 +23,11 @@ interface ComposeBarProps {
   connected: boolean;
   /** Session working directory, used to anchor file search. */
   workingDirectory?: string | null;
+  /**
+   * Server-derived session slug, rendered Slack-style as the destination.
+   * Absent on a raw-shell tab, which has no session.
+   */
+  sessionSlug?: string | null;
   /**
    * Reports how far the panel overflows its one-line spacer, so the terminal
    * can be shifted up by the same amount.
@@ -23,6 +39,7 @@ export const ComposeBar = memo(function ComposeBar({
   onSend,
   connected,
   workingDirectory,
+  sessionSlug,
   onOverlayHeightChange,
 }: ComposeBarProps) {
   const [text, setText] = useState("");
@@ -136,9 +153,9 @@ export const ComposeBar = memo(function ComposeBar({
             // top — the toolbar's own border-t is transparent so the two rows
             // read as a single input zone rather than three stacked hairlines.
             "absolute inset-x-0 bottom-0 flex items-end gap-1.5 border-t bg-input px-2 py-1.5 transition-colors",
-            // Focus is carried by the placeholder swap and the send button
-            // appearing; this edge lift is the quiet third signal. Only the
-            // border animates, so the zone never changes value underfoot.
+            // Focus is carried by the send button appearing; this edge lift
+            // is the quiet second signal. Only the border animates, so the
+            // zone never changes value underfoot.
             focused ? "border-[hsl(0_0%_24%)]" : "border-[hsl(0_0%_16%)]",
           )}
         >
@@ -194,8 +211,8 @@ export const ComposeBar = memo(function ComposeBar({
               onChange={(e) => setText(e.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
-              placeholder={focused ? "Message…" : "Tap to compose"}
-              className="w-full resize-none overflow-y-auto bg-transparent py-1.5 text-[15px] leading-[var(--compose-row-h)] [grid-area:1/1/2/2] focus:outline-none"
+              placeholder={composePlaceholder(sessionSlug)}
+              className="w-full resize-none overflow-y-auto bg-transparent py-1.5 text-[15px] leading-[var(--compose-row-h)] placeholder:text-[hsl(0_0%_50%)] [grid-area:1/1/2/2] focus:outline-none"
             />
           </div>
 
