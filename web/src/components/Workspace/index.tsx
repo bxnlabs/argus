@@ -215,7 +215,11 @@ export const Workspace = memo(function Workspace({
         <div className="flex min-h-0 w-full flex-1">
           {/* Content panels */}
           <div
-            className="relative min-h-0 min-w-0 flex-1 pl-1"
+            // px-1, not pl-1: a left-only gutter offsets everything inside by
+            // 4px, which reads as off-centre for any child that sets its own
+            // symmetric inset — the mobile compose card (inset-x-2 / mx-2)
+            // landed 12px from the left edge and 8px from the right.
+            className="relative min-h-0 min-w-0 flex-1 px-1"
             onTouchStart={isMobile ? handleTouchStart : undefined}
             onTouchEnd={isMobile ? handleTouchEnd : undefined}
           >

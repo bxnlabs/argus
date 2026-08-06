@@ -15,6 +15,11 @@ import { insertPaths } from "./insertPaths";
 // original 28 overflowed by 6px on `review-mike-dp-host-self-registration`,
 // the very name it was chosen to accommodate. Measured in Chrome at 390x844.
 //
+// The cap still holds after the card was centred (which cost the input 4px)
+// because the prefix shrank by more than that in the same edit: "Send to #"
+// measures ~9px narrower than the "Message #" the cap was fitted against,
+// leading with an S rather than the widest glyph in the alphabet.
+//
 // So this bounds the common case rather than guaranteeing the general one: a
 // slug of unusually wide glyphs can still clip. Fixing that needs render-time
 // text measurement, which is not worth its machinery for a placeholder.
@@ -24,8 +29,8 @@ function composePlaceholder(slug?: string | null): string {
   // No slug means no session behind this tab — a raw shell. There is no
   // channel to name, so the destination stays generic rather than borrowing
   // the "#" that stands for a specific session everywhere else.
-  if (!slug) return "Message session";
-  return `Message #${truncateRight(slug, MAX_SLUG_CHARS)}`;
+  if (!slug) return "Send to session";
+  return `Send to #${truncateRight(slug, MAX_SLUG_CHARS)}`;
 }
 
 interface ComposeBarProps {
@@ -68,7 +73,7 @@ export const ComposeBar = memo(function ComposeBar({
   const panelRef = useRef<HTMLDivElement>(null);
   // Panel height at one line, measured rather than hardcoded so it can't drift
   // from the spacer's height, which is derived as
-  // calc(var(--compose-row-h) + 1.25rem + 1px) below.
+  // calc(var(--compose-row-h) + 1.75rem + 1px) below.
   const collapsedHeightRef = useRef<number | null>(null);
   // Read through a ref so an unstable callback identity can't rebuild the
   // observer and recapture the baseline at an already-grown height.
@@ -151,9 +156,9 @@ export const ComposeBar = memo(function ComposeBar({
           drift; a hardcoded 44px and a hardcoded 1.25rem line-height can.
 
           Spacer height = one row (line-height + the mirror's own py-1.5)
-                        + the panel's py-1
+                        + the panel's py-2
                         + the panel's 1px border-t
-                        = var + 0.75rem + 0.5rem + 1px. */}
+                        = var + 0.75rem + 1rem + 1px. */}
       <div
         // mt-1.5 is the card's top margin. The 2026-08-04 refresh used 8px
         // here to turn an accidental sub-row remainder into a deliberate gap;
@@ -165,7 +170,7 @@ export const ComposeBar = memo(function ComposeBar({
         style={
           {
             "--compose-row-h": "21px",
-            height: "calc(var(--compose-row-h) + 1.25rem + 1px)",
+            height: "calc(var(--compose-row-h) + 1.75rem + 1px)",
           } as CSSProperties
         }
       >
@@ -178,12 +183,15 @@ export const ComposeBar = memo(function ComposeBar({
             // bottom edge while the toolbar begins immediately after it, the
             // two meet flush and the seam becomes the row divider.
             //
-            // py-1 rather than py-1.5: the panel's padding is compacted to pay
-            // for the card's four-sided margin. This is the PANEL's padding,
-            // not the mirror's — the draft text keeps its own 6px inside the
-            // card, which is why --compose-max-h is unchanged. The spacer
-            // height above moves with this; they must not drift.
-            "absolute inset-x-2 bottom-0 flex items-end gap-1.5 rounded-t-lg border-x border-t bg-input px-2 py-1 transition-colors",
+            // py-2: at the py-1 this shipped with, the input row stood 41px
+            // against the toolbar's 41px and read as squished — the draft text
+            // sat as close to the card's top edge as to the row divider. The
+            // extra 8px gives the text some room of its own and makes the top
+            // half the taller of the two, as in Slack. This is the PANEL's
+            // padding, not the mirror's — the draft text keeps its own 6px,
+            // which is why --compose-max-h is unchanged. The spacer height
+            // above moves with this; they must not drift.
+            "absolute inset-x-2 bottom-0 flex items-end gap-1.5 rounded-t-lg border-x border-t bg-input px-2 py-2 transition-colors",
             // Only the border animates, so the zone never changes value
             // underfoot. TerminalToolbar carries the same two values on the
             // bottom half via its `focused` prop.
