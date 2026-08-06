@@ -178,7 +178,7 @@ describe("ComposeBar", () => {
       sessionSlug: "slack-compose-card",
     });
 
-    expect(textarea().placeholder).toBe("Message #slack-compose-card");
+    expect(textarea().placeholder).toBe("Send to #slack-compose-card");
   });
 
   it("keeps one placeholder across focus and blur", () => {
@@ -190,11 +190,11 @@ describe("ComposeBar", () => {
       sessionSlug: "argus",
     });
 
-    expect(textarea().placeholder).toBe("Message #argus");
+    expect(textarea().placeholder).toBe("Send to #argus");
     fireEvent.focus(textarea());
-    expect(textarea().placeholder).toBe("Message #argus");
+    expect(textarea().placeholder).toBe("Send to #argus");
     fireEvent.blur(textarea());
-    expect(textarea().placeholder).toBe("Message #argus");
+    expect(textarea().placeholder).toBe("Send to #argus");
   });
 
   it("drops the channel when there is no session, as on a raw-shell tab", () => {
@@ -202,7 +202,7 @@ describe("ComposeBar", () => {
     // a raw shell has none to name.
     renderComposeBar({ onSend: () => true, connected: true });
 
-    expect(textarea().placeholder).toBe("Message session");
+    expect(textarea().placeholder).toBe("Send to session");
   });
 
   it("truncates a long slug rather than letting it clip mid-word at the input edge", () => {
@@ -218,8 +218,8 @@ describe("ComposeBar", () => {
       sessionSlug: "review-mike-dp-host-self-registration",
     });
 
-    expect(textarea().placeholder).toBe("Message #review-mike-dp-host-s…");
-    expect(textarea().placeholder.length).toBe("Message #".length + 22);
+    expect(textarea().placeholder).toBe("Send to #review-mike-dp-host-s…");
+    expect(textarea().placeholder.length).toBe("Send to #".length + 22);
   });
 
   it("dims the placeholder without dimming the draft", () => {
@@ -475,23 +475,23 @@ describe("ComposeBar overlay height", () => {
     const spacer = panel.parentElement!;
 
     expect(spacer.style.getPropertyValue("--compose-row-h")).toBe("21px");
-    // one row (line-height + the mirror's py-1.5) + the panel's py-1 + its
-    // 1px border-t. The panel's padding is compacted to pay for the card's
-    // four-sided margin; the MIRROR keeps py-1.5, which is why
-    // --compose-max-h below is untouched.
+    // one row (line-height + the mirror's py-1.5) + the panel's py-2 + its
+    // 1px border-t. Only the PANEL's padding grew to un-squish the input row;
+    // the MIRROR keeps py-1.5, which is why --compose-max-h below is
+    // untouched.
     expect(spacer.style.height).toBe(
-      "calc(var(--compose-row-h) + 1.25rem + 1px)",
+      "calc(var(--compose-row-h) + 1.75rem + 1px)",
     );
     expect(wrapper.style.getPropertyValue("--compose-max-h")).toContain(
       "var(--compose-row-h)",
     );
 
     // The formula's other two terms are class-driven, so pin them too: the
-    // 1.25rem is the mirror's py-1.5 (12px) PLUS the panel's py-1 (8px), and
+    // 1.75rem is the mirror's py-1.5 (12px) PLUS the panel's py-2 (16px), and
     // the 1px is the panel's border-t. Without these, changing the panel's
     // padding leaves the spacer at its old value while the panel resting
     // height moves — silent drift that every assertion above still passes.
-    expect(panel.className.split(" ")).toContain("py-1");
+    expect(panel.className.split(" ")).toContain("py-2");
     expect(panel.className.split(" ")).toContain("border-t");
     expect(mirror.className.split(" ")).toContain("py-1.5");
 
@@ -499,7 +499,7 @@ describe("ComposeBar overlay height", () => {
     // assertions above would notice if they grew. The panel is `items-end`,
     // so its content height is max(row, button): the row is 33px (21px
     // line-height + the mirror's 12px py-1.5) and h-8 is 32px, so the buttons
-    // clear it by ONE pixel. At h-10 the panel becomes 49px against a 42px
+    // clear it by ONE pixel. At h-10 the panel becomes 57px against a 50px
     // spacer — the exact permanent overflow this test exists to prevent.
     expect(
       screen.getByRole("button", { name: /attach/i }).className.split(" "),
