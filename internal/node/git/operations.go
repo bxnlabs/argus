@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -13,11 +15,24 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 const (
 	maxFileSizeBytes = 2 * 1024 * 1024 // 2 MB
 	maxLineSpan      = 500
+
+	// maxUntrackedFiles bounds the per-file work GetWorkingDiff does. Only the
+	// `git status` output was otherwise bounded, and at 10 MB that admits
+	// roughly 170k-800k paths depending on path length — each costing a diff
+	// process in appendUntrackedDiffs, a numstat process in untrackedFileStats,
+	// and a file read in computeTotalLines, on every poll.
+	maxUntrackedFiles = 5000
+
+	// gitignoreHint is appended to the limit errors whose most likely cause is
+	// a large untracked directory. GitPanel renders these messages verbatim, so
+	// the limit alone would leave the user with nothing to act on.
+	gitignoreHint = "a large untracked directory (e.g. node_modules) may need to be gitignored"
 )
 
 var fullHexOIDRegex = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -122,48 +137,77 @@ func GetFileDiff(dir, file string, staged, untracked bool) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
 	defer cancel()
 
+	return getFileDiff(ctx, dir, file, staged, untracked)
+}
+
+// getFileDiff is GetFileDiff with a caller-supplied context. Batch callers must
+// use this rather than GetFileDiff: a fresh longTimeout per file lets a loop
+// outrun the deadline its caller set, and the failure then surfaces from
+// whichever command runs next, well away from the loop that burned the time.
+// --no-ext-diff on every patch-producing diff here and in getWorkingDiff: a
+// configured diff.external replaces git's output with the driver's, which the
+// client's parser cannot read, and a driver that exits 0 silently yields an
+// empty diff reported as a success.
+func getFileDiff(ctx context.Context, dir, file string, staged, untracked bool) (string, error) {
 	if untracked {
-		// git diff --no-index exits 1 when files differ (normal behavior).
-		// runGit discards stdout on non-zero exit, so we run this directly
-		// to capture the diff output despite the expected exit code 1.
-		return runGitDiffNoIndex(ctx, dir, file)
+		return runGitNoIndex(ctx, dir, fmt.Sprintf("git diff of %q", file), diffMaxBuffer,
+			"diff", "--no-ext-diff", "-U20", "--no-index", "/dev/null", file)
 	}
 
 	var args []string
 	if staged {
-		args = []string{"diff", "-U3", "--cached", "--", file}
+		args = []string{"diff", "--no-ext-diff", "-U3", "--cached", "--", file}
 	} else {
-		args = []string{"diff", "-U3", "--", file}
+		args = []string{"diff", "--no-ext-diff", "-U3", "--", file}
 	}
 
 	return runGit(ctx, dir, diffMaxBuffer, args...)
 }
 
-// runGitDiffNoIndex runs git diff --no-index /dev/null <file> and returns
-// stdout even when git exits 1 (which means files differ — normal behavior).
-func runGitDiffNoIndex(ctx context.Context, dir, file string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "diff", "-U20", "--no-index", "/dev/null", file)
+// runGitNoIndex runs a `git diff --no-index` command and returns stdout even
+// when git exits 1, which here means "files differ" — the expected result, not
+// a failure. runGit cannot be used for these: it discards stdout on any
+// non-zero exit. what names the work in error messages.
+func runGitNoIndex(ctx context.Context, dir, what string, maxBuffer int64, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 
-	stdout := &limitedWriter{limit: diffMaxBuffer}
+	stdout := &limitedWriter{limit: maxBuffer}
 	var stderr bytes.Buffer
 	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	if err != nil {
-		// Exit code 1 = files differ, which is expected for untracked files
-		if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 1 {
-			return stdout.buf.String(), nil
-		}
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg == "" {
-			errMsg = err.Error()
-		}
-		return "", fmt.Errorf("git diff: %s", errMsg)
+	if err == nil {
+		return stdout.buf.String(), nil
 	}
-	return stdout.buf.String(), nil
+	// The limit first: an over-limit run is killed by SIGPIPE (see
+	// limitedWriter), so it arrives with an empty stderr and a signal status
+	// that explains nothing.
+	if stdout.exceeded {
+		return "", fmt.Errorf("%w: %s produced more than %s", ErrOutputTooLarge, what, formatByteLimit(maxBuffer))
+	}
+	// Cancellation before the exit code, so a kill is never mistaken for
+	// "files differ" and a partial diff returned as a success.
+	if killedByContext(ctx, err, cmd.ProcessState) {
+		return "", contextError(ctx, what)
+	}
+	if cmd.ProcessState == nil {
+		return "", fmt.Errorf("%w: %s: %w", ErrGitUnavailable, what, err)
+	}
+	// Exit 1 means "files differ" only when a diff came with it: git reports
+	// "could not access" the same way, and accepting the status alone returns a
+	// vanished path as an answered request with no changes. Every real diff
+	// writes something, given --no-ext-diff below.
+	if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 1 && stdout.buf.Len() > 0 {
+		return stdout.buf.String(), nil
+	}
+	errMsg := strings.TrimSpace(stderr.String())
+	if errMsg == "" {
+		errMsg = err.Error()
+	}
+	return "", fmt.Errorf("%s: %s", what, errMsg)
 }
 
 // GetFileContent returns the HEAD version of a file.
@@ -172,8 +216,24 @@ func GetFileContent(dir, file string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), shortTimeout)
 	defer cancel()
 
+	return getFileContent(ctx, dir, file)
+}
+
+// getFileContent is GetFileContent with a caller-supplied context.
+func getFileContent(ctx context.Context, dir, file string) (string, bool, error) {
 	content, err := runGit(ctx, dir, diffMaxBuffer, "show", fmt.Sprintf("HEAD:%s", file))
 	if err != nil {
+		// The catch-all below reads any remaining failure as "not in HEAD",
+		// so anything that did not actually determine that has to leave
+		// first — otherwise it is reported as a new empty file, which is
+		// wrong data rather than a missing answer. Operational failures are
+		// filtered by cause, not by message, so a git that ran and failed for
+		// its own reasons (a corrupt object, an unreadable .git) still lands
+		// in the catch-all. Narrowing that further needs per-command parsing
+		// of git's output.
+		if isOperationalError(err) {
+			return "", false, err
+		}
 		// File not in HEAD = new file
 		return "", true, nil
 	}
@@ -185,8 +245,48 @@ func Check(dir string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), shortTimeout)
 	defer cancel()
 
-	_, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--git-dir")
-	return err == nil, nil
+	return check(ctx, dir)
+}
+
+// check is Check with a caller-supplied context.
+func check(ctx context.Context, dir string) (bool, error) {
+	// rev-parse rejecting the directory is the answer "no"; the command never
+	// completing is not. Collapsing both reports isGitRepo=false with a 200.
+	if _, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--git-dir"); err != nil {
+		if isOperationalError(err) {
+			return false, err
+		}
+		return false, nil
+	}
+	return true, nil
+}
+
+// errCombinedDiffTooLarge reports a combined working diff over the limit. The
+// hint is omitted when there are no untracked files, where the cause is instead
+// two large tracked diffs and gitignore is no help.
+func errCombinedDiffTooLarge(untracked int) error {
+	msg := fmt.Sprintf("combined working diff exceeds %s", formatByteLimit(diffMaxBuffer))
+	if untracked > 0 {
+		msg += fmt.Sprintf(" (%d untracked files); %s", untracked, gitignoreHint)
+	}
+	return fmt.Errorf("%w: %s", ErrOutputTooLarge, msg)
+}
+
+// asTimeoutError re-attributes a blown deadline to the working diff as a
+// whole. GetWorkingDiff runs many commands, so the one that reports the
+// deadline is rarely the one that consumed it; naming the overall work is more
+// use to the caller than naming that command. A size failure is left alone as
+// the more specific diagnosis.
+//
+// The test is the error chain, not ctx.Err(), so a failure that merely lands
+// just before expiry keeps its own message. The cause stays wrapped so the
+// command that reported the deadline is still reachable behind the summary.
+func asTimeoutError(err error) error {
+	if err == nil || errors.Is(err, ErrOutputTooLarge) || !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return fmt.Errorf("%w: computing the working diff exceeded %s; %s: %w",
+		ErrTimeout, longTimeout, gitignoreHint, err)
 }
 
 // GetWorkingDiff returns the full combined diff for all working-tree changes
@@ -195,37 +295,17 @@ func GetWorkingDiff(dir string) (*WorkingDiffResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
 	defer cancel()
 
+	res, err := getWorkingDiff(ctx, dir)
+	return res, asTimeoutError(err)
+}
+
+func getWorkingDiff(ctx context.Context, dir string) (*WorkingDiffResult, error) {
 	hasHEAD := true
 	if _, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--verify", "HEAD"); err != nil {
 		hasHEAD = false
 	}
 
-	var trackedDiff string
-	if hasHEAD {
-		var err error
-		trackedDiff, err = runGit(ctx, dir, diffMaxBuffer, "diff", "-U3", "HEAD")
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		cachedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U3", "--cached")
-		if err != nil {
-			return nil, err
-		}
-		unstagedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U3")
-		if err != nil {
-			return nil, err
-		}
-		switch {
-		case cachedDiff != "" && unstagedDiff != "":
-			trackedDiff = cachedDiff + "\n" + unstagedDiff
-		case cachedDiff != "":
-			trackedDiff = cachedDiff
-		default:
-			trackedDiff = unstagedDiff
-		}
-	}
-
+	// Status is read before any diff work so the untracked count can gate it.
 	// -uall enumerates individual files inside untracked directories.
 	statusOut, err := runGit(ctx, dir, defaultMaxBuffer, "status", "--porcelain=v1", "-uall")
 	if err != nil {
@@ -242,22 +322,64 @@ func GetWorkingDiff(dir string) (*WorkingDiffResult, error) {
 		}
 	}
 
-	var diffParts []string
-	if trackedDiff != "" {
-		diffParts = append(diffParts, trackedDiff)
+	if len(untrackedPaths) > maxUntrackedFiles {
+		return nil, fmt.Errorf("%w: %d untracked files exceeds the limit of %d; %s",
+			ErrOutputTooLarge, len(untrackedPaths), maxUntrackedFiles, gitignoreHint)
 	}
-	for _, path := range untrackedPaths {
-		fileDiff, err := GetFileDiff(dir, path, false, true)
-		if err != nil {
-			log.Printf("warning: diff for untracked %q: %v", path, err)
-			continue
+
+	// Each git command below is bounded on its own, but nothing bounded their
+	// sum. Accumulating into one limitedWriter caps the total, and avoids the
+	// extra full-size copy a closing strings.Join would allocate.
+	combined := &limitedWriter{limit: diffMaxBuffer}
+	addPart := func(s string) error {
+		if s == "" {
+			return nil
 		}
-		if fileDiff != "" {
-			diffParts = append(diffParts, fileDiff)
+		if combined.buf.Len() > 0 {
+			if _, err := combined.Write([]byte("\n")); err != nil {
+				return errCombinedDiffTooLarge(len(untrackedPaths))
+			}
+		}
+		if _, err := combined.Write([]byte(s)); err != nil {
+			return errCombinedDiffTooLarge(len(untrackedPaths))
+		}
+		return nil
+	}
+
+	if hasHEAD {
+		trackedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "--no-ext-diff", "-U3", "HEAD")
+		if err != nil {
+			return nil, err
+		}
+		if err := addPart(trackedDiff); err != nil {
+			return nil, err
+		}
+	} else {
+		cachedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "--no-ext-diff", "-U3", "--cached")
+		if err != nil {
+			return nil, err
+		}
+		unstagedDiff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "--no-ext-diff", "-U3")
+		if err != nil {
+			return nil, err
+		}
+		// Two parts rather than a pre-concatenated one, so the pair and their
+		// join are never held at once. addPart skips empties and separates the
+		// rest with "\n", so the resulting bytes — and the fingerprint clients
+		// compare against — are unchanged.
+		if err := addPart(cachedDiff); err != nil {
+			return nil, err
+		}
+		if err := addPart(unstagedDiff); err != nil {
+			return nil, err
 		}
 	}
 
-	combinedDiff := strings.Join(diffParts, "\n")
+	if err := appendUntrackedDiffs(ctx, dir, untrackedPaths, addPart); err != nil {
+		return nil, err
+	}
+
+	combinedDiff := combined.buf.String()
 
 	files, totalAdds, totalDels, err := getWorkingDiffFileStats(ctx, dir, hasHEAD, untrackedPaths)
 	if err != nil {
@@ -279,6 +401,29 @@ func GetWorkingDiff(dir string) (*WorkingDiffResult, error) {
 		TotalLines:     fileTotalLines,
 		Fingerprint:    fingerprint,
 	}, nil
+}
+
+// appendUntrackedDiffs diffs each untracked path into addPart.
+func appendUntrackedDiffs(ctx context.Context, dir string, paths []string, addPart func(string) error) error {
+	for _, path := range paths {
+		fileDiff, err := getFileDiff(ctx, dir, path, false, true)
+		if err != nil {
+			// Operational failures are fatal, as they are for the tracked
+			// diffs. Skipping the file would return 200 with it listed in
+			// Files but missing from Diff — and a fingerprint over that.
+			if isOperationalError(err) {
+				return err
+			}
+			// Other errors stay non-fatal: a file listed by status can
+			// legitimately vanish before its diff runs.
+			log.Printf("warning: diff for untracked %q: %v", path, err)
+			continue
+		}
+		if err := addPart(fileDiff); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func getWorkingDiffFileStats(ctx context.Context, dir string, hasHEAD bool, untrackedPaths []string) ([]CommitFile, int, int, error) {
@@ -415,27 +560,43 @@ func getWorkingDiffFileStats(ctx context.Context, dir string, hasHEAD bool, untr
 		}
 	}
 
-	// Untracked file numstat: uses exec.Command directly (not runGit) because
-	// git diff --no-index exits 1 when files differ, and runGit discards stdout
-	// on non-zero exit. Same pattern as runGitDiffNoIndex.
+	untrackedFiles, untrackedAdds, err := untrackedFileStats(ctx, dir, untrackedPaths)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	files = append(files, untrackedFiles...)
+	totalAdds += untrackedAdds
+
+	if files == nil {
+		files = []CommitFile{}
+	}
+	return files, totalAdds, totalDels, nil
+}
+
+// untrackedFileStats returns one StatusAdded entry per untracked path, with
+// its addition count.
+func untrackedFileStats(ctx context.Context, dir string, untrackedPaths []string) ([]CommitFile, int, error) {
+	var files []CommitFile
+	totalAdds := 0
+
 	for _, path := range untrackedPaths {
 		adds := 0
-		cmd := exec.CommandContext(ctx, "git", "diff", "--numstat", "--no-index", "/dev/null", "--", path)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
-		numBytes, err := cmd.Output()
-		if err != nil {
-			if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 1 {
-				err = nil
-			} else {
-				log.Printf("warning: numstat for untracked %q: %v", path, err)
-			}
-		}
-		if err == nil && len(numBytes) > 0 {
-			fields := strings.SplitN(strings.TrimSpace(string(numBytes)), "\t", 3)
-			if len(fields) >= 1 && fields[0] != "-" {
+		out, err := runGitNoIndex(ctx, dir, fmt.Sprintf("git numstat of %q", path), defaultMaxBuffer,
+			"diff", "--numstat", "--no-index", "/dev/null", "--", path)
+		switch {
+		case err == nil:
+			if fields := strings.SplitN(strings.TrimSpace(out), "\t", 3); fields[0] != "-" {
 				adds, _ = strconv.Atoi(fields[0])
 			}
+		case isOperationalError(err):
+			// Fatal, unlike the transient failures below. Continuing does not
+			// degrade the result, it falsifies it: every remaining file would
+			// be reported with 0 additions and a nil error, so a blown deadline
+			// would reach the client as a 200 describing changes that are not
+			// the ones on disk.
+			return nil, 0, err
+		default:
+			log.Printf("warning: numstat for untracked %q: %v", path, err)
 		}
 		files = append(files, CommitFile{
 			Path:      path,
@@ -445,28 +606,79 @@ func getWorkingDiffFileStats(ctx context.Context, dir string, hasHEAD bool, untr
 		totalAdds += adds
 	}
 
-	if files == nil {
-		files = []CommitFile{}
+	return files, totalAdds, nil
+}
+
+// openRegular opens path without following a final symlink and without
+// blocking on a special file.
+//
+// The syscall flags carry no build tag on purpose: argus is unix-only anyway
+// (cmd/argus/cli calls syscall.Kill untagged, sessions are tmux), so a non-unix
+// fallback would only be portability the binary never had.
+//
+// os.Open blocks indefinitely on a FIFO, waiting for a writer that may never
+// arrive — a hang no deadline in this package can interrupt. Checking the type
+// by path first cannot close that window, since the path can be replaced
+// between the check and the open. O_NONBLOCK returns immediately whatever it
+// finds, so the caller can inspect the descriptor it actually got. O_NOFOLLOW
+// is the separate half the descriptor check does not cover, since a symlink to
+// a regular file passes it; the cost is that a symlinked file gets no line
+// count.
+func openRegular(path string) (*os.File, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
 	}
-	return files, totalAdds, totalDels, nil
+	return os.NewFile(uintptr(fd), path), nil
 }
 
 // countFileLines returns the logical line count of a file on disk using
 // a scanner. This counts lines yielded by bufio.Scanner (including a final
 // unterminated line), which may differ from wc -l for files without a
 // trailing newline.
-func countFileLines(path string) (int, error) {
-	f, err := os.Open(path)
+func countFileLines(ctx context.Context, path string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	f, err := openRegular(path)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
 
+	// Stat the descriptor, never the path. Validating by name and then opening
+	// by name are two different files whenever something rewrites the working
+	// tree in between — routine here, since the poller runs while an agent edits.
+	fi, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	if !fi.Mode().IsRegular() {
+		return 0, fmt.Errorf("not a regular file: %s", path)
+	}
+	// Cheap rejection, and the only path that knows the actual size. This is
+	// the limit GetFileLines refuses to expand past, so a count above it would
+	// only describe a button that cannot work.
+	if fi.Size() > maxFileSizeBytes {
+		return 0, fmt.Errorf("%w: %s (%d bytes)", ErrFileTooLarge, path, fi.Size())
+	}
+
+	// That size is a snapshot, not a bound — the file can grow after the fstat
+	// — and Scanner.Buffer caps a token rather than the total, so this is what
+	// actually bounds the read. One byte of headroom in both, so a single line
+	// at exactly the cap still counts instead of reporting ErrTooLong.
+	limited := &io.LimitedReader{R: f, N: maxFileSizeBytes + 1}
+
 	count := 0
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), maxFileSizeBytes)
+	scanner := bufio.NewScanner(limited)
+	scanner.Buffer(make([]byte, 64*1024), maxFileSizeBytes+1)
 	for scanner.Scan() {
 		count++
+	}
+	// Before scanner.Err, which may report ErrTooLong for the same file.
+	if limited.N == 0 {
+		return 0, fmt.Errorf("%w: %s (over %d bytes)", ErrFileTooLarge, path, maxFileSizeBytes)
 	}
 	if err := scanner.Err(); err != nil {
 		return 0, err
@@ -508,11 +720,19 @@ func computeTotalLines(ctx context.Context, dir, ref string, files []CommitFile)
 			continue
 		}
 
+		// This map is best-effort — a missing entry only costs an expand
+		// button — so a blown deadline stops the work rather than failing the
+		// request that already assembled a valid diff. Checking per file keeps
+		// the overrun to at most one file's scan.
+		if ctx.Err() != nil {
+			break
+		}
+
 		path := f.Path
 		var count int
 		var err error
 		if ref == "" {
-			count, err = countFileLines(filepath.Join(dir, path))
+			count, err = countFileLines(ctx, filepath.Join(dir, path))
 		} else {
 			count, err = countBlobLines(ctx, dir, ref, path)
 		}
@@ -618,6 +838,11 @@ func getFileLinesFromRef(dir, file string, start, end int, ref string) (*FileLin
 	// Validate ref is a commit
 	objType, err := runGit(ctx, dir, defaultMaxBuffer, "cat-file", "-t", ref)
 	if err != nil {
+		// A blown deadline folded into the catch-all below would answer a
+		// confident 404 claiming the ref does not exist.
+		if isOperationalError(err) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: ref %q", ErrNotFound, ref)
 	}
 	if strings.TrimSpace(objType) != "commit" {
@@ -627,6 +852,9 @@ func getFileLinesFromRef(dir, file string, start, end int, ref string) (*FileLin
 	// Resolve file to blob OID via rev-parse <ref>:<file>
 	blobOID, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", ref+":"+file)
 	if err != nil {
+		if isOperationalError(err) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: %s at ref %s", ErrNotFound, file, ref[:12])
 	}
 	blobOID = strings.TrimSpace(blobOID)
@@ -634,6 +862,9 @@ func getFileLinesFromRef(dir, file string, start, end int, ref string) (*FileLin
 	// Verify it's a blob (not a tree entry for a directory)
 	blobType, err := runGit(ctx, dir, defaultMaxBuffer, "cat-file", "-t", blobOID)
 	if err != nil {
+		if isOperationalError(err) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: %s at ref %s", ErrNotFound, file, ref[:12])
 	}
 	if strings.TrimSpace(blobType) != "blob" {

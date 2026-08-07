@@ -267,12 +267,24 @@ func GetCommitFullDiff(dir, hash string) (*CommitFullDiffResult, error) {
 		return nil, err
 	}
 
-	// Get changed files via diff-tree (handles root commits where hash^ is invalid).
-	// Use -m --first-parent to match the diff command's merge-commit semantics.
-	nsOut, err := runGit(ctx, dir, diffMaxBuffer, "diff-tree", "--root", "--name-status", "-r", "-m", "--first-parent", hash)
+	return &CommitFullDiffResult{
+		Diff:       diff,
+		TotalLines: computeTotalLines(ctx, dir, hash, commitDiffFiles(ctx, dir, hash)),
+	}, nil
+}
+
+// commitDiffFiles lists the files a commit touched, feeding totalLines and
+// nothing else — the caller's diff is already complete before this runs. It
+// reports no error by design: only an expand button is at stake, so a deadline
+// that expires here must not turn an assembled diff into a 504 with nothing.
+//
+// diff-tree rather than hash^: it handles root commits, where hash^ is
+// invalid. -m --first-parent matches the diff command's merge-commit semantics.
+func commitDiffFiles(ctx context.Context, dir, hash string) []CommitFile {
+	nsOut, err := runGit(ctx, dir, diffMaxBuffer,
+		"diff-tree", "--root", "--name-status", "-r", "-m", "--first-parent", hash)
 	if err != nil {
-		// Non-fatal for totalLines — return diff without it
-		return &CommitFullDiffResult{Diff: diff, TotalLines: map[string]int{}}, nil
+		return nil
 	}
 
 	var files []CommitFile
@@ -305,12 +317,5 @@ func GetCommitFullDiff(dir, hash string) (*CommitFullDiffResult, error) {
 		}
 		files = append(files, cf)
 	}
-
-	fileTotalLines := computeTotalLines(ctx, dir, hash, files)
-
-	return &CommitFullDiffResult{
-		Diff:       diff,
-		TotalLines: fileTotalLines,
-	}, nil
+	return files
 }
-

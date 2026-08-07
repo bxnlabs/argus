@@ -81,26 +81,31 @@ func fetchTargets(ctx context.Context, dir, base string) ([]string, error) {
 
 	var ordered []string
 	seen := map[string]bool{}
-	addUpstream := func(ref string) {
-		// `ref@{upstream}` returns errors here when the branch has no upstream
-		// configured (detached HEAD, branch without tracking, missing local
-		// ref) — fall through silently and let the other selector or the
-		// origin fallback cover it.
-		out, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--abbrev-ref", ref+"@{upstream}")
+	addUpstream := func(ref string) error {
+		remote, err := upstreamRemote(ctx, dir, ref, remotes)
 		if err != nil {
-			return
+			return err
 		}
-		remote := matchRemote(strings.TrimSpace(out), remotes)
 		if remote == "" || seen[remote] {
-			return
+			return nil
 		}
 		seen[remote] = true
 		ordered = append(ordered, remote)
+		return nil
 	}
 
-	addUpstream("HEAD")
-	if base != "" && validateBranchRef(ctx, dir, base) == nil {
-		addUpstream(base)
+	if err := addUpstream("HEAD"); err != nil {
+		return nil, err
+	}
+	if base != "" {
+		switch err := validateBranchRef(ctx, dir, base); {
+		case err == nil:
+			if err := addUpstream(base); err != nil {
+				return nil, err
+			}
+		case isOperationalError(err):
+			return nil, err
+		}
 	}
 
 	if len(ordered) == 0 {
@@ -110,6 +115,25 @@ func fetchTargets(ctx context.Context, dir, base string) ([]string, error) {
 		return nil, nil
 	}
 	return ordered, nil
+}
+
+// upstreamRemote returns the remote backing ref's upstream, or "" when there
+// is none to find.
+//
+// `ref@{upstream}` fails whenever the branch has no upstream configured
+// (detached HEAD, branch without tracking, missing local ref), which is an
+// ordinary answer of "none" rather than a failure. A blown deadline is not one
+// of those: reported as "none" it would leave the caller with no targets and
+// let Fetch report a fetch that never ran as a success.
+func upstreamRemote(ctx context.Context, dir, ref string, remotes map[string]struct{}) (string, error) {
+	out, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "--abbrev-ref", ref+"@{upstream}")
+	if err != nil {
+		if isOperationalError(err) {
+			return "", err
+		}
+		return "", nil
+	}
+	return matchRemote(strings.TrimSpace(out), remotes), nil
 }
 
 // matchRemote picks the longest-matching remote name whose `<name>/` is a
@@ -142,14 +166,20 @@ func parseRemotes(remotesOut string) map[string]struct{} {
 // UI's "Git fetch failed:" toast prefix already says it.
 func wrapFetchError(remote string, err error) error {
 	msg := strings.TrimPrefix(err.Error(), "git fetch: ")
-	return &fetchFailureError{msg: fmt.Sprintf("%s: %s", remote, msg)}
+	return &fetchFailureError{msg: fmt.Sprintf("%s: %s", remote, msg), cause: err}
 }
 
 type fetchFailureError struct {
 	msg string
+	// cause keeps the chain reachable. Building the message from err.Error()
+	// alone dropped it, so a fetch that timed out matched only ErrFetchFailed
+	// and answered 502 — respondGitError tests ErrTimeout first, but only if
+	// it can still see it.
+	cause error
 }
 
 func (e *fetchFailureError) Error() string { return e.msg }
+func (e *fetchFailureError) Unwrap() error { return e.cause }
 func (e *fetchFailureError) Is(target error) bool {
 	return target == ErrFetchFailed
 }

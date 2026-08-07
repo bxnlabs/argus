@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"strings"
@@ -122,7 +123,6 @@ func TestGetCommitDetail(t *testing.T) {
 	})
 }
 
-
 func TestGetCommitFullDiff(t *testing.T) {
 	dir := initTestRepo(t)
 	commitFile(t, dir, "a.txt", "aaa\n", "add a")
@@ -177,4 +177,31 @@ func TestGetCommitFullDiff(t *testing.T) {
 			t.Errorf("expected ErrNotFound, got: %v", err)
 		}
 	})
+}
+
+// The file list feeds totalLines and nothing else, so no failure it can
+// produce may reach the caller: the diff is already assembled by the time it
+// runs, and a blown deadline there would answer 504 for a request that has a
+// complete answer in hand. The signature is the guarantee — there is no error
+// to propagate — and this pins the operational case the type alone can't show.
+func TestCommitDiffFilesDegradesRatherThanFailing(t *testing.T) {
+	dir := initTestRepo(t)
+	commitFile(t, dir, "a.txt", "aaa\n", "add a")
+	commits, _ := GetHistory(dir, 1)
+	hash := commits[0].Hash
+
+	if files := commitDiffFiles(context.Background(), dir, hash); len(files) != 1 || files[0].Path != "a.txt" {
+		t.Fatalf("premise: expected the commit's one file, got %+v", files)
+	}
+
+	ctx, cancel := expiredContext()
+	defer cancel()
+	if files := commitDiffFiles(ctx, dir, hash); len(files) != 0 {
+		t.Errorf("expected a blown deadline to yield no files, got %+v", files)
+	}
+	// The empty list must still produce the empty map the response promises,
+	// not a nil one that serialises as JSON null.
+	if got := computeTotalLines(ctx, dir, hash, nil); got == nil {
+		t.Error("expected an empty totalLines map rather than nil")
+	}
 }

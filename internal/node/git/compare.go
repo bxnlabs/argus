@@ -65,7 +65,12 @@ func GetAllBranches(dir string) ([]string, error) {
 	remoteOut, err := runGit(ctx, dir, defaultMaxBuffer,
 		"branch", "-r", "--format=%(refname:short)")
 	if err != nil {
-		// No remotes is fine — just return local branches
+		// No remotes is fine — just return local branches. A blown deadline is
+		// not: everything after it fails too, so a short list would look like
+		// a repo without remotes.
+		if isOperationalError(err) {
+			return nil, err
+		}
 		sort.Strings(branches)
 		return branches, nil
 	}
@@ -107,6 +112,11 @@ func validateBranchRef(ctx context.Context, dir, ref string) error {
 		return fmt.Errorf("%w: invalid branch name: %q", ErrInvalidInput, ref)
 	}
 	if _, err := runGit(ctx, dir, defaultMaxBuffer, "check-ref-format", "--branch", ref); err != nil {
+		// A deadline says nothing about the name's validity, and 400 would
+		// blame the user for a failure that was ours.
+		if isOperationalError(err) {
+			return err
+		}
 		return fmt.Errorf("%w: invalid branch name: %q", ErrInvalidInput, ref)
 	}
 	return nil
