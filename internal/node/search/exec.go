@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	searchTimeout                  = 10 * time.Second
-	maxOutputBuffer int64          = 5 * 1024 * 1024 // 5MB
-	maxResultsHardLimit            = 100
+	searchTimeout             = 10 * time.Second
+	maxOutputBuffer     int64 = 5 * 1024 * 1024 // 5MB
+	maxResultsHardLimit       = 100
 )
 
 // limitedWriter wraps a bytes.Buffer and fails fast when the output exceeds

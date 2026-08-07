@@ -501,4 +501,3 @@ func searchInDir(ctx context.Context, root, query, searchType string, limit int,
 		Scanned:  len(entries),
 	}, nil
 }
-

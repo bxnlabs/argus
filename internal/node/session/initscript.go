@@ -7,8 +7,10 @@ import (
 	"strings"
 )
 
-// shellQuote returns a single-quoted shell string. Internal single quotes
-// are escaped as '\'' (end quote, escaped literal quote, reopen quote).
+// shellQuote returns a single-quoted shell string. Internal single quotes are
+// escaped as (end quote, escaped literal quote, reopen quote):
+//
+//	'\''
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
