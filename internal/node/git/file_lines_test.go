@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -235,7 +236,7 @@ func TestCountFileLines(t *testing.T) {
 	t.Run("with trailing newline", func(t *testing.T) {
 		path := filepath.Join(dir, "with-eol.txt")
 		os.WriteFile(path, []byte("a\nb\nc\n"), 0644)
-		count, err := countFileLines(path)
+		count, err := countFileLines(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -247,7 +248,7 @@ func TestCountFileLines(t *testing.T) {
 	t.Run("without trailing newline", func(t *testing.T) {
 		path := filepath.Join(dir, "no-eol.txt")
 		os.WriteFile(path, []byte("a\nb\nc"), 0644)
-		count, err := countFileLines(path)
+		count, err := countFileLines(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -259,7 +260,7 @@ func TestCountFileLines(t *testing.T) {
 	t.Run("empty file", func(t *testing.T) {
 		path := filepath.Join(dir, "empty.txt")
 		os.WriteFile(path, []byte(""), 0644)
-		count, err := countFileLines(path)
+		count, err := countFileLines(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -271,7 +272,7 @@ func TestCountFileLines(t *testing.T) {
 	t.Run("single line no newline", func(t *testing.T) {
 		path := filepath.Join(dir, "single.txt")
 		os.WriteFile(path, []byte("hello"), 0644)
-		count, err := countFileLines(path)
+		count, err := countFileLines(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}

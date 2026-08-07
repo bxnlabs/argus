@@ -24,10 +24,15 @@ func respondGitError(w http.ResponseWriter, err error) {
 		respondError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, git.ErrNotFound):
 		respondError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, git.ErrFileTooLarge):
+	case errors.Is(err, git.ErrFileTooLarge), errors.Is(err, git.ErrOutputTooLarge):
 		respondError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, git.ErrBinaryFile):
 		respondError(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, git.ErrTimeout):
+		// Same reasoning as the size limits: the deadline and its likely cause
+		// are the user's only signal for why the diff won't render, and a
+		// generic 500 is what made this undiagnosable in the first place.
+		respondError(w, http.StatusGatewayTimeout, err.Error())
 	case errors.Is(err, git.ErrFetchFailed):
 		// Fetch failures must surface the underlying message — auth, network,
 		// or remote-config errors are the only signal the user has for what

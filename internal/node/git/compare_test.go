@@ -217,7 +217,7 @@ func setupStaleBaseRepo(t *testing.T, nCommitsAhead int) string {
 	dir := cloneTestRepo(t, remote)
 
 	for i := 0; i < nCommitsAhead; i++ {
-		name := string(rune('a' + i)) + ".txt"
+		name := string(rune('a'+i)) + ".txt"
 		commitFile(t, remote, name, name, "advance "+name)
 	}
 	gitInDir(t, dir, "fetch", "origin")

@@ -32,6 +32,40 @@ func TestRespondGitError(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrOutputTooLarge returns 413 with surfaced message", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		respondGitError(w, fmt.Errorf("%w: git diff produced more than 10 MB", git.ErrOutputTooLarge))
+		if w.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("expected 413, got %d", w.Code)
+		}
+		body := w.Body.String()
+		// The size limit is the user's only signal for why Compare won't load —
+		// collapsing it to "internal error" is what made this undiagnosable.
+		if !strings.Contains(body, "10 MB") {
+			t.Errorf("expected error body to mention the limit, got: %s", body)
+		}
+		if strings.Contains(body, "internal error") {
+			t.Errorf("ErrOutputTooLarge should not be collapsed to 'internal error', got: %s", body)
+		}
+	})
+
+	t.Run("ErrTimeout returns 504 with surfaced message", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		respondGitError(w, fmt.Errorf("%w: computing the working diff exceeded 30s; gitignore something", git.ErrTimeout))
+		if w.Code != http.StatusGatewayTimeout {
+			t.Errorf("expected 504, got %d", w.Code)
+		}
+		body := w.Body.String()
+		// A timeout blamed on nothing in particular is the failure this branch
+		// exists to remove: the deadline and its likely cause must survive.
+		if !strings.Contains(body, "30s") {
+			t.Errorf("expected error body to mention the deadline, got: %s", body)
+		}
+		if strings.Contains(body, "internal error") {
+			t.Errorf("ErrTimeout should not be collapsed to 'internal error', got: %s", body)
+		}
+	})
+
 	t.Run("unknown error returns 500", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		respondGitError(w, fmt.Errorf("something went wrong"))
@@ -237,5 +271,54 @@ func TestGitFetch_AcceptsBaseQueryParam(t *testing.T) {
 	}
 	if resp["status"] != "ok" {
 		t.Errorf("expected status=ok, got %v", resp)
+	}
+}
+
+// TestGitFileContent_OversizedIs413 exercises the whole path with a real
+// oversized file rather than a hand-built error: routing → handler →
+// git.GetFileContent → runGit's limit check → respondGitError. The subtests in
+// TestRespondGitError construct the sentinel themselves, so they would still
+// pass if nothing in production ever produced it.
+func TestGitFileContent_OversizedIs413(t *testing.T) {
+	dir := homeTempDir(t)
+	for _, args := range [][]string{
+		{"init", dir},
+		{"-C", dir, "config", "user.email", "test@test.com"},
+		{"-C", dir, "config", "user.name", "Test"},
+	} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Comfortably over the 10 MB buffer git.GetFileContent reads with.
+	huge := strings.Repeat("x=1\n", 3_000_000)
+	if err := os.WriteFile(filepath.Join(dir, "huge.txt"), []byte(huge), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"-C", dir, "add", "huge.txt"},
+		{"-C", dir, "commit", "-m", "add huge"},
+	} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	router := NewRouter(Deps{})
+	q := url.Values{"path": {dir}, "file": {"huge.txt"}}
+	req := httptest.NewRequest(http.MethodGet, "/git/file-content?"+q.Encode(), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "10 MB") {
+		t.Errorf("expected the limit in the response body, got: %s", body)
+	}
+	if strings.Contains(body, "internal error") {
+		t.Errorf("oversized file collapsed to a generic 500 message: %s", body)
 	}
 }
