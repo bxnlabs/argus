@@ -41,7 +41,9 @@ func ExecCommand(o ExecOptions) string {
 }
 
 // shellQuote returns a single-quoted shell string with internal single quotes
-// escaped as '\''.
+// escaped as:
+//
+//	'\''
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

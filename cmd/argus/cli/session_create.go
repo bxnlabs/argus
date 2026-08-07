@@ -70,8 +70,8 @@ func newCreateCmd() *cobra.Command {
 			reqBody := map[string]any{
 				"name":          name,
 				"provider_type": provider,
-				"source":       src,
-				"auto_approve": yolo,
+				"source":        src,
+				"auto_approve":  yolo,
 			}
 			if profile != "" {
 				reqBody["profile"] = profile

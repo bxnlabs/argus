@@ -99,8 +99,8 @@ func TestSearch_TypeFilter(t *testing.T) {
 
 func TestSearch_IgnorePatterns(t *testing.T) {
 	root := createTree(t, map[string]string{
-		"src/main.go":                "",
-		"node_modules/pkg/index.js":  "",
+		"src/main.go":               "",
+		"node_modules/pkg/index.js": "",
 		".git/config":               "",
 		"vendor/lib.go":             "",
 	})
@@ -132,9 +132,9 @@ func TestSearch_IgnorePatterns(t *testing.T) {
 
 func TestSearch_NegationPatterns(t *testing.T) {
 	root := createTree(t, map[string]string{
-		"allowed/keep.txt":    "",
-		"blocked/remove.txt":  "",
-		"other/data.txt":      "",
+		"allowed/keep.txt":   "",
+		"blocked/remove.txt": "",
+		"other/data.txt":     "",
 	})
 
 	// Ignore everything, then un-ignore allowed/
@@ -290,10 +290,10 @@ func TestSearch_IgnoreRootAnchor(t *testing.T) {
 	// Simulate the real scenario: ignore file has * + !Workspace/ patterns
 	// and we're searching from a subdirectory of Workspace/.
 	root := createTree(t, map[string]string{
-		"Workspace/project/main.go":    "",
-		"Workspace/project/lib.go":     "",
-		"Workspace/project/.git/HEAD":  "",
-		"Downloads/file.txt":           "",
+		"Workspace/project/main.go":   "",
+		"Workspace/project/lib.go":    "",
+		"Workspace/project/.git/HEAD": "",
+		"Downloads/file.txt":          "",
 	})
 
 	// Patterns relative to root (like ~/.argus/ignore relative to $HOME).
@@ -320,8 +320,8 @@ func TestSearch_IgnoreRootAnchor(t *testing.T) {
 func TestSearch_CaseInsensitive(t *testing.T) {
 	root := createTree(t, map[string]string{
 		"README.md":      "",
-		"Makefile":        "",
-		"src/AppMain.go":  "",
+		"Makefile":       "",
+		"src/AppMain.go": "",
 	})
 
 	// Lowercase query should match uppercase filenames.
@@ -511,7 +511,7 @@ func TestSearch_RelativePathsCorrect(t *testing.T) {
 	// Ensure results have correct relative paths used for fuzzy matching,
 	// even with nested search roots.
 	root := createTree(t, map[string]string{
-		"src/main.go":            "",
+		"src/main.go":           "",
 		"src/lib/utils.go":      "",
 		"src/lib/deep/inner.go": "",
 	})
@@ -542,8 +542,8 @@ func TestSearch_CrossPathComponents(t *testing.T) {
 	root := createTree(t, map[string]string{
 		"internal/node/filesearch/operations.go": "",
 		"internal/node/filesearch/types.go":      "",
-		"internal/server/handler.go":              "",
-		"web/src/components/Terminal/index.tsx":    "",
+		"internal/server/handler.go":             "",
+		"web/src/components/Terminal/index.tsx":  "",
 	})
 
 	// Query spanning directory + filename components.

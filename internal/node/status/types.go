@@ -10,9 +10,9 @@ import (
 type SessionState string
 
 const (
-	StateActive   SessionState = "active"
-	StateIdle SessionState = "idle"
-	StateDead     SessionState = "dead"
+	StateActive SessionState = "active"
+	StateIdle   SessionState = "idle"
+	StateDead   SessionState = "dead"
 )
 
 // SnapshotEntry holds the activity state for a single session.
