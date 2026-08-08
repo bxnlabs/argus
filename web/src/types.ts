@@ -27,12 +27,11 @@ export interface SessionStatusInfo {
   userMarkedUnreadAt?: string | null;
 }
 
-export type ProviderType = "claude" | "codex" | "gemini" | "shell";
+export type ProviderType = "claude" | "codex" | "shell";
 
 export const PROVIDER_OPTIONS: { value: ProviderType; label: string; description: string }[] = [
   { value: "claude", label: "Claude Code", description: "Anthropic's official CLI" },
   { value: "codex", label: "Codex", description: "OpenAI's CLI" },
-  { value: "gemini", label: "Gemini CLI", description: "Google's AI CLI" },
   { value: "shell", label: "Terminal", description: "Plain shell terminal" },
 ];
 
