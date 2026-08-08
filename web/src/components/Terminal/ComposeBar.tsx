@@ -228,7 +228,20 @@ export const ComposeBar = memo(function ComposeBar({
               (scrollHeight === clientHeight in that case). The mirror and
               textarea must keep identical py-1.5 / text size / line-height,
               or the mirror mis-measures the textarea and the row sizes to
-              the wrong number of lines. */}
+              the wrong number of lines.
+
+              The mirror also needs min-w-0. As a grid item its automatic
+              minimum size is min-width:auto => its min-content width, and
+              per CSS Text 3 the wrap opportunities break-words introduces do
+              NOT count toward min-content. So one unbreakable token — a
+              pasted URL — floored this single column at that token's full
+              width (406px inside a 280px wrapper, measured in Chrome at
+              390x844); the w-full textarea sized to the column and wrapped
+              its text to a line box wider than the card, which
+              overflow-hidden then clipped. The textarea needs no floor of
+              its own — overflow-y-auto already zeroes its automatic minimum
+              size — but the mirror's overflow must stay visible so its
+              content can size the row, so it opts out by hand. */}
           <div
             data-testid="compose-grow-wrapper"
             className="grid max-h-[var(--compose-max-h)] flex-1 overflow-hidden"
@@ -241,7 +254,7 @@ export const ComposeBar = memo(function ComposeBar({
             <div
               data-testid="compose-mirror"
               aria-hidden="true"
-              className="invisible max-h-[var(--compose-max-h)] [grid-area:1/1/2/2] py-1.5 text-[15px] leading-[var(--compose-row-h)] break-words whitespace-pre-wrap"
+              className="invisible max-h-[var(--compose-max-h)] min-w-0 [grid-area:1/1/2/2] py-1.5 text-[15px] leading-[var(--compose-row-h)] break-words whitespace-pre-wrap"
             >
               {text + " "}
             </div>
