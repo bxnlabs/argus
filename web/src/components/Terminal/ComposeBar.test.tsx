@@ -548,6 +548,33 @@ describe("ComposeBar overlay height", () => {
     expect(ta.className.split(" ")).toContain("overflow-y-auto");
   });
 
+  it("floors the mirror's automatic minimum size, so an unbreakable token cannot stretch the grid column past the card", () => {
+    // Regression test for a pasted URL rendering as one clipped line that
+    // ran off under the send button instead of wrapping.
+    //
+    // The mirror is a grid item, so its automatic minimum size is min-width:
+    // auto => its min-content width. Per CSS Text 3, the soft wrap
+    // opportunities `overflow-wrap: break-word` introduces deliberately do
+    // NOT reduce min-content — so a 78-char URL's min-content stayed the
+    // whole unbroken token. That floored the single grid column at 406px
+    // inside a 280px wrapper (measured in Chrome at 390x844); the textarea is
+    // `w-full` of that column, so it laid its text out at 406px and the
+    // overflow was clipped by the wrapper's overflow-hidden. The text WAS
+    // wrapping — just to a line box wider than the card.
+    //
+    // The textarea needs no such floor: `overflow-y-auto` already makes its
+    // own automatic minimum size zero. The mirror's overflow stays visible
+    // precisely so its content can size the row, which is why it, and only
+    // it, has to opt out by hand.
+    //
+    // jsdom has no layout engine, so this pins the class contract; the pixel
+    // behaviour was verified in Chrome (see the fix commit).
+    renderComposeBar({ onSend: () => true, connected: true });
+
+    const mirror = screen.getByTestId("compose-mirror");
+    expect(mirror.className.split(" ")).toContain("min-w-0");
+  });
+
   it("renders the panel as the card's top half", () => {
     renderComposeBar({ onSend: () => true, connected: true });
 
