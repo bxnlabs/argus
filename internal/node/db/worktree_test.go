@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	// Insert a row using the old agent_type column to verify the migration
 	// preserves pre-existing data when it renames the column to provider_type.
 	if _, err := rawDB.Exec(
-		`INSERT INTO sessions (id, name, tmux_name, working_directory, agent_type, auto_approve) VALUES ('sess_pre_migration', 'pre-migration', 'gemini-sess_pre_migration', '/tmp', 'gemini', 0)`,
+		`INSERT INTO sessions (id, name, tmux_name, working_directory, agent_type, auto_approve) VALUES ('sess_pre_migration', 'pre-migration', 'codex-sess_pre_migration', '/tmp', 'codex', 0)`,
 	); err != nil {
 		rawDB.Close()
 		t.Fatalf("insert pre-migration row: %v", err)
@@ -199,8 +199,8 @@ CREATE TABLE IF NOT EXISTS _migrations (
 	if err != nil {
 		t.Fatalf("get pre-migration session: %v", err)
 	}
-	if preMigration.ProviderType != "gemini" {
-		t.Errorf("ProviderType = %q, want %q", preMigration.ProviderType, "gemini")
+	if preMigration.ProviderType != "codex" {
+		t.Errorf("ProviderType = %q, want %q", preMigration.ProviderType, "codex")
 	}
 
 	// Verify the column exists by creating a session with a worktree branch.
