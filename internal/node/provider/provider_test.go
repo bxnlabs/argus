@@ -7,14 +7,14 @@ import (
 
 func TestAllProviders(t *testing.T) {
 	all := All()
-	if len(all) != 4 {
-		t.Errorf("len = %d, want 4", len(all))
+	if len(all) != 3 {
+		t.Errorf("len = %d, want 3", len(all))
 	}
 	ids := map[ProviderType]bool{}
 	for _, p := range all {
 		ids[p.ID] = true
 	}
-	for _, want := range []ProviderType{ProviderClaude, ProviderCodex, ProviderGemini, ProviderShell} {
+	for _, want := range []ProviderType{ProviderClaude, ProviderCodex, ProviderShell} {
 		if !ids[want] {
 			t.Errorf("missing provider: %s", want)
 		}
@@ -71,22 +71,6 @@ func TestBuildCommandCodex(t *testing.T) {
 	}
 }
 
-func TestBuildCommandGemini(t *testing.T) {
-	cmd, err := BuildCommand(ProviderGemini, BuildCommandOptions{
-		AutoApprove: true,
-		Model:       "gemini-pro",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(cmd, "--yolo") {
-		t.Errorf("got %q, want --yolo", cmd)
-	}
-	if !strings.Contains(cmd, "-m 'gemini-pro'") {
-		t.Errorf("got %q, want -m 'gemini-pro'", cmd)
-	}
-}
-
 func TestBuildCommandShell(t *testing.T) {
 	cmd, err := BuildCommand(ProviderShell, BuildCommandOptions{})
 	if err != nil {
@@ -139,7 +123,6 @@ func TestGetSessionIDPattern(t *testing.T) {
 	}{
 		{ProviderClaude, true},
 		{ProviderCodex, true},
-		{ProviderGemini, true},
 		{ProviderShell, false},
 	}
 	for _, tt := range tests {
@@ -197,28 +180,6 @@ To continue this session, run codex resume 019cce43-57d3-7842-9f1d-732711edbf25`
 			wantID: "019cce43-57d3-7842-9f1d-732711edbf25",
 		},
 		{
-			name:  "gemini exit output",
-			agent: ProviderGemini,
-			output: `╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│                                                                                                                        │
-│  Agent powering down. Goodbye!                                                                                         │
-│                                                                                                                        │
-│  Interaction Summary                                                                                                   │
-│  Session ID:                 defacfa6-a9ae-477a-aff3-e5e89a581431                                                      │
-│  Tool Calls:                 0 ( ✓ 0 x 0 )                                                                             │
-│  Success Rate:               0.0%                                                                                      │
-│                                                                                                                        │
-│  Performance                                                                                                           │
-│  Wall Time:                  3.1s                                                                                      │
-│  Agent Active:               0s                                                                                        │
-│    » API Time:               0s (0.0%)                                                                                 │
-│    » Tool Time:              0s (0.0%)                                                                                 │
-│                                                                                                                        │
-│  Tip: Resume a previous session using gemini --resume or /resume                                                       │
-╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯`,
-			wantID: "defacfa6-a9ae-477a-aff3-e5e89a581431",
-		},
-		{
 			name:   "no match in output",
 			agent:  ProviderClaude,
 			output: "Some random output without a session ID",
@@ -256,5 +217,27 @@ func TestShellEscapeEdgeCases(t *testing.T) {
 				t.Errorf("shellEscape(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGeminiUnregistered(t *testing.T) {
+	const gemini = ProviderType("gemini")
+
+	if IsValid(gemini) {
+		t.Error("gemini should no longer be a registered provider")
+	}
+	if _, err := Get(gemini); err == nil {
+		t.Error("Get(gemini) should return an error")
+	}
+	if _, err := BuildCommand(gemini, BuildCommandOptions{AutoApprove: true}); err == nil {
+		t.Error("BuildCommand(gemini) should return an error")
+	}
+	if pat := GetSessionIDPattern(gemini); pat != "" {
+		t.Errorf("GetSessionIDPattern(gemini) = %q, want empty", pat)
+	}
+	for _, p := range All() {
+		if p.ID == gemini {
+			t.Error("All() still lists gemini")
+		}
 	}
 }

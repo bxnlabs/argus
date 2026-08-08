@@ -1,11 +1,11 @@
 ---
 name: argus
-description: Driving Argus node sessions from the CLI. Use when a request mentions Argus (or the `argus` command) and wants to spawn a headless coding-agent session (Claude, Codex, Gemini, or a shell), send it prompts or control keys, poll its status, read its tmux output, read comments, or manage Argus git worktrees — e.g. "spin up an argus session", "peek at my argus session", "clean up dead argus sessions", "argus worktree". This skill is Argus-specific: do not use it for generic background jobs, plain tmux/ssh sessions, GitHub PR reviews, in-context research subagents, or raw `git worktree` when Argus isn't involved.
+description: Driving Argus node sessions from the CLI. Use when a request mentions Argus (or the `argus` command) and wants to spawn a headless coding-agent session (Claude, Codex, or a shell), send it prompts or control keys, poll its status, read its tmux output, read comments, or manage Argus git worktrees — e.g. "spin up an argus session", "peek at my argus session", "clean up dead argus sessions", "argus worktree". This skill is Argus-specific: do not use it for generic background jobs, plain tmux/ssh sessions, GitHub PR reviews, in-context research subagents, or raw `git worktree` when Argus isn't involved.
 ---
 
 # Driving Argus sessions headlessly
 
-Argus runs coding-agent sessions (Claude, Codex, Gemini, or a plain shell) as
+Argus runs coding-agent sessions (Claude, Codex, or a plain shell) as
 tmux panes managed by a background node daemon. The `argus` CLI is a thin
 client of that daemon. This skill drives a session end-to-end without ever
 attaching to an interactive terminal.
@@ -57,7 +57,7 @@ id=$(argus session new my-task --src . --provider claude)
   A local path is resolved on the node's filesystem as-is — there is no
   home-directory restriction. A git repo source gets an isolated worktree;
   a non-repo path (or any `shell` session) just runs in that directory.
-- `--provider` is one of `claude` (default), `codex`, `gemini`, `shell`. Use
+- `--provider` is one of `claude` (default), `codex`, `shell`. Use
   `shell` when you just want to drive a shell (send a command, read its output)
   rather than a coding agent.
 - **Auto-approve matters for headless.** Tool calls are auto-approved by default

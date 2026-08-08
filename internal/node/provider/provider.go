@@ -11,7 +11,6 @@ type ProviderType string
 const (
 	ProviderClaude ProviderType = "claude"
 	ProviderCodex  ProviderType = "codex"
-	ProviderGemini ProviderType = "gemini"
 	ProviderShell  ProviderType = "shell"
 )
 
@@ -52,7 +51,7 @@ func Get(id ProviderType) (*Provider, error) {
 // All returns all registered providers.
 func All() []*Provider {
 	out := make([]*Provider, 0, len(providers))
-	for _, id := range []ProviderType{ProviderClaude, ProviderCodex, ProviderGemini, ProviderShell} {
+	for _, id := range []ProviderType{ProviderClaude, ProviderCodex, ProviderShell} {
 		if p, ok := providers[id]; ok {
 			out = append(out, p)
 		}
