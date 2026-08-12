@@ -51,7 +51,11 @@ func gzipped(h http.HandlerFunc) http.HandlerFunc {
 // lowercase token or the literal text "q=0" answers a refusal with a
 // compressed body the client already said it could not decode.
 func acceptsGzip(r *http.Request) bool {
-	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+	// Values, not Get: a repeated list-valued field is one list split across
+	// lines, and Get would read only the first of them.
+	header := strings.Join(r.Header.Values("Accept-Encoding"), ",")
+
+	for _, part := range strings.Split(header, ",") {
 		fields := strings.Split(strings.TrimSpace(part), ";")
 		if !strings.EqualFold(strings.TrimSpace(fields[0]), "gzip") {
 			continue

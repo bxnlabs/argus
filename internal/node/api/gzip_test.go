@@ -131,6 +131,22 @@ func TestGzipped(t *testing.T) {
 		}
 	})
 
+	// A repeated list-valued field is one list split across lines, so the token
+	// can arrive on any of them. Header.Get reads only the first and would miss
+	// this — the property is worth pinning, since nothing else fails if the
+	// parser is simplified back to it.
+	t.Run("reads a token from a repeated header line", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/x", nil)
+		req.Header.Add("Accept-Encoding", "br")
+		req.Header.Add("Accept-Encoding", "gzip")
+		w := httptest.NewRecorder()
+		gzipped(echoBody(body))(w, req)
+
+		if got := w.Header().Get("Content-Encoding"); got != "gzip" {
+			t.Errorf("Content-Encoding = %q, want gzip", got)
+		}
+	})
+
 	t.Run("preserves the handler's status code", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/x", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
