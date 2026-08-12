@@ -55,17 +55,18 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("POST /profiles/{name}/up", sh.profileUp)
 	mux.HandleFunc("POST /profiles/{name}/down", sh.profileDown)
 
-	// Git routes
+	// Git routes. The ones carrying diffs or file bodies are compressed; the
+	// rest answer with too little to be worth the framing.
 	gh := &gitHandler{stateDir: deps.StateDir}
 	mux.HandleFunc("GET /git/status", gh.status)
-	mux.HandleFunc("GET /git/diff", gh.diff)
-	mux.HandleFunc("GET /git/working-diff", gh.workingDiff)
+	mux.HandleFunc("GET /git/diff", gzipped(gh.diff))
+	mux.HandleFunc("GET /git/working-diff", gzipped(gh.workingDiff))
 	mux.HandleFunc("GET /git/history", gh.history)
 	mux.HandleFunc("GET /git/history/{hash}", gh.commitDetail)
-	mux.HandleFunc("GET /git/history/{hash}/full-diff", gh.commitFullDiff)
+	mux.HandleFunc("GET /git/history/{hash}/full-diff", gzipped(gh.commitFullDiff))
 	mux.HandleFunc("GET /git/compare/branches", gh.compareBranches)
-	mux.HandleFunc("GET /git/compare", gh.compare)
-	mux.HandleFunc("GET /git/file-content", gh.fileContent)
+	mux.HandleFunc("GET /git/compare", gzipped(gh.compare))
+	mux.HandleFunc("GET /git/file-content", gzipped(gh.fileContent))
 	mux.HandleFunc("GET /git/file-lines", gh.fileLines)
 	mux.HandleFunc("GET /git/check", gh.check)
 	mux.HandleFunc("GET /git/branches", gh.branches)
