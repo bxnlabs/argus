@@ -293,9 +293,15 @@ describe("FileExplorer content-loading wiring", () => {
     expect(screen.queryByLabelText("a.ts failed to load")).toBeNull();
   });
 
-  // Closing an errored tab must take its error with it, or reopening the file
-  // lands straight back in the error pane without ever reading anything.
-  it("closing an errored tab clears the error, so reopening reads again", async () => {
+  // A file that failed once must not be poisoned: closing its tab and opening
+  // it again reads the file afresh and shows it.
+  //
+  // This pins the observable behaviour, not the mechanism. handleCloseFile
+  // drops the path's error entry, but so does the start of the next read, so
+  // no test can tell the two apart from outside — the close-side cleanup is
+  // there to keep the error map from retaining closed paths, mirroring what
+  // handleCloseFile already does for cached content.
+  it("a file that failed once can be closed and opened again", async () => {
     let failNext = true;
     let metaCount = 0;
 
@@ -385,6 +391,7 @@ describe("FileExplorer content-loading wiring", () => {
 
     const aMeta = deferred<Response>();
     let metaCount = 0;
+    let contentCount = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string) => {
@@ -392,7 +399,10 @@ describe("FileExplorer content-loading wiring", () => {
           metaCount += 1;
           return aMeta.promise;
         }
-        if (input === contentUrl("/repo/a.ts")) return textResponse("content a");
+        if (input === contentUrl("/repo/a.ts")) {
+          contentCount += 1;
+          return textResponse("content a");
+        }
         throw new Error(`unexpected fetch: ${input}`);
       }),
     );
@@ -409,11 +419,13 @@ describe("FileExplorer content-loading wiring", () => {
     expect(screen.getByText("b.ts")).toBeTruthy();
     expect(screen.queryByText("Cancel")).toBeNull();
 
-    // The read was never cancelled, so it lands while the user is on the tree.
+    // The read was never cancelled, so it runs to completion while the user is
+    // on the tree. Waiting on the *content* fetch is what proves that — the
+    // meta count was already 1 before this resolve.
     aMeta.resolve(
       jsonResponse({ size: 11, isBinary: false, contentType: "text/plain", path: "/repo/a.ts" }),
     );
-    await waitFor(() => expect(metaCount).toBe(1));
+    await waitFor(() => expect(contentCount).toBe(1));
 
     // Reopening shows it straight away, without reading the file a second time.
     fireEvent.click(screen.getByText("a.ts"));
