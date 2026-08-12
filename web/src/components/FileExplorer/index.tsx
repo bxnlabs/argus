@@ -89,7 +89,10 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
   // Read content per open path, keyed by path. A path leaves this map when
   // its tab closes (see handleCloseFile).
   const [contents, setContents] = useState<Record<string, OpenFileContent>>({});
-  const [fileLoading, setFileLoading] = useState(false);
+  // Which paths currently have a fetch in flight — per-path, not a single
+  // shared flag, so one file's fetch resolving cannot clear another file's
+  // still-loading state out from under it.
+  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
   const contentsRef = useRef(contents);
   contentsRef.current = contents;
   const baseUrlRef = useRef(baseUrl);
@@ -115,7 +118,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
   const loadFileContent = useCallback(async (path: string) => {
     if (contentsRef.current[path] || openingPathsRef.current.has(path)) return;
     openingPathsRef.current.add(path);
-    setFileLoading(true);
+    setLoadingPaths((prev) => new Set(prev).add(path));
     try {
       const meta = await apiFetch<FileMetaResponse>(
         baseUrlRef.current,
@@ -150,7 +153,12 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
       );
     } finally {
       openingPathsRef.current.delete(path);
-      setFileLoading(false);
+      setLoadingPaths((prev) => {
+        if (!prev.has(path)) return prev;
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
     }
   }, []);
 
@@ -221,6 +229,8 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
   }, []);
 
   const activeFile = activeFilePath ? contents[activeFilePath] : undefined;
+  const activeFileLoading = activeFilePath ? loadingPaths.has(activeFilePath) : false;
+  const anyFileLoading = loadingPaths.size > 0;
   const files = filesData?.files || [];
 
   // --- Loading state ---
@@ -277,7 +287,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
-              {fileLoading && !activeFile ? (
+              {activeFileLoading && !activeFile ? (
                 <div className="flex h-full items-center justify-center">
                   <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
                 </div>
@@ -314,7 +324,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
               />
             )}
           </div>
-          {fileLoading && (
+          {anyFileLoading && (
             <div className="bg-background/80 fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
               <Loader2 className="text-primary h-8 w-8 animate-spin" />
               <Button
@@ -379,7 +389,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
           )}
 
           <div className="flex-1 overflow-hidden">
-            {fileLoading && !activeFile ? (
+            {activeFileLoading && !activeFile ? (
               <div className="flex h-full items-center justify-center">
                 <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
               </div>
