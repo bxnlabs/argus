@@ -1,40 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { apiFetch } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import type { UploadResponse } from "@/types";
-import { filesKeys } from "./keys";
-
-export function useWriteFileMutation() {
-  const queryClient = useQueryClient();
-  const { scope, baseUrl } = useActiveNode();
-
-  return useMutation({
-    mutationFn: async ({ path, content }: { path: string; content: string }) => {
-      return apiFetch<{ path: string; size: number }>(
-        baseUrl,
-        `/api/node/files/content?path=${encodeURIComponent(path)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "text/plain" },
-          body: content,
-        },
-      );
-    },
-    onSuccess: (_data, variables) => {
-      const fileName = variables.path.split("/").pop() || variables.path;
-      toast.success(`Saved ${fileName}`);
-      const lastSlash = variables.path.lastIndexOf("/");
-      const parentDir = lastSlash > 0 ? variables.path.substring(0, lastSlash) : "";
-      if (parentDir) {
-        queryClient.invalidateQueries({ queryKey: filesKeys.list(scope, parentDir) });
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(error.message);
-    },
-  });
-}
 
 export function useFileUpload() {
   const queryClient = useQueryClient();

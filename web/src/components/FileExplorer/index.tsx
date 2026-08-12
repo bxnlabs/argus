@@ -5,18 +5,10 @@ import {
   Loader2,
   AlertCircle,
   ArrowLeft,
-  Save,
   RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { FileTree } from "./FileTree";
 import { FileTabs } from "./FileTabs";
 const FileEditor = lazy(() =>
@@ -25,26 +17,84 @@ const FileEditor = lazy(() =>
 import { useFileEditor } from "./useFileEditor";
 import { useViewport } from "@/hooks/useViewport";
 import { useFilesQuery } from "@/data/files";
+import { apiFetch, apiTextFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
+import type { FileMetaResponse } from "@/types";
 
 interface FileExplorerProps {
   workingDirectory: string;
 }
 
+// A file once its meta and (if applicable) content have been read. Held here
+// rather than in useFileEditor, which only tracks which paths are open.
+interface OpenFileContent {
+  path: string;
+  content: string;
+  language: string;
+  isBinary: boolean;
+  isLarge: boolean;
+}
+
+const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+
+function getLanguageFromPath(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    ts: "typescript",
+    tsx: "typescript",
+    js: "javascript",
+    jsx: "javascript",
+    json: "json",
+    md: "markdown",
+    html: "html",
+    htm: "html",
+    css: "css",
+    scss: "scss",
+    less: "less",
+    xml: "xml",
+    yaml: "yaml",
+    yml: "yaml",
+    py: "python",
+    go: "go",
+    rs: "rust",
+    sh: "shell",
+    bash: "shell",
+    zsh: "shell",
+    sql: "sql",
+    graphql: "graphql",
+    dockerfile: "dockerfile",
+    toml: "toml",
+    ini: "ini",
+    c: "c",
+    cpp: "cpp",
+    h: "c",
+    hpp: "cpp",
+    java: "java",
+    rb: "ruby",
+    php: "php",
+    swift: "swift",
+    kt: "kotlin",
+    lua: "lua",
+    r: "r",
+  };
+  return map[ext] || "plaintext";
+}
+
 export function FileExplorer({ workingDirectory }: FileExplorerProps) {
   const { isMobile } = useViewport();
-  const {
-    openFiles,
-    activeFilePath,
-    loading: fileLoading,
-    saving,
-    openFile,
-    closeFile,
-    setActiveFile,
-    updateContent,
-    saveFile,
-    isDirty,
-    getFile,
-  } = useFileEditor();
+  const { baseUrl } = useActiveNode();
+  const { openPaths, activeFilePath, openFile, closeFile, setActiveFile } =
+    useFileEditor();
+
+  // Read content per open path, keyed by path. A path leaves this map when
+  // its tab closes (see handleCloseFile).
+  const [contents, setContents] = useState<Record<string, OpenFileContent>>({});
+  const [fileLoading, setFileLoading] = useState(false);
+  const contentsRef = useRef(contents);
+  contentsRef.current = contents;
+  const baseUrlRef = useRef(baseUrl);
+  baseUrlRef.current = baseUrl;
+  const openingPathsRef = useRef<Set<string>>(new Set());
 
   const {
     data: filesData,
@@ -55,9 +105,6 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
     refetch,
   } = useFilesQuery(workingDirectory);
 
-  // Pending close state for unsaved-changes dialog
-  const [pendingClose, setPendingClose] = useState<string | null>(null);
-
   // Resizable panel state (desktop)
   const [treeWidth, setTreeWidth] = useState(280);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -65,44 +112,68 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
   const handleMouseMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
   const handleMouseUpRef = useRef<(() => void) | null>(null);
 
+  const loadFileContent = useCallback(async (path: string) => {
+    if (contentsRef.current[path] || openingPathsRef.current.has(path)) return;
+    openingPathsRef.current.add(path);
+    setFileLoading(true);
+    try {
+      const meta = await apiFetch<FileMetaResponse>(
+        baseUrlRef.current,
+        `/api/node/files/meta?path=${encodeURIComponent(path)}`,
+      );
+
+      const isLarge = meta.size > LARGE_FILE_THRESHOLD;
+      const isBinary = meta.isBinary;
+
+      let content = "";
+      if (!isBinary && !isLarge) {
+        const res = await apiTextFetch(
+          baseUrlRef.current,
+          `/api/node/files/content?path=${encodeURIComponent(path)}`,
+        );
+        content = await res.text();
+      }
+
+      setContents((prev) => ({
+        ...prev,
+        [path]: {
+          path,
+          content,
+          language: getLanguageFromPath(path),
+          isBinary,
+          isLarge,
+        },
+      }));
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to open file",
+      );
+    } finally {
+      openingPathsRef.current.delete(path);
+      setFileLoading(false);
+    }
+  }, []);
+
   const handleFileClick = useCallback(
     (path: string) => {
       openFile(path);
+      void loadFileContent(path);
     },
-    [openFile],
+    [openFile, loadFileContent],
   );
 
   const handleCloseFile = useCallback(
     (path: string) => {
-      if (isDirty(path)) {
-        setPendingClose(path);
-      } else {
-        closeFile(path);
-      }
+      closeFile(path);
+      setContents((prev) => {
+        if (!(path in prev)) return prev;
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
     },
-    [isDirty, closeFile],
+    [closeFile],
   );
-
-  const handleConfirmClose = useCallback(() => {
-    if (!pendingClose) return;
-    closeFile(pendingClose);
-    setPendingClose(null);
-  }, [pendingClose, closeFile]);
-
-  const handleSaveAndClose = useCallback(async () => {
-    if (!pendingClose) return;
-    const saved = await saveFile(pendingClose);
-    if (saved) {
-      closeFile(pendingClose);
-    }
-    setPendingClose(null);
-  }, [pendingClose, saveFile, closeFile]);
-
-  const handleSave = useCallback(async () => {
-    if (activeFilePath) {
-      await saveFile(activeFilePath);
-    }
-  }, [activeFilePath, saveFile]);
 
   // Resize handle for desktop
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -149,7 +220,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
     };
   }, []);
 
-  const activeFile = activeFilePath ? getFile(activeFilePath) : undefined;
+  const activeFile = activeFilePath ? contents[activeFilePath] : undefined;
   const files = filesData?.files || [];
 
   // --- Loading state ---
@@ -181,8 +252,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
 
   // --- Mobile layout ---
   if (isMobile) {
-    const isCurrentDirty = activeFilePath ? isDirty(activeFilePath) : false;
-    const showEditor = !!activeFile;
+    const showEditor = !!activeFilePath;
 
     return (
       <div className="bg-background flex h-full w-full flex-col">
@@ -199,43 +269,28 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
               </Button>
               <div className="min-w-0 flex-1">
                 <FileTabs
-                  files={openFiles}
+                  paths={openPaths}
                   activeFilePath={activeFilePath}
                   onSelect={setActiveFile}
                   onClose={handleCloseFile}
-                  isDirty={isDirty}
                 />
               </div>
-              {isCurrentDirty && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex-shrink-0"
-                >
-                  <Save className="mr-1 h-4 w-4" />
-                  Save
-                </Button>
-              )}
             </div>
             <div className="flex-1 overflow-hidden">
-              {fileLoading ? (
+              {fileLoading && !activeFile ? (
                 <div className="flex h-full items-center justify-center">
                   <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
                 </div>
-              ) : (
+              ) : activeFile ? (
                 <Suspense fallback={<EditorSkeleton />}>
                   <FileEditor
                     content={activeFile.content}
                     language={activeFile.language}
                     isBinary={activeFile.isBinary}
                     isLarge={activeFile.isLarge}
-                    onChange={(c) => updateContent(activeFile.path, c)}
-                    onSave={handleSave}
                   />
                 </Suspense>
-              )}
+              ) : null}
             </div>
           </div>
         )}
@@ -272,14 +327,6 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
             </div>
           )}
         </div>
-
-        <UnsavedChangesDialog
-          open={!!pendingClose}
-          fileName={pendingClose?.split("/").pop() || ""}
-          onCancel={() => setPendingClose(null)}
-          onDiscard={handleConfirmClose}
-          onSave={handleSaveAndClose}
-        />
       </div>
     );
   }
@@ -320,20 +367,19 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
 
         {/* Right panel - tabs + editor */}
         <div className="bg-muted/20 flex h-full min-w-0 flex-1 flex-col">
-          {openFiles.length > 0 && (
+          {openPaths.length > 0 && (
             <div className="bg-background/50">
               <FileTabs
-                files={openFiles}
+                paths={openPaths}
                 activeFilePath={activeFilePath}
                 onSelect={setActiveFile}
                 onClose={handleCloseFile}
-                isDirty={isDirty}
               />
             </div>
           )}
 
           <div className="flex-1 overflow-hidden">
-            {fileLoading ? (
+            {fileLoading && !activeFile ? (
               <div className="flex h-full items-center justify-center">
                 <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
               </div>
@@ -344,8 +390,6 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
                   language={activeFile.language}
                   isBinary={activeFile.isBinary}
                   isLarge={activeFile.isLarge}
-                  onChange={(c) => updateContent(activeFile.path, c)}
-                  onSave={handleSave}
                 />
               </Suspense>
             ) : (
@@ -357,14 +401,6 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
           </div>
         </div>
       </div>
-
-      <UnsavedChangesDialog
-        open={!!pendingClose}
-        fileName={pendingClose?.split("/").pop() || ""}
-        onCancel={() => setPendingClose(null)}
-        onDiscard={handleConfirmClose}
-        onSave={handleSaveAndClose}
-      />
     </div>
   );
 }
@@ -411,45 +447,5 @@ function Header({ onRefresh, refreshing }: HeaderProps) {
         />
       </Button>
     </div>
-  );
-}
-
-// --- Unsaved Changes Dialog ---
-
-interface UnsavedChangesDialogProps {
-  open: boolean;
-  fileName: string;
-  onCancel: () => void;
-  onDiscard: () => void;
-  onSave: () => void;
-}
-
-function UnsavedChangesDialog({
-  open,
-  fileName,
-  onCancel,
-  onDiscard,
-  onSave,
-}: UnsavedChangesDialogProps) {
-  return (
-    <Dialog open={open} onOpenChange={(isOpen: boolean) => !isOpen && onCancel()}>
-      <DialogContent showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>Unsaved changes</DialogTitle>
-          <DialogDescription>
-            {fileName} has unsaved changes. What would you like to do?
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={onDiscard}>
-            Discard
-          </Button>
-          <Button onClick={onSave}>Save</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

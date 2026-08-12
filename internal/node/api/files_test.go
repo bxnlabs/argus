@@ -159,62 +159,30 @@ func TestFilesHandlerReadContent_Directory(t *testing.T) {
 	}
 }
 
-func TestFilesHandlerWriteContent(t *testing.T) {
-	dir := homeTempDir(t)
-	p := filepath.Join(dir, "write.txt")
+// The editor is read-only, so nothing writes files through the API. An
+// unreachable write endpoint is reach for nothing.
+func TestWriteContentRouteIsGone(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(p, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	handler := &filesHandler{}
-	body := strings.NewReader("written via PUT")
-	req := httptest.NewRequest("PUT", "/files/content?path="+p, body)
+	deps := Deps{} // filesHandler has no deps
+	router := NewRouter(deps)
+	req := httptest.NewRequest("PUT", "/files/content?path="+p, strings.NewReader("nope"))
 	w := httptest.NewRecorder()
-	handler.writeContent(w, req)
+	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("PUT /files/content = %d, want %d", w.Code, http.StatusMethodNotAllowed)
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "written via PUT" {
-		t.Errorf("file content = %q, want %q", data, "written via PUT")
-	}
-	resp := w.Body.String()
-	if !strings.Contains(resp, `"size":15`) {
-		t.Errorf("expected size 15 in response, got %s", resp)
-	}
-	if !strings.Contains(resp, `"path":`+`"`+p) {
-		t.Errorf("expected expanded path in response, got %s", resp)
-	}
-}
-
-func TestFilesHandlerWriteContent_CreatesParentDirs(t *testing.T) {
-	dir := homeTempDir(t)
-	p := filepath.Join(dir, "a", "b", "deep.txt")
-
-	handler := &filesHandler{}
-	body := strings.NewReader("deep write")
-	req := httptest.NewRequest("PUT", "/files/content?path="+p, body)
-	w := httptest.NewRecorder()
-	handler.writeContent(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
-	data, _ := os.ReadFile(p)
-	if string(data) != "deep write" {
-		t.Errorf("content = %q, want %q", data, "deep write")
-	}
-}
-
-func TestFilesHandlerWriteContent_MissingPath(t *testing.T) {
-	handler := &filesHandler{}
-	req := httptest.NewRequest("PUT", "/files/content", strings.NewReader("data"))
-	w := httptest.NewRecorder()
-	handler.writeContent(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
+	if string(data) != "original" {
+		t.Errorf("file content = %q, want it untouched", data)
 	}
 }
 
@@ -272,16 +240,6 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 		}
 		if w.Body.String() != "hello" {
 			t.Errorf("body = %q, want %q", w.Body.String(), "hello")
-		}
-	})
-
-	t.Run("write outside-home file succeeds", func(t *testing.T) {
-		p := filepath.Join(outsideHome, "written.txt")
-		req := httptest.NewRequest("PUT", "/files/content?path="+p, strings.NewReader("data"))
-		w := httptest.NewRecorder()
-		handler.writeContent(w, req)
-		if w.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
 	})
 
@@ -357,16 +315,6 @@ func TestFilesHandlerPermissionDenied(t *testing.T) {
 			t.Errorf("status = %d, want 403", w.Code)
 		}
 	})
-
-	t.Run("write permission denied returns 403", func(t *testing.T) {
-		p := filepath.Join(forbidden, "file.txt")
-		req := httptest.NewRequest("PUT", "/files/content?path="+p, strings.NewReader("data"))
-		w := httptest.NewRecorder()
-		handler.writeContent(w, req)
-		if w.Code != http.StatusForbidden {
-			t.Errorf("status = %d, want 403", w.Code)
-		}
-	})
 }
 
 func TestFilesHandlerViaRouter(t *testing.T) {
@@ -405,20 +353,6 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		}
 		if w.Body.String() != "via router" {
 			t.Errorf("body = %q, want %q", w.Body.String(), "via router")
-		}
-	})
-
-	t.Run("PUT /files/content", func(t *testing.T) {
-		p := filepath.Join(dir, "new-via-router.txt")
-		req := httptest.NewRequest("PUT", "/files/content?path="+p, strings.NewReader("put data"))
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-		}
-		data, _ := os.ReadFile(p)
-		if string(data) != "put data" {
-			t.Errorf("file = %q, want %q", data, "put data")
 		}
 	})
 

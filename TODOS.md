@@ -43,11 +43,10 @@
 ## File Operations
 
 - [ ] Oversized file uploads return `500` instead of `413` in `internal/node/api/files.go:154`. `MaxBytesReader` errors become generic write errors. Detect `*http.MaxBytesError` via `errors.As` and return `StatusRequestEntityTooLarge`.
-- [ ] New-file writes in `internal/node/files/operations.go:106` are forced to `0644` via `chmod`, which can bypass stricter process umask expectations. For new files, respect umask or use a secure default (e.g., `0600`).
 
 ## API Security
 
-- [ ] Revisit `CleanPath` filesystem-wide access scope. File browse/read/write handlers use `CleanPath` (no home-directory restriction), relying on OS permissions and private network (Tailscale) as the sole access guards. If the node is ever exposed beyond private networks, add application-level auth or scope restrictions to write operations (`writeContent` in `internal/node/api/files.go`).
+- [ ] Revisit `CleanPath` filesystem-wide access scope. File browse/read handlers use `CleanPath` (no home-directory restriction), relying on OS permissions and private network (Tailscale) as the sole access guards. If the node is ever exposed beyond private networks, add application-level auth.
 
 - [ ] `/api/code-search` in `internal/node/api/search.go:30` uses `ExpandPath` instead of `SafeExpandPath`, allowing callers to search arbitrary host paths (e.g., `/etc`). Use `shared.SafeExpandPath` to enforce the same root policy as other file endpoints.
 - [ ] User query in `internal/node/filesearch/operations.go:56` is appended to `fd` args without a `--` separator. Queries starting with `-` are parsed as flags, enabling option injection (`--search-path`, `--exec`). Append `--` before the query arg.

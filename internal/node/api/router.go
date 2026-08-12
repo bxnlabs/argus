@@ -91,7 +91,6 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /files", fh.list)
 	mux.HandleFunc("GET /files/meta", fh.meta)
 	mux.HandleFunc("GET /files/content", fh.readContent)
-	mux.HandleFunc("PUT /files/content", fh.writeContent)
 	mux.HandleFunc("GET /files/search", fh.search)
 	mux.HandleFunc("POST /files/upload", fh.upload)
 

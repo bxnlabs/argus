@@ -1,22 +1,19 @@
 import { useRef, useEffect } from "react";
 import { X, File } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { OpenFile } from "./useFileEditor";
 
 interface FileTabsProps {
-  files: OpenFile[];
+  paths: string[];
   activeFilePath: string | null;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
-  isDirty: (path: string) => boolean;
 }
 
 export function FileTabs({
-  files,
+  paths,
   activeFilePath,
   onSelect,
   onClose,
-  isDirty,
 }: FileTabsProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeTabRef = useRef<HTMLDivElement>(null);
@@ -32,29 +29,28 @@ export function FileTabs({
     }
   }, [activeFilePath]);
 
-  if (files.length === 0) return null;
+  if (paths.length === 0) return null;
 
   return (
     <div
       ref={scrollRef}
       className="bg-muted/30 scrollbar-none flex items-center gap-0.5 overflow-x-auto px-1"
     >
-      {files.map((file) => {
-        const isActive = file.path === activeFilePath;
-        const dirty = isDirty(file.path);
-        const fileName = file.path.split("/").pop() || file.path;
+      {paths.map((path) => {
+        const isActive = path === activeFilePath;
+        const fileName = path.split("/").pop() || path;
 
         return (
           <div
-            key={file.path}
+            key={path}
             ref={isActive ? activeTabRef : null}
             role="button"
             tabIndex={0}
-            onClick={() => onSelect(file.path)}
+            onClick={() => onSelect(path)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                onSelect(file.path);
+                onSelect(path);
               }
             }}
             className={cn(
@@ -68,13 +64,10 @@ export function FileTabs({
           >
             <File className="text-muted-foreground h-3.5 w-3.5 flex-shrink-0" />
             <span className="max-w-[120px] truncate">{fileName}</span>
-            {dirty && (
-              <span className="bg-primary h-2 w-2 flex-shrink-0 rounded-full" />
-            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onClose(file.path);
+                onClose(path);
               }}
               className={cn(
                 "hover:bg-accent ml-1 flex-shrink-0 rounded p-0.5",

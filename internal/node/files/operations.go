@@ -59,68 +59,6 @@ func FileMeta(path string) (*FileMetaResult, error) {
 	return result, nil
 }
 
-// StreamWrite streams content from r to a file at path.
-// Creates parent directories. Uses a temp file + rename for atomicity.
-// Preserves file permissions on overwrite. Returns bytes written.
-// Returns *FileSizeError if content exceeds maxSize.
-func StreamWrite(path string, r io.Reader, maxSize int64) (int64, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return 0, err
-	}
-
-	// Write to temp file first, then rename for atomicity
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".argus-write-*")
-	if err != nil {
-		return 0, fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	closed := false
-
-	// Clean up temp file on any error
-	success := false
-	defer func() {
-		if !success {
-			if !closed {
-				tmp.Close()
-			}
-			os.Remove(tmpPath)
-		}
-	}()
-
-	// io.LimitReader caps at maxSize+1 so we can detect overflow
-	limited := io.LimitReader(r, maxSize+1)
-	n, err := io.Copy(tmp, limited)
-	if err != nil {
-		return 0, fmt.Errorf("write: %w", err)
-	}
-	if n > maxSize {
-		return 0, &FileSizeError{Size: n, MaxSize: maxSize}
-	}
-
-	if err := tmp.Close(); err != nil {
-		return 0, fmt.Errorf("close temp file: %w", err)
-	}
-	closed = true
-
-	// Capture existing file mode just before chmod to minimize TOCTOU window
-	existingMode := os.FileMode(0644)
-	if info, err := os.Stat(path); err == nil {
-		existingMode = info.Mode()
-	}
-
-	// Preserve original file permissions on overwrite
-	if err := os.Chmod(tmpPath, existingMode); err != nil {
-		return 0, fmt.Errorf("chmod: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		return 0, fmt.Errorf("rename: %w", err)
-	}
-
-	success = true
-	return n, nil
-}
-
 // ListDirectory lists files and directories, filtering excluded names.
 // maxDepth controls recursion depth (V1 uses: recursive ? 2 : 1).
 func ListDirectory(dir string, recursive bool, maxDepth int) ([]FileNode, error) {

@@ -1,6 +1,5 @@
-import { useRef, useCallback } from "react";
+import { useCallback } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { type editor } from "monaco-editor";
 import { FileCode, Loader2 } from "lucide-react";
 
 interface FileEditorProps {
@@ -8,45 +7,12 @@ interface FileEditorProps {
   language: string;
   isBinary: boolean;
   isLarge: boolean;
-  onChange: (content: string) => void;
-  onSave?: () => void;
 }
 
-export function FileEditor({
-  content,
-  language,
-  isBinary,
-  isLarge,
-  onChange,
-  onSave,
-}: FileEditorProps) {
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const onSaveRef = useRef(onSave);
-  onSaveRef.current = onSave;
-
+export function FileEditor({ content, language, isBinary, isLarge }: FileEditorProps) {
   const handleMount: OnMount = useCallback((editor) => {
-    editorRef.current = editor;
-
-    // Register Cmd+S / Ctrl+S — uses ref so the binding stays current
-    // even though onMount only fires once per editor instance.
-    editor.addCommand(
-      // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS
-      2048 | 49, // CtrlCmd = 2048, KeyS = 49
-      () => onSaveRef.current?.(),
-    );
-
-    // Focus editor
     editor.focus();
   }, []);
-
-  const handleChange = useCallback(
-    (value: string | undefined) => {
-      if (value !== undefined) {
-        onChange(value);
-      }
-    },
-    [onChange],
-  );
 
   if (isBinary) {
     return (
@@ -72,7 +38,6 @@ export function FileEditor({
       language={language}
       value={content}
       theme="vs-dark"
-      onChange={handleChange}
       onMount={handleMount}
       loading={
         <div className="flex h-full items-center justify-center">
@@ -90,7 +55,10 @@ export function FileEditor({
         automaticLayout: true,
         bracketPairColorization: { enabled: true },
         guides: { bracketPairs: true },
-        renderLineHighlight: "line",
+        readOnly: true,
+        // A viewer, not a disabled editor: no cursor line highlight or
+        // blinking caret suggesting input is expected.
+        renderLineHighlight: "none",
         cursorBlinking: "smooth",
         smoothScrolling: true,
         padding: { top: 8 },

@@ -1,15 +1,11 @@
 package files
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// testMaxSize is the size limit used in StreamWrite tests.
-const testMaxSize int64 = 1 << 20 // 1 MB
 
 // writeTestFile creates a file with content inside a test directory.
 func writeTestFile(t *testing.T, dir, name, content string) {
@@ -120,131 +116,6 @@ func TestIsBinary(t *testing.T) {
 	t.Run("UTF-8 with high bytes", func(t *testing.T) {
 		if IsBinary([]byte("caf\xc3\xa9")) {
 			t.Error("expected false for valid UTF-8")
-		}
-	})
-}
-
-func TestStreamWrite(t *testing.T) {
-	t.Run("write from reader", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "new.txt")
-		n, err := StreamWrite(p, strings.NewReader("hello world"), testMaxSize)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n != 11 {
-			t.Errorf("written = %d, want 11", n)
-		}
-		data, _ := os.ReadFile(p)
-		if string(data) != "hello world" {
-			t.Errorf("content = %q, want %q", data, "hello world")
-		}
-	})
-
-	t.Run("creates parent directories", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "a", "b", "c", "deep.txt")
-		_, err := StreamWrite(p, strings.NewReader("deep"), testMaxSize)
-		if err != nil {
-			t.Fatal(err)
-		}
-		data, _ := os.ReadFile(p)
-		if string(data) != "deep" {
-			t.Errorf("content = %q, want %q", data, "deep")
-		}
-	})
-
-	t.Run("overwrite existing", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "over.txt")
-		StreamWrite(p, strings.NewReader("original"), testMaxSize)
-		StreamWrite(p, strings.NewReader("updated"), testMaxSize)
-		data, _ := os.ReadFile(p)
-		if string(data) != "updated" {
-			t.Errorf("content = %q, want %q", data, "updated")
-		}
-	})
-
-	t.Run("exceeds max size", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "big.txt")
-		_, err := StreamWrite(p, strings.NewReader(strings.Repeat("x", int(testMaxSize)+1)), testMaxSize)
-		if err == nil {
-			t.Error("expected error for oversized write")
-		}
-		// File should not exist after failed write
-		if _, statErr := os.Stat(p); statErr == nil {
-			t.Error("expected file to not exist after failed write")
-		}
-	})
-
-	t.Run("empty content", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "empty.txt")
-		n, err := StreamWrite(p, strings.NewReader(""), testMaxSize)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n != 0 {
-			t.Errorf("written = %d, want 0", n)
-		}
-	})
-
-	t.Run("atomic write", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "atomic.txt")
-		n, err := StreamWrite(p, strings.NewReader("complete content"), testMaxSize)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n != 16 {
-			t.Errorf("written = %d, want 16", n)
-		}
-		data, _ := os.ReadFile(p)
-		if string(data) != "complete content" {
-			t.Errorf("content = %q, want %q", data, "complete content")
-		}
-	})
-
-	t.Run("preserves file permissions on overwrite", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "script.sh")
-		// Create executable file
-		os.WriteFile(p, []byte("#!/bin/sh\necho old"), 0755)
-		// Overwrite it
-		StreamWrite(p, strings.NewReader("#!/bin/sh\necho new"), testMaxSize)
-		info, err := os.Stat(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm() != 0755 {
-			t.Errorf("permissions = %o, want 0755", info.Mode().Perm())
-		}
-	})
-
-	t.Run("new file gets 0644 permissions", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "new-perms.txt")
-		StreamWrite(p, strings.NewReader("hello"), testMaxSize)
-		info, err := os.Stat(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm() != 0644 {
-			t.Errorf("permissions = %o, want 0644", info.Mode().Perm())
-		}
-	})
-
-	t.Run("returns FileSizeError for oversized write", func(t *testing.T) {
-		dir := t.TempDir()
-		p := filepath.Join(dir, "big.txt")
-		_, err := StreamWrite(p, strings.NewReader(strings.Repeat("x", int(testMaxSize)+1)), testMaxSize)
-		if err == nil {
-			t.Fatal("expected error")
-		}
-		var sizeErr *FileSizeError
-		if !errors.As(err, &sizeErr) {
-			t.Errorf("expected *FileSizeError, got %T: %v", err, err)
 		}
 	})
 }
