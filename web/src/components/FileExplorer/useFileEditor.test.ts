@@ -6,8 +6,8 @@ import { useFileEditor } from "./useFileEditor";
 afterEach(cleanup);
 
 describe("useFileEditor", () => {
-  // Bookkeeping only: content comes from the query now, so opening a file
-  // must not fetch anything or need awaiting.
+  // Bookkeeping only: FileExplorer owns content loading now, so opening a
+  // file here must not fetch anything or need awaiting.
   it("tracks open paths and the active one without loading content", () => {
     const { result } = renderHook(() => useFileEditor());
 
