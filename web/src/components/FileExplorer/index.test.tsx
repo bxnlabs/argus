@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -20,14 +20,13 @@ vi.mock("@/data/files", async (importOriginal) => ({
 
 // This branch-sourced test file predates PR 13, when FileExplorer still
 // serves desktop too (a resizable two-pane layout) alongside the mobile
-// drill-in it was written against. jsdom's default (non-touch) environment
-// already resolves useViewport() to isMobile: false, so every test here but
-// one is layout-agnostic and needs no override. The one exception — "keeps
-// directory expansion state after opening a file and going back" — exercises
-// the mobile-only "Back to files" control, so it opts into the mobile branch
-// explicitly below.
+// drill-in it was written against. Every test here but one is layout-agnostic
+// and runs against the desktop default set in beforeEach below. The one
+// exception — "keeps directory expansion state after opening a file and going
+// back" — exercises the mobile-only "Back to files" control, so it opts into
+// the mobile branch explicitly.
 vi.mock("@/hooks/useViewport", () => ({
-  useViewport: vi.fn(() => ({ isMobile: false, isDesktop: true, isHydrated: true })),
+  useViewport: vi.fn(),
 }));
 
 // FileTree (real, unmocked) fetches a directory's children directly through
@@ -84,6 +83,18 @@ beforeAll(() => {
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
+});
+
+beforeEach(() => {
+  // Reset to the desktop default before every test. clearAllMocks (below)
+  // only clears call history, not a mockReturnValue — so without this, a
+  // test that overrides useViewport would leak that override into whatever
+  // runs after it, rather than just the one test that needs it.
+  vi.mocked(useViewport).mockReturnValue({
+    isMobile: false,
+    isDesktop: true,
+    isHydrated: true,
+  });
 });
 
 afterEach(() => {
@@ -196,6 +207,37 @@ describe("FileExplorer", () => {
     expect(screen.getByTestId("editor-content").textContent).toBe("hello");
     expect(screen.queryByText("Failed to fetch")).toBeNull();
     expect(screen.queryByText("Failed to open file")).toBeNull();
+  });
+
+  // Stale content winning (above) must not read as "still fresh" — a pane
+  // stuck failing every poll and every reload looks identical to a current
+  // one unless something on screen says otherwise.
+  it("says refreshing has stopped once a poll fails, instead of going stale silently", async () => {
+    vi.mocked(useFilesQuery).mockReturnValue(FILES_STUB as never);
+    vi.mocked(useFileContentQuery).mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: makeContent(),
+      error: undefined,
+    } as never);
+
+    const { rerender } = renderExplorer();
+    fireEvent.click(screen.getByText("a.ts"));
+    expect(await screen.findByTestId("file-editor")).toBeTruthy();
+
+    expect(screen.queryByRole("status")).toBeNull();
+
+    vi.mocked(useFileContentQuery).mockReturnValue({
+      isPending: false,
+      isError: true,
+      data: makeContent(),
+      error: new Error("Failed to fetch"),
+    } as never);
+    rerender(<FileExplorer workingDirectory="/repo" />);
+
+    const banner = screen.getByRole("status");
+    expect(banner.textContent).toContain("Showing the last version read — refresh failed");
+    expect(banner.textContent).toContain("Failed to fetch");
   });
 
   // ...but not over a verdict. Same rule as EditorCenter: a 4xx means the
