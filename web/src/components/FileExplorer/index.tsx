@@ -1,120 +1,32 @@
-import {
-  useState,
-  useCallback,
-  useMemo,
-  useRef,
-  useEffect,
-  lazy,
-  Suspense,
-} from "react";
-import {
-  FolderOpen,
-  Folder,
-  Loader2,
-  AlertCircle,
-  ArrowLeft,
-  RefreshCw,
-} from "lucide-react";
-import { toast } from "sonner";
+import { useCallback } from "react";
+import { AlertCircle, ArrowLeft, FolderOpen, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FileTree } from "./FileTree";
+import { FileContentView } from "./FileContentView";
 import { FileTabs } from "./FileTabs";
-const FileEditor = lazy(() =>
-  import("./FileEditor").then((mod) => ({ default: mod.FileEditor })),
-);
 import { useFileEditor } from "./useFileEditor";
-import { useViewport } from "@/hooks/useViewport";
-import { useFilesQuery } from "@/data/files";
-import { apiFetch, apiTextFetch } from "@/api/client";
-import { useActiveNode } from "@/hooks/useActiveNode";
-import type { FileMetaResponse } from "@/types";
+import { useFilesQuery, useFileContentQuery } from "@/data/files";
 
 interface FileExplorerProps {
   workingDirectory: string;
 }
 
-// A file once its meta and (if applicable) content have been read. Held here
-// rather than in useFileEditor, which only tracks which paths are open.
-interface OpenFileContent {
-  path: string;
-  content: string;
-  language: string;
-  isBinary: boolean;
-  isLarge: boolean;
-}
-
-const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
-
-function getLanguageFromPath(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() || "";
-  const map: Record<string, string> = {
-    ts: "typescript",
-    tsx: "typescript",
-    js: "javascript",
-    jsx: "javascript",
-    json: "json",
-    md: "markdown",
-    html: "html",
-    htm: "html",
-    css: "css",
-    scss: "scss",
-    less: "less",
-    xml: "xml",
-    yaml: "yaml",
-    yml: "yaml",
-    py: "python",
-    go: "go",
-    rs: "rust",
-    sh: "shell",
-    bash: "shell",
-    zsh: "shell",
-    sql: "sql",
-    graphql: "graphql",
-    dockerfile: "dockerfile",
-    toml: "toml",
-    ini: "ini",
-    c: "c",
-    cpp: "cpp",
-    h: "c",
-    hpp: "cpp",
-    java: "java",
-    rb: "ruby",
-    php: "php",
-    swift: "swift",
-    kt: "kotlin",
-    lua: "lua",
-    r: "r",
-  };
-  return map[ext] || "plaintext";
-}
-
+/**
+ * Mobile file explorer. Desktop renders FileTreeSidebar + EditorCenter in the
+ * dock instead, so this is a single drill-in column: tree, then editor.
+ */
 export function FileExplorer({ workingDirectory }: FileExplorerProps) {
-  const { isMobile } = useViewport();
-  const { baseUrl } = useActiveNode();
   const { openPaths, activeFilePath, openFile, closeFile, setActiveFile } =
     useFileEditor();
 
-  // Read content per open path, keyed by path. A path leaves this map when
-  // its tab closes (see handleCloseFile).
-  const [contents, setContents] = useState<Record<string, OpenFileContent>>({});
-  // Which paths currently have a fetch in flight — per-path, not a single
-  // shared flag, so one file's fetch resolving cannot clear another file's
-  // still-loading state out from under it.
-  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
-  // Why a path's read failed, keyed by path. A read can fail while the user is
-  // looking at a different tab, so the failure has to persist somewhere it can
-  // be seen later — a toast alone scrolls away unseen.
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const contentsRef = useRef(contents);
-  contentsRef.current = contents;
-  const baseUrlRef = useRef(baseUrl);
-  baseUrlRef.current = baseUrl;
-  const openingPathsRef = useRef<Set<string>>(new Set());
-  // Identifies the read that is currently authoritative for a path. Closing a
-  // tab bumps its entry, which is how an in-flight read learns it has been
-  // abandoned and must not touch state that now belongs to nobody — or to a
-  // newer read of the same path.
-  const loadTokensRef = useRef<Map<string, number>>(new Map());
+  const {
+    data: activeFile,
+    isPending: fileLoading,
+    isError: fileError,
+    error: fileErrorObj,
+    reload: reloadFile,
+    isRefetching: fileRefetching,
+  } = useFileContentQuery(activeFilePath ?? "");
 
   const {
     data: filesData,
@@ -125,429 +37,127 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
     refetch,
   } = useFilesQuery(workingDirectory);
 
-  // Resizable panel state (desktop)
-  const [treeWidth, setTreeWidth] = useState(280);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
-  const handleMouseMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
-  const handleMouseUpRef = useRef<(() => void) | null>(null);
-
-  const loadFileContent = useCallback(async (path: string) => {
-    if (contentsRef.current[path] || openingPathsRef.current.has(path)) return;
-    openingPathsRef.current.add(path);
-    const token = (loadTokensRef.current.get(path) ?? 0) + 1;
-    loadTokensRef.current.set(path, token);
-    setLoadingPaths((prev) => new Set(prev).add(path));
-    // Clear any previous failure up front, so a retry shows the spinner rather
-    // than the stale error it is retrying.
-    setErrors((prev) => {
-      if (!(path in prev)) return prev;
-      const next = { ...prev };
-      delete next[path];
-      return next;
-    });
-    try {
-      const meta = await apiFetch<FileMetaResponse>(
-        baseUrlRef.current,
-        `/api/node/files/meta?path=${encodeURIComponent(path)}`,
-      );
-
-      const isLarge = meta.size > LARGE_FILE_THRESHOLD;
-      const isBinary = meta.isBinary;
-
-      let content = "";
-      if (!isBinary && !isLarge) {
-        const res = await apiTextFetch(
-          baseUrlRef.current,
-          `/api/node/files/content?path=${encodeURIComponent(path)}`,
-        );
-        content = await res.text();
-      }
-
-      if (loadTokensRef.current.get(path) !== token) return;
-      setContents((prev) => ({
-        ...prev,
-        [path]: {
-          path,
-          content,
-          language: getLanguageFromPath(path),
-          isBinary,
-          isLarge,
-        },
-      }));
-    } catch (error) {
-      if (loadTokensRef.current.get(path) !== token) return;
-      const message =
-        error instanceof Error ? error.message : "Failed to open file";
-      // Toast for the failure happening now; recorded state for the tab the
-      // user may not be looking at, which keeps the tab closable and the read
-      // retryable instead of leaving it stranded and blank.
-      toast.error(message);
-      setErrors((prev) => ({ ...prev, [path]: message }));
-    } finally {
-      // Only the authoritative read cleans up; an abandoned one would
-      // otherwise clear the loading state of whichever read replaced it.
-      if (loadTokensRef.current.get(path) === token) {
-        openingPathsRef.current.delete(path);
-        setLoadingPaths((prev) => {
-          if (!prev.has(path)) return prev;
-          const next = new Set(prev);
-          next.delete(path);
-          return next;
-        });
-      }
-    }
-  }, []);
-
   const handleFileClick = useCallback(
     (path: string) => {
       openFile(path);
-      void loadFileContent(path);
     },
-    [openFile, loadFileContent],
+    [openFile],
   );
 
-  const handleCloseFile = useCallback(
-    (path: string) => {
-      closeFile(path);
-      // Abandon any read still in flight for this path. Bumping the token
-      // stops it committing content to a tab that no longer exists, and
-      // freeing the in-flight slot lets a reopen start a fresh read instead of
-      // being turned away as a duplicate of the read we just abandoned.
-      loadTokensRef.current.set(
-        path,
-        (loadTokensRef.current.get(path) ?? 0) + 1,
-      );
-      openingPathsRef.current.delete(path);
-      setLoadingPaths((prev) => {
-        if (!prev.has(path)) return prev;
-        const next = new Set(prev);
-        next.delete(path);
-        return next;
-      });
-      setContents((prev) => {
-        if (!(path in prev)) return prev;
-        const next = { ...prev };
-        delete next[path];
-        return next;
-      });
-      setErrors((prev) => {
-        if (!(path in prev)) return prev;
-        const next = { ...prev };
-        delete next[path];
-        return next;
-      });
-    },
-    [closeFile],
-  );
+  // Whether the user has drilled into a file, independent of whether it has
+  // loaded yet — FileContentView owns the pending/error/content branching once
+  // the view is shown.
+  const showEditor = !!activeFilePath;
 
-  const handleRetryFile = useCallback(
-    (path: string) => {
-      void loadFileContent(path);
-    },
-    [loadFileContent],
-  );
-
-  // Resize handle for desktop
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isDragging.current = true;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current || !containerRef.current) return;
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const newWidth = e.clientX - containerRect.left;
-      setTreeWidth(Math.max(200, Math.min(400, newWidth)));
-    };
-
-    const handleMouseUp = () => {
-      isDragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      handleMouseMoveRef.current = null;
-      handleMouseUpRef.current = null;
-    };
-
-    handleMouseMoveRef.current = handleMouseMove;
-    handleMouseUpRef.current = handleMouseUp;
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-  }, []);
-
-  // Cleanup resize listeners on unmount
-  useEffect(() => {
-    return () => {
-      if (handleMouseMoveRef.current) {
-        document.removeEventListener("mousemove", handleMouseMoveRef.current);
-      }
-      if (handleMouseUpRef.current) {
-        document.removeEventListener("mouseup", handleMouseUpRef.current);
-      }
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      isDragging.current = false;
-    };
-  }, []);
-
-  const activeFile = activeFilePath ? contents[activeFilePath] : undefined;
-  const activeFileLoading = activeFilePath ? loadingPaths.has(activeFilePath) : false;
-  const activeFileError = activeFilePath ? errors[activeFilePath] : undefined;
-  const erroredPaths = useMemo(() => new Set(Object.keys(errors)), [errors]);
   const files = filesData?.files || [];
 
-  // --- Loading state ---
-  if (loading) {
-    return (
-      <div className="bg-background flex h-full w-full flex-col">
-        <Header onRefresh={() => refetch()} refreshing={false} />
-        <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
-        </div>
-      </div>
-    );
-  }
-
-  // --- Error state ---
-  if (isError) {
-    return (
-      <div className="bg-background flex h-full w-full flex-col">
-        <Header onRefresh={() => refetch()} refreshing={isRefetching} />
-        <div className="flex flex-1 flex-col items-center justify-center p-4">
-          <AlertCircle className="text-muted-foreground mb-2 h-8 w-8" />
-          <p className="text-muted-foreground text-center text-sm">
-            {error?.message ?? "Failed to load directory"}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Mobile layout ---
-  if (isMobile) {
-    const showEditor = !!activeFilePath;
-
-    return (
-      <div className="bg-background flex h-full w-full flex-col">
-        {/* Editor view */}
-        {showEditor && (
-          <div className="flex h-full w-full flex-col">
-            <div className="bg-muted/30 flex items-center gap-2 p-2">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Back to files"
-                onClick={() => setActiveFile(null)}
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <div className="min-w-0 flex-1">
-                <FileTabs
-                  paths={openPaths}
-                  activeFilePath={activeFilePath}
-                  onSelect={setActiveFile}
-                  onClose={handleCloseFile}
-                  erroredPaths={erroredPaths}
-                />
-              </div>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              {activeFileLoading && !activeFile ? (
-                <div className="flex h-full items-center justify-center">
-                  <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
-                </div>
-              ) : activeFileError ? (
-                <FileErrorPane
-                  message={activeFileError}
-                  onRetry={() => handleRetryFile(activeFilePath!)}
-                />
-              ) : activeFile ? (
-                <Suspense fallback={<EditorSkeleton />}>
-                  <FileEditor
-                    content={activeFile.content}
-                    language={activeFile.language}
-                    isBinary={activeFile.isBinary}
-                    isLarge={activeFile.isLarge}
-                  />
-                </Suspense>
-              ) : null}
-            </div>
-          </div>
-        )}
-
-        {/* Tree view — always mounted, hidden when editor is showing */}
-        <div className={showEditor ? "hidden" : "flex h-full w-full flex-col"}>
-          <Header onRefresh={() => refetch()} refreshing={isRefetching} />
-          <p className="text-muted-foreground truncate px-3 pb-1 text-xs">
-            {workingDirectory}
-          </p>
-          <div className="flex-1 overflow-y-auto">
-            {files.length === 0 ? (
-              <div className="text-muted-foreground flex h-32 items-center justify-center">
-                <p className="text-sm">Empty directory</p>
-              </div>
-            ) : (
-              <FileTree
-                nodes={files}
-                onFileClick={handleFileClick}
-                selectedPath={activeFilePath}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Desktop layout ---
   return (
-    <div
-      ref={containerRef}
-      className="bg-background flex h-full w-full flex-col"
-    >
-      <div className="flex min-h-0 flex-1">
-        {/* Left panel - file tree */}
-        <div className="flex h-full flex-col" style={{ width: treeWidth }}>
-          <Header onRefresh={() => refetch()} refreshing={isRefetching} />
-          <p className="text-muted-foreground truncate px-3 pb-1 text-xs">
-            {workingDirectory}
-          </p>
-          <div className="flex-1 overflow-y-auto">
-            {files.length === 0 ? (
-              <div className="text-muted-foreground flex h-32 items-center justify-center">
-                <p className="text-sm">Empty directory</p>
-              </div>
-            ) : (
-              <FileTree
-                nodes={files}
-                onFileClick={handleFileClick}
-                selectedPath={activeFilePath}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Resize handle */}
-        <div
-          className="bg-muted/50 hover:bg-primary/50 active:bg-primary w-1 flex-shrink-0 cursor-col-resize transition-colors"
-          onMouseDown={handleMouseDown}
-        />
-
-        {/* Right panel - tabs + editor */}
-        <div className="bg-muted/20 flex h-full min-w-0 flex-1 flex-col">
-          {openPaths.length > 0 && (
-            <div className="bg-background/50">
+    <div className="bg-background flex h-full w-full flex-col">
+      {/* Editor view */}
+      {showEditor && (
+        <div className="flex h-full w-full flex-col">
+          <div className="bg-muted/30 flex items-center gap-2 p-2">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Back to files"
+              onClick={() => setActiveFile(null)}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div className="min-w-0 flex-1">
               <FileTabs
                 paths={openPaths}
                 activeFilePath={activeFilePath}
                 onSelect={setActiveFile}
-                onClose={handleCloseFile}
-                erroredPaths={erroredPaths}
+                onClose={closeFile}
               />
             </div>
-          )}
-
+            {/* The tree's refresh button is on the screen behind this one, and
+                it reloads the listing, not the open file. */}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Reload file"
+              onClick={() => reloadFile()}
+              disabled={fileRefetching}
+            >
+              <RefreshCw className={`h-4 w-4 ${fileRefetching ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
           <div className="flex-1 overflow-hidden">
-            {activeFileLoading && !activeFile ? (
-              <div className="flex h-full items-center justify-center">
-                <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
-              </div>
-            ) : activeFileError ? (
-              <FileErrorPane
-                message={activeFileError}
-                onRetry={() => handleRetryFile(activeFilePath!)}
-              />
-            ) : activeFile ? (
-              <Suspense fallback={<EditorSkeleton />}>
-                <FileEditor
-                  content={activeFile.content}
-                  language={activeFile.language}
-                  isBinary={activeFile.isBinary}
-                  isLarge={activeFile.isLarge}
-                />
-              </Suspense>
-            ) : (
-              <div className="text-muted-foreground flex h-full flex-col items-center justify-center">
-                <Folder className="mb-4 h-12 w-12 opacity-50" />
-                <p className="text-sm">Select a file to edit</p>
-              </div>
-            )}
+            <FileContentView
+              data={activeFile}
+              isPending={fileLoading}
+              isError={fileError}
+              error={fileErrorObj}
+            />
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
+      )}
 
-// --- File read error ---
+      {/* Tree view — always mounted, hidden (not unmounted) when the editor is
+          showing. FileTree keeps its expand/collapse state and fetched
+          subdirectories in local useState, so unmounting it on drill-in would
+          collapse the tree and refire a fetch per folder every time the user
+          backs out of a file.
 
-interface FileErrorPaneProps {
-  message: string;
-  onRetry: () => void;
-}
-
-// A file that failed to read keeps its tab, so this pane is what that tab
-// shows: what went wrong, and a way to try again. Closing the tab is the other
-// way out, and that lives on the tab itself.
-function FileErrorPane({ message, onRetry }: FileErrorPaneProps) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-4">
-      <AlertCircle className="text-muted-foreground h-8 w-8" />
-      <p className="text-muted-foreground max-w-sm text-center text-sm">
-        {message}
-      </p>
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-        Retry
-      </Button>
-    </div>
-  );
-}
-
-// --- Editor Skeleton ---
-
-function EditorSkeleton() {
-  return (
-    <div className="flex h-full flex-col gap-2 p-4 pt-2">
-      {[70, 45, 90, 60, 30, 80, 55, 40, 75, 50].map((w, i) => (
-        <div key={i} className="flex items-center gap-3">
-          <div className="bg-muted h-3 w-5 animate-pulse rounded" />
-          <div
-            className="bg-muted h-3 animate-pulse rounded"
-            style={{ width: `${w}%` }}
-          />
+          Hiding the panel hides its loading and error states too, which is
+          deliberate: a listing that fails while a file is open is an error
+          about a different resource, and this used to replace the file the
+          user was reading with "Failed to load directory". Same rule as
+          FileContentView — a blip somewhere else doesn't get to take the
+          content off screen. If the node is genuinely gone the content query
+          fails as well, and FileContentView reports that; the listing error
+          surfaces on the way back, next to the refresh that fixes it. */}
+      <div className={showEditor ? "hidden" : "flex h-full w-full flex-col"}>
+        <div className="flex items-center gap-2 px-3 py-1.5">
+          <FolderOpen className="text-muted-foreground h-4 w-4 flex-shrink-0" />
+          <p className="flex-1 truncate text-sm font-medium">Files</p>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="h-6 w-6"
+            aria-label="Refresh files"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefetching ? "animate-spin" : ""}`} />
+          </Button>
         </div>
-      ))}
-    </div>
-  );
-}
 
-// --- Header ---
-
-interface HeaderProps {
-  onRefresh: () => void;
-  refreshing: boolean;
-}
-
-function Header({ onRefresh, refreshing }: HeaderProps) {
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5">
-      <FolderOpen className="text-muted-foreground h-4 w-4 flex-shrink-0" />
-      <p className="flex-1 truncate text-sm font-medium">Files</p>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={onRefresh}
-        disabled={refreshing}
-        className="h-6 w-6"
-      >
-        <RefreshCw
-          className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-        />
-      </Button>
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center">
+            <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+          </div>
+        ) : isError ? (
+          <div className="flex flex-1 flex-col items-center justify-center p-4">
+            <AlertCircle className="text-muted-foreground mb-2 h-8 w-8" />
+            <p className="text-muted-foreground text-center text-sm">
+              {error?.message ?? "Failed to load directory"}
+            </p>
+          </div>
+        ) : (
+          <>
+            <p className="text-muted-foreground truncate px-3 pb-1 text-xs">
+              {workingDirectory}
+            </p>
+            <div className="flex-1 overflow-y-auto">
+              {files.length === 0 ? (
+                <div className="text-muted-foreground flex h-32 items-center justify-center">
+                  <p className="text-sm">Empty directory</p>
+                </div>
+              ) : (
+                <FileTree
+                  nodes={files}
+                  onFileClick={handleFileClick}
+                  selectedPath={activeFilePath}
+                />
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

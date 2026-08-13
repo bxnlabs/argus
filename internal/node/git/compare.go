@@ -179,8 +179,28 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 	// compare semantics so users do not have to keep worktree refs in sync.
 	effectiveBase, upstreamName, behindBy := resolveComparisonBase(ctx, dir, base)
 
+	// Pin HEAD to a commit id up front, and address it by that id everywhere
+	// below. Every step here is a separate git invocation, so a commit landing
+	// mid-flight — routine on a node running coding agents — would otherwise let
+	// the steps disagree: a result carrying one HeadRef but a diff, a file list
+	// and line counts taken from another. Callers use (headRef, baseRef) as the
+	// identity of a comparison, so that combination is not merely inconsistent,
+	// it is a stale identity attached to fresh content.
+	headRef, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "HEAD")
+	if err != nil {
+		// An unborn HEAD — a fresh `checkout --orphan`, or a clone of an empty
+		// remote — is a user-facing not-found, not a server fault. It has to be
+		// classified here now that this runs first: merge-base used to be the
+		// command that met it, and mapped it below.
+		if isNotFoundError(err) {
+			return nil, fmt.Errorf("%w: HEAD has no commit", ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to resolve HEAD: %w", err)
+	}
+	headRef = strings.TrimSpace(headRef)
+
 	// Find the merge base
-	mergeBase, err := runGit(ctx, dir, defaultMaxBuffer, "merge-base", effectiveBase, "HEAD")
+	mergeBase, err := runGit(ctx, dir, defaultMaxBuffer, "merge-base", effectiveBase, headRef)
 	if err != nil {
 		// merge-base exits 1 when no common ancestor exists (disconnected
 		// histories). Together with isNotFoundError (bad ref), these are
@@ -193,15 +213,11 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 	}
 	mergeBase = strings.TrimSpace(mergeBase)
 
-	// Get HEAD ref
-	headRef, err := runGit(ctx, dir, defaultMaxBuffer, "rev-parse", "HEAD")
-	if err != nil {
-		return nil, err
-	}
-	headRef = strings.TrimSpace(headRef)
+	// The one range every step below is computed from.
+	compareRange := mergeBase + ".." + headRef
 
 	// Full combined diff
-	diff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U3", mergeBase+"..HEAD")
+	diff, err := runGit(ctx, dir, diffMaxBuffer, "diff", "-U3", compareRange)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +227,7 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 		status  string
 		oldPath string
 	}{}
-	nsOut, err := runGit(ctx, dir, diffMaxBuffer, "diff", "--name-status", mergeBase+"..HEAD")
+	nsOut, err := runGit(ctx, dir, diffMaxBuffer, "diff", "--name-status", compareRange)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file statuses: %w", err)
 	}
@@ -240,7 +256,7 @@ func GetCompare(dir, base string) (*CompareResult, error) {
 	// Per-file metadata: numstat
 	var files []CommitFile
 	totalAdds, totalDels := 0, 0
-	numOut, err := runGit(ctx, dir, diffMaxBuffer, "diff", "--numstat", mergeBase+"..HEAD")
+	numOut, err := runGit(ctx, dir, diffMaxBuffer, "diff", "--numstat", compareRange)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file stats: %w", err)
 	}

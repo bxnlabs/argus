@@ -23,16 +23,16 @@ func TestShouldExclude(t *testing.T) {
 		name string
 		want bool
 	}{
-		{"debug.log", true},              // *.log
-		{"error.log", true},              // *.log
-		{"module.pyc", true},             // *.pyc
-		{".env", true},                   // .env (exact)
-		{".env.local", true},             // .env.local (exact)
-		{".env.development.local", true}, // .env.*.local
-		{".env.production.local", true},  // .env.*.local
-		{"data.db", true},                // *.db
-		{"data.db-wal", true},            // *.db-wal
-		{"data.db-shm", true},            // *.db-shm
+		{"debug.log", true},                // *.log
+		{"error.log", true},                // *.log
+		{"module.pyc", true},               // *.pyc
+		{".env", true},                     // .env (exact)
+		{".env.local", true},               // .env.local (exact)
+		{".env.development.local", true},   // .env.*.local
+		{".env.production.local", true},    // .env.*.local
+		{"data.db", true},                  // *.db
+		{"data.db-wal", true},              // *.db-wal
+		{"data.db-shm", true},              // *.db-shm
 	}
 	for _, tt := range globTests {
 		t.Run("glob_"+tt.name, func(t *testing.T) {

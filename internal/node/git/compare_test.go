@@ -189,6 +189,25 @@ func TestGetCompare(t *testing.T) {
 		}
 	})
 
+	// A checked-out orphan branch has no commit yet, so `rev-parse HEAD` fails
+	// before merge-base is reached. That is still a user-facing not-found: the
+	// base ref itself is perfectly valid, there is just no HEAD to compare it
+	// against. Pinning HEAD moved this failure to a command that did not
+	// classify it, which turned a 404 into a 500.
+	t.Run("unborn HEAD wraps ErrNotFound", func(t *testing.T) {
+		unborn := initTestRepo(t)
+		commitFile(t, unborn, "base.txt", "base content", "base commit")
+		gitInDir(t, unborn, "checkout", "--orphan", "no-commits-yet")
+
+		_, err := GetCompare(unborn, "main")
+		if err == nil {
+			t.Fatal("expected error for unborn HEAD")
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected ErrNotFound, got: %v", err)
+		}
+	})
+
 	t.Run("disconnected histories wraps ErrNotFound", func(t *testing.T) {
 		// Create an orphan branch with no common ancestor
 		gitInDir(t, dir, "checkout", "--orphan", "orphan-branch")

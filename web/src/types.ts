@@ -59,11 +59,42 @@ export interface FilesResponse {
   path: string; // expanded absolute path
 }
 
-// File metadata (matches GET /api/node/files/meta response)
-export interface FileMetaResponse {
+// One file as the viewer needs it (matches GET /api/node/files/content
+// response).
+//
+// A union, because the node really does send two different objects and the
+// narrow one omits every content field. Declaring them all required described
+// only the full response and quietly promised `content` and `size` on a reply
+// that carries neither; `unchanged` is the discriminant that makes reading them
+// a compile error rather than a runtime `undefined`.
+export type FileViewResponse = FileViewUnchanged | FileViewContent;
+
+/**
+ * The node's answer to a `known` etag that still matches: no bytes, because the
+ * caller already has them. Only the validator and the path come back.
+ */
+export interface FileViewUnchanged {
+  unchanged: true;
+  etag: string;
+  path: string;
+}
+
+/**
+ * A full read. Content is empty whenever isBinary or isLarge is set — the node
+ * classifies and reads from a single open descriptor, so these fields always
+ * describe the same version of the file. Both flags can be set at once (an
+ * oversized binary); isBinary is the stronger verdict for rendering.
+ *
+ * `size` is the size of the version `etag` names, and is deliberately not the
+ * authority on `isLarge` — see ReadForViewer.
+ */
+export interface FileViewContent {
+  unchanged?: false;
+  content: string;
   size: number;
   isBinary: boolean;
-  contentType: string;
+  isLarge: boolean;
+  etag: string;
   path: string;
 }
 

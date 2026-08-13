@@ -1,7 +1,5 @@
 package files
 
-import "fmt"
-
 // FileNode represents a file or directory in the file tree.
 type FileNode struct {
 	Name      string     `json:"name"`
@@ -12,19 +10,16 @@ type FileNode struct {
 	Children  []FileNode `json:"children,omitempty"`
 }
 
-// FileMetaResult contains metadata about a file without its content.
-type FileMetaResult struct {
-	Size        int64  `json:"size"`
-	IsBinary    bool   `json:"isBinary"`
-	ContentType string `json:"contentType"`
-}
-
-// FileSizeError indicates that content exceeds a size limit.
-type FileSizeError struct {
-	Size    int64
-	MaxSize int64
-}
-
-func (e *FileSizeError) Error() string {
-	return fmt.Sprintf("content size %d exceeds %d byte limit", e.Size, e.MaxSize)
+// FileView is a file as the viewer needs it: the bytes, or why there are none.
+// Content is empty whenever IsBinary, IsLarge or Unchanged is set.
+//
+// Unchanged means the caller already has this version — it supplied a matching
+// ETag — so only the ETag is populated and the file was never read.
+type FileView struct {
+	Content   string `json:"content"`
+	Size      int64  `json:"size"`
+	IsBinary  bool   `json:"isBinary"`
+	IsLarge   bool   `json:"isLarge"`
+	ETag      string `json:"etag"`
+	Unchanged bool   `json:"unchanged"`
 }

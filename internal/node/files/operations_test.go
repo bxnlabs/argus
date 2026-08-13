@@ -1,10 +1,12 @@
 package files
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeTestFile creates a file with content inside a test directory.
@@ -19,77 +21,174 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-func TestFileMeta(t *testing.T) {
+func TestReadForViewer(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("text file", func(t *testing.T) {
 		writeTestFile(t, dir, "hello.txt", "hello world")
-		meta, err := FileMeta(filepath.Join(dir, "hello.txt"))
+		view, err := ReadForViewer(filepath.Join(dir, "hello.txt"), ViewerMaxBytes, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if meta.Size != 11 {
-			t.Errorf("size = %d, want 11", meta.Size)
+		if view.Content != "hello world" {
+			t.Errorf("content = %q, want %q", view.Content, "hello world")
 		}
-		if meta.IsBinary {
-			t.Error("expected IsBinary=false for text file")
+		if view.Size != 11 {
+			t.Errorf("size = %d, want 11", view.Size)
 		}
-		if meta.ContentType == "" {
-			t.Error("expected non-empty ContentType")
+		if view.IsBinary || view.IsLarge {
+			t.Errorf("IsBinary = %v, IsLarge = %v, want both false", view.IsBinary, view.IsLarge)
 		}
 	})
 
-	t.Run("binary file", func(t *testing.T) {
+	t.Run("binary file carries no content", func(t *testing.T) {
 		p := filepath.Join(dir, "binary.bin")
 		os.WriteFile(p, []byte{0xFF, 0x00, 0xFE, 0xAB}, 0644)
-		meta, err := FileMeta(p)
+		view, err := ReadForViewer(p, ViewerMaxBytes, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !meta.IsBinary {
+		if !view.IsBinary {
 			t.Error("expected IsBinary=true for binary file")
 		}
-		if meta.Size != 4 {
-			t.Errorf("size = %d, want 4", meta.Size)
+		if view.Content != "" {
+			t.Errorf("content = %q, want empty for a binary file", view.Content)
+		}
+		if view.Size != 4 {
+			t.Errorf("size = %d, want 4", view.Size)
 		}
 	})
 
 	t.Run("empty file", func(t *testing.T) {
 		writeTestFile(t, dir, "empty.txt", "")
-		meta, err := FileMeta(filepath.Join(dir, "empty.txt"))
+		view, err := ReadForViewer(filepath.Join(dir, "empty.txt"), ViewerMaxBytes, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if meta.IsBinary {
+		if view.IsBinary {
 			t.Error("expected IsBinary=false for empty file")
 		}
-		if meta.Size != 0 {
-			t.Errorf("size = %d, want 0", meta.Size)
+		if view.Size != 0 {
+			t.Errorf("size = %d, want 0", view.Size)
 		}
 	})
 
-	t.Run("directory returns error", func(t *testing.T) {
-		_, err := FileMeta(dir)
-		if err == nil {
-			t.Error("expected error for directory")
+	// The ceiling is enforced on bytes actually read, not on the stat, so a
+	// file that grows between the two cannot smuggle itself past it.
+	t.Run("past the ceiling carries no content", func(t *testing.T) {
+		writeTestFile(t, dir, "big.txt", strings.Repeat("a", 33))
+		view, err := ReadForViewer(filepath.Join(dir, "big.txt"), 32, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !view.IsLarge {
+			t.Error("expected IsLarge=true past the ceiling")
+		}
+		if view.Content != "" {
+			t.Errorf("content = %q, want empty past the ceiling", view.Content)
+		}
+	})
+
+	t.Run("exactly at the ceiling still carries content", func(t *testing.T) {
+		writeTestFile(t, dir, "exact.txt", strings.Repeat("a", 32))
+		view, err := ReadForViewer(filepath.Join(dir, "exact.txt"), 32, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.IsLarge {
+			t.Error("expected IsLarge=false for a file exactly at the ceiling")
+		}
+		if len(view.Content) != 32 {
+			t.Errorf("content is %d bytes, want 32", len(view.Content))
+		}
+	})
+
+	t.Run("directory returns ErrNotRegular", func(t *testing.T) {
+		_, err := ReadForViewer(dir, ViewerMaxBytes, "")
+		if !errors.Is(err, ErrNotRegular) {
+			t.Errorf("err = %v, want ErrNotRegular", err)
 		}
 	})
 
 	t.Run("nonexistent file", func(t *testing.T) {
-		_, err := FileMeta(filepath.Join(dir, "nope.txt"))
-		if err == nil {
-			t.Error("expected error for nonexistent file")
+		_, err := ReadForViewer(filepath.Join(dir, "nope.txt"), ViewerMaxBytes, "")
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("err = %v, want os.ErrNotExist", err)
 		}
 	})
+}
 
-	t.Run("content type detection", func(t *testing.T) {
-		writeTestFile(t, dir, "page.html", "<html></html>")
-		meta, err := FileMeta(filepath.Join(dir, "page.html"))
+// An open pane re-reads itself every 30s and is nearly always looking at a
+// file nobody touched, so the unchanged answer is the common one.
+func TestReadForViewerUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "poll.txt")
+	writeTestFile(t, dir, "poll.txt", "first")
+
+	first, err := ReadForViewer(p, ViewerMaxBytes, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ETag == "" {
+		t.Fatal("expected an etag on a full read")
+	}
+
+	t.Run("a matching etag sends nothing back", func(t *testing.T) {
+		again, err := ReadForViewer(p, ViewerMaxBytes, first.ETag)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(meta.ContentType, "html") {
-			t.Errorf("expected html content type, got %q", meta.ContentType)
+		if !again.Unchanged {
+			t.Error("Unchanged = false, want true for a file that did not move")
+		}
+		if again.Content != "" {
+			t.Errorf("content = %q, want empty when unchanged", again.Content)
+		}
+		if again.ETag != first.ETag {
+			t.Errorf("etag = %q, want it stable at %q", again.ETag, first.ETag)
+		}
+	})
+
+	t.Run("a rewrite invalidates it", func(t *testing.T) {
+		// Rewrite to a different length so the etag moves on size alone; the
+		// test then does not rest on the filesystem's timestamp resolution.
+		if err := os.WriteFile(p, []byte("second, and longer"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		after, err := ReadForViewer(p, ViewerMaxBytes, first.ETag)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Unchanged {
+			t.Fatal("Unchanged = true, want false after a rewrite")
+		}
+		if after.Content != "second, and longer" {
+			t.Errorf("content = %q, want the new bytes", after.Content)
+		}
+		if after.ETag == first.ETag {
+			t.Error("etag did not move with the file")
+		}
+	})
+
+	t.Run("a touch alone invalidates it", func(t *testing.T) {
+		// Same bytes, new mtime: the validator is deliberately not a content
+		// hash, so this costs one redundant transfer rather than going stale.
+		writeTestFile(t, dir, "touched.txt", "same")
+		tp := filepath.Join(dir, "touched.txt")
+		before, err := ReadForViewer(tp, ViewerMaxBytes, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		future := time.Now().Add(2 * time.Second)
+		if err := os.Chtimes(tp, future, future); err != nil {
+			t.Fatal(err)
+		}
+		after, err := ReadForViewer(tp, ViewerMaxBytes, before.ETag)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Unchanged {
+			t.Error("Unchanged = true, want false once the mtime moved")
 		}
 	})
 }

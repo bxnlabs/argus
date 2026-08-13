@@ -9,11 +9,8 @@ export interface UseFileEditorReturn {
 }
 
 /**
- * Which files the explorer has open, and which one is showing. Used by both
- * the desktop and mobile layouts.
- *
- * Content is not here: FileExplorer reads and caches it separately, keyed by
- * path, and drops a path's entry when its tab closes.
+ * Which files the mobile explorer has open, and which one is showing.
+ * Content is not here: it is a query, cached by path (see useFileContentQuery).
  */
 export function useFileEditor(): UseFileEditorReturn {
   const [openPaths, setOpenPaths] = useState<string[]>([]);

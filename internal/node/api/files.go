@@ -17,8 +17,6 @@ import (
 	"github.com/bxnlabs/argus/internal/shared"
 )
 
-const maxReadSize int64 = 100 << 20 // 100 MB
-
 type filesHandler struct {
 	uploadDirOverride string
 }
@@ -68,45 +66,23 @@ func (h *filesHandler) list(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /files/meta?path=...
-func (h *filesHandler) meta(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		respondError(w, http.StatusBadRequest, "path parameter is required")
-		return
-	}
-	expandedPath, err := shared.CleanPath(path)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	result, err := files.FileMeta(expandedPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			respondError(w, http.StatusNotFound, "file not found")
-			return
-		}
-		if errors.Is(err, os.ErrPermission) {
-			respondError(w, http.StatusForbidden, "permission denied")
-			return
-		}
-		if strings.Contains(err.Error(), "directory") {
-			respondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]any{
-		"size":        result.Size,
-		"isBinary":    result.IsBinary,
-		"contentType": result.ContentType,
-		"path":        expandedPath,
-	})
-}
-
-// GET /files/content?path=...
+// GET /files/content?path=...&known=<etag>
+//
+// Returns the bytes and how to read them in one response. Splitting the two —
+// a metadata request to classify the file, then a second request for its
+// content — is what let the viewer decide a file was small text and then
+// download a different version of it. One request, one open descriptor, one
+// answer.
+//
+// `known` is the etag of the version the caller already holds. When it still
+// matches, the reply is `{"unchanged": true}` and the file is never read: an
+// open pane re-reads itself every 30s and is almost always looking at a file
+// nobody touched.
+//
+// A query parameter rather than If-None-Match, and 200 rather than 304. A
+// custom request header would make this a non-simple cross-origin GET and cost
+// a CORS preflight on every poll of a remote node (see apiFetch's note on the
+// same trap), and the web client treats every non-2xx as an error.
 func (h *filesHandler) readContent(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -119,37 +95,38 @@ func (h *filesHandler) readContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, err := os.Open(expandedPath)
+	view, err := files.ReadForViewer(expandedPath, files.ViewerMaxBytes, r.URL.Query().Get("known"))
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		switch {
+		case errors.Is(err, os.ErrNotExist):
 			respondError(w, http.StatusNotFound, "file not found")
-			return
-		}
-		if errors.Is(err, os.ErrPermission) {
+		case errors.Is(err, os.ErrPermission):
 			respondError(w, http.StatusForbidden, "permission denied")
-			return
+		case errors.Is(err, files.ErrNotRegular):
+			respondError(w, http.StatusBadRequest, "path is a directory, not a file")
+		default:
+			respondError(w, http.StatusInternalServerError, err.Error())
 		}
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if info.IsDir() {
-		respondError(w, http.StatusBadRequest, "path is a directory, not a file")
-		return
-	}
-	if info.Size() > maxReadSize {
-		respondError(w, http.StatusRequestEntityTooLarge, "file too large to serve")
 		return
 	}
 
-	// http.ServeContent handles ETag, Range, Last-Modified, Content-Type
-	http.ServeContent(w, r, expandedPath, info.ModTime(), f)
+	if view.Unchanged {
+		respondJSON(w, http.StatusOK, map[string]any{
+			"unchanged": true,
+			"etag":      view.ETag,
+			"path":      expandedPath,
+		})
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"content":  view.Content,
+		"size":     view.Size,
+		"isBinary": view.IsBinary,
+		"isLarge":  view.IsLarge,
+		"etag":     view.ETag,
+		"path":     expandedPath,
+	})
 }
 
 const (
