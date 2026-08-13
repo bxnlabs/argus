@@ -7,6 +7,7 @@ import { StubNodeProvider } from "@/test/node-context";
 import { useFilesQuery, useFileContentQuery } from "@/data/files";
 import type { FileContent } from "@/data/files";
 import { apiFetch, ApiError } from "@/api/client";
+import { useViewport } from "@/hooks/useViewport";
 
 // FileExplorer's job is the same wiring EditorCenter has, plus which of the
 // two top-level views (tree vs. editor) is showing. Mock the queries so these
@@ -15,6 +16,18 @@ vi.mock("@/data/files", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/data/files")>()),
   useFilesQuery: vi.fn(),
   useFileContentQuery: vi.fn(),
+}));
+
+// This branch-sourced test file predates PR 13, when FileExplorer still
+// serves desktop too (a resizable two-pane layout) alongside the mobile
+// drill-in it was written against. jsdom's default (non-touch) environment
+// already resolves useViewport() to isMobile: false, so every test here but
+// one is layout-agnostic and needs no override. The one exception — "keeps
+// directory expansion state after opening a file and going back" — exercises
+// the mobile-only "Back to files" control, so it opts into the mobile branch
+// explicitly below.
+vi.mock("@/hooks/useViewport", () => ({
+  useViewport: vi.fn(() => ({ isMobile: false, isDesktop: true, isHydrated: true })),
 }));
 
 // FileTree (real, unmocked) fetches a directory's children directly through
@@ -218,6 +231,13 @@ describe("FileExplorer", () => {
   // unmounting it on drill-in would collapse everything and refire a fetch
   // per folder on every return to the tree.
   it("keeps directory expansion state after opening a file and going back", async () => {
+    // Only this test exercises the mobile "Back to files" control — see the
+    // useViewport mock note above.
+    vi.mocked(useViewport).mockReturnValue({
+      isMobile: true,
+      isDesktop: false,
+      isHydrated: true,
+    });
     vi.mocked(useFilesQuery).mockReturnValue({
       ...FILES_STUB,
       data: {
