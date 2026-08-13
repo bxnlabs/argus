@@ -1,22 +1,22 @@
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  lazy,
+  Suspense,
+} from "react";
 import {
   FolderOpen,
   Folder,
   Loader2,
   AlertCircle,
   ArrowLeft,
-  Save,
   RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { FileTree } from "./FileTree";
 import { FileTabs } from "./FileTabs";
 const FileEditor = lazy(() =>
@@ -25,26 +25,96 @@ const FileEditor = lazy(() =>
 import { useFileEditor } from "./useFileEditor";
 import { useViewport } from "@/hooks/useViewport";
 import { useFilesQuery } from "@/data/files";
+import { apiFetch, apiTextFetch } from "@/api/client";
+import { useActiveNode } from "@/hooks/useActiveNode";
+import type { FileMetaResponse } from "@/types";
 
 interface FileExplorerProps {
   workingDirectory: string;
 }
 
+// A file once its meta and (if applicable) content have been read. Held here
+// rather than in useFileEditor, which only tracks which paths are open.
+interface OpenFileContent {
+  path: string;
+  content: string;
+  language: string;
+  isBinary: boolean;
+  isLarge: boolean;
+}
+
+const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+
+function getLanguageFromPath(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    ts: "typescript",
+    tsx: "typescript",
+    js: "javascript",
+    jsx: "javascript",
+    json: "json",
+    md: "markdown",
+    html: "html",
+    htm: "html",
+    css: "css",
+    scss: "scss",
+    less: "less",
+    xml: "xml",
+    yaml: "yaml",
+    yml: "yaml",
+    py: "python",
+    go: "go",
+    rs: "rust",
+    sh: "shell",
+    bash: "shell",
+    zsh: "shell",
+    sql: "sql",
+    graphql: "graphql",
+    dockerfile: "dockerfile",
+    toml: "toml",
+    ini: "ini",
+    c: "c",
+    cpp: "cpp",
+    h: "c",
+    hpp: "cpp",
+    java: "java",
+    rb: "ruby",
+    php: "php",
+    swift: "swift",
+    kt: "kotlin",
+    lua: "lua",
+    r: "r",
+  };
+  return map[ext] || "plaintext";
+}
+
 export function FileExplorer({ workingDirectory }: FileExplorerProps) {
   const { isMobile } = useViewport();
-  const {
-    openFiles,
-    activeFilePath,
-    loading: fileLoading,
-    saving,
-    openFile,
-    closeFile,
-    setActiveFile,
-    updateContent,
-    saveFile,
-    isDirty,
-    getFile,
-  } = useFileEditor();
+  const { baseUrl } = useActiveNode();
+  const { openPaths, activeFilePath, openFile, closeFile, setActiveFile } =
+    useFileEditor();
+
+  // Read content per open path, keyed by path. A path leaves this map when
+  // its tab closes (see handleCloseFile).
+  const [contents, setContents] = useState<Record<string, OpenFileContent>>({});
+  // Which paths currently have a fetch in flight — per-path, not a single
+  // shared flag, so one file's fetch resolving cannot clear another file's
+  // still-loading state out from under it.
+  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
+  // Why a path's read failed, keyed by path. A read can fail while the user is
+  // looking at a different tab, so the failure has to persist somewhere it can
+  // be seen later — a toast alone scrolls away unseen.
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const contentsRef = useRef(contents);
+  contentsRef.current = contents;
+  const baseUrlRef = useRef(baseUrl);
+  baseUrlRef.current = baseUrl;
+  const openingPathsRef = useRef<Set<string>>(new Set());
+  // Identifies the read that is currently authoritative for a path. Closing a
+  // tab bumps its entry, which is how an in-flight read learns it has been
+  // abandoned and must not touch state that now belongs to nobody — or to a
+  // newer read of the same path.
+  const loadTokensRef = useRef<Map<string, number>>(new Map());
 
   const {
     data: filesData,
@@ -55,9 +125,6 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
     refetch,
   } = useFilesQuery(workingDirectory);
 
-  // Pending close state for unsaved-changes dialog
-  const [pendingClose, setPendingClose] = useState<string | null>(null);
-
   // Resizable panel state (desktop)
   const [treeWidth, setTreeWidth] = useState(280);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -65,44 +132,121 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
   const handleMouseMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
   const handleMouseUpRef = useRef<(() => void) | null>(null);
 
+  const loadFileContent = useCallback(async (path: string) => {
+    if (contentsRef.current[path] || openingPathsRef.current.has(path)) return;
+    openingPathsRef.current.add(path);
+    const token = (loadTokensRef.current.get(path) ?? 0) + 1;
+    loadTokensRef.current.set(path, token);
+    setLoadingPaths((prev) => new Set(prev).add(path));
+    // Clear any previous failure up front, so a retry shows the spinner rather
+    // than the stale error it is retrying.
+    setErrors((prev) => {
+      if (!(path in prev)) return prev;
+      const next = { ...prev };
+      delete next[path];
+      return next;
+    });
+    try {
+      const meta = await apiFetch<FileMetaResponse>(
+        baseUrlRef.current,
+        `/api/node/files/meta?path=${encodeURIComponent(path)}`,
+      );
+
+      const isLarge = meta.size > LARGE_FILE_THRESHOLD;
+      const isBinary = meta.isBinary;
+
+      let content = "";
+      if (!isBinary && !isLarge) {
+        const res = await apiTextFetch(
+          baseUrlRef.current,
+          `/api/node/files/content?path=${encodeURIComponent(path)}`,
+        );
+        content = await res.text();
+      }
+
+      if (loadTokensRef.current.get(path) !== token) return;
+      setContents((prev) => ({
+        ...prev,
+        [path]: {
+          path,
+          content,
+          language: getLanguageFromPath(path),
+          isBinary,
+          isLarge,
+        },
+      }));
+    } catch (error) {
+      if (loadTokensRef.current.get(path) !== token) return;
+      const message =
+        error instanceof Error ? error.message : "Failed to open file";
+      // Toast for the failure happening now; recorded state for the tab the
+      // user may not be looking at, which keeps the tab closable and the read
+      // retryable instead of leaving it stranded and blank.
+      toast.error(message);
+      setErrors((prev) => ({ ...prev, [path]: message }));
+    } finally {
+      // Only the authoritative read cleans up; an abandoned one would
+      // otherwise clear the loading state of whichever read replaced it.
+      if (loadTokensRef.current.get(path) === token) {
+        openingPathsRef.current.delete(path);
+        setLoadingPaths((prev) => {
+          if (!prev.has(path)) return prev;
+          const next = new Set(prev);
+          next.delete(path);
+          return next;
+        });
+      }
+    }
+  }, []);
+
   const handleFileClick = useCallback(
     (path: string) => {
       openFile(path);
+      void loadFileContent(path);
     },
-    [openFile],
+    [openFile, loadFileContent],
   );
 
   const handleCloseFile = useCallback(
     (path: string) => {
-      if (isDirty(path)) {
-        setPendingClose(path);
-      } else {
-        closeFile(path);
-      }
+      closeFile(path);
+      // Abandon any read still in flight for this path. Bumping the token
+      // stops it committing content to a tab that no longer exists, and
+      // freeing the in-flight slot lets a reopen start a fresh read instead of
+      // being turned away as a duplicate of the read we just abandoned.
+      loadTokensRef.current.set(
+        path,
+        (loadTokensRef.current.get(path) ?? 0) + 1,
+      );
+      openingPathsRef.current.delete(path);
+      setLoadingPaths((prev) => {
+        if (!prev.has(path)) return prev;
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
+      setContents((prev) => {
+        if (!(path in prev)) return prev;
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
+      setErrors((prev) => {
+        if (!(path in prev)) return prev;
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
     },
-    [isDirty, closeFile],
+    [closeFile],
   );
 
-  const handleConfirmClose = useCallback(() => {
-    if (!pendingClose) return;
-    closeFile(pendingClose);
-    setPendingClose(null);
-  }, [pendingClose, closeFile]);
-
-  const handleSaveAndClose = useCallback(async () => {
-    if (!pendingClose) return;
-    const saved = await saveFile(pendingClose);
-    if (saved) {
-      closeFile(pendingClose);
-    }
-    setPendingClose(null);
-  }, [pendingClose, saveFile, closeFile]);
-
-  const handleSave = useCallback(async () => {
-    if (activeFilePath) {
-      await saveFile(activeFilePath);
-    }
-  }, [activeFilePath, saveFile]);
+  const handleRetryFile = useCallback(
+    (path: string) => {
+      void loadFileContent(path);
+    },
+    [loadFileContent],
+  );
 
   // Resize handle for desktop
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -149,7 +293,10 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
     };
   }, []);
 
-  const activeFile = activeFilePath ? getFile(activeFilePath) : undefined;
+  const activeFile = activeFilePath ? contents[activeFilePath] : undefined;
+  const activeFileLoading = activeFilePath ? loadingPaths.has(activeFilePath) : false;
+  const activeFileError = activeFilePath ? errors[activeFilePath] : undefined;
+  const erroredPaths = useMemo(() => new Set(Object.keys(errors)), [errors]);
   const files = filesData?.files || [];
 
   // --- Loading state ---
@@ -181,8 +328,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
 
   // --- Mobile layout ---
   if (isMobile) {
-    const isCurrentDirty = activeFilePath ? isDirty(activeFilePath) : false;
-    const showEditor = !!activeFile;
+    const showEditor = !!activeFilePath;
 
     return (
       <div className="bg-background flex h-full w-full flex-col">
@@ -193,49 +339,41 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
               <Button
                 variant="ghost"
                 size="icon-sm"
+                aria-label="Back to files"
                 onClick={() => setActiveFile(null)}
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div className="min-w-0 flex-1">
                 <FileTabs
-                  files={openFiles}
+                  paths={openPaths}
                   activeFilePath={activeFilePath}
                   onSelect={setActiveFile}
                   onClose={handleCloseFile}
-                  isDirty={isDirty}
+                  erroredPaths={erroredPaths}
                 />
               </div>
-              {isCurrentDirty && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex-shrink-0"
-                >
-                  <Save className="mr-1 h-4 w-4" />
-                  Save
-                </Button>
-              )}
             </div>
             <div className="flex-1 overflow-hidden">
-              {fileLoading ? (
+              {activeFileLoading && !activeFile ? (
                 <div className="flex h-full items-center justify-center">
                   <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
                 </div>
-              ) : (
+              ) : activeFileError ? (
+                <FileErrorPane
+                  message={activeFileError}
+                  onRetry={() => handleRetryFile(activeFilePath!)}
+                />
+              ) : activeFile ? (
                 <Suspense fallback={<EditorSkeleton />}>
                   <FileEditor
                     content={activeFile.content}
                     language={activeFile.language}
                     isBinary={activeFile.isBinary}
                     isLarge={activeFile.isLarge}
-                    onChange={(c) => updateContent(activeFile.path, c)}
-                    onSave={handleSave}
                   />
                 </Suspense>
-              )}
+              ) : null}
             </div>
           </div>
         )}
@@ -259,27 +397,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
               />
             )}
           </div>
-          {fileLoading && (
-            <div className="bg-background/80 fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-              <Loader2 className="text-primary h-8 w-8 animate-spin" />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setActiveFile(null)}
-              >
-                Cancel
-              </Button>
-            </div>
-          )}
         </div>
-
-        <UnsavedChangesDialog
-          open={!!pendingClose}
-          fileName={pendingClose?.split("/").pop() || ""}
-          onCancel={() => setPendingClose(null)}
-          onDiscard={handleConfirmClose}
-          onSave={handleSaveAndClose}
-        />
       </div>
     );
   }
@@ -320,23 +438,28 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
 
         {/* Right panel - tabs + editor */}
         <div className="bg-muted/20 flex h-full min-w-0 flex-1 flex-col">
-          {openFiles.length > 0 && (
+          {openPaths.length > 0 && (
             <div className="bg-background/50">
               <FileTabs
-                files={openFiles}
+                paths={openPaths}
                 activeFilePath={activeFilePath}
                 onSelect={setActiveFile}
                 onClose={handleCloseFile}
-                isDirty={isDirty}
+                erroredPaths={erroredPaths}
               />
             </div>
           )}
 
           <div className="flex-1 overflow-hidden">
-            {fileLoading ? (
+            {activeFileLoading && !activeFile ? (
               <div className="flex h-full items-center justify-center">
                 <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
               </div>
+            ) : activeFileError ? (
+              <FileErrorPane
+                message={activeFileError}
+                onRetry={() => handleRetryFile(activeFilePath!)}
+              />
             ) : activeFile ? (
               <Suspense fallback={<EditorSkeleton />}>
                 <FileEditor
@@ -344,8 +467,6 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
                   language={activeFile.language}
                   isBinary={activeFile.isBinary}
                   isLarge={activeFile.isLarge}
-                  onChange={(c) => updateContent(activeFile.path, c)}
-                  onSave={handleSave}
                 />
               </Suspense>
             ) : (
@@ -357,14 +478,31 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <UnsavedChangesDialog
-        open={!!pendingClose}
-        fileName={pendingClose?.split("/").pop() || ""}
-        onCancel={() => setPendingClose(null)}
-        onDiscard={handleConfirmClose}
-        onSave={handleSaveAndClose}
-      />
+// --- File read error ---
+
+interface FileErrorPaneProps {
+  message: string;
+  onRetry: () => void;
+}
+
+// A file that failed to read keeps its tab, so this pane is what that tab
+// shows: what went wrong, and a way to try again. Closing the tab is the other
+// way out, and that lives on the tab itself.
+function FileErrorPane({ message, onRetry }: FileErrorPaneProps) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-4">
+      <AlertCircle className="text-muted-foreground h-8 w-8" />
+      <p className="text-muted-foreground max-w-sm text-center text-sm">
+        {message}
+      </p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+        Retry
+      </Button>
     </div>
   );
 }
@@ -411,45 +549,5 @@ function Header({ onRefresh, refreshing }: HeaderProps) {
         />
       </Button>
     </div>
-  );
-}
-
-// --- Unsaved Changes Dialog ---
-
-interface UnsavedChangesDialogProps {
-  open: boolean;
-  fileName: string;
-  onCancel: () => void;
-  onDiscard: () => void;
-  onSave: () => void;
-}
-
-function UnsavedChangesDialog({
-  open,
-  fileName,
-  onCancel,
-  onDiscard,
-  onSave,
-}: UnsavedChangesDialogProps) {
-  return (
-    <Dialog open={open} onOpenChange={(isOpen: boolean) => !isOpen && onCancel()}>
-      <DialogContent showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>Unsaved changes</DialogTitle>
-          <DialogDescription>
-            {fileName} has unsaved changes. What would you like to do?
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={onDiscard}>
-            Discard
-          </Button>
-          <Button onClick={onSave}>Save</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

@@ -17,10 +17,7 @@ import (
 	"github.com/bxnlabs/argus/internal/shared"
 )
 
-const (
-	maxWriteSize int64 = 10 << 20  // 10 MB
-	maxReadSize  int64 = 100 << 20 // 100 MB
-)
+const maxReadSize int64 = 100 << 20 // 100 MB
 
 type filesHandler struct {
 	uploadDirOverride string
@@ -153,43 +150,6 @@ func (h *filesHandler) readContent(w http.ResponseWriter, r *http.Request) {
 
 	// http.ServeContent handles ETag, Range, Last-Modified, Content-Type
 	http.ServeContent(w, r, expandedPath, info.ModTime(), f)
-}
-
-// PUT /files/content?path=...
-func (h *filesHandler) writeContent(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		respondError(w, http.StatusBadRequest, "path parameter is required")
-		return
-	}
-	expandedPath, err := shared.CleanPath(path)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	// Cap request body
-	r.Body = http.MaxBytesReader(w, r.Body, maxWriteSize+1)
-	defer r.Body.Close()
-
-	n, err := files.StreamWrite(expandedPath, r.Body, maxWriteSize)
-	if err != nil {
-		var sizeErr *files.FileSizeError
-		if errors.As(err, &sizeErr) {
-			respondError(w, http.StatusRequestEntityTooLarge, err.Error())
-			return
-		}
-		if errors.Is(err, os.ErrPermission) {
-			respondError(w, http.StatusForbidden, "permission denied")
-			return
-		}
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]any{
-		"path": expandedPath,
-		"size": n,
-	})
 }
 
 const (
