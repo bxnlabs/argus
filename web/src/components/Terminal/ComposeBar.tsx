@@ -3,6 +3,8 @@ import type { CSSProperties } from "react";
 import { SendHorizontal, Paperclip } from "lucide-react";
 import { cn, truncateRight } from "@/lib/utils";
 import { FilePicker } from "@/components/FilePicker";
+import { useActiveNode } from "@/hooks/useActiveNode";
+import { loadDraft, saveDraft } from "@/lib/composeDrafts";
 import { insertPaths } from "./insertPaths";
 
 // A textarea placeholder cannot ellipsize itself, so without a cap a long name
@@ -34,6 +36,17 @@ function composePlaceholder(slug?: string | null): string {
 }
 
 interface ComposeBarProps {
+  /**
+   * Identity the draft is stored under, within the active node's scope: the id
+   * of the tab this bar belongs to.
+   *
+   * The draft belongs to the BOX, and there is exactly one box per tab — so it
+   * is keyed by the tab and lives and dies with it. Attaching a different
+   * session to the tab does not disturb it: the tab is still open and the text
+   * is still the user's. And because no two bars mounted in one document can
+   * share a key, none of them can go stale behind another's write.
+   */
+  draftKey: string;
   /** Returns false when the text never reached the socket — keep the draft. */
   onSend: (text: string) => boolean;
   /** Send is disabled while the socket is down; the draft is kept. */
@@ -59,6 +72,7 @@ interface ComposeBarProps {
 }
 
 export const ComposeBar = memo(function ComposeBar({
+  draftKey,
   onSend,
   connected,
   workingDirectory,
@@ -66,40 +80,64 @@ export const ComposeBar = memo(function ComposeBar({
   onOverlayHeightChange,
   onFocusedChange,
 }: ComposeBarProps) {
-  const [text, setText] = useState("");
+  const { scope } = useActiveNode();
+  // Hydrate from the persisted draft rather than "": the bar can be remounted
+  // by anything from a node blip to a reload, and the text is the user's, not
+  // the mount's.
+  const [text, setText] = useState(() => loadDraft(scope, draftKey));
   const [focused, setFocused] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  // Panel height at one line, measured rather than hardcoded so it can't drift
-  // from the spacer's height, which is derived as
-  // calc(var(--compose-row-h) + 1.75rem + 1px) below.
-  const collapsedHeightRef = useRef<number | null>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
   // Read through a ref so an unstable callback identity can't rebuild the
-  // observer and recapture the baseline at an already-grown height.
+  // observer mid-life.
   const onOverlayHeightChangeRef = useRef(onOverlayHeightChange);
   onOverlayHeightChangeRef.current = onOverlayHeightChange;
+
+  // Every write to the draft goes through here, so persistence cannot be
+  // forgotten by a new call site (the textarea and the file picker are both
+  // writers).
+  const applyText = useCallback(
+    (next: string) => {
+      setText(next);
+      saveDraft(scope, draftKey, next);
+    },
+    [scope, draftKey],
+  );
 
   useEffect(() => {
     const el = panelRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
 
-    const ro = new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect.height ?? 0;
-      // Skip missing and zero observations rather than recording them: the
-      // first delivery seeds the permanent baseline, and an inactive tab
-      // observes 0 inside its display:none ancestor. A zero baseline would
-      // make every later observation read as pure overflow.
-      if (!height) return;
-      collapsedHeightRef.current ??= height;
+    const ro = new ResizeObserver(() => {
+      const panel = panelRef.current;
+      const spacer = spacerRef.current;
+      if (!panel || !spacer) return;
+      // Measure the overflow against the SPACER, not against the first height
+      // this observer happened to see. The spacer's height is the panel's
+      // resting height by construction — both derive from --compose-row-h, and
+      // ComposeBar.test.tsx pins that they cannot drift — so the subtraction is
+      // exact on every delivery and needs no captured baseline.
+      //
+      // A captured baseline was correct only while the bar always mounted
+      // empty. Now that a draft is restored in useState's initializer, the
+      // FIRST observation can already be a two- or three-line panel, which such
+      // a baseline would record as "resting" — leaving the terminal unshifted
+      // and the card overlapping live output for the whole life of that mount.
+      //
+      // offsetHeight on both sides, so both are border-box: the panel's own
+      // padding and border are part of the height the spacer has to hold. (The
+      // observer's contentRect, which this used to read, excludes them — fine
+      // when comparing observations to each other, wrong against the spacer.)
+      // Inside a display:none ancestor both measure 0 and this reports 0, which
+      // is the truth for a hidden tab rather than a poisoned baseline.
       onOverlayHeightChangeRef.current?.(
-        Math.max(0, height - collapsedHeightRef.current),
+        Math.max(0, panel.offsetHeight - spacer.offsetHeight),
       );
     });
 
     ro.observe(el);
-    // Empty deps: build the observer once, so the baseline stays "the first
-    // height observed after mount".
     return () => ro.disconnect();
   }, []);
 
@@ -112,9 +150,13 @@ export const ComposeBar = memo(function ComposeBar({
     // nowhere is exactly the silent draft loss this bar exists to prevent.
     if (!onSend(text)) return;
     setText("");
+    // A send is the moment the text stops being a draft, so the stored copy
+    // goes with it — an already-sent message must not come back on the next
+    // mount.
+    saveDraft(scope, draftKey, "");
     // Keep the keyboard up for the next message.
     textareaRef.current?.focus();
-  }, [canSend, onSend, text]);
+  }, [canSend, onSend, text, scope, draftKey]);
 
   const handleFocusChange = useCallback(
     (next: boolean) => {
@@ -130,13 +172,13 @@ export const ComposeBar = memo(function ComposeBar({
       const start = ta?.selectionStart ?? text.length;
       const end = ta?.selectionEnd ?? text.length;
       const result = insertPaths(text, start, end, paths);
-      setText(result.text);
+      applyText(result.text);
       requestAnimationFrame(() => {
         ta?.focus();
         ta?.setSelectionRange(result.cursor, result.cursor);
       });
     },
-    [text],
+    [text, applyText],
   );
 
   return (
@@ -160,6 +202,7 @@ export const ComposeBar = memo(function ComposeBar({
                         + the panel's 1px border-t
                         = var + 0.75rem + 1rem + 1px. */}
       <div
+        ref={spacerRef}
         // mt-1.5 is the card's top margin. The 2026-08-04 refresh used 8px
         // here to turn an accidental sub-row remainder into a deliberate gap;
         // a bordered card states that boundary outright, so the gap no longer
@@ -262,7 +305,7 @@ export const ComposeBar = memo(function ComposeBar({
               ref={textareaRef}
               rows={1}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => applyText(e.target.value)}
               onFocus={() => handleFocusChange(true)}
               onBlur={() => handleFocusChange(false)}
               placeholder={composePlaceholder(sessionSlug)}

@@ -15,6 +15,7 @@ import {
   saveTabState,
   loadTabState,
 } from "../lib/tabs";
+import { saveDraft } from "../lib/composeDrafts";
 import { useViewport } from "../hooks/useViewport";
 
 // ---------------------------------------------------------------------------
@@ -122,6 +123,26 @@ export function TabProvider({
 
   const closeTab = useCallback(
     (tabId: string) => {
+      // The tab's compose draft dies with the tab. It is keyed by tab id, and
+      // ids are never reissued, so anything left here would sit in storage
+      // addressing nothing for the life of the origin — and this is the only
+      // code path in a position to know the tab is going away. That bounds the
+      // store for one document against a node that stays addressable: one
+      // draft per open tab. Drafts under a scope the user retires — a deleted
+      // node, or one whose url is edited — are stranded exactly as that
+      // scope's saved tab state already is, and nothing collects either.
+      //
+      // This is also the one write that REMOVES another browser tab's stored
+      // draft rather than overwriting it. Nothing subscribes to storage, so
+      // that tab goes on rendering the text held in its own state — it is its
+      // next mount that comes up empty. See this feature's commit message.
+      //
+      // Guarded by the same "keep at least one tab" rule as the update below,
+      // or refusing to close the last tab would still bin its draft.
+      if (stateRef.current.tabs.length > 1) {
+        saveDraft(nodeScope, tabId, "");
+      }
+
       applyTabState((prev) => {
         if (prev.tabs.length <= 1) return prev; // keep at least one tab
 
@@ -135,7 +156,7 @@ export function TabProvider({
         return { tabs: newTabs, activeTabId: newActiveTabId };
       });
     },
-    [applyTabState],
+    [applyTabState, nodeScope],
   );
 
   const switchTab = useCallback(

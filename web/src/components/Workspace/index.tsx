@@ -263,6 +263,13 @@ export const Workspace = memo(function Workspace({
                       sessionSlug={
                         sessions.find((s) => s.id === tab.sessionId)?.slug
                       }
+                      // The compose box belongs to the tab — one box per tab,
+                      // alive for as long as the tab is. So the draft is keyed
+                      // by the tab, not by whatever session the tab currently
+                      // points at: attaching a different session leaves the
+                      // text where it is, and closing the tab is what disposes
+                      // of it (see TabContext.closeTab).
+                      draftKey={tab.id}
                       selectMode={isActive ? selectMode : false}
                       onFilesDropped={handleFilesDropped}
                       workingDirectory={activeWorkingDirectory}
