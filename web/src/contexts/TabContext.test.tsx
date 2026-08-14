@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, act, cleanup } from "@testing-library/react";
 import { TabProvider, useTabs } from "./TabContext";
+import { loadDraft, saveDraft } from "@/lib/composeDrafts";
 
 vi.mock("@/hooks/useViewport", () => ({
   useViewport: () => ({ isMobile: false, isDesktop: true, isHydrated: true }),
@@ -170,5 +171,62 @@ describe("attachSessionToTab", () => {
 
     expect(attached).toBe(false);
     expect(JSON.stringify(localStorage)).not.toContain("sess-1");
+  });
+});
+
+describe("closeTab and compose drafts", () => {
+  it("clears the closed tab's draft, since nothing can address it again", () => {
+    // Drafts are keyed by tab id and ids are never reissued, so an entry left
+    // behind here would sit in storage addressing nothing for the life of the
+    // origin. This is the only path that knows the tab is going away, which
+    // makes it the thing that bounds the store: one draft per open tab.
+    renderTabs();
+    const closing = ctx.activeTabId;
+    saveDraft("test-scope", closing, "half-typed into a shell");
+    act(() => ctx.addTab());
+
+    act(() => ctx.closeTab(closing));
+
+    expect(loadDraft("test-scope", closing)).toBe("");
+  });
+
+  it("clears it whether or not a session was attached", () => {
+    // The draft belongs to the tab's compose box, not to the session the tab
+    // happened to point at, so an attached session does not buy it a reprieve.
+    renderTabs();
+    const closing = ctx.activeTabId;
+    act(() => ctx.attachSession("sess-1"));
+    saveDraft("test-scope", closing, "written while pointed at an agent");
+    act(() => ctx.addTab());
+
+    act(() => ctx.closeTab(closing));
+
+    expect(loadDraft("test-scope", closing)).toBe("");
+  });
+
+  it("leaves other tabs' drafts alone", () => {
+    renderTabs();
+    const closing = ctx.activeTabId;
+    saveDraft("test-scope", closing, "going away");
+    act(() => ctx.addTab());
+    const survivor = ctx.activeTabId;
+    saveDraft("test-scope", survivor, "still being written");
+
+    act(() => ctx.closeTab(closing));
+
+    expect(loadDraft("test-scope", survivor)).toBe("still being written");
+  });
+
+  it("keeps the draft when the close is refused for being the last tab", () => {
+    // closeTab no-ops rather than leaving the workspace with no tabs. Binning
+    // the draft of a tab that is still open would be silent loss.
+    renderTabs();
+    const only = ctx.activeTabId;
+    saveDraft("test-scope", only, "still typing");
+
+    act(() => ctx.closeTab(only));
+
+    expect(ctx.tabs).toHaveLength(1);
+    expect(loadDraft("test-scope", only)).toBe("still typing");
   });
 });

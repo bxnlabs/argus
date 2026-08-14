@@ -10,12 +10,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ComposeBar } from "./ComposeBar";
 import { StubNodeProvider } from "@/test/node-context";
+import { loadDraft, saveDraft, draftStorageKey } from "@/lib/composeDrafts";
 import type { ComponentProps } from "react";
+
+// StubNodeProvider fixes the active node to local, whose scope is "local:".
+const SCOPE = "local:";
 
 afterEach(cleanup);
 
 // jsdom has no ResizeObserver and no layout engine, so tests drive the observer
-// by hand to assert the observed-height -> overlay-height conversion.
+// by hand and stub the two boxes it measures (see `layout` below).
 class MockResizeObserver {
   static instances: MockResizeObserver[] = [];
   callback: ResizeObserverCallback;
@@ -28,17 +32,17 @@ class MockResizeObserver {
   unobserve() {}
   disconnect() {}
 
-  emit(height: number) {
+  // The component reads the current geometry off the elements rather than out
+  // of the entry, so a delivery carries no size of its own.
+  emit() {
     act(() => {
-      this.callback(
-        [{ contentRect: { height } } as ResizeObserverEntry],
-        this as unknown as ResizeObserver,
-      );
+      this.callback([] as ResizeObserverEntry[], this as unknown as ResizeObserver);
     });
   }
 }
 
 beforeEach(() => {
+  localStorage.clear();
   MockResizeObserver.instances = [];
   globalThis.ResizeObserver =
     MockResizeObserver as unknown as typeof ResizeObserver;
@@ -50,20 +54,46 @@ function observer() {
   return ro;
 }
 
+// The overlay is panel height minus spacer height, both border-box. jsdom
+// reports 0 for offsetHeight, so tests stand in for the layout engine. The
+// numbers used below are the real ones: the spacer rests at 50px (21px row +
+// the mirror's 12px py-1.5 + the panel's 16px py-2 + its 1px border-t) and the
+// panel grows one 21px row at a time from there.
+function layout({ spacer, panel }: { spacer: number; panel: number }) {
+  const panelEl = screen.getByTestId("compose-grow-wrapper").parentElement!;
+  const spacerEl = panelEl.parentElement!;
+  Object.defineProperty(spacerEl, "offsetHeight", {
+    configurable: true,
+    value: spacer,
+  });
+  Object.defineProperty(panelEl, "offsetHeight", {
+    configurable: true,
+    value: panel,
+  });
+}
+
 // ComposeBar renders FilePicker (Task 2's insertPaths consumer), which pulls
 // in the upload mutation (useQueryClient) and the active-node scope
 // (useNodeContext) regardless of whether the picker is open. Wrap every
 // render with the same fixtures FileBrowser.test.tsx uses so those hooks
 // resolve instead of throwing "No QueryClient set" / "must be used within
 // NodeProvider".
-function renderComposeBar(props: ComponentProps<typeof ComposeBar>) {
+// draftKey is the id of the tab that owns this bar, and the key its draft is
+// stored under. Tests that aren't about persistence get one default key, so
+// they read as before.
+type ComposeBarTestProps = Omit<
+  ComponentProps<typeof ComposeBar>,
+  "draftKey"
+> & { draftKey?: string };
+
+function renderComposeBar(props: ComposeBarTestProps) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <StubNodeProvider>
-        <ComposeBar {...props} />
+        <ComposeBar draftKey="tab-1" {...props} />
       </StubNodeProvider>
     </QueryClientProvider>,
   );
@@ -285,7 +315,7 @@ describe("ComposeBar", () => {
 });
 
 describe("ComposeBar overlay height", () => {
-  it("reports zero for the first observed height, which is the collapsed baseline", () => {
+  it("reports zero while the panel sits at its resting height", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
       onSend: () => true,
@@ -293,26 +323,50 @@ describe("ComposeBar overlay height", () => {
       onOverlayHeightChange,
     });
 
-    observer().emit(44);
+    layout({ spacer: 50, panel: 50 });
+    observer().emit();
 
     // toHaveBeenCalledWith only checks that SOME call matched; pin down the
     // call count too so an implementation that fires onOverlayHeightChange(0)
-    // unconditionally (regardless of the observed height) can't pass this in
+    // unconditionally (regardless of the measured height) can't pass this in
     // isolation.
     expect(onOverlayHeightChange).toHaveBeenCalledTimes(1);
     expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
   });
 
-  it("keeps the collapsed baseline and never rebuilds the observer when onOverlayHeightChange's identity churns before an early re-render", () => {
-    // Regression test for a baseline-corruption race: if the ResizeObserver
-    // effect depended on onOverlayHeightChange, a parent that doesn't
-    // memoize its callback (a fresh function identity every render) would
-    // tear down and rebuild the observer. The component's contract is that
-    // collapsedHeight is the first height observed after mount; rebuilding
-    // mid-life risks recapturing that baseline at an already-grown height.
-    // The fix builds the observer exactly once and reads the callback
-    // through a ref, so this must hold regardless of how often the parent
-    // re-renders with a new callback identity.
+  it("measures a restored draft's overflow on the very first observation", () => {
+    // The regression that came with persisting drafts: the bar can now MOUNT
+    // already grown, because useState hydrates a saved multi-line draft before
+    // the observer ever runs. The old implementation took its first
+    // observation as the collapsed baseline, so a restored three-line draft
+    // reported 0 overflow — the terminal stayed unshifted and the card sat on
+    // top of live output until that draft was sent. Measuring against the
+    // spacer (whose height is the resting height by construction) has no
+    // first-observation state to poison.
+    saveDraft("local:", "tab-1", "line one\nline two\nline three");
+    const onOverlayHeightChange = vi.fn();
+    renderComposeBar({
+      draftKey: "tab-1",
+      onSend: () => true,
+      connected: true,
+      onOverlayHeightChange,
+    });
+
+    expect(textarea().value).toBe("line one\nline two\nline three");
+
+    layout({ spacer: 50, panel: 92 }); // three lines: 50 + 2 * 21
+    observer().emit();
+
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(42);
+  });
+
+  it("never rebuilds the observer when onOverlayHeightChange's identity churns", () => {
+    // If the ResizeObserver effect depended on onOverlayHeightChange, a parent
+    // that doesn't memoize its callback (a fresh function identity every
+    // render) would tear down and rebuild the observer on every render — churn
+    // on the hot path of typing. The component builds the observer exactly
+    // once and reads the callback through a ref, so this must hold regardless
+    // of how often the parent re-renders with a new callback identity.
     const calls: number[] = [];
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -321,6 +375,7 @@ describe("ComposeBar overlay height", () => {
       <QueryClientProvider client={queryClient}>
         <StubNodeProvider>
           <ComposeBar
+            draftKey="tab-1"
             onSend={() => true}
             connected={true}
             onOverlayHeightChange={onOverlayHeightChange}
@@ -332,23 +387,24 @@ describe("ComposeBar overlay height", () => {
     // A fresh inline callback on the first render, like an unmemoized parent.
     const { rerender } = render(tree((h) => calls.push(h)));
 
-    observer().emit(44); // baseline, one line
+    layout({ spacer: 50, panel: 50 }); // one line
+    observer().emit();
 
     // Force a parent re-render that changes onOverlayHeightChange's identity
     // before any further observation fires.
     rerender(tree((h) => calls.push(h)));
 
-    observer().emit(84); // grown
+    layout({ spacer: 50, panel: 92 }); // grown to three lines
+    observer().emit();
 
     // Exactly one ResizeObserver should ever be constructed for the life of
-    // the component instance.
+    // the component instance, and the later callback must still be the one
+    // that receives the measurement.
     expect(MockResizeObserver.instances.length).toBe(1);
-    // The overlay must still be measured against the ORIGINAL 44px
-    // baseline, not a baseline recaptured mid-life.
-    expect(calls).toEqual([0, 40]);
+    expect(calls).toEqual([0, 42]);
   });
 
-  it("reports the overflow past the collapsed baseline as the panel grows", () => {
+  it("reports the overflow past the spacer as the panel grows", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
       onSend: () => true,
@@ -356,14 +412,17 @@ describe("ComposeBar overlay height", () => {
       onOverlayHeightChange,
     });
 
-    observer().emit(44); // baseline, one line
-    observer().emit(64); // two lines
-    observer().emit(84); // three lines
+    layout({ spacer: 50, panel: 50 }); // one line
+    observer().emit();
+    layout({ spacer: 50, panel: 71 }); // two lines
+    observer().emit();
+    layout({ spacer: 50, panel: 92 }); // three lines
+    observer().emit();
 
-    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(40);
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(42);
   });
 
-  it("never reports a negative height if the panel measures under its baseline", () => {
+  it("never reports a negative height if the panel measures under the spacer", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
       onSend: () => true,
@@ -371,21 +430,18 @@ describe("ComposeBar overlay height", () => {
       onOverlayHeightChange,
     });
 
-    observer().emit(44);
-    observer().emit(30);
+    layout({ spacer: 50, panel: 30 });
+    observer().emit();
 
     expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
   });
 
-  it("ignores a zero-height observation instead of taking it as the collapsed baseline", () => {
-    // Reachable today: an inactive tab is mounted inside a display:none
-    // ancestor (Workspace hides inactive tabs with `hidden`). A
-    // ResizeObserver on an element inside a display:none ancestor fires
-    // immediately with contentRect.height === 0, then fires again with the
-    // true height once the ancestor becomes visible — measured in a real
-    // browser as [0, 18]. Zero is never a valid collapsed baseline: taking
-    // it would make the real height read as pure overflow and permanently
-    // shift the terminal up when the tab is later selected.
+  it("reports zero for a hidden tab, where both boxes measure zero", () => {
+    // An inactive tab is mounted inside a display:none ancestor (Workspace
+    // hides inactive tabs with `hidden`), and a ResizeObserver fires
+    // immediately in that state. Both boxes collapse to 0 together, so the
+    // difference is 0 — the truth for a hidden tab — and nothing about that
+    // observation can corrupt the measurement taken once it is shown.
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
       onSend: () => true,
@@ -393,21 +449,16 @@ describe("ComposeBar overlay height", () => {
       onOverlayHeightChange,
     });
 
-    observer().emit(0); // hidden mount — must be ignored entirely
-    observer().emit(44); // real collapsed baseline, once shown
-
-    // The zero observation must not even reach onOverlayHeightChange as a
-    // spurious "0 overlay" call — it should be skipped outright.
-    expect(onOverlayHeightChange).toHaveBeenCalledTimes(1);
+    layout({ spacer: 0, panel: 0 }); // hidden mount
+    observer().emit();
     expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
 
-    // Now the panel grows: the overlay must be measured against the real
-    // 44px baseline, not the poisoned 0.
-    observer().emit(84);
-    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(40);
+    layout({ spacer: 50, panel: 92 }); // shown, three lines
+    observer().emit();
+    expect(onOverlayHeightChange).toHaveBeenLastCalledWith(42);
   });
 
-  it("returns to zero when the panel shrinks back down to its collapsed baseline", () => {
+  it("returns to zero when the panel shrinks back down to the spacer", () => {
     const onOverlayHeightChange = vi.fn();
     renderComposeBar({
       onSend: () => true,
@@ -415,9 +466,12 @@ describe("ComposeBar overlay height", () => {
       onOverlayHeightChange,
     });
 
-    observer().emit(44);
-    observer().emit(84);
-    observer().emit(44);
+    layout({ spacer: 50, panel: 50 });
+    observer().emit();
+    layout({ spacer: 50, panel: 92 });
+    observer().emit();
+    layout({ spacer: 50, panel: 50 });
+    observer().emit();
 
     expect(onOverlayHeightChange).toHaveBeenLastCalledWith(0);
   });
@@ -612,5 +666,145 @@ describe("ComposeBar overlay height", () => {
 
     fireEvent.blur(textarea());
     expect(onFocusedChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe("ComposeBar draft persistence", () => {
+  it("restores the draft after a remount, so nothing outside the bar can swallow it", () => {
+    // The bug this exists for: on a weak network one failed 5s node-summary
+    // poll used to unmount the whole workspace — this bar with it — and the
+    // half-typed message was gone by the time connectivity returned. The
+    // draft is client-side text, so it must outlive the mount.
+    const first = renderComposeBar({ draftKey: "tab-1", onSend: () => true, connected: true });
+    fireEvent.change(textarea(), { target: { value: "half-typed message" } });
+    first.unmount();
+
+    renderComposeBar({ draftKey: "tab-1", onSend: () => true, connected: true });
+
+    expect(textarea().value).toBe("half-typed message");
+  });
+
+  it("stores each keystroke as it is typed, so a teardown React never sees loses nothing", () => {
+    // The write is immediate rather than deferred. A reload, a tab close, or an
+    // OS kill runs no React cleanup, so anything still waiting on a timer would
+    // be lost with it — and the worst case is not the last few characters but a
+    // CLEARED box, whose pending removal would never land and so resurrect the
+    // stale stored text on the next mount.
+    //
+    // Raw storage, not loadDraft: this has to pin that the text reached
+    // localStorage, not merely that the module can hand it back.
+    renderComposeBar({ draftKey: "tab-1", onSend: () => true, connected: true });
+
+    fireEvent.change(textarea(), { target: { value: "half-typed message" } });
+    expect(localStorage.getItem(draftStorageKey(SCOPE, "tab-1"))).toBe(
+      "half-typed message",
+    );
+
+    fireEvent.change(textarea(), { target: { value: "" } });
+    expect(localStorage.getItem(draftStorageKey(SCOPE, "tab-1"))).toBeNull();
+  });
+
+  it("clears the stored draft once the text has actually been sent", () => {
+    renderComposeBar({ draftKey: "tab-1", onSend: () => true, connected: true });
+
+    fireEvent.change(textarea(), { target: { value: "run the tests" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    expect(textarea().value).toBe("");
+    // A sent message must not come back on the next mount.
+    expect(loadDraft(SCOPE, "tab-1")).toBe("");
+  });
+
+  it("keeps the stored draft when the send never reached the socket", () => {
+    // The in-memory counterpart of this is asserted above; this pins that the
+    // failed send also leaves the PERSISTED copy alone, so a remount right
+    // after the failed tap still has the text.
+    renderComposeBar({ draftKey: "tab-1", onSend: () => false, connected: true });
+
+    fireEvent.change(textarea(), { target: { value: "queued message" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    expect(localStorage.getItem(draftStorageKey(SCOPE, "tab-1"))).toBe(
+      "queued message",
+    );
+  });
+
+  it("keeps each tab's draft to itself", () => {
+    saveDraft(SCOPE, "tab-2", "written in the other tab");
+    renderComposeBar({ draftKey: "tab-1", onSend: () => true, connected: true });
+
+    expect(textarea().value).toBe("");
+    fireEvent.change(textarea(), { target: { value: "written in this one" } });
+
+    expect(loadDraft(SCOPE, "tab-2")).toBe("written in the other tab");
+  });
+
+  it("leaves the draft alone when the tab is pointed at a different session", () => {
+    // The draft belongs to the box, and the box belongs to the tab. Attaching
+    // another session changes where a send goes, but the tab is still open and
+    // the half-typed text is still the user's — so it stays exactly where it
+    // is, and the placeholder is the only thing that moves.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const tree = (sessionSlug: string) => (
+      <QueryClientProvider client={queryClient}>
+        <StubNodeProvider>
+          <ComposeBar
+            draftKey="tab-1"
+            sessionSlug={sessionSlug}
+            onSend={() => true}
+            connected={true}
+          />
+        </StubNodeProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(tree("first-agent"));
+    fireEvent.change(textarea(), { target: { value: "half-typed message" } });
+
+    rerender(tree("second-agent"));
+
+    expect(textarea().value).toBe("half-typed message");
+    expect(screen.getByPlaceholderText("Send to #second-agent")).toBeTruthy();
+  });
+
+  it("keeps two mounted tabs' drafts independent", () => {
+    // Workspace hides inactive tabs rather than unmounting them, so several
+    // bars are mounted at once. Keyed by tab, none of them can address another
+    // tab's draft — so no bar can go stale behind another's write, and none of
+    // the machinery that would take to fix has to exist.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StubNodeProvider>
+          <div data-testid="tab-a">
+            <ComposeBar draftKey="tab-1" onSend={() => true} connected={true} />
+          </div>
+          <div data-testid="tab-b">
+            <ComposeBar draftKey="tab-2" onSend={() => true} connected={true} />
+          </div>
+        </StubNodeProvider>
+      </QueryClientProvider>,
+    );
+
+    const boxIn = (tab: "a" | "b") =>
+      screen
+        .getByTestId(`tab-${tab}`)
+        .querySelector("textarea") as HTMLTextAreaElement;
+
+    fireEvent.change(boxIn("a"), { target: { value: "written in tab one" } });
+    fireEvent.change(boxIn("b"), { target: { value: "written in tab two" } });
+
+    expect(boxIn("a").value).toBe("written in tab one");
+    expect(boxIn("b").value).toBe("written in tab two");
+    expect(localStorage.getItem(draftStorageKey(SCOPE, "tab-1"))).toBe(
+      "written in tab one",
+    );
+    expect(localStorage.getItem(draftStorageKey(SCOPE, "tab-2"))).toBe(
+      "written in tab two",
+    );
   });
 });

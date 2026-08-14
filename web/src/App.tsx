@@ -29,7 +29,6 @@ import { useKeyboardChords, type ChordMap } from "@/hooks/useKeyboardChords";
 import { ShortcutHintOverlay } from "@/components/ShortcutHintOverlay";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
-import { NodeOffline } from "@/components/NodeOffline";
 import { useGitCheckQuery } from "@/data/git";
 import { isMac, isTouchDevice, isPhoneSized } from "@/lib/device";
 import { buildNodeSwitchBindings } from "@/lib/nodeShortcuts";
@@ -641,37 +640,33 @@ function HomeContent({
     [markUnread],
   );
 
-  // Render the main workspace
-  const renderWorkspace = useCallback(
-    () => {
-      // An unreachable active node would otherwise render as an empty workspace,
-      // indistinguishable from a node with no sessions. Surface it explicitly —
-      // but only once its poll has SETTLED offline: `pending` is the first
-      // "Connecting…" poll (true on cold start, including the local node), so
-      // gating on !pending avoids flashing the offline screen before we know.
-      if (activeNode && !activeNode.online && !activeNode.pending) {
-        return (
-          <NodeOffline
-            name={activeNode.name}
-            onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
-          />
-        );
-      }
-      return (
-        <Workspace
-          sessions={sessions}
-          activePanel={activePanel}
-          setActivePanel={setActivePanel}
-          activeWorkingDirectory={activeWorkingDirectory}
-          isGitRepo={isGitRepo}
-          requestedGitTab={requestedGitTab}
-          onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
-          onSelectSession={handleSelectSession}
-          onNewSession={() => setShowNewSessionDialog(true)}
-        />
-      );
-    },
-    [activeNode, sessions, isMobile, handleSelectSession, activePanel, setActivePanel, activeWorkingDirectory, isGitRepo, requestedGitTab]
+  // Render the main workspace.
+  //
+  // The active node's reachability deliberately does NOT gate this. A single
+  // failed 5s summary poll — routine on a weak network — used to swap the whole
+  // workspace for a full-screen "unreachable" screen, unmounting the tab's
+  // xterm and the compose bar (draft included) while the terminal's own
+  // WebSocket was often still connected or quietly reconnecting. Connectivity
+  // is reported where it costs nothing to be wrong for a few seconds instead:
+  // the terminal's own "Reconnecting…" chip, and the node tile's status dot.
+  //
+  // Not memoised: the views take this as a prop, but neither is itself
+  // memoised and both INVOKE it during their own render, so a stable identity
+  // buys nothing — while a dependency array on a function that returns JSX is
+  // a way to render a STALE workspace the day someone adds a prop below and
+  // forgets to list it.
+  const renderWorkspace = () => (
+    <Workspace
+      sessions={sessions}
+      activePanel={activePanel}
+      setActivePanel={setActivePanel}
+      activeWorkingDirectory={activeWorkingDirectory}
+      isGitRepo={isGitRepo}
+      requestedGitTab={requestedGitTab}
+      onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
+      onSelectSession={handleSelectSession}
+      onNewSession={() => setShowNewSessionDialog(true)}
+    />
   );
 
   const viewProps = {

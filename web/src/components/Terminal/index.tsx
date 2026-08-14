@@ -42,11 +42,18 @@ interface TerminalProps {
   workingDirectory?: string | null;
   /** Server-derived session slug, shown in the compose placeholder */
   sessionSlug?: string | null;
+  /**
+   * Identity the compose draft persists under — the id of the tab that owns
+   * this terminal. Passed in rather than derived from `sessionId`: the draft
+   * belongs to the tab's compose box, not to whatever session the tab happens
+   * to point at.
+   */
+  draftKey: string;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
-    { sessionId, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, workingDirectory, sessionSlug },
+    { sessionId, onConnected, onDisconnected, onBeforeUnmount, initialScrollState, selectMode = false, onFilesDropped, workingDirectory, sessionSlug, draftKey },
     ref
   ) {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -260,6 +267,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         {isMobile && (
           <div className={composeBarVisible ? "contents" : "hidden"}>
             <ComposeBar
+              draftKey={draftKey}
               onSend={handleSend}
               connected={isConnected}
               workingDirectory={workingDirectory}
