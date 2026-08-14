@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bxnlabs/argus/internal/node/files"
 )
 
 // homeTempDir creates a temporary directory under $HOME so that
@@ -60,51 +63,71 @@ func TestFilesHandlerList_MissingPath(t *testing.T) {
 	}
 }
 
-func TestFilesHandlerMeta(t *testing.T) {
-	dir := homeTempDir(t)
-	p := filepath.Join(dir, "test.txt")
-	os.WriteFile(p, []byte("hello world"), 0644)
+// decodeView reads the one response the viewer gets: bytes and classification
+// together.
+type viewResponse struct {
+	Content   string `json:"content"`
+	Size      int64  `json:"size"`
+	IsBinary  bool   `json:"isBinary"`
+	IsLarge   bool   `json:"isLarge"`
+	ETag      string `json:"etag"`
+	Unchanged bool   `json:"unchanged"`
+}
 
-	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/files/meta?path="+p, nil)
+func decodeView(t *testing.T, w *httptest.ResponseRecorder) viewResponse {
+	t.Helper()
+	var view viewResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode response: %v; body = %s", err, w.Body.String())
+	}
+	return view
+}
+
+// readView issues one GET, optionally carrying the etag of a version the
+// caller already has.
+func readView(t *testing.T, handler *filesHandler, path, known string) viewResponse {
+	t.Helper()
+	url := "/files/content?path=" + path
+	if known != "" {
+		url += "&known=" + known
+	}
+	req := httptest.NewRequest("GET", url, nil)
 	w := httptest.NewRecorder()
-	handler.meta(w, req)
-
+	handler.readContent(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, `"size":11`) {
-		t.Errorf("expected size 11, got %s", body)
-	}
-	if !strings.Contains(body, `"isBinary":false`) {
-		t.Errorf("expected isBinary false, got %s", body)
-	}
+	return decodeView(t, w)
 }
 
-func TestFilesHandlerMeta_NotFound(t *testing.T) {
+// The poll re-reads an open file every 30s and the file has usually not moved,
+// so the round trip that sends nothing back is the common one.
+func TestFilesHandlerReadContent_Unchanged(t *testing.T) {
 	dir := homeTempDir(t)
-	missingPath := filepath.Join(dir, "nonexistent.txt")
-
+	p := filepath.Join(dir, "poll.txt")
+	os.WriteFile(p, []byte("watch me"), 0644)
 	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/files/meta?path="+missingPath, nil)
-	w := httptest.NewRecorder()
-	handler.meta(w, req)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", w.Code)
+	first := readView(t, handler, p, "")
+	if first.ETag == "" {
+		t.Fatal("expected an etag on the first read")
 	}
-}
 
-func TestFilesHandlerMeta_Directory(t *testing.T) {
-	dir := homeTempDir(t)
-	handler := &filesHandler{}
-	req := httptest.NewRequest("GET", "/files/meta?path="+dir, nil)
-	w := httptest.NewRecorder()
-	handler.meta(w, req)
+	again := readView(t, handler, p, first.ETag)
+	if !again.Unchanged {
+		t.Error("unchanged = false, want true for a file that did not move")
+	}
+	if again.Content != "" {
+		t.Errorf("content = %q, want empty when unchanged", again.Content)
+	}
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400 for directory", w.Code)
+	os.WriteFile(p, []byte("rewritten by an agent"), 0644)
+	after := readView(t, handler, p, first.ETag)
+	if after.Unchanged {
+		t.Fatal("unchanged = true, want false after a rewrite")
+	}
+	if after.Content != "rewritten by an agent" {
+		t.Errorf("content = %q, want the new bytes", after.Content)
 	}
 }
 
@@ -121,15 +144,65 @@ func TestFilesHandlerReadContent(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if w.Body.String() != "stream me" {
-		t.Errorf("body = %q, want %q", w.Body.String(), "stream me")
+	view := decodeView(t, w)
+	if view.Content != "stream me" {
+		t.Errorf("content = %q, want %q", view.Content, "stream me")
 	}
-	ct := w.Header().Get("Content-Type")
-	if ct == "" {
-		t.Error("expected Content-Type header")
+	if view.Size != 9 {
+		t.Errorf("size = %d, want 9", view.Size)
 	}
-	if w.Header().Get("Last-Modified") == "" {
-		t.Error("expected Last-Modified header")
+	if view.IsBinary || view.IsLarge {
+		t.Errorf("isBinary = %v, isLarge = %v, want both false", view.IsBinary, view.IsLarge)
+	}
+}
+
+// Classification and bytes come from the same response, so a viewer can never
+// act on one version's size with another version's content.
+func TestFilesHandlerReadContent_Binary(t *testing.T) {
+	dir := homeTempDir(t)
+	p := filepath.Join(dir, "blob.bin")
+	os.WriteFile(p, []byte{'M', 'Z', 0x00, 0x01, 0x02}, 0644)
+
+	handler := &filesHandler{}
+	req := httptest.NewRequest("GET", "/files/content?path="+p, nil)
+	w := httptest.NewRecorder()
+	handler.readContent(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	view := decodeView(t, w)
+	if !view.IsBinary {
+		t.Error("isBinary = false, want true for a file with null bytes")
+	}
+	if view.Content != "" {
+		t.Errorf("content = %q, want empty for a binary file", view.Content)
+	}
+}
+
+// Over the ceiling the node reports the size and sends nothing, rather than
+// making the browser decode bytes Monaco will refuse to render.
+func TestFilesHandlerReadContent_TooLarge(t *testing.T) {
+	dir := homeTempDir(t)
+	p := filepath.Join(dir, "big.txt")
+	if err := os.WriteFile(p, bytes.Repeat([]byte("a"), int(files.ViewerMaxBytes)+1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := &filesHandler{}
+	req := httptest.NewRequest("GET", "/files/content?path="+p, nil)
+	w := httptest.NewRecorder()
+	handler.readContent(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	view := decodeView(t, w)
+	if !view.IsLarge {
+		t.Error("isLarge = false, want true past the viewer ceiling")
+	}
+	if view.Content != "" {
+		t.Errorf("content is %d bytes, want empty for an oversized file", len(view.Content))
 	}
 }
 
@@ -220,26 +293,16 @@ func TestFilesHandlerOutsideHome(t *testing.T) {
 		}
 	})
 
-	t.Run("meta outside-home file succeeds", func(t *testing.T) {
-		p := filepath.Join(outsideHome, "readable.txt")
-		req := httptest.NewRequest("GET", "/files/meta?path="+p, nil)
-		w := httptest.NewRecorder()
-		handler.meta(w, req)
-		if w.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200", w.Code)
-		}
-	})
-
 	t.Run("read outside-home file succeeds", func(t *testing.T) {
 		p := filepath.Join(outsideHome, "readable.txt")
 		req := httptest.NewRequest("GET", "/files/content?path="+p, nil)
 		w := httptest.NewRecorder()
 		handler.readContent(w, req)
 		if w.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200", w.Code)
+			t.Fatalf("status = %d, want 200", w.Code)
 		}
-		if w.Body.String() != "hello" {
-			t.Errorf("body = %q, want %q", w.Body.String(), "hello")
+		if view := decodeView(t, w); view.Content != "hello" {
+			t.Errorf("content = %q, want %q", view.Content, "hello")
 		}
 	})
 
@@ -296,16 +359,6 @@ func TestFilesHandlerPermissionDenied(t *testing.T) {
 		}
 	})
 
-	t.Run("meta permission denied returns 403", func(t *testing.T) {
-		p := filepath.Join(forbidden, "file.txt")
-		req := httptest.NewRequest("GET", "/files/meta?path="+p, nil)
-		w := httptest.NewRecorder()
-		handler.meta(w, req)
-		if w.Code != http.StatusForbidden {
-			t.Errorf("status = %d, want 403", w.Code)
-		}
-	})
-
 	t.Run("read permission denied returns 403", func(t *testing.T) {
 		p := filepath.Join(forbidden, "file.txt")
 		req := httptest.NewRequest("GET", "/files/content?path="+p, nil)
@@ -333,13 +386,15 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		}
 	})
 
-	t.Run("GET /files/meta", func(t *testing.T) {
+	// The viewer's classification came from here; folding it into the content
+	// response is what removed the gap between the two reads.
+	t.Run("GET /files/meta is gone", func(t *testing.T) {
 		p := filepath.Join(dir, "routed.txt")
 		req := httptest.NewRequest("GET", "/files/meta?path="+p, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200", w.Code)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("GET /files/meta = %d, want %d", w.Code, http.StatusNotFound)
 		}
 	})
 
@@ -351,18 +406,8 @@ func TestFilesHandlerViaRouter(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", w.Code)
 		}
-		if w.Body.String() != "via router" {
-			t.Errorf("body = %q, want %q", w.Body.String(), "via router")
-		}
-	})
-
-	t.Run("old POST /files/content returns 405", func(t *testing.T) {
-		p := filepath.Join(dir, "old.txt")
-		req := httptest.NewRequest("POST", "/files/content?path="+p, strings.NewReader("post data"))
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		if w.Code != http.StatusMethodNotAllowed {
-			t.Logf("POST /api/files/content returned %d (expected 405)", w.Code)
+		if view := decodeView(t, w); view.Content != "via router" {
+			t.Errorf("content = %q, want %q", view.Content, "via router")
 		}
 	})
 

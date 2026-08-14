@@ -7,8 +7,6 @@ interface FileTabsProps {
   activeFilePath: string | null;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
-  /** Paths whose read failed — marked so a failure is visible from any tab. */
-  erroredPaths?: Set<string>;
 }
 
 export function FileTabs({
@@ -16,7 +14,6 @@ export function FileTabs({
   activeFilePath,
   onSelect,
   onClose,
-  erroredPaths,
 }: FileTabsProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeTabRef = useRef<HTMLDivElement>(null);
@@ -41,7 +38,6 @@ export function FileTabs({
     >
       {paths.map((path) => {
         const isActive = path === activeFilePath;
-        const hasError = erroredPaths?.has(path) ?? false;
         const fileName = path.split("/").pop() || path;
 
         return (
@@ -68,13 +64,6 @@ export function FileTabs({
           >
             <File className="text-muted-foreground h-3.5 w-3.5 flex-shrink-0" />
             <span className="max-w-[120px] truncate">{fileName}</span>
-            {hasError && (
-              <span
-                role="img"
-                aria-label={`${fileName} failed to load`}
-                className="bg-destructive h-2 w-2 flex-shrink-0 rounded-full"
-              />
-            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
