@@ -106,6 +106,21 @@ describe("SessionSummary", () => {
     expect(screen.getByTestId("session-summary").textContent).toBe("");
   });
 
+  it("stays blank when the status map covers only some of the listed sessions", () => {
+    // The gap between the two polls: creating a session invalidates the session
+    // list but not the statuses, so the new row arrives uncovered while the
+    // others keep their entries. A map that is merely non-empty proves nothing
+    // about the session actually on screen.
+    render(
+      <SessionSummary
+        sessions={[{ id: "a" }, { id: "b" }]}
+        sessionStatuses={{ a: status() }}
+        sessionsLoaded
+      />,
+    );
+    expect(screen.getByTestId("session-summary").textContent).toBe("");
+  });
+
   it("stays blank rather than claiming there are no sessions before the list arrives", () => {
     render(<SessionSummary sessions={[]} sessionStatuses={{}} sessionsLoaded={false} />);
     expect(screen.getByTestId("session-summary").textContent).toBe("");

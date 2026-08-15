@@ -10,7 +10,7 @@ import {
 import { useMarkRead, useMarkUnread } from "@/data/statuses/queries";
 
 export function useSessions() {
-  const { data, isSuccess, isError, error, refetch } = useSessionsQuery();
+  const { data, isLoadingError, error, refetch } = useSessionsQuery();
   const sessions: Session[] = data?.sessions ?? [];
   const homeDir: string = data?.home_dir ?? "";
 
@@ -80,12 +80,19 @@ export function useSessions() {
   return {
     sessions,
     homeDir,
-    isLoaded: isSuccess,
     // Surfaced so the sidebar can tell "no sessions" apart from "not yet known".
     // Until the first fetch settles, an empty list is the absence of an answer,
     // not an answer.
-    isError,
-    errorMessage: error?.message,
+    //
+    // Both flags key off whether we hold data, not off query status. The list
+    // polls every 10s, and a failed poll leaves `status: "error"` sitting on top
+    // of a perfectly good cached list — so reading `isSuccess`/`isError` would
+    // tear the whole sidebar down and show a retry screen every time a remote
+    // node blinked. `isLoadingError` is the narrower flag: an error with nothing
+    // cached behind it, which is the only case where there's nothing to show.
+    isLoaded: data !== undefined,
+    isError: isLoadingError,
+    errorMessage: isLoadingError ? error?.message : undefined,
     retry: refetch,
     deleteSession,
     renameSession,

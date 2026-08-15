@@ -65,11 +65,18 @@ export function SessionSummary({
 }) {
   const { active, unread, total } = countSessions(sessions, sessionStatuses);
 
-  // An empty status map means "not fetched yet", never "everything is idle":
-  // the endpoint builds its response from the DB session list and defaults
-  // uncovered sessions to idle rather than omitting them (`api/status.go`), so
-  // a successful fetch always covers every listed session.
-  const statusesKnown = Object.keys(sessionStatuses).length > 0;
+  // A session with no status entry is unknown, never idle: the endpoint builds
+  // its response from the DB session list and defaults uncovered sessions to
+  // idle rather than omitting them (`api/status.go`), so a fetch that has landed
+  // covers every session it knew about.
+  //
+  // It has to be per-session rather than "did any status arrive". The two
+  // queries poll independently and only the session list is invalidated on
+  // create/delete (`data/sessions/queries.ts`), so a new session joins the list
+  // carrying no status while the others still have theirs — a non-empty map that
+  // doesn't cover what's on screen. Counting through that gap is how the line
+  // would claim an all-clear for a session it has never heard of.
+  const statusesCoverSessions = sessions.every((s) => sessionStatuses[s.id] !== undefined);
 
   // Zero segments are dropped rather than printed as "0 active", so the line
   // stays scannable. Both empty states are real and distinct: nothing to do yet
@@ -84,7 +91,7 @@ export function SessionSummary({
     body = null;
   } else if (total === 0) {
     body = "No sessions";
-  } else if (!statusesKnown) {
+  } else if (!statusesCoverSessions) {
     body = null;
   } else if (active === 0 && unread === 0) {
     body = "All caught up";
