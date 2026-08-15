@@ -67,10 +67,10 @@ export function MobileNodePanel({
             const status = nodeStatus(n);
             const active = n.id === activeNodeId;
             const attention = n.summary?.attention ?? 0;
-            // Mirror the desktop rail's working ring (NodeTile): a busy peer
-            // announces itself with the spinning halo. The active node conveys
-            // its state through selection, so it never shows the ring.
-            const working = !active && n.online && (n.summary?.busy ?? 0) > 0;
+            // Mirror the desktop rail's working ring (NodeTile): any busy node
+            // announces itself with the spinning halo, the current one included
+            // — the row's selected background already carries currency.
+            const working = n.online && (n.summary?.busy ?? 0) > 0;
             // Only Custom (manual) nodes can be renamed/removed.
             const editable = n.source === "manual";
             return (
@@ -95,9 +95,8 @@ export function MobileNodePanel({
                 <span className="relative flex-shrink-0">
                   <NodeAvatar node={n} size={36} className={cn(working && "node-working")} />
                   {/* The active node keeps its unread badge — sessions on it can
-                      still need attention while you're in another session — even
-                      though selection suppresses its working ring above. Matches
-                      the desktop rail (NodeTile). */}
+                      still need attention while you're in another session.
+                      Matches the desktop rail (NodeTile). */}
                   {n.online && attention > 0 && (
                     <UnreadBadge count={attention} data-testid={`node-row-attention-${n.id}`} />
                   )}

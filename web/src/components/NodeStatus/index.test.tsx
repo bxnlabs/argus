@@ -121,7 +121,7 @@ describe("NodeStatus", () => {
     ...base, self: false, source: "manual", ...over,
   });
 
-  it("sums unread across the other online nodes while the rail is collapsed", () => {
+  it("rings the bell when other online nodes have unread, without printing a count", () => {
     renderWithNodes(
       [
         { ...base, summary: { attention: 1, busy: 0, total: 1 } }, // active — excluded
@@ -131,8 +131,41 @@ describe("NodeStatus", () => {
       "local",
       false,
     );
-    // 2 + 3 from the peers; the active node's own 1 is not counted.
-    expect(screen.getByTestId("node-status-attention").textContent).toBe("5");
+    const bell = screen.getByTestId("node-status-attention");
+    // A number pinned to the current node's avatar reads as *its* unread count,
+    // which is exactly what it isn't — so the bell carries no digits at all.
+    expect(bell.textContent).toBe("");
+  });
+
+  it("names the waiting count in the bell's accessible label", () => {
+    renderWithNodes(
+      [
+        { ...base, summary: { attention: 1, busy: 0, total: 1 } }, // active — excluded
+        peer({ id: "m1", summary: { attention: 2, busy: 0, total: 2 } }),
+        peer({ id: "m2", summary: { attention: 3, busy: 0, total: 3 } }),
+      ],
+      "local",
+      false,
+    );
+    // A glyph tells a screen reader nothing, so the count the badge dropped
+    // survives in the label: 2 + 3 from the peers, never the active node's own 1.
+    const label = screen.getByTestId("node-status").getAttribute("aria-label") ?? "";
+    expect(label).toContain("5 unread on other nodes");
+  });
+
+  it("says one node in the singular", () => {
+    renderWithNodes(
+      [{ ...base }, peer({ id: "m1", summary: { attention: 1, busy: 0, total: 1 } })],
+      "local",
+      false,
+    );
+    const label = screen.getByTestId("node-status").getAttribute("aria-label") ?? "";
+    expect(label).toContain("1 unread on another node");
+  });
+
+  it("leaves the label free of unread wording when nothing is waiting", () => {
+    renderWithNodes([{ ...base }, peer({ id: "m1" })], "local", false);
+    expect(screen.getByTestId("node-status").getAttribute("aria-label")).not.toContain("unread");
   });
 
   it("omits offline nodes from the aggregate and hides the badge at zero", () => {

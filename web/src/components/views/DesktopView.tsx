@@ -12,6 +12,7 @@ import { QuickSwitcher } from "@/components/QuickSwitcher";
 import { cn } from "@/lib/utils";
 import { NodeRail } from "@/components/NodeRail";
 import { NodeStatus } from "@/components/NodeStatus";
+import { SessionSummary } from "@/components/SessionSummary";
 import type { ViewProps } from "./types";
 
 export function DesktopView({
@@ -94,6 +95,13 @@ export function DesktopView({
               )}
             </Tooltip>
           </div>
+          {/* Rollup of the sessions listed below — collapsed sidebar has no room
+              for it, and no list for it to describe. */}
+          {sidebarOpen && (
+            <div className="mt-1.5 pl-10">
+              <SessionSummary sessions={sessions} sessionStatuses={sessionStatuses} />
+            </div>
+          )}
         </div>
 
         {/* Nav items */}

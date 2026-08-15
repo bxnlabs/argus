@@ -88,27 +88,29 @@ describe("MobileNodePanel", () => {
     expect(screen.getByText("Add node")).toBeTruthy();
   });
 
-  it("shows the working ring on a busy peer, matching the desktop rail", () => {
+  it("shows the working ring on every busy node, the current one included", () => {
     const busy: NodeWithStatus = {
       id: "m2", name: "gpu", url: "http://gpu", source: "discovered",
       self: false, summary: { attention: 0, busy: 2, total: 2 }, online: true, pending: false,
     };
+    const busyLocal: NodeWithStatus = { ...local, summary: { attention: 0, busy: 1, total: 3 } };
     render(
       <QueryClientProvider client={new QueryClient()}>
         <NodeContext.Provider
           value={{
-            nodes: [local, busy], isLoaded: true, activeNodeId: "local",
-            activeNode: local, setActiveNode: vi.fn(),
+            nodes: [busyLocal, busy], isLoaded: true, activeNodeId: "local",
+            activeNode: busyLocal, setActiveNode: vi.fn(),
           }}
         >
           <MobileNodePanel open onClose={vi.fn()} onDismiss={vi.fn()} />
         </NodeContext.Provider>
       </QueryClientProvider>,
     );
-    // The busy, non-active, online peer carries the spinning ring...
+    // The busy online peer carries the spinning ring...
     expect(screen.getByTestId("node-row-m2").querySelector(".node-working")).not.toBeNull();
-    // ...while the active node (you're already looking at it) never does.
-    expect(screen.getByTestId("node-row-local").querySelector(".node-working")).toBeNull();
+    // ...and so does the current node: selection is conveyed separately, so the
+    // ring is free to answer "is this node working?" everywhere.
+    expect(screen.getByTestId("node-row-local").querySelector(".node-working")).not.toBeNull();
   });
 
   it("shows the unread badge on the active node too, matching the desktop rail", () => {

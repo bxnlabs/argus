@@ -211,9 +211,15 @@ export const SessionItem = memo(function SessionItem({
         }
       }}
     >
-      {/* Active session indicator pill — anchored to left border */}
+      {/* Active session indicator pill — anchored to left border. White is the
+          shared currency color across the session list, node rail, and view-mode
+          rail, which leaves blue to mean "unread" on its own. */}
       {isActive && (
-        <span aria-hidden="true" className="bg-primary absolute left-0 top-0 h-full w-1 rounded-full" />
+        <span
+          aria-hidden="true"
+          data-testid="session-pill"
+          className="absolute left-0 top-0 h-full w-1 rounded-full bg-white"
+        />
       )}
       {/* Session info — name, status, directory, branch */}
       <div className="min-w-0 flex-1">

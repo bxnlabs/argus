@@ -72,6 +72,49 @@ describe("NodeRail", () => {
     expect(screen.getByTestId("node-tile-m1").getAttribute("data-online")).toBe("false");
   });
 
+  it("marks the current node with a currency pill, and only that one", () => {
+    renderRail(
+      [
+        { ...base, id: "local", self: true },
+        { ...base, id: "m1", name: "gpu" },
+      ],
+      "local",
+    );
+    expect(screen.getByTestId("node-pill-local")).toBeTruthy();
+    expect(screen.queryByTestId("node-pill-m1")).toBeNull();
+  });
+
+  it("leaves every tile the same border, so the pill alone carries currency", () => {
+    renderRail(
+      [
+        { ...base, id: "local", self: true },
+        { ...base, id: "m1", name: "gpu" },
+      ],
+      "local",
+    );
+    // The active tile used to spend its border on selection (border-white),
+    // which is what kept the working ring off it. The pill frees the border,
+    // so both tiles now share the 3px transparent one the ring offsets past.
+    expect(screen.getByTestId("node-tile-local").className).not.toContain("border-white");
+    expect(screen.getByTestId("node-tile-m1").className).not.toContain("border-white");
+  });
+
+  it("dims the current node when it goes offline", () => {
+    // The white border used to exempt the active tile from dimming to stay
+    // crisp; with the pill carrying currency, an offline current node can look
+    // offline like any other.
+    renderRail([{ ...base, id: "local", self: true, online: false }], "local");
+    expect(screen.getByTestId("node-tile-local").className).toContain("opacity-40");
+  });
+
+  it("runs the working ring on the current node when it's busy", () => {
+    renderRail(
+      [{ ...base, id: "local", self: true, summary: { attention: 0, busy: 1, total: 2 } }],
+      "local",
+    );
+    expect(screen.getByTestId("node-tile-local").className).toContain("node-working");
+  });
+
   it("offsets the working ring past the tile border on a busy peer", () => {
     renderRail(
       [
