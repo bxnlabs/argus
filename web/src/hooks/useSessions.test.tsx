@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StubNodeProvider } from "@/test/node-context";
 import { useSessions } from "./useSessions";
@@ -19,7 +19,14 @@ let respond: () => Response;
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async () => respond()));
 });
-afterEach(() => vi.unstubAllGlobals());
+// Explicit unmount: the suite doesn't run with Vitest globals, so Testing
+// Library never registers its automatic cleanup. Leaving the hook mounted would
+// leave a live query observer polling on a 10s interval into the next test —
+// and past the point where fetch is still stubbed.
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const ok = (sessions: unknown[]) =>
   new Response(JSON.stringify({ sessions, home_dir: "/home/u" }), { status: 200 });
