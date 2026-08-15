@@ -57,18 +57,35 @@ function Segment({ count, label, dot }: { count: number; label: string; dot: str
 export function SessionSummary({
   sessions,
   sessionStatuses,
+  sessionsLoaded,
 }: {
   sessions: Pick<Session, "id">[];
   sessionStatuses: Record<string, SessionStatusInfo>;
+  sessionsLoaded: boolean;
 }) {
   const { active, unread, total } = countSessions(sessions, sessionStatuses);
+
+  // An empty status map means "not fetched yet", never "everything is idle":
+  // the endpoint builds its response from the DB session list and defaults
+  // uncovered sessions to idle rather than omitting them (`api/status.go`), so
+  // a successful fetch always covers every listed session.
+  const statusesKnown = Object.keys(sessionStatuses).length > 0;
 
   // Zero segments are dropped rather than printed as "0 active", so the line
   // stays scannable. Both empty states are real and distinct: nothing to do yet
   // vs. nothing left to do.
+  //
+  // Neither can be claimed before the data backing it lands. Unknown renders as
+  // nothing at all — the same answer the rows below give, where an absent status
+  // takes the muted, unlabeled fallback (`getStatusMeta`) instead of guessing.
+  // The wrapper's fixed height holds the line's place while it's blank.
   let body;
-  if (total === 0) {
+  if (!sessionsLoaded) {
+    body = null;
+  } else if (total === 0) {
     body = "No sessions";
+  } else if (!statusesKnown) {
+    body = null;
   } else if (active === 0 && unread === 0) {
     body = "All caught up";
   } else {

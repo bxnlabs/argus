@@ -10,6 +10,14 @@ export interface ViewProps {
   homeDir: string;
   sessionStatuses: Record<string, SessionStatusInfo>;
 
+  // Settled-ness of the sessions fetch. The sidebar's list and its summary line
+  // both need to tell an empty list apart from an unanswered one, so neither
+  // claims "no sessions" while the first fetch is still in flight.
+  sessionsLoaded: boolean;
+  sessionsError: boolean;
+  sessionsErrorMessage?: string;
+  onRetrySessions: () => void;
+
   // Sidebar
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;

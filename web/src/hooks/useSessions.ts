@@ -10,7 +10,7 @@ import {
 import { useMarkRead, useMarkUnread } from "@/data/statuses/queries";
 
 export function useSessions() {
-  const { data, isSuccess } = useSessionsQuery();
+  const { data, isSuccess, isError, error, refetch } = useSessionsQuery();
   const sessions: Session[] = data?.sessions ?? [];
   const homeDir: string = data?.home_dir ?? "";
 
@@ -81,6 +81,12 @@ export function useSessions() {
     sessions,
     homeDir,
     isLoaded: isSuccess,
+    // Surfaced so the sidebar can tell "no sessions" apart from "not yet known".
+    // Until the first fetch settles, an empty list is the absence of an answer,
+    // not an answer.
+    isError,
+    errorMessage: error?.message,
+    retry: refetch,
     deleteSession,
     renameSession,
     changeProfile,

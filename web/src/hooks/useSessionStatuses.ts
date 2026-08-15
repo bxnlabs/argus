@@ -11,6 +11,5 @@ interface UseSessionStatusesOptions {
 }
 
 export function useSessionStatuses({ sessions, activeSessionId, checkStateChanges }: UseSessionStatusesOptions) {
-  const { sessionStatuses } = useSessionStatusesQuery({ sessions, activeSessionId, checkStateChanges });
-  return { sessionStatuses };
+  return useSessionStatusesQuery({ sessions, activeSessionId, checkStateChanges });
 }

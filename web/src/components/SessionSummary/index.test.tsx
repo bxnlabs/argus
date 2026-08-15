@@ -47,6 +47,8 @@ describe("countSessions", () => {
   });
 
   it("treats a session with no status entry as neither active nor unread", () => {
+    // Counting only tallies what it can see. Deciding whether an all-zero tally
+    // means "caught up" or "not known yet" is SessionSummary's job, below.
     const counts = countSessions([{ id: "a" }], {});
     expect(counts).toEqual({ active: 0, unread: 0, total: 1 });
   });
@@ -62,6 +64,7 @@ describe("SessionSummary", () => {
           b: status({ status: "active" }),
           c: status({ unreadSince: "2026-01-01 00:00:00" }),
         }}
+        sessionsLoaded
       />,
     );
     expect(screen.getByTestId("session-summary").textContent).toBe("2 active · 1 unread");
@@ -72,6 +75,7 @@ describe("SessionSummary", () => {
       <SessionSummary
         sessions={[{ id: "a" }]}
         sessionStatuses={{ a: status({ unreadSince: "2026-01-01 00:00:00" }) }}
+        sessionsLoaded
       />,
     );
     expect(screen.getByTestId("session-summary").textContent).toBe("1 unread");
@@ -79,14 +83,32 @@ describe("SessionSummary", () => {
 
   it("says you're caught up when sessions exist but none want you", () => {
     render(
-      <SessionSummary sessions={[{ id: "a" }]} sessionStatuses={{ a: status() }} />,
+      <SessionSummary
+        sessions={[{ id: "a" }]}
+        sessionStatuses={{ a: status() }}
+        sessionsLoaded
+      />,
     );
     expect(screen.getByTestId("session-summary").textContent).toBe("All caught up");
   });
 
   it("says there are no sessions rather than claiming you're caught up", () => {
-    render(<SessionSummary sessions={[]} sessionStatuses={{}} />);
+    render(<SessionSummary sessions={[]} sessionStatuses={{}} sessionsLoaded />);
     expect(screen.getByTestId("session-summary").textContent).toBe("No sessions");
+  });
+
+  it("stays blank rather than claiming you're caught up before statuses arrive", () => {
+    // The window between the sessions fetch landing and the status fetch (which
+    // is only enabled once sessions exist) settling — and where it stays if the
+    // status request keeps failing. Zero active and zero unread here is the
+    // absence of an answer, not an all-clear.
+    render(<SessionSummary sessions={[{ id: "a" }]} sessionStatuses={{}} sessionsLoaded />);
+    expect(screen.getByTestId("session-summary").textContent).toBe("");
+  });
+
+  it("stays blank rather than claiming there are no sessions before the list arrives", () => {
+    render(<SessionSummary sessions={[]} sessionStatuses={{}} sessionsLoaded={false} />);
+    expect(screen.getByTestId("session-summary").textContent).toBe("");
   });
 
   it("colors the dots to match the session rows they summarize", () => {
@@ -97,6 +119,7 @@ describe("SessionSummary", () => {
           a: status({ status: "active" }),
           b: status({ unreadSince: "2026-01-01 00:00:00" }),
         }}
+        sessionsLoaded
       />,
     );
     // Same tokens the rows use: green for a running session (getStatusMeta),

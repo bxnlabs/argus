@@ -13,6 +13,10 @@ export function MobileView({
   sessions,
   homeDir,
   sessionStatuses,
+  sessionsLoaded,
+  sessionsError,
+  sessionsErrorMessage,
+  onRetrySessions,
   sidebarOpen,
   setSidebarOpen,
   railOpen,
@@ -85,7 +89,11 @@ export function MobileView({
                   {/* Rollup of the sessions listed below, matching the desktop
                       sidebar header. */}
                   <div className="mt-1.5 pl-10">
-                    <SessionSummary sessions={sessions} sessionStatuses={sessionStatuses} />
+                    <SessionSummary
+                      sessions={sessions}
+                      sessionStatuses={sessionStatuses}
+                      sessionsLoaded={sessionsLoaded}
+                    />
                   </div>
                 </div>
 
@@ -122,6 +130,10 @@ export function MobileView({
                       homeDir={homeDir}
                       activeSessionId={activeTab?.sessionId || undefined}
                       sessionStatuses={sessionStatuses}
+                      isLoading={!sessionsLoaded && !sessionsError}
+                      isError={sessionsError}
+                      errorMessage={sessionsErrorMessage}
+                      onRetry={onRetrySessions}
                       onAttachSession={handleAttachSession}
                       onDeleteSession={onDeleteSession}
                       onRenameSession={onRenameSession}

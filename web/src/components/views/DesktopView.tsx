@@ -19,6 +19,10 @@ export function DesktopView({
   sessions,
   homeDir,
   sessionStatuses,
+  sessionsLoaded,
+  sessionsError,
+  sessionsErrorMessage,
+  onRetrySessions,
   sidebarOpen,
   setSidebarOpen,
   railOpen,
@@ -99,7 +103,11 @@ export function DesktopView({
               for it, and no list for it to describe. */}
           {sidebarOpen && (
             <div className="mt-1.5 pl-10">
-              <SessionSummary sessions={sessions} sessionStatuses={sessionStatuses} />
+              <SessionSummary
+                sessions={sessions}
+                sessionStatuses={sessionStatuses}
+                sessionsLoaded={sessionsLoaded}
+              />
             </div>
           )}
         </div>
@@ -152,6 +160,10 @@ export function DesktopView({
                 homeDir={homeDir}
                 activeSessionId={activeTab?.sessionId || undefined}
                 sessionStatuses={sessionStatuses}
+                isLoading={!sessionsLoaded && !sessionsError}
+                isError={sessionsError}
+                errorMessage={sessionsErrorMessage}
+                onRetry={onRetrySessions}
                 onAttachSession={handleAttachSession}
                 onDeleteSession={onDeleteSession}
                 onRenameSession={onRenameSession}
