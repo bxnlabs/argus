@@ -59,12 +59,12 @@ describe("useSessionDeepLink", () => {
     expect(currentParam()).toBe("s1");
   });
 
-  // The regression this exists for. `sessionsLoaded` is TanStack's `isSuccess`,
-  // true the moment a *cached* list is available with a refetch still in
-  // flight — which is exactly the state a workspace remounts into when the
-  // "Open" action on a create/clone toast switches back to the node that owns
-  // the session. Consuming the param on that first miss dropped the request
-  // for good, and the toast was the only affordance the user had.
+  // The regression this exists for. `sessionsLoaded` tracks whether the list
+  // query holds data, true the moment a *cached* list is available with a
+  // refetch still in flight — which is exactly the state a workspace remounts
+  // into when the "Open" action on a create/clone toast switches back to the
+  // node that owns the session. Consuming the param on that first miss dropped
+  // the request for good, and the toast was the only affordance the user had.
   it("keeps the param when the session is not in the list yet, and attaches once it appears", () => {
     setParam("s-new");
     const onAttach = vi.fn();
