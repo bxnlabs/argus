@@ -7,7 +7,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn, formatRelativeTime, compressPath } from "@/lib/utils";
-import { Terminal, Clock, Check, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Terminal, Clock, X } from "lucide-react";
 import type { Session } from "@/types";
 import { useViewport } from "@/hooks/useViewport";
 
@@ -171,12 +172,19 @@ export function QuickSwitcher({
                       onSelectSession(session.id);
                       onOpenChange(false);
                     }}
+                    // The row wash is the keyboard cursor and nothing else. It
+                    // used to double as a current-session marker in
+                    // `bg-primary/10`, which cost twice: blue is unread's color
+                    // elsewhere in the app, and since `cn` runs tailwind-merge
+                    // the later background silently dropped `bg-accent` — so
+                    // arrowing onto the current row changed nothing on screen
+                    // and the cursor vanished on exactly one row. The "Current"
+                    // chip carries that meaning now, where it can't collide.
                     className={cn(
                       "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors",
                       index === selectedIndex
                         ? "bg-accent"
                         : "hover:bg-accent/50",
-                      isCurrent && "bg-primary/10"
                     )}
                   >
                     {/* Icon */}
@@ -192,11 +200,18 @@ export function QuickSwitcher({
                         </span>
                         {/* White for the same reason the node panel's check is
                             (MobileNodePanel): "you're on this one" reads white
-                            app-wide, leaving blue to mean unread. The row's own
-                            tint stays as it is — it's what separates the current
-                            session from the one the arrow keys are sitting on. */}
+                            app-wide, leaving blue to mean unread. Says it in
+                            words rather than a check because this row sits in a
+                            list you're picking *from* — a bare tick reads as
+                            "chosen" as easily as "current". Outlined chip at
+                            text-[10px] is the house style (ProviderBadge). */}
                         {isCurrent && (
-                          <Check className="h-3.5 w-3.5 flex-shrink-0 text-white" />
+                          <Badge
+                            variant="outline"
+                            className="flex-shrink-0 border-current px-1 py-0 text-[10px] font-medium text-white"
+                          >
+                            Current
+                          </Badge>
                         )}
                       </div>
                       <div className="text-muted-foreground flex items-center gap-2 text-xs">
