@@ -20,9 +20,6 @@ export function DesktopView({
   homeDir,
   sessionStatuses,
   sessionsLoaded,
-  sessionsError,
-  sessionsErrorMessage,
-  onRetrySessions,
   sidebarOpen,
   setSidebarOpen,
   railOpen,
@@ -160,10 +157,7 @@ export function DesktopView({
                 homeDir={homeDir}
                 activeSessionId={activeTab?.sessionId || undefined}
                 sessionStatuses={sessionStatuses}
-                isLoading={!sessionsLoaded && !sessionsError}
-                isError={sessionsError}
-                errorMessage={sessionsErrorMessage}
-                onRetry={onRetrySessions}
+                isLoading={!sessionsLoaded}
                 onAttachSession={handleAttachSession}
                 onDeleteSession={onDeleteSession}
                 onRenameSession={onRenameSession}

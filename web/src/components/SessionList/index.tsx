@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, AlertCircle, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight, Copy, Loader2 } from "lucide-react";
+import { Plus, Ellipsis, Pencil, Trash2, Folder, FolderGit2, GitBranch, BrushCleaning, Settings2, Pin, MailOpen, Mail, Info, ChevronRight, Copy, Loader2 } from "lucide-react";
 import { cn, formatRelativeTime, compressPath, parseRepoFromRemoteURL } from "@/lib/utils";
 import { getStatusMeta } from "@/lib/sessionStatus";
 import type { Session, SessionStatusInfo } from "@/types";
@@ -89,6 +89,39 @@ export function resolveRowDisplay(
     ...resolveStatusDisplay(statusValue, unreadSince, userMarkedUnreadAt),
     spinner: false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// SessionListSkeleton
+// ---------------------------------------------------------------------------
+
+// Placeholder rows for a list that hasn't arrived yet. Mirrors SessionItem's
+// geometry — same px-2 py-2, a name line over a dot-and-detail line — so
+// nothing shifts when the real rows replace it. Widths are staggered so it
+// reads as content taking shape rather than as a progress bar. Same muted
+// pulse the editor uses while a file loads (FileExplorer's EditorSkeleton).
+const SKELETON_WIDTHS = [82, 54, 71, 44, 63];
+
+export function SessionListSkeleton() {
+  return (
+    <div role="status" aria-label="Loading sessions" data-testid="session-list-skeleton">
+      {SKELETON_WIDTHS.map((w, i) => (
+        <div key={i} className="flex flex-col gap-1.5 px-2 py-2">
+          <div
+            className="bg-muted h-3 animate-pulse rounded"
+            style={{ width: `${w}%` }}
+          />
+          <div className="flex items-center gap-1.5">
+            <div className="bg-muted h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full" />
+            <div
+              className="bg-muted h-2 animate-pulse rounded"
+              style={{ width: `${Math.round(w * 0.55)}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -455,8 +488,6 @@ interface SessionListProps {
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatusInfo>;
   isLoading?: boolean;
-  isError?: boolean;
-  errorMessage?: string;
   onAttachSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, deleteBranch?: boolean) => void;
   onCloneSession: (sessionId: string) => void;
@@ -467,7 +498,6 @@ interface SessionListProps {
   onChangeProfile: (session: Session) => void;
   onViewInfo: (session: Session) => void;
   onNewSession: () => void;
-  onRetry?: () => void;
 }
 
 export const SessionList = memo(function SessionList({
@@ -476,8 +506,6 @@ export const SessionList = memo(function SessionList({
   activeSessionId,
   sessionStatuses,
   isLoading,
-  isError,
-  errorMessage,
   onAttachSession,
   onDeleteSession,
   onCloneSession,
@@ -488,7 +516,6 @@ export const SessionList = memo(function SessionList({
   onChangeProfile,
   onViewInfo,
   onNewSession,
-  onRetry,
 }: SessionListProps) {
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
     null
@@ -594,35 +621,15 @@ export const SessionList = memo(function SessionList({
       {/* Session list */}
       <ScrollArea className="w-full flex-1">
         <div className="max-w-full space-y-0.5 px-1.5 py-1">
-          {/* Loading state */}
-          {isLoading && (
-            <div className="flex flex-col items-center justify-center px-4 py-12">
-              <div className="text-muted-foreground text-sm">
-                Loading sessions...
-              </div>
-            </div>
-          )}
+          {/* Waiting on the list — including when the last attempt failed. A
+              fetch that errored is still a fetch in progress here: the query
+              keeps polling, so the placeholder rows stay up and the failure is
+              announced by a toast rather than by replacing the list with a
+              retry screen. */}
+          {isLoading && <SessionListSkeleton />}
 
-          {/* Error state */}
-          {isError && !isLoading && (
-            <div className="flex flex-col items-center justify-center px-4 py-12">
-              <AlertCircle className="text-destructive/50 mb-3 h-10 w-10" />
-              <p className="text-destructive mb-2 text-sm">
-                Failed to load sessions
-              </p>
-              <p className="text-muted-foreground mb-4 text-xs">
-                {errorMessage || "Unknown error"}
-              </p>
-              {onRetry && (
-                <Button variant="outline" onClick={onRetry} className="gap-2">
-                  Retry
-                </Button>
-              )}
-            </div>
-          )}
-
-          {/* Empty state */}
-          {!isLoading && !isError && sessions.length === 0 && (
+          {/* Empty state — only once a list has actually arrived and is empty */}
+          {!isLoading && sessions.length === 0 && (
             <div className="flex flex-col items-center justify-center px-4 py-12">
               <p className="text-muted-foreground mb-4 text-center text-sm">
                 No sessions yet. Create one to get started.
@@ -635,7 +642,7 @@ export const SessionList = memo(function SessionList({
           )}
 
           {/* Pinned section — only when at least one session is pinned */}
-          {!isLoading && !isError && pinned.length > 0 && (
+          {!isLoading && pinned.length > 0 && (
             <>
               <SectionHeader
                 collapsed={sectionCollapse.pinned}
@@ -648,7 +655,7 @@ export const SessionList = memo(function SessionList({
           )}
 
           {/* Recents section — the rest */}
-          {!isLoading && !isError && rest.length > 0 && (
+          {!isLoading && rest.length > 0 && (
             <>
               <SectionHeader
                 collapsed={sectionCollapse.recents}

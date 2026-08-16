@@ -1,4 +1,5 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import type { Session } from "@/types";
 import {
   useSessionsQuery,
@@ -10,7 +11,7 @@ import {
 import { useMarkRead, useMarkUnread } from "@/data/statuses/queries";
 
 export function useSessions() {
-  const { data, isLoadingError, error, refetch } = useSessionsQuery();
+  const { data, isError } = useSessionsQuery();
   const sessions: Session[] = data?.sessions ?? [];
   const homeDir: string = data?.home_dir ?? "";
 
@@ -77,23 +78,35 @@ export function useSessions() {
     await markUnreadRef.current(sessionId);
   }, []);
 
+  // A failed fetch is announced, not rendered: the list keeps its placeholder
+  // rows and the query keeps polling on its own interval, so there's nothing to
+  // retry by hand and nothing worth taking the sidebar over for.
+  //
+  // Fires on the transition into failure, not on every failed poll — otherwise
+  // an unreachable node would emit a toast every 10s for as long as it stayed
+  // down. Re-arms once a fetch succeeds, so a second outage is announced again.
+  const announcedFailure = useRef(false);
+  useEffect(() => {
+    if (isError && !announcedFailure.current) {
+      announcedFailure.current = true;
+      toast.error("Can't reach this node — retrying…", { id: "sessions-fetch" });
+    } else if (!isError && announcedFailure.current) {
+      announcedFailure.current = false;
+    }
+  }, [isError]);
+
   return {
     sessions,
     homeDir,
     // Surfaced so the sidebar can tell "no sessions" apart from "not yet known".
-    // Until the first fetch settles, an empty list is the absence of an answer,
+    // Until the first fetch lands, an empty list is the absence of an answer,
     // not an answer.
     //
-    // Both flags key off whether we hold data, not off query status. The list
-    // polls every 10s, and a failed poll leaves `status: "error"` sitting on top
-    // of a perfectly good cached list — so reading `isSuccess`/`isError` would
-    // tear the whole sidebar down and show a retry screen every time a remote
-    // node blinked. `isLoadingError` is the narrower flag: an error with nothing
-    // cached behind it, which is the only case where there's nothing to show.
+    // Keyed off holding data rather than query status: the list polls every 10s,
+    // and a failed poll leaves `status: "error"` sitting on top of a perfectly
+    // good cached list, so `isSuccess` would drop the whole sidebar back to
+    // placeholders every time a remote node blinked.
     isLoaded: data !== undefined,
-    isError: isLoadingError,
-    errorMessage: isLoadingError ? error?.message : undefined,
-    retry: refetch,
     deleteSession,
     renameSession,
     changeProfile,
