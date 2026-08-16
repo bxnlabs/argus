@@ -29,6 +29,20 @@ describe("ViewModeRail currency pill", () => {
     expect(pills[0].className).toContain("bg-white");
   });
 
+  it("dims every mode but the active one", () => {
+    // Contrast is the second half of the currency signal: the pill says which
+    // mode is current, and the dimming keeps the other two from competing for
+    // the same glance.
+    const { container } = renderRail("git");
+    const dimmed = (label: string) =>
+      container
+        .querySelector(`[aria-label^='${label}']`)!
+        .className.includes("text-muted-foreground");
+    expect(dimmed("Git")).toBe(false);
+    expect(dimmed("Terminal")).toBe(true);
+    expect(dimmed("Editor")).toBe(true);
+  });
+
   it("moves the pill when the active view changes", () => {
     const { container } = renderRail(null);
     const terminalPill = container
