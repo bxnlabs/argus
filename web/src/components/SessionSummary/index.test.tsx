@@ -68,7 +68,28 @@ describe("SessionSummary", () => {
         sessionsLoaded
       />,
     );
-    expect(screen.getByTestId("session-summary").textContent).toBe("2 active · 1 unread");
+    // No spaces around the separator: it's a flex item, so any it carried would
+    // be trimmed away. The gap asserted below is what actually spaces the line.
+    expect(screen.getByTestId("session-summary").textContent).toBe("2 active·1 unread");
+  });
+
+  it("spaces the segments with a gap rather than whitespace flex would trim", () => {
+    // jsdom has no layout, so this can't be caught by reading the text: a " · "
+    // separator reports its spaces in textContent while rendering as a bare
+    // glyph wedged between the two segments. Assert the mechanism instead.
+    render(
+      <SessionSummary
+        sessions={[{ id: "a" }, { id: "b" }]}
+        sessionStatuses={{
+          a: status({ status: "active" }),
+          b: status({ unreadSince: "2026-01-01 00:00:00" }),
+        }}
+        sessionsLoaded
+      />,
+    );
+    const line = screen.getByTestId("session-summary");
+    expect(line.className).toMatch(/\bgap-\d/);
+    expect(line.textContent).not.toMatch(/\s·|·\s/);
   });
 
   it("drops a segment that would read zero", () => {
@@ -121,16 +142,25 @@ describe("SessionSummary", () => {
     expect(screen.getByTestId("session-summary").textContent).toBe("1 active");
   });
 
-  it("says it's loading rather than claiming there are no sessions", () => {
+  it("stays silent rather than claiming there are no sessions", () => {
+    // Not "Loading…": the placeholder rows below already say that, and a node
+    // that never answers would sit on the word forever. The node's presence dot
+    // is what distinguishes "still connecting" from "gave up".
     render(<SessionSummary sessions={[]} sessionStatuses={{}} sessionsLoaded={false} />);
-    expect(screen.getByTestId("session-summary").textContent).toBe("Loading…");
+    expect(screen.getByTestId("session-summary").textContent).toBe("");
   });
 
-  it("never renders an empty line in any state", () => {
-    // The line holds a fixed-height slot in the sidebar header; an empty one
-    // reads as breakage rather than as work in progress.
+  it("keeps its slot open while it has nothing to say", () => {
+    // The height is what stops the header from jumping when the line finally
+    // speaks, so silence has to be an empty line rather than no line.
+    render(<SessionSummary sessions={[]} sessionStatuses={{}} sessionsLoaded={false} />);
+    expect(screen.getByTestId("session-summary").className).toMatch(/\bh-\d/);
+  });
+
+  it("never renders an empty line once the list has landed", () => {
+    // The line holds a fixed-height slot in the sidebar header; going blank
+    // with an answer in hand reads as breakage rather than as work in progress.
     const states: ComponentProps<typeof SessionSummary>[] = [
-      { sessions: [], sessionStatuses: {}, sessionsLoaded: false },
       { sessions: [], sessionStatuses: {}, sessionsLoaded: true },
       { sessions: [{ id: "a" }], sessionStatuses: {}, sessionsLoaded: true },
       { sessions: [{ id: "a" }], sessionStatuses: { a: status() }, sessionsLoaded: true },

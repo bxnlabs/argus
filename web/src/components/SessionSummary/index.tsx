@@ -53,6 +53,9 @@ function Segment({ count, label, dot }: { count: number; label: string; dot: str
  * ({@link UnreadBell}). Counts come from the live session data the sidebar
  * already holds rather than the polled node summary, so the line moves the
  * moment a session changes state.
+ *
+ * Stays silent until the list lands — the placeholder rows below it and the
+ * node's presence dot cover that window between them.
  */
 export function SessionSummary({
   sessions,
@@ -72,19 +75,27 @@ export function SessionSummary({
   // measured in one round trip rather than a poll interval.
   const anyStatusKnown = Object.keys(sessionStatuses).length > 0;
 
-  // The line always says something. Going blank mid-load reads as breakage
-  // rather than as thinking, so each state below is the most specific true
-  // statement available at that moment, and staleness is left for the poll to
-  // fix. What it won't do is invent an all-clear: with no status data at all,
-  // every session would tally as neither active nor unread, so it reports the
-  // count it actually has instead of claiming you're caught up.
+  // Once the list has landed the line always says something, and each state
+  // below is the most specific true statement available at that moment;
+  // staleness is left for the poll to fix. What it won't do is invent an
+  // all-clear: with no status data at all, every session would tally as neither
+  // active nor unread, so it reports the count it actually has instead of
+  // claiming you're caught up.
+  //
+  // Before the list lands it says nothing at all. Two other things are already
+  // saying it — the placeholder rows directly below, and the node's presence
+  // dot, which goes amber while the connection is unsettled and grey once it
+  // has failed — so a "Loading…" here would be a third voice, and the one that
+  // ages worst: a node that stays down would sit on it indefinitely, narrating
+  // progress that isn't happening. The slot keeps its height either way, so
+  // nothing shifts when the line finds its words.
   //
   // Zero segments are dropped rather than printed as "0 active", so the line
   // stays scannable. Both empty states are real and distinct: nothing to do yet
   // vs. nothing left to do.
   let body;
   if (!sessionsLoaded) {
-    body = "Loading…";
+    body = null;
   } else if (total === 0) {
     body = "No sessions";
   } else if (!anyStatusKnown) {
@@ -95,7 +106,7 @@ export function SessionSummary({
     body = (
       <>
         {active > 0 && <Segment count={active} label="active" dot="bg-green-500" />}
-        {active > 0 && unread > 0 && <span aria-hidden="true">{" · "}</span>}
+        {active > 0 && unread > 0 && <span aria-hidden="true">·</span>}
         {unread > 0 && <Segment count={unread} label="unread" dot="bg-blue-500" />}
       </>
     );
@@ -104,7 +115,12 @@ export function SessionSummary({
   return (
     <div
       data-testid="session-summary"
-      className="text-muted-foreground flex h-5 items-center text-xs"
+      // The separator's breathing room is `gap`, not spaces around the glyph:
+      // every child here is a flex item, and flex trims the leading/trailing
+      // whitespace inside one, so a " · " text node collapses to a bare dot
+      // touching both segments. Separator-as-its-own-item with the gap on the
+      // row, same as QuickSwitcher's path/provider line.
+      className="text-muted-foreground flex h-5 items-center gap-2 text-xs"
     >
       {body}
     </div>
