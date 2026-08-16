@@ -37,9 +37,9 @@ function seed() {
 }
 
 describe("session membership changes", () => {
-  // The summary line reads the two together, so a membership change that
-  // refreshed only the list would leave a session on screen that no status
-  // covers — counted as neither active nor unread until the next status tick.
+  // A membership change that refreshed only the list would leave a session on
+  // screen that no status covers — the row falls back to an unlabeled muted dot
+  // until the next status tick.
   it.each([
     ["create", () => useCreateSession(), () => ({ provider_type: "claude", auto_approve: false })],
     ["clone", () => useCloneSession(), () => ({ sessionId: "a" })],

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { PanelLeftClose, SquarePen, Search } from "lucide-react";
 import { MobileNodePanel } from "@/components/NodeRail/MobileNodePanel";
 import { NodeStatus } from "@/components/NodeStatus";
-import { SessionSummary } from "@/components/SessionSummary";
 import type { ViewProps } from "./types";
 
 export function MobileView({
@@ -82,15 +81,6 @@ export function MobileView({
                     >
                       <PanelLeftClose className="h-4 w-4" />
                     </Button>
-                  </div>
-                  {/* Rollup of the sessions listed below, matching the desktop
-                      sidebar header. */}
-                  <div className="mt-1.5 pl-10">
-                    <SessionSummary
-                      sessions={sessions}
-                      sessionStatuses={sessionStatuses}
-                      sessionsLoaded={sessionsLoaded}
-                    />
                   </div>
                 </div>
 

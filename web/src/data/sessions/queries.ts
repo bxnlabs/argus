@@ -10,11 +10,11 @@ import { sessionKeys, profileKeys, statusKeys } from "./keys";
  *
  * The list and the statuses are separate polls on separate intervals, so
  * invalidating only the list puts a session on screen that no status entry
- * covers yet — and anything reading the two together (the sidebar's summary
- * line) counts it as nothing until the next status tick lands. Membership
- * changes are exactly when the two can disagree, so they refresh together.
- * Renames and profile edits don't need this: they change a session, not which
- * sessions exist.
+ * covers yet — the new row draws the unlabeled muted dot `getStatusMeta`
+ * falls back to, and holds it until the next status tick. Membership changes
+ * are exactly when the two can disagree, so they refresh together. Renames and
+ * profile edits don't need this: they change a session, not which sessions
+ * exist.
  */
 function invalidateSessionMembership(queryClient: QueryClient, scope: string) {
   queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });

@@ -10,11 +10,11 @@ export interface ViewProps {
   homeDir: string;
   sessionStatuses: Record<string, SessionStatusInfo>;
 
-  // Whether the sessions fetch has landed. The list and its summary line both
-  // need to tell an empty list apart from an unanswered one, so neither claims
-  // "no sessions" while the first fetch is still in flight. Failures don't
-  // appear here — they go to a toast (useSessions) while the list keeps its
-  // placeholder rows and keeps polling.
+  // Whether the sessions fetch has landed. The list needs to tell an empty list
+  // apart from an unanswered one, so it doesn't claim "no sessions" while the
+  // first fetch is still in flight — it holds placeholder rows instead.
+  // Failures don't appear here: they go to a toast (useSessions) while the list
+  // keeps those rows up and keeps polling.
   sessionsLoaded: boolean;
 
   // Sidebar
