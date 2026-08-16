@@ -84,6 +84,17 @@ describe("NodeRail", () => {
     expect(screen.queryByTestId("node-pill-m1")).toBeNull();
   });
 
+  it("centers the tiles and the add button on the rail's own axis", () => {
+    // The pill used to get a reserved lane (pr-2), which shrank the content box
+    // and pushed every centered child 4px off the rail's midline — tiles and
+    // add button alike. The pill overlays the centering margin instead.
+    const { container } = renderRail([{ ...base, id: "local", self: true }], "local");
+    const rail = container.querySelector("[data-testid='node-rail']")!;
+    expect(rail.className).not.toMatch(/\bp[xlr]-/);
+    expect(screen.getByTestId("node-tile-local").className).toContain("mx-auto");
+    expect(screen.getByLabelText("Add node").className).toContain("mx-auto");
+  });
+
   it("leaves every tile the same border, so the pill alone carries currency", () => {
     renderRail(
       [

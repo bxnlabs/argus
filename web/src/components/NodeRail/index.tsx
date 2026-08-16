@@ -116,15 +116,21 @@ function NodeTile({
     tile
   );
 
-  // Currency pill, anchored to the rail's outer edge and pointing at the content
-  // it selects (Discord's channel rail). Shorter than the tile so it reads as a
-  // pill rather than an edge marker, and white to match the session-list and
-  // view-mode pills — which leaves blue to mean "unread" on its own.
+  // Currency pill, anchored flush to the rail's leading edge — the app's own
+  // outer edge, furthest from the content it selects (Discord's server rail,
+  // VS Code's activity bar). White to match the session-list and view-mode
+  // pills, which leaves blue to mean "unread" on its own. Flat against that
+  // edge and rounded toward the tile, so it reads as growing inward off the
+  // border rather than floating in the margin.
   //
-  // `-right-2` reaches back across the rail's pr-2 gutter to sit flush against
-  // the divider. That gutter is what keeps the pill clear of the working ring,
-  // which extends 6px past the tile: without it the two land ~1px apart and read
-  // as a single bright smear rather than two separate signals.
+  // Deliberately short — 8px, a quarter of the tile's height — but kept at the
+  // full 4px thick. Length is what makes the mark loud; thickness is what makes
+  // it legible, and a 2px hairline reads as an artifact of the border rather
+  // than a deliberate mark. The tile is centered in the rail (see NodeRail), so
+  // there are ~11px between its edge and either border and the working ring
+  // spends the innermost 3px; at this size the pill still clears the ring by
+  // ~4px, so a busy current node reads as a green ring *and* a white pill
+  // rather than one bright smear.
   return (
     <div className="relative">
       {content}
@@ -132,7 +138,7 @@ function NodeTile({
         <span
           aria-hidden="true"
           data-testid={`node-pill-${node.id}`}
-          className="absolute -right-2 top-1/2 h-6 w-1 -translate-y-1/2 rounded-l-full bg-white"
+          className="absolute left-0 top-1/2 h-2 w-1 -translate-y-1/2 rounded-r-full bg-white"
         />
       )}
     </div>
@@ -162,10 +168,11 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
         data-testid="node-rail"
         data-side={side}
         className={cn(
-          // pr-2 reserves the pill's lane on the outer edge. Every child centers
-          // in what's left, so the tiles and the add button stay on one axis
-          // while the pill hangs out over the gutter (see NodeTile).
-          "node-rail-glass bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3 pr-2",
+          // No horizontal padding: the tiles and the add button center on the
+          // rail's own axis, and the pill overlays the margin the centering
+          // leaves rather than being given a lane of its own (see NodeTile).
+          // Reserving one shifted every tile off-center by half its width.
+          "node-rail-glass bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3",
           side === "right" ? "border-l" : "border-r",
         )}
       >
