@@ -114,8 +114,15 @@ export function MobileNodePanel({
                     {sourceLabel(n)} · {status.label}
                   </div>
                 </div>
+                {/* White, not the primary blue: currency reads white across the
+                    session list, node rail, and view-mode rail, which leaves
+                    blue to mean "unread" on its own — including on the unread
+                    badge sitting on this row's own avatar. */}
                 {active && (
-                  <Check className="text-primary h-[18px] w-[18px] flex-shrink-0" />
+                  <Check
+                    data-testid={`node-row-check-${n.id}`}
+                    className="h-[18px] w-[18px] flex-shrink-0 text-white"
+                  />
                 )}
                 {editable && (
                   <DropdownMenu>

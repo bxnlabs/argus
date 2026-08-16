@@ -190,8 +190,13 @@ export function QuickSwitcher({
                         <span className="truncate font-medium">
                           {session.name || "Unnamed Session"}
                         </span>
+                        {/* White for the same reason the node panel's check is
+                            (MobileNodePanel): "you're on this one" reads white
+                            app-wide, leaving blue to mean unread. The row's own
+                            tint stays as it is — it's what separates the current
+                            session from the one the arrow keys are sitting on. */}
                         {isCurrent && (
-                          <Check className="text-primary h-3.5 w-3.5 flex-shrink-0" />
+                          <Check className="h-3.5 w-3.5 flex-shrink-0 text-white" />
                         )}
                       </div>
                       <div className="text-muted-foreground flex items-center gap-2 text-xs">

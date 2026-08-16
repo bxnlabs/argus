@@ -86,12 +86,16 @@ export function ViewModeRail({
       aria-label="View mode"
     >
       {/* View mode icons */}
+      {/* The selected view is called out by its filled background and the white
+          pill on the border, not by tinting the icon: blue on the icon is the
+          same blue the unread badge uses, and currency reads white everywhere
+          else in the app. */}
       <RailButton
         active={isTerminalActive}
         onClick={() => onSetActivePanel(null)}
         tooltip={`Terminal (${leader} T)`}
       >
-        <TerminalIcon className={cn("h-6 w-6", isTerminalActive && "text-primary")} />
+        <TerminalIcon className="h-6 w-6" />
       </RailButton>
 
       <RailButton
@@ -100,7 +104,7 @@ export function ViewModeRail({
         onClick={() => onSetActivePanel("git")}
         tooltip={`Git (${leader} G)`}
       >
-        <GitBranch className={cn("h-6 w-6", isGitActive && "text-primary")} />
+        <GitBranch className="h-6 w-6" />
       </RailButton>
 
       <RailButton
@@ -109,7 +113,7 @@ export function ViewModeRail({
         onClick={() => onSetActivePanel("editor")}
         tooltip={`Editor (${leader} E)`}
       >
-        <FilePenLine className={cn("h-6 w-6", isEditorActive && "text-primary")} />
+        <FilePenLine className="h-6 w-6" />
       </RailButton>
 
       {/* Divider */}
