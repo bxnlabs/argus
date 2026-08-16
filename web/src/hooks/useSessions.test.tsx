@@ -17,7 +17,7 @@ function wrapper(qc: QueryClient) {
 
 // Each call decides the next response, so a test can serve a good list first and
 // fail everything after it — the shape of a node that goes unreachable mid-poll.
-let respond: () => Response;
+let respond: () => Response | Promise<Response>;
 
 beforeEach(() => {
   toastError.mockClear();
@@ -36,6 +36,13 @@ afterEach(() => {
 const ok = (sessions: unknown[]) =>
   new Response(JSON.stringify({ sessions, home_dir: "/home/u" }), { status: 200 });
 const down = () => new Response("", { status: 502 });
+// A failure that settles on a later macrotask, the way a real one does. With no
+// cached data the query's status cycles error → pending → error across a retry,
+// and an immediately-resolved failure lets React batch that pending render away
+// — so only a deferred failure exercises the window where the re-arm guard can
+// wrongly clear itself.
+const slowDown = () =>
+  new Promise<Response>((r) => setTimeout(() => r(down()), 20));
 
 const client = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -72,16 +79,45 @@ describe("useSessions", () => {
   it("announces a failure once rather than on every failed poll", async () => {
     // An unreachable node keeps polling by design. Toasting per attempt would
     // emit one every 10s for as long as it stayed down.
+    //
+    // The failures are deferred on purpose: a node that has never answered holds
+    // no cached data, so each retry drops the status back to "pending" before it
+    // errors again. Re-arming on `!isError` would clear the guard in that window
+    // and re-announce every poll. Immediately-resolved failures hide it.
     const qc = client();
-    respond = down;
+    respond = slowDown;
 
     renderHook(() => useSessions(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
 
-    await qc.refetchQueries({ queryKey: ["sessions"] });
-    await qc.refetchQueries({ queryKey: ["sessions"] });
+    // Settle between polls so React commits the intermediate render rather than
+    // batching it away — the poll interval is 10s in production, so the pending
+    // state is plainly on screen there.
+    for (let i = 0; i < 2; i++) {
+      await qc.refetchQueries({ queryKey: ["sessions"] });
+      await new Promise((r) => setTimeout(r, 30));
+    }
 
     expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("withholds roster authority while a failed refetch sits on cached data", async () => {
+    // isLoaded and isRosterAuthoritative deliberately disagree here. The list is
+    // still worth drawing, but it can't be used to conclude a session is gone —
+    // App's stale-tab cleanup detaches on absence, and this list may predate a
+    // session created just before the node stopped answering.
+    const qc = client();
+    respond = () => ok([{ id: "a", name: "one" }]);
+
+    const { result, rerender } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(result.current.isRosterAuthoritative).toBe(true));
+
+    respond = down;
+    await qc.refetchQueries({ queryKey: ["sessions"] });
+    rerender();
+
+    expect(result.current.isLoaded).toBe(true);
+    expect(result.current.isRosterAuthoritative).toBe(false);
   });
 
   it("announces again after recovering, so a second outage isn't silent", async () => {

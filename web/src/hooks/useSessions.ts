@@ -11,7 +11,7 @@ import {
 import { useMarkRead, useMarkUnread } from "@/data/statuses/queries";
 
 export function useSessions() {
-  const { data, isError } = useSessionsQuery();
+  const { data, isError, isSuccess } = useSessionsQuery();
   const sessions: Session[] = data?.sessions ?? [];
   const homeDir: string = data?.home_dir ?? "";
 
@@ -85,15 +85,28 @@ export function useSessions() {
   // Fires on the transition into failure, not on every failed poll — otherwise
   // an unreachable node would emit a toast every 10s for as long as it stayed
   // down. Re-arms once a fetch succeeds, so a second outage is announced again.
+  //
+  // Re-arming keys off `isSuccess`, not `!isError`, because those differ exactly
+  // where it matters. With no cached data the status cycles error → pending →
+  // error across a retry (measured on 5.100.14), so `!isError` goes true for the
+  // in-flight moment and clears the flag — meaning a node that has *never*
+  // answered re-announces on every poll, which is precisely the case this guard
+  // exists for. `isSuccess` is false throughout that cycle and only turns true
+  // on an actual answer.
+  //
+  // The message stays neutral about the cause: `isError` is any rejected query,
+  // and apiFetch rejects on 4xx/5xx and malformed JSON as readily as on an
+  // unreachable host, so naming connectivity would misdiagnose a node that is
+  // reachable and failing.
   const announcedFailure = useRef(false);
   useEffect(() => {
     if (isError && !announcedFailure.current) {
       announcedFailure.current = true;
-      toast.error("Can't reach this node — retrying…", { id: "sessions-fetch" });
-    } else if (!isError && announcedFailure.current) {
+      toast.error("Couldn't load sessions — retrying…", { id: "sessions-fetch" });
+    } else if (isSuccess && announcedFailure.current) {
       announcedFailure.current = false;
     }
-  }, [isError]);
+  }, [isError, isSuccess]);
 
   return {
     sessions,
@@ -107,6 +120,13 @@ export function useSessions() {
     // good cached list, so `isSuccess` would drop the whole sidebar back to
     // placeholders every time a remote node blinked.
     isLoaded: data !== undefined,
+    // Whether the list can be trusted to say which sessions *don't* exist.
+    // `isLoaded` deliberately answers a weaker question — "is there something to
+    // draw" — and cached data under a failed refetch answers it yes while the
+    // server's current roster is unknown. That's the right call for rendering
+    // and the wrong one for anything that deletes on absence, so the two are
+    // separate flags rather than one doing double duty.
+    isRosterAuthoritative: isSuccess,
     deleteSession,
     renameSession,
     changeProfile,
