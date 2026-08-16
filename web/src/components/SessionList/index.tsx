@@ -95,29 +95,52 @@ export function resolveRowDisplay(
 // SessionListSkeleton
 // ---------------------------------------------------------------------------
 
-// Placeholder rows for a list that hasn't arrived yet. Mirrors SessionItem's
-// geometry — same px-2 py-2, a name line over a dot-and-detail line — so
-// nothing shifts when the real rows replace it. Widths are staggered so it
-// reads as content taking shape rather than as a progress bar. Same muted
-// pulse the editor uses while a file loads (FileExplorer's EditorSkeleton).
+// Placeholder rows for a list that hasn't arrived yet. Mirrors SessionItem line
+// for line — the same px-2 py-2 around a name line, a dot-and-status line, and
+// the icon-and-label lines a worktree session carries — so a placeholder row
+// stands in for a real row at its own height (90px) rather than a third of it.
+// Getting the shape right is what's available: how *many* rows are coming isn't
+// knowable, so the list still resizes when the real ones land, but it does it
+// by gaining or shedding whole rows instead of doubling every row it drew.
+//
+// Widths are staggered so it reads as content taking shape rather than as a
+// progress bar. Same muted pulse the editor uses while a file loads
+// (FileExplorer's EditorSkeleton).
 const SKELETON_WIDTHS = [82, 54, 71, 44, 63];
+
+// Repo and branch: the two icon-and-label lines below the status line, scaled
+// off the name width so each row keeps its own ragged silhouette.
+const SKELETON_DETAIL_SCALES = [0.7, 0.85];
 
 export function SessionListSkeleton() {
   return (
     <div role="status" aria-label="Loading sessions" data-testid="session-list-skeleton">
       {SKELETON_WIDTHS.map((w, i) => (
-        <div key={i} className="flex flex-col gap-1.5 px-2 py-2">
-          <div
-            className="bg-muted h-3 animate-pulse rounded"
-            style={{ width: `${w}%` }}
-          />
-          <div className="flex items-center gap-1.5">
+        <div key={i} className="px-2 py-2">
+          {/* Name — text-sm's 20px line box */}
+          <div className="flex h-5 items-center">
+            <div
+              className="bg-muted h-3 animate-pulse rounded"
+              style={{ width: `${w}%` }}
+            />
+          </div>
+          {/* Status — dot and label, on text-xs's 16px line box */}
+          <div className="mt-0.5 flex h-4 items-center gap-1.5">
             <div className="bg-muted h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full" />
             <div
               className="bg-muted h-2 animate-pulse rounded"
               style={{ width: `${Math.round(w * 0.55)}%` }}
             />
           </div>
+          {SKELETON_DETAIL_SCALES.map((scale, j) => (
+            <div key={j} className="mt-0.5 flex h-4 items-center gap-1">
+              <div className="bg-muted h-3 w-3 flex-shrink-0 animate-pulse rounded-sm" />
+              <div
+                className="bg-muted h-2 animate-pulse rounded"
+                style={{ width: `${Math.round(w * scale)}%` }}
+              />
+            </div>
+          ))}
         </div>
       ))}
     </div>
