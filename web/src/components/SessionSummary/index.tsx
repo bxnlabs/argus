@@ -65,34 +65,30 @@ export function SessionSummary({
 }) {
   const { active, unread, total } = countSessions(sessions, sessionStatuses);
 
-  // A session with no status entry is unknown, never idle: the endpoint builds
-  // its response from the DB session list and defaults uncovered sessions to
-  // idle rather than omitting them (`api/status.go`), so a fetch that has landed
-  // covers every session it knew about.
-  //
-  // It has to be per-session rather than "did any status arrive". The two
-  // queries poll independently and only the session list is invalidated on
-  // create/delete (`data/sessions/queries.ts`), so a new session joins the list
-  // carrying no status while the others still have theirs — a non-empty map that
-  // doesn't cover what's on screen. Counting through that gap is how the line
-  // would claim an all-clear for a session it has never heard of.
-  const statusesCoverSessions = sessions.every((s) => sessionStatuses[s.id] !== undefined);
+  // Has any status landed for this node yet? Partial coverage deliberately
+  // isn't checked: when a session is newer than the status map, the line counts
+  // what it knows and lets the next poll correct it. Session create/clone/delete
+  // refresh both queries together (`data/sessions/queries.ts`), so that lag is
+  // measured in one round trip rather than a poll interval.
+  const anyStatusKnown = Object.keys(sessionStatuses).length > 0;
 
+  // The line always says something. Going blank mid-load reads as breakage
+  // rather than as thinking, so each state below is the most specific true
+  // statement available at that moment, and staleness is left for the poll to
+  // fix. What it won't do is invent an all-clear: with no status data at all,
+  // every session would tally as neither active nor unread, so it reports the
+  // count it actually has instead of claiming you're caught up.
+  //
   // Zero segments are dropped rather than printed as "0 active", so the line
   // stays scannable. Both empty states are real and distinct: nothing to do yet
   // vs. nothing left to do.
-  //
-  // Neither can be claimed before the data backing it lands. Unknown renders as
-  // nothing at all — the same answer the rows below give, where an absent status
-  // takes the muted, unlabeled fallback (`getStatusMeta`) instead of guessing.
-  // The wrapper's fixed height holds the line's place while it's blank.
   let body;
   if (!sessionsLoaded) {
-    body = null;
+    body = "Loading…";
   } else if (total === 0) {
     body = "No sessions";
-  } else if (!statusesCoverSessions) {
-    body = null;
+  } else if (!anyStatusKnown) {
+    body = `${total} session${total === 1 ? "" : "s"}`;
   } else if (active === 0 && unread === 0) {
     body = "All caught up";
   } else {

@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { SessionSummary, countSessions } from "./index";
@@ -97,33 +98,53 @@ describe("SessionSummary", () => {
     expect(screen.getByTestId("session-summary").textContent).toBe("No sessions");
   });
 
-  it("stays blank rather than claiming you're caught up before statuses arrive", () => {
+  it("reports the count it has rather than an all-clear it hasn't earned", () => {
     // The window between the sessions fetch landing and the status fetch (which
-    // is only enabled once sessions exist) settling — and where it stays if the
-    // status request keeps failing. Zero active and zero unread here is the
-    // absence of an answer, not an all-clear.
+    // is only enabled once sessions exist) settling. Every session tallies as
+    // neither active nor unread here, which is the absence of an answer — so the
+    // line states what it does know instead of saying "All caught up".
     render(<SessionSummary sessions={[{ id: "a" }]} sessionStatuses={{}} sessionsLoaded />);
-    expect(screen.getByTestId("session-summary").textContent).toBe("");
+    expect(screen.getByTestId("session-summary").textContent).toBe("1 session");
   });
 
-  it("stays blank when the status map covers only some of the listed sessions", () => {
-    // The gap between the two polls: creating a session invalidates the session
-    // list but not the statuses, so the new row arrives uncovered while the
-    // others keep their entries. A map that is merely non-empty proves nothing
-    // about the session actually on screen.
+  it("counts what it knows when the status map lags the session list", () => {
+    // A session newer than the status map. Rather than withhold the line, it
+    // counts the covered sessions and lets the next poll correct it — which the
+    // create/clone/delete status invalidation keeps to about a round trip.
     render(
       <SessionSummary
         sessions={[{ id: "a" }, { id: "b" }]}
-        sessionStatuses={{ a: status() }}
+        sessionStatuses={{ a: status({ status: "active" }) }}
         sessionsLoaded
       />,
     );
-    expect(screen.getByTestId("session-summary").textContent).toBe("");
+    expect(screen.getByTestId("session-summary").textContent).toBe("1 active");
   });
 
-  it("stays blank rather than claiming there are no sessions before the list arrives", () => {
+  it("says it's loading rather than claiming there are no sessions", () => {
     render(<SessionSummary sessions={[]} sessionStatuses={{}} sessionsLoaded={false} />);
-    expect(screen.getByTestId("session-summary").textContent).toBe("");
+    expect(screen.getByTestId("session-summary").textContent).toBe("Loading…");
+  });
+
+  it("never renders an empty line in any state", () => {
+    // The line holds a fixed-height slot in the sidebar header; an empty one
+    // reads as breakage rather than as work in progress.
+    const states: ComponentProps<typeof SessionSummary>[] = [
+      { sessions: [], sessionStatuses: {}, sessionsLoaded: false },
+      { sessions: [], sessionStatuses: {}, sessionsLoaded: true },
+      { sessions: [{ id: "a" }], sessionStatuses: {}, sessionsLoaded: true },
+      { sessions: [{ id: "a" }], sessionStatuses: { a: status() }, sessionsLoaded: true },
+      {
+        sessions: [{ id: "a" }, { id: "b" }],
+        sessionStatuses: { a: status({ status: "active" }) },
+        sessionsLoaded: true,
+      },
+    ];
+    for (const props of states) {
+      const { unmount } = render(<SessionSummary {...props} />);
+      expect(screen.getByTestId("session-summary").textContent).not.toBe("");
+      unmount();
+    }
   });
 
   it("colors the dots to match the session rows they summarize", () => {

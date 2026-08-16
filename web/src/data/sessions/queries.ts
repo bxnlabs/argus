@@ -1,8 +1,25 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import type { Session, ProviderType } from "@/types";
-import { sessionKeys, profileKeys } from "./keys";
+import { sessionKeys, profileKeys, statusKeys } from "./keys";
+
+/**
+ * Refresh both halves of the sidebar after the set of sessions changes.
+ *
+ * The list and the statuses are separate polls on separate intervals, so
+ * invalidating only the list puts a session on screen that no status entry
+ * covers yet — and anything reading the two together (the sidebar's summary
+ * line) counts it as nothing until the next status tick lands. Membership
+ * changes are exactly when the two can disagree, so they refresh together.
+ * Renames and profile edits don't need this: they change a session, not which
+ * sessions exist.
+ */
+function invalidateSessionMembership(queryClient: QueryClient, scope: string) {
+  queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
+  queryClient.invalidateQueries({ queryKey: statusKeys.all(scope) });
+}
 
 interface SessionsResponse {
   sessions: Session[];
@@ -45,7 +62,7 @@ export function useCreateSession() {
         body: JSON.stringify(input),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
+      invalidateSessionMembership(queryClient, scope);
     },
   });
 }
@@ -63,7 +80,7 @@ export function useCloneSession() {
         { method: "POST" },
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
+      invalidateSessionMembership(queryClient, scope);
     },
   });
 }
@@ -100,7 +117,7 @@ export function useDeleteSession() {
           ? { ...old, sessions: old.sessions.filter((s) => s.id !== sessionId) }
           : old,
       );
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
+      invalidateSessionMembership(queryClient, scope);
     },
   });
 }
