@@ -67,6 +67,15 @@ export interface ApiRequestInit extends RequestInit {
    * an operation that goes on to succeed, and the user retries a create that
    * already happened. Where no honest ceiling exists, no ceiling is the safer
    * answer, and the real fix is a bound on the server beside the work.
+   *
+   * Known cost, accepted rather than overlooked: a request that never settles
+   * leaves its mutation pending forever, and the sidebar's busy row and the
+   * `isCreating` lock are derived from exactly that set
+   * (useSessionMutationState). So a wedged node leaves a row inert, or new
+   * sessions refused, until the page is reloaded — the deadlines used to
+   * release those. Reload is the recovery; there is deliberately no
+   * "stop waiting" control, because the honest fix is a server-side bound and
+   * a local release would only hide a node that is still stuck. BXN-133.
    */
   timeoutMs?: number | null;
 }
