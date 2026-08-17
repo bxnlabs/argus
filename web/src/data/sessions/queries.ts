@@ -49,6 +49,16 @@ export interface RosterFetchState {
   everFetched: boolean;
   /** The cached roster currently reflects a completed server answer. */
   settled: boolean;
+  /**
+   * Increments once per server answer.
+   *
+   * `settled` describes a state and can be left, which makes it useless to
+   * anything that needs to know an answer *happened*. A success immediately
+   * followed by a mutation's optimistic write renders once, as `settled: false`
+   * — the answer arrived and nothing downstream can see that it did. Consumers
+   * watching for the event watch this instead.
+   */
+  fetchedRevision: number;
 }
 
 /**
@@ -77,13 +87,12 @@ export interface RosterFetchState {
 export function useRosterFetchState(): RosterFetchState {
   const queryClient = useQueryClient();
   const { scope } = useActiveNode();
-  const [state, setState] = useState<RosterFetchState>({
-    everFetched: false,
-    settled: false,
-  });
+  // The revision carries the history `settled` can't: a render that collapses a
+  // success and a following write into one still shows the count going up.
+  const [state, setState] = useState({ settled: false, revision: 0 });
 
   useEffect(() => {
-    setState({ everFetched: false, settled: false });
+    setState({ settled: false, revision: 0 });
     const key = JSON.stringify(sessionKeys.list(scope));
     return queryClient.getQueryCache().subscribe((event) => {
       if (event.type !== "updated") return;
@@ -91,14 +100,19 @@ export function useRosterFetchState(): RosterFetchState {
       const action = event.action;
       if (action.type === "success") {
         if (action.manual) setState((s) => ({ ...s, settled: false }));
-        else setState({ everFetched: true, settled: true });
+        else setState((s) => ({ settled: true, revision: s.revision + 1 }));
       } else if (action.type === "error" || action.type === "fetch") {
         setState((s) => ({ ...s, settled: false }));
       }
     });
   }, [queryClient, scope]);
 
-  return state;
+  // Derived rather than stored, so it cannot drift from the count that feeds it.
+  return {
+    everFetched: state.revision > 0,
+    settled: state.settled,
+    fetchedRevision: state.revision,
+  };
 }
 
 export interface CreateSessionInput {

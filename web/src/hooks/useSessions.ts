@@ -20,8 +20,11 @@ export function useSessions() {
   // rather than its rendered status — see useRosterFetchState for why the
   // render layer cannot answer this. `everFetched` gates one-shot work,
   // `settled` gates the repeated kind.
-  const { everFetched: rosterFetched, settled: rosterSettled } =
-    useRosterFetchState();
+  const {
+    everFetched: rosterFetched,
+    settled: rosterSettled,
+    fetchedRevision,
+  } = useRosterFetchState();
 
   const deleteMutation = useDeleteSession();
   const renameMutation = useRenameSession();
@@ -113,15 +116,25 @@ export function useSessions() {
   // running to settle it — announcing then reports a node as down that may be
   // answering by the time the words are on screen. Waiting for the fetch to land
   // costs a round trip on a genuinely dead node and nothing on a live one.
+  //
+  // Re-arming consumes the revision rather than reading `settled`, because
+  // recovery is an event and `settled` is a state you can already have left.
+  // A poll that succeeds and is immediately followed by a mutation's optimistic
+  // write renders once, as `settled: false` — so the node came back, the guard
+  // never noticed, and the *next* real outage was announced to nobody. The
+  // count survives that collapse; a level cannot.
   const announcedFailure = useRef(false);
+  const seenRevision = useRef(0);
   useEffect(() => {
+    if (fetchedRevision !== seenRevision.current) {
+      seenRevision.current = fetchedRevision;
+      announcedFailure.current = false;
+    }
     if (isError && !isFetching && !announcedFailure.current) {
       announcedFailure.current = true;
       toast.error("Couldn't load sessions — retrying…", { id: "sessions-fetch" });
-    } else if (rosterSettled && announcedFailure.current) {
-      announcedFailure.current = false;
     }
-  }, [isError, isFetching, rosterSettled]);
+  }, [isError, isFetching, fetchedRevision]);
 
   return {
     sessions,

@@ -227,6 +227,37 @@ describe("useSessions", () => {
     vi.useRealTimers();
   });
 
+  it("still hears a recovery that a following write renders over", async () => {
+    // Recovery is an event; "the roster is settled" is a state you can already
+    // have left. A poll that succeeds and is immediately followed by a
+    // mutation's optimistic write renders once, as not-settled — so reading the
+    // state means the node came back and nothing noticed, leaving the guard
+    // armed and the NEXT real outage announced to nobody.
+    const qc = client();
+    respond = down;
+
+    renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+
+    respond = () => ok([{ id: "a", name: "one" }]);
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["sessions"] });
+      qc.setQueryData(sessionKeys.list("local:"), {
+        sessions: [{ id: "a", name: "renamed" }],
+        home_dir: "/home/u",
+      });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    respond = down;
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["sessions"] });
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    expect(toastError).toHaveBeenCalledTimes(2);
+  });
+
   it("doesn't let renaming a row during an outage count as recovery", async () => {
     // Re-arming on `isSuccess` would treat an optimistic write as the node
     // coming back, so editing a cached row mid-outage would license a second
