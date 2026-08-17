@@ -100,7 +100,6 @@ function HomeContent({
     sessions,
     homeDir,
     isLoaded: sessionsLoaded,
-    isRosterAuthoritative,
     isRosterSettled,
     deleteSession,
     renameSession,
@@ -185,18 +184,24 @@ function HomeContent({
   }, [isRosterSettled, changeProfileSessionId, changeProfileSession, infoSessionId, infoSession]);
 
   // Detach tabs whose session no longer exists (e.g. stale localStorage after restart).
-  // Runs once after the first successful sessions fetch to avoid racing with
+  // Runs once, on a roster that is a settled server answer, to avoid racing with
   // newly created sessions that haven't appeared in the list yet.
   //
-  // Gated on the roster being authoritative rather than merely rendered:
+  // Gated on the roster being settled rather than merely rendered:
   // `sessionsLoaded` is true for cached data under a failed refetch, and this
   // node scope remounts on every node switch (AppInner keys TabProvider on it),
   // which re-arms `staleCleaned`. Coming back to a node whose last poll failed
   // would otherwise judge "this session is gone" against a list that predates
   // the session — detaching a tab that was fine.
+  //
+  // Being one-shot is not a reason to accept the weaker "answered at some point"
+  // question. That stays true across a failed mutation's rollback, which writes
+  // an *older* roster back over a newer one — so the single pass this gets could
+  // be the one spent on a snapshot the data layer already knows is stale, and it
+  // deletes on what it finds missing. Waiting costs at most a poll.
   const staleCleaned = useRef(false);
   useEffect(() => {
-    if (!isRosterAuthoritative || staleCleaned.current) return;
+    if (!isRosterSettled || staleCleaned.current) return;
     staleCleaned.current = true;
     const sessionIds = new Set(sessions.map((s) => s.id));
     for (const tab of tabs) {
@@ -204,7 +209,7 @@ function HomeContent({
         detachSessionById(tab.sessionId);
       }
     }
-  }, [isRosterAuthoritative, sessions, tabs, detachSessionById]);
+  }, [isRosterSettled, sessions, tabs, detachSessionById]);
 
   // Set CSS variable for viewport height (handles mobile keyboard)
   useViewportHeight();

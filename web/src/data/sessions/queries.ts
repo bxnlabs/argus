@@ -41,8 +41,6 @@ export function useSessionsQuery() {
 }
 
 export interface RosterFetchState {
-  /** A roster fetch has answered from the server since this hook mounted. */
-  everFetched: boolean;
   /** The cached roster currently reflects a completed server answer. */
   settled: boolean;
   /**
@@ -75,10 +73,13 @@ export interface RosterFetchState {
  * action without it. Subscribing is therefore not defensiveness, it's the only
  * place the question can be answered.
  *
- * `everFetched` latches per mount, for one-shot reconciliation. `settled` is
- * live, for repeated absence checks, and goes false whenever a fetch starts,
- * fails, or the cache is written locally — each of which makes "not in the
- * list" mean "not yet" rather than "not anymore".
+ * `settled` describes the roster on hand right now, and goes false whenever a
+ * fetch starts, fails, or the cache is written locally — each of which makes
+ * "not in the list" mean "not yet" rather than "not anymore". Every consumer
+ * that acts on absence wants that, including the one-shot ones: a latched
+ * "answered at some point" flag would still be true over a roster that a failed
+ * mutation had since rolled back to an older snapshot, which is a licence to
+ * delete against data the hook itself knows is stale.
  */
 export function useRosterFetchState(): RosterFetchState {
   const queryClient = useQueryClient();
@@ -103,9 +104,7 @@ export function useRosterFetchState(): RosterFetchState {
     });
   }, [queryClient, scope]);
 
-  // Derived rather than stored, so it cannot drift from the count that feeds it.
   return {
-    everFetched: state.revision > 0,
     settled: state.settled,
     fetchedRevision: state.revision,
   };

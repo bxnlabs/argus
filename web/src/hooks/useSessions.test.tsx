@@ -115,7 +115,7 @@ describe("useSessions", () => {
     );
 
   it("draws a warm cache without treating it as a roster answer", async () => {
-    // The node-switch shape. isLoaded and isRosterAuthoritative deliberately
+    // The node-switch shape. isLoaded and isRosterSettled deliberately
     // disagree: the cached list is worth drawing immediately, but nothing has
     // confirmed it still describes the server, so it can't be used to conclude a
     // session is gone. App's stale-tab cleanup detaches on absence, and this
@@ -129,13 +129,13 @@ describe("useSessions", () => {
     // Asserted synchronously, before the mount's refetch can settle. This
     // instant is the whole point: it's when App's stale-tab cleanup effect runs,
     // and it's *before* TabProvider has restored tabs from localStorage, since
-    // child effects commit before parent ones. Granting authority here consumes
-    // the one-shot guard against a tab list that hasn't loaded yet.
+    // child effects commit before parent ones. Calling the roster settled here
+    // consumes the one-shot guard against a tab list that hasn't loaded yet.
     expect(result.current.isLoaded).toBe(true);
-    expect(result.current.isRosterAuthoritative).toBe(false);
+    expect(result.current.isRosterSettled).toBe(false);
 
     // ...and it still arrives once the fetch answers.
-    await waitFor(() => expect(result.current.isRosterAuthoritative).toBe(true));
+    await waitFor(() => expect(result.current.isRosterSettled).toBe(true));
   });
 
   it("doesn't announce a stale error for a node that has since recovered", async () => {
@@ -189,12 +189,12 @@ describe("useSessions", () => {
 
     const { result, rerender } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(result.current.isRosterAuthoritative).toBe(false);
+    expect(result.current.isRosterSettled).toBe(false);
 
     seedRoster(qc, [{ id: "a", name: "renamed" }]);
     rerender();
 
-    expect(result.current.isRosterAuthoritative).toBe(false);
+    expect(result.current.isRosterSettled).toBe(false);
   });
 
   it("announces a node that accepts the connection and then says nothing", async () => {
@@ -300,7 +300,7 @@ describe("useSessions", () => {
     respond = slowDown;
 
     const { result, rerender } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
-    expect(result.current.isRosterAuthoritative).toBe(false);
+    expect(result.current.isRosterSettled).toBe(false);
 
     await act(async () => {
       await qc.cancelQueries({ queryKey: sessionKeys.list("local:") });
@@ -311,7 +311,40 @@ describe("useSessions", () => {
     });
     rerender();
 
-    expect(result.current.isRosterAuthoritative).toBe(false);
+    expect(result.current.isRosterSettled).toBe(false);
+  });
+
+  it("stops calling the roster trustworthy once a rollback overwrites it", async () => {
+    // A failed rename/pin restores the roster it snapshotted in onMutate, which
+    // is *older* than any answer that landed while the mutation was in flight —
+    // session "b" below is on the server and gone from the cache after the
+    // rollback. The write is manual, so the hook sees it for what it is.
+    //
+    // This is the case that rules out a latched "a fetch answered at some point"
+    // flag. That flag is true from the answer onward and stays true across the
+    // rollback, so a one-shot consumer — App's stale-tab cleanup — could spend
+    // its single pass judging "this session is gone" against a list the data
+    // layer already knows has been reverted, and detach a live tab for "b".
+    //
+    // A guard, not a reproduction: `isRosterSettled` behaved this way before the
+    // gate moved onto it, so this passes against the pre-fix hook too. What it
+    // protects is the premise the new gate rests on.
+    const qc = client();
+    respond = () => ok([{ id: "a", name: "one" }, { id: "b", name: "two" }]);
+
+    const { result, rerender } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(result.current.isRosterSettled).toBe(true));
+    expect(result.current.sessions).toHaveLength(2);
+
+    // The rollback: onError's setQueryData putting the pre-mutation roster back.
+    act(() => {
+      qc.setQueryData(sessionKeys.list("local:"), {
+        sessions: [{ id: "a", name: "one" }],
+        home_dir: "/home/u",
+      });
+    });
+    rerender();
+
     expect(result.current.isRosterSettled).toBe(false);
   });
 

@@ -18,13 +18,10 @@ export function useSessions() {
 
   // What the server has actually said, tracked off the query's cache events
   // rather than its rendered status — see useRosterFetchState for why the
-  // render layer cannot answer this. `everFetched` gates one-shot work,
-  // `settled` gates the repeated kind.
-  const {
-    everFetched: rosterFetched,
-    settled: rosterSettled,
-    fetchedRevision,
-  } = useRosterFetchState();
+  // render layer cannot answer this. `settled` gates anything that acts on a
+  // session's absence; `fetchedRevision` carries the answers themselves, for
+  // the toast below, which needs the event and not the state.
+  const { settled: rosterSettled, fetchedRevision } = useRosterFetchState();
 
   const deleteMutation = useDeleteSession();
   const renameMutation = useRenameSession();
@@ -154,14 +151,10 @@ export function useSessions() {
     // server's current roster is unknown. That's the right call for rendering
     // and the wrong one for anything that deletes on absence, so the two are
     // separate flags rather than one doing double duty.
-    isRosterAuthoritative: rosterFetched,
-    // Whether the roster on hand is a settled server answer *right now*. The
-    // flag above latches once per mount, which suits a one-shot pass but is
-    // useless to anything asking the question repeatedly — by the time a dialog
-    // opens it has long since latched true. This one goes false again whenever a
-    // fetch is in flight, the last one failed, or the cache was written locally,
-    // which is exactly when "that session isn't in the list" means "not yet"
-    // rather than "not anymore".
+    //
+    // Goes false again whenever a fetch is in flight, the last one failed, or
+    // the cache was written locally, which is exactly when "that session isn't
+    // in the list" means "not yet" rather than "not anymore".
     isRosterSettled: rosterSettled,
     deleteSession,
     renameSession,
