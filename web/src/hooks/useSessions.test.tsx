@@ -137,6 +137,45 @@ describe("useSessions", () => {
     await waitFor(() => expect(result.current.isRosterAuthoritative).toBe(true));
   });
 
+  it("doesn't announce a stale error for a node that has since recovered", async () => {
+    // Node goes down, gets announced, and you switch away. The query keeps that
+    // error in cache; coming back remounts the hook on top of it with a refetch
+    // already in flight. Announcing off the cached error would report a node as
+    // down at the moment it is answering.
+    // Seeded, because the error has to survive the remount to be stale at all:
+    // with data cached the status sits at "error" while the next fetch runs,
+    // whereas an empty cache drops to "pending" and hides the window entirely.
+    const qc = client();
+    seedRoster(qc, [{ id: "a", name: "one" }]);
+    respond = down;
+
+    const first = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    respond = () => ok([{ id: "a", name: "one" }, { id: "b", name: "two" }]);
+    const second = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(second.result.current.sessions).toHaveLength(2));
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("still announces on remount when the node really is still down", async () => {
+    // The other half: holding the toast while a fetch is in flight must delay
+    // the announcement, not swallow it.
+    const qc = client();
+    seedRoster(qc, [{ id: "a", name: "one" }]);
+    respond = down;
+
+    const first = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(2));
+  });
+
   it("doesn't let an optimistic cache write pass for a server answer", async () => {
     // Rename and pin both setQueryData on this key in onMutate, and TanStack
     // scores a manual write as `status: "success"` — so reading `isSuccess`
@@ -155,6 +194,33 @@ describe("useSessions", () => {
     rerender();
 
     expect(result.current.isRosterAuthoritative).toBe(false);
+  });
+
+  it("won't call a session absent while the roster is unsettled", async () => {
+    // What App's dialog-closing effect rides on. A session created seconds ago
+    // is missing from the cached list until its invalidating refetch lands, and
+    // if that refetch is slow or failing the list still reads as loaded — so
+    // "not in the list" has to stay distinguishable from "gone".
+    const qc = client();
+    seedRoster(qc, [{ id: "a", name: "one" }]);
+    respond = slowDown;
+
+    const { result, rerender } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+
+    // In flight: the list is drawable but can't answer the question yet.
+    expect(result.current.isLoaded).toBe(true);
+    expect(result.current.isRosterSettled).toBe(false);
+
+    // Landed on a failure: still can't.
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    rerender();
+    expect(result.current.isRosterSettled).toBe(false);
+
+    // Landed on an answer: now it can.
+    respond = () => ok([{ id: "a", name: "one" }]);
+    await qc.refetchQueries({ queryKey: ["sessions"] });
+    rerender();
+    expect(result.current.isRosterSettled).toBe(true);
   });
 
 

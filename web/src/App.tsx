@@ -101,6 +101,7 @@ function HomeContent({
     homeDir,
     isLoaded: sessionsLoaded,
     isRosterAuthoritative,
+    isRosterSettled,
     deleteSession,
     renameSession,
     changeProfile,
@@ -170,11 +171,18 @@ function HomeContent({
 
   // Close a dialog whose target session disappears (deleted elsewhere, or
   // restarted under a new id) so it never lingers on stale data.
+  //
+  // Waits for the roster to settle rather than merely to exist: a session
+  // created or cloned moments ago is absent from the cached list until its
+  // refetch lands, and if that refetch is slow or failing, `sessionsLoaded`
+  // still says yes. Opening Session Info on the tab you just created would then
+  // clear the intent instead of showing the dialog, and clear it for good — the
+  // request that would have vindicated it arrives after the state is gone.
   useEffect(() => {
-    if (!sessionsLoaded) return;
+    if (!isRosterSettled) return;
     if (changeProfileSessionId && !changeProfileSession) setChangeProfileSessionId(null);
     if (infoSessionId && !infoSession) setInfoSessionId(null);
-  }, [sessionsLoaded, changeProfileSessionId, changeProfileSession, infoSessionId, infoSession]);
+  }, [isRosterSettled, changeProfileSessionId, changeProfileSession, infoSessionId, infoSession]);
 
   // Detach tabs whose session no longer exists (e.g. stale localStorage after restart).
   // Runs once after the first successful sessions fetch to avoid racing with

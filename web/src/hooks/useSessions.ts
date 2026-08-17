@@ -124,15 +124,22 @@ export function useSessions() {
   // and apiFetch rejects on 4xx/5xx and malformed JSON as readily as on an
   // unreachable host, so naming connectivity would misdiagnose a node that is
   // reachable and failing.
+  //
+  // Held while a fetch is in flight, because an error can outlive the outage
+  // that caused it. Coming back to a node that failed last time you were here
+  // arrives with that stale error still on the query and a refetch already
+  // running to settle it — announcing then reports a node as down that may be
+  // answering by the time the words are on screen. Waiting for the fetch to land
+  // costs a round trip on a genuinely dead node and nothing on a live one.
   const announcedFailure = useRef(false);
   useEffect(() => {
-    if (isError && !announcedFailure.current) {
+    if (isError && !isFetching && !announcedFailure.current) {
       announcedFailure.current = true;
       toast.error("Couldn't load sessions — retrying…", { id: "sessions-fetch" });
     } else if (isSuccess && announcedFailure.current) {
       announcedFailure.current = false;
     }
-  }, [isError, isSuccess]);
+  }, [isError, isFetching, isSuccess]);
 
   return {
     sessions,
@@ -153,6 +160,13 @@ export function useSessions() {
     // and the wrong one for anything that deletes on absence, so the two are
     // separate flags rather than one doing double duty.
     isRosterAuthoritative: rosterFetched,
+    // Whether the roster on hand is a settled server answer *right now*. The
+    // flag above latches once per mount, which suits a one-shot pass but is
+    // useless to anything asking the question repeatedly — by the time a dialog
+    // opens it has long since latched true. This one goes false again whenever a
+    // fetch is in flight or the last one failed, which is exactly when "that
+    // session isn't in the list" means "not yet" rather than "not anymore".
+    isRosterSettled: isSuccess && !isFetching,
     deleteSession,
     renameSession,
     changeProfile,
