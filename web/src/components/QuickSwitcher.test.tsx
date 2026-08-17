@@ -71,12 +71,22 @@ describe("QuickSwitcher current-session marker", () => {
     // the exact overlap the old tint erased.
     renderSwitcher("a");
 
-    const first = screen.getByText("first").closest("button")!;
-    expect(first.className).toMatch(/bg-accent/);
+    const rowFor = (name: string) =>
+      screen.getByText(name).closest("button")!.className.split(/\s+/);
 
-    // ...and it still moves off it.
-    fireEvent.keyDown(window, { key: "ArrowDown" });
-    const second = screen.getByText("second").closest("button")!;
-    expect(second.className).toMatch(/bg-accent/);
+    expect(rowFor("first")).toContain("bg-accent");
+
+    // ...and it still moves off it. Two things this has to get right or it
+    // asserts nothing: the key goes to the search input, since that's where the
+    // handler lives (a keydown on window never reaches React's tree), and the
+    // classes are compared as whole tokens, since an unselected row carries
+    // `hover:bg-accent/50` and would satisfy a substring match for "bg-accent"
+    // whether or not the cursor ever moved.
+    fireEvent.keyDown(screen.getByPlaceholderText("Search sessions..."), {
+      key: "ArrowDown",
+    });
+
+    expect(rowFor("first")).not.toContain("bg-accent");
+    expect(rowFor("second")).toContain("bg-accent");
   });
 });

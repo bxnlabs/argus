@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StubNodeProvider } from "@/test/node-context";
+import { sessionKeys } from "@/data/sessions/keys";
 import { useSessions } from "./useSessions";
 
 const toastError = vi.fn();
@@ -101,24 +102,61 @@ describe("useSessions", () => {
     expect(toastError).toHaveBeenCalledTimes(1);
   });
 
-  it("withholds roster authority while a failed refetch sits on cached data", async () => {
-    // isLoaded and isRosterAuthoritative deliberately disagree here. The list is
-    // still worth drawing, but it can't be used to conclude a session is gone —
-    // App's stale-tab cleanup detaches on absence, and this list may predate a
-    // session created just before the node stopped answering.
+  // Seeds the cache the way a node switch leaves it: real data from an earlier
+  // visit, with no fetch yet made by the mount that's about to read it. Dated
+  // back past staleTime so the mount refetches, which is what a return visit
+  // after any real interval does.
+  const seedRoster = (qc: QueryClient, sessions: unknown[]) =>
+    qc.setQueryData(
+      sessionKeys.list("local:"),
+      { sessions, home_dir: "/home/u" },
+      { updatedAt: Date.now() - 60_000 },
+    );
+
+  it("draws a warm cache without treating it as a roster answer", async () => {
+    // The node-switch shape. isLoaded and isRosterAuthoritative deliberately
+    // disagree: the cached list is worth drawing immediately, but nothing has
+    // confirmed it still describes the server, so it can't be used to conclude a
+    // session is gone. App's stale-tab cleanup detaches on absence, and this
+    // list may predate a session created just before the node went quiet.
     const qc = client();
+    seedRoster(qc, [{ id: "a", name: "one" }]);
     respond = () => ok([{ id: "a", name: "one" }]);
 
-    const { result, rerender } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
-    await waitFor(() => expect(result.current.isRosterAuthoritative).toBe(true));
+    const { result } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
 
-    respond = down;
-    await qc.refetchQueries({ queryKey: ["sessions"] });
-    rerender();
-
+    // Asserted synchronously, before the mount's refetch can settle. This
+    // instant is the whole point: it's when App's stale-tab cleanup effect runs,
+    // and it's *before* TabProvider has restored tabs from localStorage, since
+    // child effects commit before parent ones. Granting authority here consumes
+    // the one-shot guard against a tab list that hasn't loaded yet.
     expect(result.current.isLoaded).toBe(true);
     expect(result.current.isRosterAuthoritative).toBe(false);
+
+    // ...and it still arrives once the fetch answers.
+    await waitFor(() => expect(result.current.isRosterAuthoritative).toBe(true));
   });
+
+  it("doesn't let an optimistic cache write pass for a server answer", async () => {
+    // Rename and pin both setQueryData on this key in onMutate, and TanStack
+    // scores a manual write as `status: "success"` — so reading `isSuccess`
+    // would let renaming one session promote a stale roster to authoritative
+    // with no request behind it, and the cleanup would detach a tab holding a
+    // session that list predates.
+    const qc = client();
+    seedRoster(qc, [{ id: "a", name: "one" }]);
+    respond = down;
+
+    const { result, rerender } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(result.current.isRosterAuthoritative).toBe(false);
+
+    seedRoster(qc, [{ id: "a", name: "renamed" }]);
+    rerender();
+
+    expect(result.current.isRosterAuthoritative).toBe(false);
+  });
+
 
   it("announces again after recovering, so a second outage isn't silent", async () => {
     const qc = client();

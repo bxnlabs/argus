@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Session } from "@/types";
 import {
@@ -11,9 +11,35 @@ import {
 import { useMarkRead, useMarkUnread } from "@/data/statuses/queries";
 
 export function useSessions() {
-  const { data, isError, isSuccess } = useSessionsQuery();
+  const { data, isError, isSuccess, isFetching } = useSessionsQuery();
   const sessions: Session[] = data?.sessions ?? [];
   const homeDir: string = data?.home_dir ?? "";
+
+  // Whether a roster fetch has actually come back from the server since this
+  // mount. Watching the fetch settle, rather than reading `isSuccess`, because
+  // `isSuccess` answers a different question than it appears to:
+  //
+  //   - A manual cache write counts as success. `useRenameSession` and
+  //     `useUpdateSession` both `setQueryData` on this exact key in `onMutate`,
+  //     and on 5.100.14 that flips a query sitting at `status: "error"` straight
+  //     to `"success"` with no request in between (measured). Renaming one
+  //     session during a roster outage would otherwise declare the stale list
+  //     authoritative and detach a tab holding a session it predates.
+  //   - Cached success is immediate on mount, which lands *before* TabProvider
+  //     restores tabs from localStorage — child effects commit before parent
+  //     ones — so the one-shot cleanup would consume its guard against the
+  //     generated blank tab and never see the real ones.
+  //
+  // A settled fetch answers both: `setQueryData` never toggles `isFetching`, and
+  // any completed fetch necessarily lands after the mount effects. The cost is
+  // that a remount whose cache is still fresh waits for the next poll before
+  // reconciling, which is the right way to be wrong here.
+  const [rosterFetched, setRosterFetched] = useState(false);
+  const wasFetching = useRef(false);
+  useEffect(() => {
+    if (wasFetching.current && !isFetching && isSuccess) setRosterFetched(true);
+    wasFetching.current = isFetching;
+  }, [isFetching, isSuccess]);
 
   const deleteMutation = useDeleteSession();
   const renameMutation = useRenameSession();
@@ -126,7 +152,7 @@ export function useSessions() {
     // server's current roster is unknown. That's the right call for rendering
     // and the wrong one for anything that deletes on absence, so the two are
     // separate flags rather than one doing double duty.
-    isRosterAuthoritative: isSuccess,
+    isRosterAuthoritative: rosterFetched,
     deleteSession,
     renameSession,
     changeProfile,
