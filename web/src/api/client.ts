@@ -19,34 +19,30 @@ export class TimeoutError extends Error {
 /**
  * Default request deadline, for the ordinary request that reads something.
  *
- * Clears the slowest bound the node puts on that kind of work: the git layer
- * caps its commands at 10s, its long ones at 30s, and `git fetch` at 60s
+ * Clears the slowest bound most of that work carries: the git layer caps its
+ * commands at 10s, its long ones at 30s, and `git fetch` at 60s
  * (internal/node/git). Past that is not a slow answer, it's no answer.
  *
- * It is emphatically not a bound on every handler — session create, clone and
- * profile change can sit on a `docker compose up` the node allows 20 minutes
- * for, and those opt into SESSION_OPERATION_TIMEOUT_MS below. Anything added
- * here that can outlive a git fetch needs the same treatment; a default that
- * cuts real work is worse than no default at all, because it reports a failure
- * for an operation that is still running and will succeed.
+ * It is not a bound on every handler. The long-running lifecycle mutations —
+ * create, clone, profile change, delete — reach work nothing on the node
+ * bounds: an unbounded `git clone`, compose calls bounded only one at a time,
+ * worktree and branch operations through a context-less `git.Run`, and session
+ * and profile lock waits that sit outside every context there is. They pass
+ * `timeoutMs: null`, because a ceiling below the real work tells the user a
+ * mutation failed while the node commits it. Rename, pin and the read-marks
+ * keep this default: they are single DB writes, and nothing about them outlives
+ * a git fetch. Anything added that can needs the same treatment.
+ *
+ * What keeps the default honest on reads is not that the node stops working —
+ * it frequently doesn't. Several read paths build their context from
+ * `context.Background()` (internal/node/git/compare.go, history.go) and the
+ * review helper shells out with no context at all
+ * (internal/node/git/review/review.go), so an abandoned read runs to its own
+ * end regardless. What makes giving up safe is that it leaves nothing behind:
+ * no durable state that can later contradict the failure we reported, which is
+ * exactly what an abandoned mutation does leave.
  */
 export const REQUEST_TIMEOUT_MS = 75_000;
-
-/**
- * Deadline for the session operations that can bring a Docker stack up.
- *
- * Mirrors the CLI's `profileStackClientTimeout` (cmd/argus/cli/client.go) and
- * for its reason: it sits just above the node's own `stackOpTimeout` of 20
- * minutes (internal/node/session/docker.go) so the server's bound stays the
- * source of truth for the compose operation, while still capping the wait if a
- * handler wedges somewhere outside that bounded path.
- *
- * Create can also run an unbounded `git clone` for a remote source
- * (internal/git/worktree) — nothing on either side bounds that today, so a
- * clone slower than this would still be cut off. The CLI carries the same
- * exposure; bounding it belongs on the server, next to the clone.
- */
-export const SESSION_OPERATION_TIMEOUT_MS = 25 * 60_000;
 
 /**
  * Deadline for the polled node reads.
@@ -61,8 +57,18 @@ export const SESSION_OPERATION_TIMEOUT_MS = 25 * 60_000;
 export const POLL_TIMEOUT_MS = 8_000;
 
 export interface ApiRequestInit extends RequestInit {
-  /** Overrides REQUEST_TIMEOUT_MS for this request. */
-  timeoutMs?: number;
+  /**
+   * Overrides REQUEST_TIMEOUT_MS for this request. `null` runs it with no
+   * deadline at all.
+   *
+   * `null` is for the handlers whose slow path nothing bounds — not for
+   * handlers that are merely slow. Aborting a `fetch` does not stop the node:
+   * it keeps working, so a deadline shorter than the work reports a failure for
+   * an operation that goes on to succeed, and the user retries a create that
+   * already happened. Where no honest ceiling exists, no ceiling is the safer
+   * answer, and the real fix is a bound on the server beside the work.
+   */
+  timeoutMs?: number | null;
 }
 
 // Node identity is explicit: every fetch/WS helper takes the target node's
@@ -100,6 +106,15 @@ async function withDeadline<T>(
 ): Promise<T> {
   const { timeoutMs = REQUEST_TIMEOUT_MS, signal, ...rest } = options ?? {};
 
+  // No deadline asked for, so none imposed — the caller's own signal still
+  // applies. Opting out has to be expressible: the alternative is a number
+  // large enough to look like "never", which is a deadline that cuts real work
+  // on the day something exceeds it, and does it under a name that says it
+  // won't.
+  if (timeoutMs === null) {
+    return use({ ...rest, signal });
+  }
+
   // One controller fed by both the deadline and the caller, rather than
   // `AbortSignal.any`. Composing by hand is barely longer and it cannot fail
   // open: `any` would need a fallback for runtimes without it, and every
@@ -109,6 +124,14 @@ async function withDeadline<T>(
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
+    // First abort wins. Without this the flag records only *that* the timer
+    // fired, not that it fired first: a caller aborting just under the wire
+    // leaves the rejection propagating through a microtask, and a timer landing
+    // in that gap relabels their cancellation as the node failing to answer.
+    // Callers do act on the difference — useExpandableDiff treats an AbortError
+    // as an expected cancellation and anything else, TimeoutError included, as
+    // a transient failure worth recording against the anchor.
+    if (controller.signal.aborted) return;
     timedOut = true;
     controller.abort();
   }, timeoutMs);
@@ -175,18 +198,24 @@ export async function apiFetch<T>(
 }
 
 /**
- * Fetch text content from the API. Used for endpoints that
- * send/receive raw text instead of JSON (e.g., file content).
+ * Fetch text content from the API. Used for endpoints that send/receive raw
+ * text instead of JSON (e.g. file content), and for the ones whose body is
+ * empty and simply discarded (heartbeat, acknowledge, read/unread).
  *
- * The deadline covers reaching the response, not draining it: the body belongs
- * to the caller here, so it is read after this returns and the timer is already
- * cleared. Callers that stream something large are the ones this shape suits;
- * a caller wanting the body bounded too should read it through `apiFetch`.
+ * Returns the body rather than the `Response`, so the read happens inside the
+ * deadline — same reason `apiFetch` parses inside it. Handing back a live
+ * `Response` puts the drain after the timer is cleared, which left a node that
+ * sends headers and then stalls hanging the editor forever: the one failure a
+ * deadline is supposed to cover. No caller streams, so there is nothing the
+ * `Response` bought.
  */
 export async function apiTextFetch(
   baseUrl: string,
   url: string,
   options?: ApiRequestInit,
-): Promise<Response> {
-  return withDeadline(options, (init) => baseFetch(baseUrl, url, init));
+): Promise<string> {
+  return withDeadline(options, async (init) => {
+    const res = await baseFetch(baseUrl, url, init);
+    return res.text();
+  });
 }

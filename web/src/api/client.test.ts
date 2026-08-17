@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   apiFetch,
+  apiTextFetch,
   nodeWsUrl,
   ApiError,
   TimeoutError,
   POLL_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS,
-  SESSION_OPERATION_TIMEOUT_MS,
 } from "./client";
 
 afterEach(() => {
@@ -161,13 +161,133 @@ describe("apiFetch deadline", () => {
     expect(await pending).toBeInstanceOf(TimeoutError);
   });
 
-  it("gives the docker-capable session operations room the node actually needs", () => {
-    // The node allows `docker compose up` 20 minutes (stackOpTimeout), and
-    // create/clone/profile-change can all sit on one. A ceiling below that
-    // reports failure for work that is still running and will succeed — worse
-    // than no ceiling, because the user retries and creates a duplicate.
-    expect(SESSION_OPERATION_TIMEOUT_MS).toBeGreaterThan(20 * 60_000);
-    expect(REQUEST_TIMEOUT_MS).toBeLessThan(SESSION_OPERATION_TIMEOUT_MS);
+  it("covers a text response that arrives and then stalls mid-body", async () => {
+    // The same hole as the JSON case above, and the one that mattered in
+    // practice: apiTextFetch used to hand back the Response with its body
+    // unread, so the drain happened after the timer was already cleared. A node
+    // that sent 200 for a file and then stopped writing left the editor loading
+    // forever, with no error and no retry — the loading bookkeeping swallows a
+    // second attempt at the same path.
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: string, init?: RequestInit) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                init?.signal?.addEventListener("abort", () =>
+                  controller.error(new DOMException("aborted", "AbortError")),
+                );
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const pending = apiTextFetch("", "/api/node/files/content?path=x", {
+      timeoutMs: 500,
+    }).catch((e) => e);
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(await pending).toBeInstanceOf(TimeoutError);
+  });
+
+  it("returns the text body rather than a response still holding it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("file contents", { status: 200 })),
+    );
+
+    await expect(apiTextFetch("", "/api/node/files/content?path=x")).resolves.toBe(
+      "file contents",
+    );
+  });
+
+  it("doesn't relabel a caller's abort as a timeout when the timer lands after it", async () => {
+    // The caller cancels just under the wire and the deadline fires while their
+    // rejection is still propagating. Reporting that as TimeoutError tells the
+    // app the node failed to answer when the app is the one that hung up —
+    // useExpandableDiff records that as a transient anchor failure rather than
+    // ignoring it as the cancellation it was.
+    // The rejection has to still be in flight when the timer lands, which is
+    // the whole race. An immediately-rejecting stub asserts nothing: microtasks
+    // drain before the next timer task, so the catch has already run and read
+    // the flag by the time the deadline fires.
+    //
+    // The 5ms delay below makes the rejection a later timer task, which is a
+    // stronger delay than native `fetch` is known to take — so read this as an
+    // invariant guard on the flag's meaning rather than as proof that the race
+    // is reachable through a browser. It does discriminate: without the guard
+    // the deadline relabels the caller's abort as a TimeoutError.
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              setTimeout(() => reject(new DOMException("aborted", "AbortError")), 5);
+            });
+          }),
+      ),
+    );
+
+    const caller = new AbortController();
+    const pending = apiFetch("", "/api/node/sessions", {
+      signal: caller.signal,
+      timeoutMs: 500,
+    }).catch((e) => e);
+
+    await vi.advanceTimersByTimeAsync(499);
+    caller.abort();
+    // Past the deadline, so the timer fires while the caller's abort is still
+    // making its way out of the fetch.
+    await vi.advanceTimersByTimeAsync(10);
+
+    const err = await pending;
+    expect(err).not.toBeInstanceOf(TimeoutError);
+    expect(err).toBeInstanceOf(DOMException);
+  });
+
+  it("runs with no deadline at all when asked for none", async () => {
+    // For the handlers nothing bounds: `git clone` runs through a bare
+    // exec.Command on the node, so any ceiling here is a guess about someone
+    // else's repo, and guessing low reports failure for a create that succeeds.
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", blackholeFetch());
+
+    let settled = false;
+    const pending = apiFetch("", "/api/node/sessions", { timeoutMs: null })
+      .catch(() => {})
+      .finally(() => {
+        settled = true;
+      });
+
+    // Well past the default, which is what would otherwise have fired.
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS * 2);
+    expect(settled).toBe(false);
+
+    vi.useRealTimers();
+    void pending;
+  });
+
+  it("still honours the caller's abort with no deadline set", async () => {
+    // Opting out of the deadline must not opt out of cancellation — the caller
+    // is the only thing left that can stop the request.
+    vi.stubGlobal("fetch", blackholeFetch());
+
+    const caller = new AbortController();
+    const pending = apiFetch("", "/api/node/sessions", {
+      timeoutMs: null,
+      signal: caller.signal,
+    }).catch((e) => e);
+    caller.abort();
+
+    const err = await pending;
+    expect(err).toBeInstanceOf(DOMException);
+    expect(err).not.toBeInstanceOf(TimeoutError);
   });
 
   it("keeps the polled reads on a much shorter leash than the default", () => {

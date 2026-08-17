@@ -1,11 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
-import {
-  apiFetch,
-  POLL_TIMEOUT_MS,
-  SESSION_OPERATION_TIMEOUT_MS,
-} from "@/api/client";
+import { apiFetch, POLL_TIMEOUT_MS } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import type { Session, ProviderType } from "@/types";
 import { sessionKeys, profileKeys, statusKeys } from "./keys";
@@ -136,13 +132,18 @@ export function useCreateSession() {
   return useMutation({
     mutationKey: sessionKeys.mutation(scope, "create"),
     mutationFn: (input: CreateSessionInput) =>
-      // Can sit on a `docker compose up` the node allows 20 minutes for, and
-      // on an unbounded clone for a remote source — the default read deadline
-      // would report a failure while the node was still working.
+      // No deadline: a remote source runs `git clone` through git.Run
+      // (internal/git/utils.go), which is a bare exec with no context and no
+      // timeout, so nothing on the server bounds this. Any ceiling we picked
+      // would be a guess about someone else's repo size and link speed, and
+      // guessing low reports a failure for a create that then succeeds —
+      // leaving a session the user didn't think they had, and a retry that
+      // makes a second one. Bounding the clone belongs on the server beside it;
+      // until then the honest client behaviour is to wait.
       apiFetch<CreateSessionResponse>(baseUrl, "/api/node/sessions", {
         method: "POST",
         body: JSON.stringify(input),
-        timeoutMs: SESSION_OPERATION_TIMEOUT_MS,
+        timeoutMs: null,
       }),
     onSuccess: () => {
       invalidateSessionMembership(queryClient, scope);
@@ -157,10 +158,20 @@ export function useCloneSession() {
   return useMutation({
     mutationKey: sessionKeys.mutation(scope, "clone"),
     mutationFn: ({ sessionId }: { sessionId: string }) =>
+      // Clone delegates to Create, but hands it the source session's *working
+      // directory* (internal/node/session/lifecycle.go) — an existing local
+      // path, which source.Resolve classifies as local, so this does not reach
+      // the remote `git clone` that Create-from-a-URL can. It doesn't create a
+      // worktree either: FindWorktreeByPath recognises the managed one and it
+      // is reused. What it does run is probes — FindMainRepo,
+      // FindWorktreeByPath, the remote URL read — through git.Output, which is
+      // the same context-less exec.Command as git.Run, and it takes the source
+      // session's lock first, which nothing bounds. No ceiling here would be
+      // honest either.
       apiFetch<CreateSessionResponse>(
         baseUrl,
         `/api/node/sessions/${encodeURIComponent(sessionId)}/clone`,
-        { method: "POST", timeoutMs: SESSION_OPERATION_TIMEOUT_MS },
+        { method: "POST", timeoutMs: null },
       ),
     onSuccess: () => {
       invalidateSessionMembership(queryClient, scope);
@@ -186,10 +197,17 @@ export function useDeleteSession() {
       sessionId: string;
       deleteBranch?: boolean;
     }) =>
+      // No deadline, on the same rule as the mutations above. Two `pre_destroy`
+      // hooks at 30s apiece are the only part the node bounds; `RemoveWorktree`
+      // and `DeleteBranch` run through the context-less git.Run
+      // (internal/git/worktree/manager.go) and the session lock ahead of them is
+      // unbounded, so no number here is derived from anything. A cut request
+      // does not stop the deletion either — it carries on and the row vanishes
+      // on the next poll, moments after the UI called it a failure.
       apiFetch<DeleteSessionResponse>(
         baseUrl,
         `/api/node/sessions/${encodeURIComponent(sessionId)}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
-        { method: "DELETE" },
+        { method: "DELETE", timeoutMs: null },
       ),
     onSuccess: (_data, { sessionId }) => {
       // Drop the row immediately rather than waiting for the refetch. Without
@@ -262,17 +280,27 @@ export function useChangeSessionProfile() {
       sessionId: string;
       profile: string | null;
     }) =>
+      // No deadline, for the same reason create and clone have none: nothing
+      // server-side bounds the whole operation. `stackOpTimeout` covers one
+      // compose call, and a Docker target can bring two — `prepareDockerTarget`
+      // before teardown, then again through `respawnTmux` — around hooks the
+      // node allows 30s apiece, after a `profileLock` wait that sits outside
+      // any context (internal/node/session/docker.go, lifecycle.go). A host
+      // target runs no compose at all and the hooks are conditional, so the
+      // slow path is not always taken — but when it is, there is no aggregate
+      // bound to sit above, which is what a ceiling here would have to claim.
+      // A 25-minute one could cut a switch the node goes on to finish, and
+      // cutting it stops none of it: the UI would report a failure for a
+      // profile that ends up applied.
       profile === null
-        // Changing profile runs the same docker preconditions as create
-        // (prepareDockerTarget), so it gets the same ceiling.
         ? apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "DELETE",
-            timeoutMs: SESSION_OPERATION_TIMEOUT_MS,
+            timeoutMs: null,
           })
         : apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "PUT",
             body: JSON.stringify({ profile }),
-            timeoutMs: SESSION_OPERATION_TIMEOUT_MS,
+            timeoutMs: null,
           }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });

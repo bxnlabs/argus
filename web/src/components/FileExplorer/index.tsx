@@ -157,11 +157,10 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
 
       let content = "";
       if (!isBinary && !isLarge) {
-        const res = await apiTextFetch(
+        content = await apiTextFetch(
           baseUrlRef.current,
           `/api/node/files/content?path=${encodeURIComponent(path)}`,
         );
-        content = await res.text();
       }
 
       if (loadTokensRef.current.get(path) !== token) return;
