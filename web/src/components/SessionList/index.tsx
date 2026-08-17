@@ -95,21 +95,18 @@ export function resolveRowDisplay(
 // SessionListSkeleton
 // ---------------------------------------------------------------------------
 
-// Placeholder rows for a list that hasn't arrived yet. Mirrors SessionItem line
-// for line — the same px-2 py-2 around a name line, a dot-and-status line, and
-// the icon-and-label lines a worktree session carries — so a placeholder row
-// stands in for a real row at its own height (90px) rather than a third of it.
-// Getting the shape right is what's available: how *many* rows are coming isn't
-// knowable, so the list still resizes when the real ones land, but it does it
-// by gaining or shedding whole rows instead of doubling every row it drew.
+// Placeholder rows for a list that hasn't arrived yet. Mirrors a real row's
+// structure — px-2 py-2 around a name line, a dot-and-status line, and the
+// icon-and-label lines a worktree session carries — so a placeholder stands in
+// at the real row height rather than a fraction of it. How many rows are coming
+// isn't knowable, so the list still resizes when the real ones land.
 //
-// Widths are staggered so it reads as content taking shape rather than as a
-// progress bar. Same muted pulse the editor uses while a file loads
-// (FileExplorer's EditorSkeleton).
+// Widths are staggered so it reads as content taking shape. Same muted pulse the
+// editor uses while a file loads (FileExplorer's EditorSkeleton).
 const SKELETON_WIDTHS = [82, 54, 71, 44, 63];
 
-// Repo and branch: the two icon-and-label lines below the status line, scaled
-// off the name width so each row keeps its own ragged silhouette.
+// Repo and branch lines, scaled off the name width so each row keeps its own
+// ragged silhouette.
 const SKELETON_DETAIL_SCALES = [0.7, 0.85];
 
 export function SessionListSkeleton() {
@@ -269,7 +266,7 @@ export const SessionItem = memo(function SessionItem({
     >
       {/* Active session indicator pill — anchored to left border. White is the
           shared currency color across the session list, node rail, and view-mode
-          rail, which leaves blue to mean "unread" on its own. */}
+          rail, leaving blue to mean "unread". */}
       {isActive && (
         <span
           aria-hidden="true"
@@ -644,14 +641,12 @@ export const SessionList = memo(function SessionList({
       {/* Session list */}
       <ScrollArea className="w-full flex-1">
         <div className="max-w-full space-y-0.5 px-1.5 py-1">
-          {/* Waiting on the list — including when the last attempt failed. A
-              fetch that errored is still a fetch in progress here: the query
-              keeps polling, so the placeholder rows stay up and the failure is
-              announced by a toast rather than by replacing the list with a
-              retry screen. */}
+          {/* Waiting on the list, including when the last fetch failed: the
+              query keeps polling, so the placeholder rows stay up and the
+              failure is announced by a toast. */}
           {isLoading && <SessionListSkeleton />}
 
-          {/* Empty state — only once a list has actually arrived and is empty */}
+          {/* Empty state — only once a list has arrived and is empty */}
           {!isLoading && sessions.length === 0 && (
             <div className="flex flex-col items-center justify-center px-4 py-12">
               <p className="text-muted-foreground mb-4 text-center text-sm">

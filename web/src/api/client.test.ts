@@ -28,9 +28,8 @@ describe("nodeWsUrl", () => {
   });
 });
 
-// A fetch that honours its abort signal the way the real one does, and
-// otherwise never settles — a blackholed connection, which is the case a
-// deadline exists for. A request that merely fails is already handled.
+// Honours its abort signal the way the real one does, and otherwise never
+// settles: a blackholed connection, which is the case a deadline exists for.
 function blackholeFetch() {
   return vi.fn(
     (_url: string, init?: RequestInit) =>
@@ -63,9 +62,9 @@ describe("apiFetch deadline", () => {
     await vi.advanceTimersByTimeAsync(600);
     const err = await pending;
 
-    // The DOMException an abort raises can't say which abort it was, which is
-    // what makes "the node never answered" indistinguishable from "the caller
-    // cancelled" unless the deadline names itself.
+    // The DOMException an abort raises can't say which abort it was, so "the
+    // node never answered" is only distinguishable if the deadline names
+    // itself.
     expect(err).toBeInstanceOf(TimeoutError);
     expect((err as TimeoutError).timeoutMs).toBe(500);
   });
@@ -98,23 +97,19 @@ describe("apiFetch deadline", () => {
     caller.abort();
     const err = await pending;
 
-    // Aborting for the caller's own reasons must not be reported as the node
-    // failing to answer — the sidebar announces one of those and not the other.
+    // A caller's own cancellation must not be reported as the node failing to
+    // answer: the sidebar announces one and not the other.
     expect(err).not.toBeInstanceOf(TimeoutError);
   });
 
   it("keeps the deadline when the caller also brings a signal", async () => {
-    // With `AbortSignal.any` removed, which is the case the old composition
-    // fell back for: it picked the caller's signal alone, so supplying one
-    // silently deleted the deadline. Both aborts now run through a single
-    // controller, so there is nothing to fall back to and nothing to drop.
-    //
-    // jsdom does provide `AbortSignal.any`, so testing this without removing it
-    // would pass against the very code it is meant to reject.
+    // Deleting `AbortSignal.any` simulates a runtime without it, where a
+    // fallback that picked the caller's signal alone would drop the deadline.
+    // jsdom provides `any`, so leaving it in place would pass regardless.
     vi.useFakeTimers();
     vi.stubGlobal("fetch", blackholeFetch());
     const realAny = AbortSignal.any;
-    // @ts-expect-error — deliberately simulating a runtime without it.
+    // @ts-expect-error — deleting a built-in on purpose.
     delete AbortSignal.any;
 
     try {
@@ -132,9 +127,9 @@ describe("apiFetch deadline", () => {
   });
 
   it("covers a response that arrives and then stalls mid-body", async () => {
-    // `fetch` resolves on headers, so a deadline that ends there guards nothing
-    // that matters: a node which sends 200 and then stops writing hangs exactly
-    // as long as one that never answered. The stream below never closes.
+    // `fetch` resolves on headers, so a deadline ending there guards nothing: a
+    // node that sends 200 and then stops writing hangs as long as one that
+    // never answered. The stream below never closes.
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -162,12 +157,9 @@ describe("apiFetch deadline", () => {
   });
 
   it("covers a text response that arrives and then stalls mid-body", async () => {
-    // The same hole as the JSON case above, and the one that mattered in
-    // practice: apiTextFetch used to hand back the Response with its body
-    // unread, so the drain happened after the timer was already cleared. A node
-    // that sent 200 for a file and then stopped writing left the editor loading
-    // forever, with no error and no retry — the loading bookkeeping swallows a
-    // second attempt at the same path.
+    // The same hole as the JSON case above. Handing back an unread body would
+    // drain it after the timer is cleared, so a node that sends 200 for a file
+    // and then stops writing would leave the editor loading forever.
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -207,20 +199,14 @@ describe("apiFetch deadline", () => {
 
   it("doesn't relabel a caller's abort as a timeout when the timer lands after it", async () => {
     // The caller cancels just under the wire and the deadline fires while their
-    // rejection is still propagating. Reporting that as TimeoutError tells the
-    // app the node failed to answer when the app is the one that hung up —
-    // useExpandableDiff records that as a transient anchor failure rather than
-    // ignoring it as the cancellation it was.
-    // The rejection has to still be in flight when the timer lands, which is
-    // the whole race. An immediately-rejecting stub asserts nothing: microtasks
-    // drain before the next timer task, so the catch has already run and read
-    // the flag by the time the deadline fires.
+    // rejection is still in flight. Reporting that as TimeoutError tells the
+    // app the node failed to answer when the app is the one that hung up, and
+    // useExpandableDiff records it as a transient anchor failure instead of the
+    // expected cancellation it was.
     //
-    // The 5ms delay below makes the rejection a later timer task, which is a
-    // stronger delay than native `fetch` is known to take — so read this as an
-    // invariant guard on the flag's meaning rather than as proof that the race
-    // is reachable through a browser. It does discriminate: without the guard
-    // the deadline relabels the caller's abort as a TimeoutError.
+    // The 5ms delay below makes the rejection a later timer task, a stronger
+    // delay than native `fetch` is known to take, so this guards the flag's
+    // meaning rather than proving the race is reachable in a browser.
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -242,8 +228,7 @@ describe("apiFetch deadline", () => {
 
     await vi.advanceTimersByTimeAsync(499);
     caller.abort();
-    // Past the deadline, so the timer fires while the caller's abort is still
-    // making its way out of the fetch.
+    // Past the deadline, so the timer fires while the abort is still in flight.
     await vi.advanceTimersByTimeAsync(10);
 
     const err = await pending;
@@ -253,8 +238,8 @@ describe("apiFetch deadline", () => {
 
   it("runs with no deadline at all when asked for none", async () => {
     // For the handlers nothing bounds: `git clone` runs through a bare
-    // exec.Command on the node, so any ceiling here is a guess about someone
-    // else's repo, and guessing low reports failure for a create that succeeds.
+    // exec.Command on the node, so a ceiling here would report failure for a
+    // create that goes on to succeed.
     vi.useFakeTimers();
     vi.stubGlobal("fetch", blackholeFetch());
 
@@ -265,7 +250,7 @@ describe("apiFetch deadline", () => {
         settled = true;
       });
 
-    // Well past the default, which is what would otherwise have fired.
+    // Well past the default deadline, which is what would otherwise have fired.
     await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS * 2);
     expect(settled).toBe(false);
 
@@ -274,7 +259,7 @@ describe("apiFetch deadline", () => {
   });
 
   it("still honours the caller's abort with no deadline set", async () => {
-    // Opting out of the deadline must not opt out of cancellation — the caller
+    // Opting out of the deadline must not opt out of cancellation: the caller
     // is the only thing left that can stop the request.
     vi.stubGlobal("fetch", blackholeFetch());
 
@@ -291,10 +276,9 @@ describe("apiFetch deadline", () => {
   });
 
   it("keeps the polled reads on a much shorter leash than the default", () => {
-    // The polls are DB reads that repeat on a timer; the default ceiling is
-    // sized for the node's slowest git work. Collapsing the two would mean a
-    // black hole holds the poll loop open long enough that nothing downstream
-    // can report the node stopped answering.
+    // The polls are DB reads that repeat on a timer; the default is sized for
+    // the node's slowest git work. Collapsing the two would hold the poll loop
+    // open too long for anything downstream to report the node's silence.
     expect(POLL_TIMEOUT_MS).toBeLessThan(REQUEST_TIMEOUT_MS);
     expect(POLL_TIMEOUT_MS).toBeLessThan(10_000);
   });

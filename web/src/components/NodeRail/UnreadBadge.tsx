@@ -30,17 +30,10 @@ export function UnreadBadge({
 }
 
 /**
- * The countless sibling of {@link UnreadBadge}, for the one place a number would
- * lie: the switcher tile, whose badge sums the unread waiting on *other* nodes
- * while sitting on the *current* node's avatar. A digit there reads as "this
- * node has 5" — so the bell says only "something's waiting in the rail" and
- * leaves the counting to the rail's own tiles.
- *
- * Same 16px circle in the same corner as the count badge, so the two are
- * interchangeable in the slot. The glyph is filled rather than stroked (a
- * hairline bell turns to mush at 10px) and the badge carries a surface-colored
- * ring, since a silhouette needs a clean edge where digits don't. Decorative —
- * the count it stands for belongs in the host's accessible label.
+ * Countless sibling of {@link UnreadBadge}, for the switcher tile: its badge
+ * counts unread on *other* nodes while sitting on the *current* node's avatar,
+ * and a digit there would read as this node's own count. The total goes in the
+ * host's accessible label and tooltip instead.
  */
 export function UnreadBell({
   className,

@@ -45,18 +45,15 @@ function RailButton({
           disabled={disabled}
           className={cn(
             "relative h-12 w-12",
-            // The inactive modes recede so the active one is the only icon at
-            // full strength — the pill says *which*, the contrast says *how
-            // many others are competing for the read*. `hover:text-*` from the
-            // ghost variant outranks this (class + pseudo-class), so pointing
-            // at a dim mode still brings it up to full.
+            // Inactive modes dim so the active one is the only icon at full
+            // strength. Ghost's `hover:text-*` outranks this, so hover restores it.
             active ? "bg-accent" : "text-muted-foreground",
           )}
           aria-label={tooltip}
           aria-pressed={active}
         >
-          {/* Active view mode indicator pill — anchored to right border. White is
-              the shared currency color across the session list, node rail, and
+          {/* Active view mode indicator pill — anchored to right border. White
+              marks the current thing across the session list, node rail, and
               view-mode rail, which leaves blue to mean "unread" on its own. */}
           {active && (
             <span
@@ -91,10 +88,6 @@ export function ViewModeRail({
       aria-label="View mode"
     >
       {/* View mode icons */}
-      {/* The selected view is called out by its filled background, the white
-          pill on the border, and by being the only icon left undimmed — not by
-          tinting the icon: blue on the icon is the same blue the unread badge
-          uses, and currency reads white everywhere else in the app. */}
       <RailButton
         active={isTerminalActive}
         onClick={() => onSetActivePanel(null)}

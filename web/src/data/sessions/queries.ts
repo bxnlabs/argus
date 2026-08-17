@@ -7,15 +7,10 @@ import type { Session, ProviderType } from "@/types";
 import { sessionKeys, profileKeys, statusKeys } from "./keys";
 
 /**
- * Refresh both halves of the sidebar after the set of sessions changes.
- *
- * The list and the statuses are separate polls on separate intervals, so
- * invalidating only the list puts a session on screen that no status entry
- * covers yet — the new row draws the unlabeled muted dot `getStatusMeta`
- * falls back to, and holds it until the next status tick. Membership changes
- * are exactly when the two can disagree, so they refresh together. Renames and
- * profile edits don't need this: they change a session, not which sessions
- * exist.
+ * Refresh the session list and the statuses together. They are separate polls,
+ * so invalidating only the list can leave a new row with no status entry,
+ * drawing the muted dot `getStatusMeta` falls back to until the next status
+ * tick. A membership change is when the two can disagree.
  */
 function invalidateSessionMembership(queryClient: QueryClient, scope: string) {
   queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });
@@ -44,48 +39,30 @@ export interface RosterFetchState {
   /** The cached roster currently reflects a completed server answer. */
   settled: boolean;
   /**
-   * Increments once per server answer.
-   *
-   * `settled` describes a state and can be left, which makes it useless to
-   * anything that needs to know an answer *happened*. A success immediately
-   * followed by a mutation's optimistic write renders once, as `settled: false`
-   * — the answer arrived and nothing downstream can see that it did. Consumers
-   * watching for the event watch this instead.
+   * Increments once per server answer. `settled` is a state that can be left
+   * again: a success immediately followed by an optimistic write renders once,
+   * as `settled: false`, and a count survives that collapse where a level does
+   * not.
    */
   fetchedRevision: number;
 }
 
 /**
- * Tracks what the *server* has actually said about the roster, as opposed to
- * what the query's rendered status implies.
+ * Tracks what the server has actually said about the roster, rather than what
+ * the query's rendered status implies. `status`/`isSuccess`/`isFetching` cannot
+ * tell an optimistic `setQueryData` from a real answer; the cache events can:
+ * a manual write arrives as `{ type: "success", manual: true }`, a real answer
+ * as the same action without it.
  *
- * Anything that decides a session no longer exists needs the former, and
- * `status`/`isSuccess`/`isFetching` cannot supply it. TanStack scores an
- * optimistic `setQueryData` as a success, and rename and pin both cancel the
- * in-flight roster fetch before writing — so at the render layer that pair is
- * indistinguishable from a fetch that answered (measured: the observer emits
- * `fetching` then `idle`+`success`, and React batches the cancelled state in
- * between out of existence). Retry pausing and a fetch too fast for React to
- * commit its in-flight snapshot produce the same ambiguity from the other side.
- *
- * The cache events carry the distinction the snapshots lose: a manual write
- * arrives as `{ type: "success", manual: true }`, a real answer as the same
- * action without it. Subscribing is therefore not defensiveness, it's the only
- * place the question can be answered.
- *
- * `settled` describes the roster on hand right now, and goes false whenever a
- * fetch starts, fails, or the cache is written locally — each of which makes
- * "not in the list" mean "not yet" rather than "not anymore". Every consumer
- * that acts on absence wants that, including the one-shot ones: a latched
- * "answered at some point" flag would still be true over a roster that a failed
- * mutation had since rolled back to an older snapshot, which is a licence to
- * delete against data the hook itself knows is stale.
+ * `settled` means the cached roster is currently a completed server answer, so
+ * it goes false when a fetch starts, fails, or the cache is written locally.
+ * Absence then means "not yet" rather than "not anymore": a latched flag would
+ * stay true over a roster a failed mutation had rolled back to an older
+ * snapshot.
  */
 export function useRosterFetchState(): RosterFetchState {
   const queryClient = useQueryClient();
   const { scope } = useActiveNode();
-  // The revision carries the history `settled` can't: a render that collapses a
-  // success and a following write into one still shows the count going up.
   const [state, setState] = useState({ settled: false, revision: 0 });
 
   useEffect(() => {
@@ -132,13 +109,9 @@ export function useCreateSession() {
     mutationKey: sessionKeys.mutation(scope, "create"),
     mutationFn: (input: CreateSessionInput) =>
       // No deadline: a remote source runs `git clone` through git.Run
-      // (internal/git/utils.go), which is a bare exec with no context and no
-      // timeout, so nothing on the server bounds this. Any ceiling we picked
-      // would be a guess about someone else's repo size and link speed, and
-      // guessing low reports a failure for a create that then succeeds —
-      // leaving a session the user didn't think they had, and a retry that
-      // makes a second one. Bounding the clone belongs on the server beside it;
-      // until then the honest client behaviour is to wait.
+      // (internal/git/utils.go), a bare exec with no context, so nothing on the
+      // server bounds this. A ceiling set too low reports a failure for a
+      // create that then succeeds, and the retry makes a second session.
       apiFetch<CreateSessionResponse>(baseUrl, "/api/node/sessions", {
         method: "POST",
         body: JSON.stringify(input),
@@ -157,16 +130,12 @@ export function useCloneSession() {
   return useMutation({
     mutationKey: sessionKeys.mutation(scope, "clone"),
     mutationFn: ({ sessionId }: { sessionId: string }) =>
-      // Clone delegates to Create, but hands it the source session's *working
-      // directory* (internal/node/session/lifecycle.go) — an existing local
-      // path, which source.Resolve classifies as local, so this does not reach
-      // the remote `git clone` that Create-from-a-URL can. It doesn't create a
-      // worktree either: FindWorktreeByPath recognises the managed one and it
-      // is reused. What it does run is probes — FindMainRepo,
-      // FindWorktreeByPath, the remote URL read — through git.Output, which is
-      // the same context-less exec.Command as git.Run, and it takes the source
-      // session's lock first, which nothing bounds. No ceiling here would be
-      // honest either.
+      // No deadline. Clone hands Create the source session's working directory
+      // (internal/node/session/lifecycle.go), a local path, so it does not
+      // reach the remote `git clone`, and it creates no worktree — the managed
+      // one is recognised and reused. It does run git probes (FindMainRepo,
+      // FindWorktreeByPath, the remote URL read) through the same context-less
+      // exec, and takes the source session's lock first. Neither is bounded.
       apiFetch<CreateSessionResponse>(
         baseUrl,
         `/api/node/sessions/${encodeURIComponent(sessionId)}/clone`,
@@ -196,13 +165,11 @@ export function useDeleteSession() {
       sessionId: string;
       deleteBranch?: boolean;
     }) =>
-      // No deadline, on the same rule as the mutations above. Two `pre_destroy`
-      // hooks at 30s apiece are the only part the node bounds; `RemoveWorktree`
-      // and `DeleteBranch` run through the context-less git.Run
-      // (internal/git/worktree/manager.go) and the session lock ahead of them is
-      // unbounded, so no number here is derived from anything. A cut request
-      // does not stop the deletion either — it carries on and the row vanishes
-      // on the next poll, moments after the UI called it a failure.
+      // No deadline. The two `pre_destroy` hooks at 30s apiece are the only
+      // part the node bounds; worktree removal and branch deletion run through
+      // the context-less git.Run (internal/git/worktree/manager.go), and the
+      // session lock ahead of them is unbounded too. Cutting the request would
+      // not stop the deletion.
       apiFetch<DeleteSessionResponse>(
         baseUrl,
         `/api/node/sessions/${encodeURIComponent(sessionId)}?force=true${deleteBranch ? "&delete_branch=true" : ""}`,
@@ -279,18 +246,12 @@ export function useChangeSessionProfile() {
       sessionId: string;
       profile: string | null;
     }) =>
-      // No deadline, for the same reason create and clone have none: nothing
-      // server-side bounds the whole operation. `stackOpTimeout` covers one
-      // compose call, and a Docker target can bring two — `prepareDockerTarget`
-      // before teardown, then again through `respawnTmux` — around hooks the
-      // node allows 30s apiece, after a `profileLock` wait that sits outside
-      // any context (internal/node/session/docker.go, lifecycle.go). A host
-      // target runs no compose at all and the hooks are conditional, so the
-      // slow path is not always taken — but when it is, there is no aggregate
-      // bound to sit above, which is what a ceiling here would have to claim.
-      // A 25-minute one could cut a switch the node goes on to finish, and
-      // cutting it stops none of it: the UI would report a failure for a
-      // profile that ends up applied.
+      // No deadline. `stackOpTimeout` bounds one compose call, and a Docker
+      // target can bring up two — once before teardown, once through respawn —
+      // around hooks the node allows 30s apiece, after a `profileLock` wait
+      // outside any context (internal/node/session/docker.go, lifecycle.go). A
+      // host target runs no compose at all and the hooks are conditional, so
+      // there is no aggregate bound for a ceiling here to sit above.
       profile === null
         ? apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "DELETE",

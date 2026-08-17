@@ -85,9 +85,8 @@ describe("NodeRail", () => {
   });
 
   it("centers the tiles and the add button on the rail's own axis", () => {
-    // The pill used to get a reserved lane (pr-2), which shrank the content box
-    // and pushed every centered child 4px off the rail's midline — tiles and
-    // add button alike. The pill overlays the centering margin instead.
+    // The pill overlays the centering margin; a lane of its own would push every
+    // centered child off the rail's midline.
     const { container } = renderRail([{ ...base, id: "local", self: true }], "local");
     const rail = container.querySelector("[data-testid='node-rail']")!;
     expect(rail.className).not.toMatch(/\bp[xlr]-/);
@@ -103,17 +102,12 @@ describe("NodeRail", () => {
       ],
       "local",
     );
-    // The active tile used to spend its border on selection (border-white),
-    // which is what kept the working ring off it. The pill frees the border,
-    // so both tiles now share the 3px transparent one the ring offsets past.
+    // Both keep the 3px transparent border the working ring offsets past.
     expect(screen.getByTestId("node-tile-local").className).not.toContain("border-white");
     expect(screen.getByTestId("node-tile-m1").className).not.toContain("border-white");
   });
 
   it("dims the current node when it goes offline", () => {
-    // The white border used to exempt the active tile from dimming to stay
-    // crisp; with the pill carrying currency, an offline current node can look
-    // offline like any other.
     renderRail([{ ...base, id: "local", self: true, online: false }], "local");
     expect(screen.getByTestId("node-tile-local").className).toContain("opacity-40");
   });

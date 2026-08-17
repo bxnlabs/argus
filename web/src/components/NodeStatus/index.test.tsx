@@ -132,8 +132,7 @@ describe("NodeStatus", () => {
       false,
     );
     const bell = screen.getByTestId("node-status-attention");
-    // A number pinned to the current node's avatar reads as *its* unread count,
-    // which is exactly what it isn't — so the bell carries no digits at all.
+    // A digit on the current node's avatar would read as that node's own count.
     expect(bell.textContent).toBe("");
   });
 
@@ -147,8 +146,7 @@ describe("NodeStatus", () => {
       "local",
       false,
     );
-    // A glyph tells a screen reader nothing, so the count the badge dropped
-    // survives in the label: 2 + 3 from the peers, never the active node's own 1.
+    // 2 + 3 from the peers; the active node's own 1 is not counted.
     const label = screen.getByTestId("node-status").getAttribute("aria-label") ?? "";
     expect(label).toContain("5 unread on other nodes");
   });

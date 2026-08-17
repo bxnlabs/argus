@@ -30,23 +30,13 @@ const client = () => new QueryClient({ defaultOptions: { queries: { retry: false
 
 describe("useRosterFetchState", () => {
   it("separates 'an answer arrived' from 'the roster is that answer'", async () => {
-    // The invariant the stale-tab cleanup's gate rests on, and the reason it
-    // asks `settled` rather than anything latched.
-    //
-    // A failed rename or pin restores the roster it snapshotted in onMutate,
-    // which is older than any answer that landed while the mutation was in
-    // flight. After that write these two facts genuinely disagree: a real
-    // answer *did* arrive (the revision counter still records it, which is what
-    // lets the outage toast re-arm on the event), and the roster on hand is no
-    // longer that answer.
-    //
-    // Anything that deletes on absence has to read the second one. A latched
-    // "a fetch has answered" flag stays true straight through the rollback, so
-    // a one-shot consumer can spend its only pass judging "this session is
-    // gone" against a list the cache has already reverted.
-    // The server has since learned about a second session; the rollback below
-    // puts back a snapshot taken before it existed, which is what makes the
-    // reverted roster genuinely older rather than merely rewritten.
+    // Guards the premise the stale-tab cleanup's gate rests on, rather than
+    // reproducing a bug. A failed rename or pin restores the roster it
+    // snapshotted in onMutate, which is older than any answer that landed while
+    // the mutation was in flight, so the two facts disagree: an answer did
+    // arrive, and the roster on hand is no longer that answer. The server has
+    // since learned about a second session, so the snapshot the rollback puts
+    // back is genuinely older.
     const qc = client();
     vi.stubGlobal(
       "fetch",
@@ -65,7 +55,6 @@ describe("useRosterFetchState", () => {
     expect(answered).toBeGreaterThan(0);
 
     // onError's rollback: the pre-mutation roster written back over a newer one.
-    // Session "b" vanishes from the cache despite the server having reported it.
     act(() => {
       qc.setQueryData(listKey, {
         sessions: [{ id: "a", name: "one" }],
@@ -80,8 +69,8 @@ describe("useRosterFetchState", () => {
   });
 
   it("comes back once a real answer lands on top of the local write", async () => {
-    // The rollback must delay the absence check, not disable it — otherwise a
-    // stale tab from a previous run never gets cleaned up at all.
+    // The rollback must delay the absence check, not disable it, or a stale tab
+    // from a previous run never gets cleaned up.
     const qc = client();
     const { result, rerender } = renderHook(
       () => {

@@ -17,8 +17,8 @@ function wrapper(qc: QueryClient) {
   );
 }
 
-// Each call decides the next response, so a test can serve a good list first and
-// fail everything after it — the shape of a node that goes unreachable mid-poll.
+// Each call decides the next response, so a test can serve a good list and then
+// fail — the shape of a node that goes unreachable mid-poll.
 let respond: () => Response | Promise<Response>;
 
 beforeEach(() => {
@@ -26,10 +26,9 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async () => respond()));
 });
 
-// Explicit unmount: the suite doesn't run with Vitest globals, so Testing
-// Library never registers its automatic cleanup. Leaving the hook mounted would
-// leave a live query observer polling on a 10s interval into the next test —
-// and past the point where fetch is still stubbed.
+// Explicit cleanup: without Vitest globals, Testing Library registers none. A
+// mounted hook would keep a query observer polling into the next test, past the
+// point where fetch is still stubbed.
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -39,10 +38,8 @@ const ok = (sessions: unknown[]) =>
   new Response(JSON.stringify({ sessions, home_dir: "/home/u" }), { status: 200 });
 const down = () => new Response("", { status: 502 });
 // A failure that settles on a later macrotask, the way a real one does. With no
-// cached data the query's status cycles error → pending → error across a retry,
-// and an immediately-resolved failure lets React batch that pending render away
-// — so only a deferred failure exercises the window where the re-arm guard can
-// wrongly clear itself.
+// cached data the status cycles error → pending → error across a retry, and only
+// a deferred failure lets React commit that pending render.
 const slowDown = () =>
   new Promise<Response>((r) => setTimeout(() => r(down()), 20));
 
@@ -50,9 +47,8 @@ const client = () => new QueryClient({ defaultOptions: { queries: { retry: false
 
 describe("useSessions", () => {
   it("keeps the cached list through a failed background refetch", async () => {
-    // A failed poll leaves TanStack's status at "error" while the last good data
-    // stays cached. Dropping isLoaded here would swap the populated sidebar back
-    // to placeholder rows every time a remote node blinked.
+    // A failed poll leaves the status at "error" while the last good data stays
+    // cached; the sidebar shouldn't fall back to placeholders when a node blinks.
     const qc = client();
     respond = () => ok([{ id: "a", name: "one" }]);
 
@@ -79,22 +75,16 @@ describe("useSessions", () => {
   });
 
   it("announces a failure once rather than on every failed poll", async () => {
-    // An unreachable node keeps polling by design. Toasting per attempt would
-    // emit one every 10s for as long as it stayed down.
-    //
-    // The failures are deferred on purpose: a node that has never answered holds
-    // no cached data, so each retry drops the status back to "pending" before it
-    // errors again. Re-arming on `!isError` would clear the guard in that window
-    // and re-announce every poll. Immediately-resolved failures hide it.
+    // An unreachable node keeps polling by design; toasting per attempt would emit
+    // one every 10s. Failures are deferred so the "pending" render commits.
     const qc = client();
     respond = slowDown;
 
     renderHook(() => useSessions(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
 
-    // Settle between polls so React commits the intermediate render rather than
-    // batching it away — the poll interval is 10s in production, so the pending
-    // state is plainly on screen there.
+    // Settle between polls so React commits the intermediate render; with a 10s
+    // interval in production that render is plainly on screen.
     for (let i = 0; i < 2; i++) {
       await qc.refetchQueries({ queryKey: ["sessions"] });
       await new Promise((r) => setTimeout(r, 30));
@@ -103,10 +93,9 @@ describe("useSessions", () => {
     expect(toastError).toHaveBeenCalledTimes(1);
   });
 
-  // Seeds the cache the way a node switch leaves it: real data from an earlier
-  // visit, with no fetch yet made by the mount that's about to read it. Dated
-  // back past staleTime so the mount refetches, which is what a return visit
-  // after any real interval does.
+  // Seeds the cache the way a node switch leaves it: data from an earlier visit,
+  // with no fetch yet by the mount about to read it, dated past staleTime so that
+  // mount refetches.
   const seedRoster = (qc: QueryClient, sessions: unknown[]) =>
     qc.setQueryData(
       sessionKeys.list("local:"),
@@ -115,22 +104,18 @@ describe("useSessions", () => {
     );
 
   it("draws a warm cache without treating it as a roster answer", async () => {
-    // The node-switch shape. isLoaded and isRosterSettled deliberately
-    // disagree: the cached list is worth drawing immediately, but nothing has
-    // confirmed it still describes the server, so it can't be used to conclude a
-    // session is gone. App's stale-tab cleanup detaches on absence, and this
-    // list may predate a session created just before the node went quiet.
+    // The node-switch shape: the cached list is worth drawing, but nothing has
+    // confirmed it still describes the server, and App's cleanup detaches on
+    // absence.
     const qc = client();
     seedRoster(qc, [{ id: "a", name: "one" }]);
     respond = () => ok([{ id: "a", name: "one" }]);
 
     const { result } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
 
-    // Asserted synchronously, before the mount's refetch can settle. This
-    // instant is the whole point: it's when App's stale-tab cleanup effect runs,
-    // and it's *before* TabProvider has restored tabs from localStorage, since
-    // child effects commit before parent ones. Calling the roster settled here
-    // consumes the one-shot guard against a tab list that hasn't loaded yet.
+    // Asserted synchronously, before the mount's refetch can settle: that is when
+    // App's stale-tab cleanup runs, and before TabProvider has restored tabs from
+    // localStorage, since child effects commit before parent ones.
     expect(result.current.isLoaded).toBe(true);
     expect(result.current.isRosterSettled).toBe(false);
 
@@ -139,13 +124,11 @@ describe("useSessions", () => {
   });
 
   it("doesn't announce a stale error for a node that has since recovered", async () => {
-    // Node goes down, gets announced, and you switch away. The query keeps that
-    // error in cache; coming back remounts the hook on top of it with a refetch
-    // already in flight. Announcing off the cached error would report a node as
-    // down at the moment it is answering.
-    // Seeded, because the error has to survive the remount to be stale at all:
-    // with data cached the status sits at "error" while the next fetch runs,
-    // whereas an empty cache drops to "pending" and hides the window entirely.
+    // Node goes down, gets announced, and you switch away; coming back remounts
+    // the hook on the cached error with a refetch already in flight. Announcing
+    // off that error would report a node as down at the moment it is answering.
+    // Seeded so the status sits at "error" while that fetch runs, rather than
+    // dropping to "pending" as an empty cache would.
     const qc = client();
     seedRoster(qc, [{ id: "a", name: "one" }]);
     respond = down;
@@ -178,11 +161,8 @@ describe("useSessions", () => {
   });
 
   it("doesn't let an optimistic cache write pass for a server answer", async () => {
-    // Rename and pin both setQueryData on this key in onMutate, and TanStack
-    // scores a manual write as `status: "success"` — so reading `isSuccess`
-    // would let renaming one session promote a stale roster to authoritative
-    // with no request behind it, and the cleanup would detach a tab holding a
-    // session that list predates.
+    // Rename and pin both setQueryData on this key in onMutate, and a manual write
+    // scores as `status: "success"` — but nothing requested it.
     const qc = client();
     seedRoster(qc, [{ id: "a", name: "one" }]);
     respond = down;
@@ -198,10 +178,8 @@ describe("useSessions", () => {
   });
 
   it("announces a node that accepts the connection and then says nothing", async () => {
-    // The failure a deadline exists for. A request that is refused or errors
-    // announces on its own; one that is swallowed never settles, so before
-    // apiFetch had a deadline the query sat fetching forever — no toast, no
-    // further polls, and a sidebar quietly serving a cached list.
+    // The failure the deadline exists for: a swallowed request never settles, so
+    // without one the query would sit fetching forever — no toast, no more polls.
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -228,11 +206,9 @@ describe("useSessions", () => {
   });
 
   it("still hears a recovery that a following write renders over", async () => {
-    // Recovery is an event; "the roster is settled" is a state you can already
-    // have left. A poll that succeeds and is immediately followed by a
-    // mutation's optimistic write renders once, as not-settled — so reading the
-    // state means the node came back and nothing noticed, leaving the guard
-    // armed and the NEXT real outage announced to nobody.
+    // A poll that succeeds and is immediately followed by a mutation's optimistic
+    // write renders once, as not-settled, so reading that state would miss the
+    // recovery and leave the next real outage unannounced.
     const qc = client();
     respond = down;
 
@@ -259,9 +235,8 @@ describe("useSessions", () => {
   });
 
   it("doesn't let renaming a row during an outage count as recovery", async () => {
-    // Re-arming on `isSuccess` would treat an optimistic write as the node
-    // coming back, so editing a cached row mid-outage would license a second
-    // announcement for the same uninterrupted outage.
+    // An optimistic write is not the node coming back: editing a cached row
+    // mid-outage must not license a second toast for the same outage.
     const qc = client();
     seedRoster(qc, [{ id: "a", name: "one" }]);
     respond = down;
@@ -269,10 +244,8 @@ describe("useSessions", () => {
     renderHook(() => useSessions(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
 
-    // Settled before the refetch, so React actually commits the render where the
-    // optimistic write has the query reading as a success. Without that gap the
-    // batching hides the very state the guard has to resist, and this test would
-    // pass against the bug.
+    // Settled before the refetch so React commits the render where the optimistic
+    // write has the query reading as a success; batching would hide it.
     await act(async () => {
       qc.setQueryData(sessionKeys.list("local:"), {
         sessions: [{ id: "a", name: "renamed" }],
@@ -288,13 +261,9 @@ describe("useSessions", () => {
   });
 
   it("doesn't mistake a cancelled fetch plus a local write for an answer", async () => {
-    // The sequence rename and pin actually perform in onMutate: cancel the
-    // in-flight roster fetch, then write the cache. Cancelling stops the fetch
-    // and the write lands as success, so at the render layer this is
-    // indistinguishable from a fetch that answered — the observer goes
-    // fetching → idle+success and React batches the cancelled state in between
-    // out of existence. Anything reading rendered status grants authority here
-    // and detaches a tab for a session the stale roster predates.
+    // The sequence rename and pin perform in onMutate: cancel the in-flight roster
+    // fetch, then write the cache. At the render layer that is indistinguishable
+    // from a fetch that answered — fetching → idle+success — yet none did.
     const qc = client();
     seedRoster(qc, [{ id: "a", name: "one" }]);
     respond = slowDown;
@@ -315,20 +284,16 @@ describe("useSessions", () => {
   });
 
   it("stops calling the roster trustworthy once a rollback overwrites it", async () => {
-    // A failed rename/pin restores the roster it snapshotted in onMutate, which
-    // is *older* than any answer that landed while the mutation was in flight —
-    // session "b" below is on the server and gone from the cache after the
-    // rollback. The write is manual, so the hook sees it for what it is.
+    // A failed rename/pin restores the roster it snapshotted in onMutate, older
+    // than any answer that landed while the mutation was in flight: session "b" is
+    // on the server and gone from the cache after the rollback.
     //
-    // This is the case that rules out a latched "a fetch answered at some point"
-    // flag. That flag is true from the answer onward and stays true across the
-    // rollback, so a one-shot consumer — App's stale-tab cleanup — could spend
-    // its single pass judging "this session is gone" against a list the data
-    // layer already knows has been reverted, and detach a live tab for "b".
+    // That rules out a latched "a fetch answered at some point" flag, which stays
+    // true across the rollback: a one-shot consumer like App's stale-tab cleanup
+    // could spend its single pass judging absence against a reverted list, and
+    // detach a live tab for "b".
     //
-    // A guard, not a reproduction: `isRosterSettled` behaved this way before the
-    // gate moved onto it, so this passes against the pre-fix hook too. What it
-    // protects is the premise the new gate rests on.
+    // A guard on a premise, not a reproduction: it pins what App's cleanup rests on.
     const qc = client();
     respond = () => ok([{ id: "a", name: "one" }, { id: "b", name: "two" }]);
 
@@ -349,10 +314,9 @@ describe("useSessions", () => {
   });
 
   it("won't call a session absent while the roster is unsettled", async () => {
-    // What App's dialog-closing effect rides on. A session created seconds ago
-    // is missing from the cached list until its invalidating refetch lands, and
-    // if that refetch is slow or failing the list still reads as loaded — so
-    // "not in the list" has to stay distinguishable from "gone".
+    // What App's dialog-closing effect rides on: a session created seconds ago is
+    // missing from the cached list until its refetch lands, and a slow or failing
+    // refetch still reads as loaded, so "not in the list" isn't "gone".
     const qc = client();
     seedRoster(qc, [{ id: "a", name: "one" }]);
     respond = slowDown;

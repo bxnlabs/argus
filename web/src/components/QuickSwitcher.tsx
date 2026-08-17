@@ -51,12 +51,10 @@ export function QuickSwitcher({
     );
   });
 
-  // The session you're on sits at the top, whatever the sidebar's recency order
-  // puts there. It's the one row whose position you can predict before the list
-  // renders, which is what makes it a landmark — the rest of the list reads as
-  // "everything else" relative to it, and switching away and back doesn't move
-  // it. Hoisted among the matches rather than pinned outright, so a search it
-  // doesn't match still excludes it.
+  // The session you're on is hoisted to the top: it's the one row whose position
+  // you can predict before the list renders, so the rest reads as "everything
+  // else" relative to it. Hoisted among the matches rather than pinned, so a
+  // search it doesn't match still excludes it.
   const currentIndex = currentSessionId
     ? matchingSessions.findIndex((s) => s.id === currentSessionId)
     : -1;
@@ -69,15 +67,10 @@ export function QuickSwitcher({
         ]
       : matchingSessions;
 
-  // The cursor opens on the first row that isn't the session you're already on.
-  // Hoisting put that session at the top, and landing the cursor there would
-  // make the default action "switch to where you are" — the switcher's whole
-  // job is the other thing. Same convention as an app switcher, where the
-  // current window is the anchor you count from rather than a destination.
-  //
-  // Falls back to 0 when there's nothing else to land on, so a lone current
-  // session (or a search that matches only it) still has a selected row rather
-  // than a cursor pointing past the end.
+  // The keyboard cursor opens on the first row that isn't the session you're on;
+  // landing it on the hoisted current row would make the default action "switch
+  // to where you are". Falls back to 0 when there's nothing else to land on, so
+  // a lone current session still has a selected row.
   const initialIndex =
     filteredSessions.length > 1 && filteredSessions[0]?.id === currentSessionId
       ? 1
@@ -93,24 +86,17 @@ export function QuickSwitcher({
 
   // Land the cursor on the first row worth going to, and re-land it if that row
   // only shows up later. `initialIndex` is a dependency rather than a ref read,
-  // because the switcher opens fine before the list has arrived — Cmd+K is
-  // ungated, and a node switch empties the cache for the new scope — and on that
-  // path the cursor would otherwise be placed against an empty list and left
-  // there. It settles on 0, the sessions land, the current one is hoisted under
-  // it, and Enter goes back to the session you're already in: the exact thing
-  // hoisting was supposed to stop.
-  //
-  // Only ever 0 or 1, so this re-runs when an alternative first appears or last
-  // disappears — not on the reordering an ordinary poll causes, which would drag
-  // the cursor back to the top mid-navigation.
+  // because the dialog can open before the list has arrived, and a cursor placed
+  // against an empty list would sit on row 0 — the current session, once it's
+  // hoisted there — so Enter would go back to where you already are. It's only
+  // ever 0 or 1, so ordinary polling and reordering don't reset the cursor.
   useEffect(() => {
     if (open) setSelectedIndex(initialIndex);
   }, [open, query, initialIndex]);
 
   // Keep the cursor on a row that exists. Sessions can leave the list while the
-  // dialog is open (deleted from another client, or on the node itself), and a
-  // cursor left past the end selects nothing: no row takes the wash, and Enter
-  // does nothing at all.
+  // dialog is open, and a cursor past the end selects nothing, so Enter does
+  // nothing.
   useEffect(() => {
     setSelectedIndex((i) => Math.min(i, Math.max(filteredSessions.length - 1, 0)));
   }, [filteredSessions.length]);
@@ -222,14 +208,10 @@ export function QuickSwitcher({
                       onSelectSession(session.id);
                       onOpenChange(false);
                     }}
-                    // The row wash is the keyboard cursor and nothing else. It
-                    // used to double as a current-session marker in
-                    // `bg-primary/10`, which cost twice: blue is unread's color
-                    // elsewhere in the app, and since `cn` runs tailwind-merge
-                    // the later background silently dropped `bg-accent` — so
-                    // arrowing onto the current row changed nothing on screen
-                    // and the cursor vanished on exactly one row. The "Current"
-                    // chip carries that meaning now, where it can't collide.
+                    // The row background is the keyboard cursor only. `cn` runs
+                    // tailwind-merge, so a second background class silently
+                    // replaces the first — which is why currency is a chip, not
+                    // a tint.
                     className={cn(
                       "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors",
                       index === selectedIndex
@@ -248,13 +230,11 @@ export function QuickSwitcher({
                         <span className="truncate font-medium">
                           {session.name || "Unnamed Session"}
                         </span>
-                        {/* White for the same reason the node panel's check is
-                            (MobileNodePanel): "you're on this one" reads white
-                            app-wide, leaving blue to mean unread. Says it in
-                            words rather than a check because this row sits in a
-                            list you're picking *from* — a bare tick reads as
-                            "chosen" as easily as "current". Outlined chip at
-                            text-[10px] is the house style (ProviderBadge). */}
+                        {/* White means "you're on this one" app-wide, leaving
+                            blue to mean unread. A word rather than a check,
+                            since in a list you're picking from a bare tick
+                            reads as "chosen" as easily as "current". Outlined
+                            chip at text-[10px] matches ProviderBadge. */}
                         {isCurrent && (
                           <Badge
                             variant="outline"

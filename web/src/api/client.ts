@@ -17,42 +17,33 @@ export class TimeoutError extends Error {
 }
 
 /**
- * Default request deadline, for the ordinary request that reads something.
+ * Default request deadline, for the ordinary read.
  *
- * Clears the slowest bound most of that work carries: the git layer caps its
+ * It clears the slowest bound that work carries: the git layer caps its
  * commands at 10s, its long ones at 30s, and `git fetch` at 60s
- * (internal/node/git). Past that is not a slow answer, it's no answer.
+ * (internal/node/git). Past that is no answer, not a slow one.
  *
  * It is not a bound on every handler. The long-running lifecycle mutations —
- * create, clone, profile change, delete — reach work nothing on the node
- * bounds: an unbounded `git clone`, compose calls bounded only one at a time,
- * worktree and branch operations through a context-less `git.Run`, and session
- * and profile lock waits that sit outside every context there is. They pass
- * `timeoutMs: null`, because a ceiling below the real work tells the user a
- * mutation failed while the node commits it. Rename, pin and the read-marks
- * keep this default: they are single DB writes, and nothing about them outlives
- * a git fetch. Anything added that can needs the same treatment.
+ * create, clone, profile change, delete — pass `timeoutMs: null`, because
+ * nothing on the node bounds their slow path, and a ceiling under the real work
+ * would tell the user a mutation failed while the node commits it. Rename, pin
+ * and the read-marks keep this default: single DB writes, nothing that can
+ * outlive a git fetch.
  *
- * What keeps the default honest on reads is not that the node stops working —
- * it frequently doesn't. Several read paths build their context from
+ * Giving up on a read is safe because it leaves no durable state behind, not
+ * because the node stops working: several read paths build their context from
  * `context.Background()` (internal/node/git/compare.go, history.go) and the
  * review helper shells out with no context at all
- * (internal/node/git/review/review.go), so an abandoned read runs to its own
- * end regardless. What makes giving up safe is that it leaves nothing behind:
- * no durable state that can later contradict the failure we reported, which is
- * exactly what an abandoned mutation does leave.
+ * (internal/node/git/review/review.go).
  */
 export const REQUEST_TIMEOUT_MS = 75_000;
 
 /**
- * Deadline for the polled node reads.
- *
- * These are DB and tmux reads that return in milliseconds, and they repeat on a
- * timer, so the generous ceiling above is the wrong shape for them: a request
- * into a black hole would hold the poll loop open long enough that nothing
- * downstream — the sidebar's failure toast, the node's presence dot — can tell
- * you the node stopped answering. Short enough to notice, long enough to
- * survive a slow link.
+ * Deadline for the polled node reads: DB and tmux reads that return in
+ * milliseconds and repeat on a timer. The ceiling above is the wrong shape for
+ * them — a request into a black hole would hold the poll loop open long enough
+ * that nothing downstream (the sidebar's failure toast, the node's presence
+ * dot) can tell you the node stopped answering.
  */
 export const POLL_TIMEOUT_MS = 8_000;
 
@@ -64,18 +55,13 @@ export interface ApiRequestInit extends RequestInit {
    * `null` is for the handlers whose slow path nothing bounds — not for
    * handlers that are merely slow. Aborting a `fetch` does not stop the node:
    * it keeps working, so a deadline shorter than the work reports a failure for
-   * an operation that goes on to succeed, and the user retries a create that
-   * already happened. Where no honest ceiling exists, no ceiling is the safer
-   * answer, and the real fix is a bound on the server beside the work.
+   * an operation that goes on to succeed. The real fix is a bound on the
+   * server, beside the work.
    *
-   * Known cost, accepted rather than overlooked: a request that never settles
-   * leaves its mutation pending forever, and the sidebar's busy row and the
-   * `isCreating` lock are derived from exactly that set
-   * (useSessionMutationState). So a wedged node leaves a row inert, or new
-   * sessions refused, until the page is reloaded — the deadlines used to
-   * release those. Reload is the recovery; there is deliberately no
-   * "stop waiting" control, because the honest fix is a server-side bound and
-   * a local release would only hide a node that is still stuck. BXN-133.
+   * Accepted cost: a request that never settles leaves its mutation pending
+   * forever, and the sidebar's busy row and the `isCreating` lock derive from
+   * exactly that set (useSessionMutationState), so a wedged node needs a page
+   * reload. BXN-133.
    */
   timeoutMs?: number | null;
 }
@@ -101,13 +87,11 @@ export function nodeWsUrl(baseUrl: string, sessionId?: string | null): string {
 }
 
 /**
- * Runs `use` under a deadline, and — the part that matters — keeps the deadline
- * running for as long as the caller needs the response.
- *
- * `fetch` resolves once the response *headers* arrive, so a deadline that ends
- * there leaves the body unguarded: a node that sends headers and then stalls
- * mid-JSON hangs exactly as long as one that never answered at all. Everything
- * that reads the body therefore happens inside this call, not after it.
+ * Runs `use` under a deadline that stays armed until the caller has the whole
+ * response. `fetch` resolves once the response headers arrive, so a deadline
+ * that ends there leaves the body unguarded: a node that sends headers and then
+ * stalls mid-JSON hangs as long as one that never answered. Everything that
+ * reads the body happens inside this call.
  */
 async function withDeadline<T>(
   options: ApiRequestInit | undefined,
@@ -115,31 +99,24 @@ async function withDeadline<T>(
 ): Promise<T> {
   const { timeoutMs = REQUEST_TIMEOUT_MS, signal, ...rest } = options ?? {};
 
-  // No deadline asked for, so none imposed — the caller's own signal still
-  // applies. Opting out has to be expressible: the alternative is a number
-  // large enough to look like "never", which is a deadline that cuts real work
-  // on the day something exceeds it, and does it under a name that says it
-  // won't.
+  // No deadline asked for, so none imposed; the caller's own signal still
+  // applies. The alternative — a number big enough to look like "never" — still
+  // cuts real work on the day something exceeds it.
   if (timeoutMs === null) {
     return use({ ...rest, signal });
   }
 
   // One controller fed by both the deadline and the caller, rather than
-  // `AbortSignal.any`. Composing by hand is barely longer and it cannot fail
-  // open: `any` would need a fallback for runtimes without it, and every
-  // fallback that picks one signal over the other silently drops whichever it
-  // didn't pick — a deadline that quietly stops existing on some browsers is
-  // worse than one that was never claimed.
+  // `AbortSignal.any`, which would need a fallback on runtimes without it — and
+  // any fallback that picks one signal silently drops the other.
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
-    // First abort wins. Without this the flag records only *that* the timer
-    // fired, not that it fired first: a caller aborting just under the wire
-    // leaves the rejection propagating through a microtask, and a timer landing
-    // in that gap relabels their cancellation as the node failing to answer.
-    // Callers do act on the difference — useExpandableDiff treats an AbortError
-    // as an expected cancellation and anything else, TimeoutError included, as
-    // a transient failure worth recording against the anchor.
+    // First abort wins: a caller aborting just under the wire leaves the
+    // rejection still propagating, and a timer landing in that gap would
+    // relabel their cancellation as the node failing to answer. Callers branch
+    // on that — useExpandableDiff treats an AbortError as expected and anything
+    // else, TimeoutError included, as a transient failure.
     if (controller.signal.aborted) return;
     timedOut = true;
     controller.abort();
@@ -154,10 +131,8 @@ async function withDeadline<T>(
     return await use({ ...rest, signal: controller.signal });
   } catch (err) {
     // The DOMException an abort raises says nothing about which abort it was,
-    // and now that both aborts arrive through one controller, the signal can't
-    // either — hence the flag. Callers need to tell "the node never answered",
-    // which the sidebar announces, from "the caller cancelled", which it must
-    // not.
+    // and both arrive through one controller, so the flag is what tells "the
+    // node never answered" from "the caller cancelled".
     if (timedOut) throw new TimeoutError(timeoutMs);
     throw err;
   } finally {
@@ -209,14 +184,12 @@ export async function apiFetch<T>(
 /**
  * Fetch text content from the API. Used for endpoints that send/receive raw
  * text instead of JSON (e.g. file content), and for the ones whose body is
- * empty and simply discarded (heartbeat, acknowledge, read/unread).
+ * empty and discarded (heartbeat, acknowledge, read/unread).
  *
  * Returns the body rather than the `Response`, so the read happens inside the
- * deadline — same reason `apiFetch` parses inside it. Handing back a live
- * `Response` puts the drain after the timer is cleared, which left a node that
- * sends headers and then stalls hanging the editor forever: the one failure a
- * deadline is supposed to cover. No caller streams, so there is nothing the
- * `Response` bought.
+ * deadline. A live `Response` would put the drain after the timer is cleared,
+ * leaving a node that sends headers and then stalls to hang the editor forever.
+ * No caller streams.
  */
 export async function apiTextFetch(
   baseUrl: string,

@@ -67,9 +67,8 @@ export function MobileNodePanel({
             const status = nodeStatus(n);
             const active = n.id === activeNodeId;
             const attention = n.summary?.attention ?? 0;
-            // Mirror the desktop rail's working ring (NodeTile): any busy node
-            // announces itself with the spinning halo, the current one included
-            // — the row's selected background already carries currency.
+            // Mirror the desktop rail's working ring (NodeTile): every online
+            // node with running sessions shows it, the current one included.
             const working = n.online && (n.summary?.busy ?? 0) > 0;
             // Only Custom (manual) nodes can be renamed/removed.
             const editable = n.source === "manual";
@@ -95,8 +94,7 @@ export function MobileNodePanel({
                 <span className="relative flex-shrink-0">
                   <NodeAvatar node={n} size={36} className={cn(working && "node-working")} />
                   {/* The active node keeps its unread badge — sessions on it can
-                      still need attention while you're in another session.
-                      Matches the desktop rail (NodeTile). */}
+                      still need attention. Matches the desktop rail (NodeTile). */}
                   {n.online && attention > 0 && (
                     <UnreadBadge count={attention} data-testid={`node-row-attention-${n.id}`} />
                   )}
@@ -114,10 +112,8 @@ export function MobileNodePanel({
                     {sourceLabel(n)} · {status.label}
                   </div>
                 </div>
-                {/* White, not the primary blue: currency reads white across the
-                    session list, node rail, and view-mode rail, which leaves
-                    blue to mean "unread" on its own — including on the unread
-                    badge sitting on this row's own avatar. */}
+                {/* White, not blue: white marks the current thing across all
+                    three rails, which leaves blue to mean "unread" on its own. */}
                 {active && (
                   <Check
                     data-testid={`node-row-check-${n.id}`}

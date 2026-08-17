@@ -21,8 +21,7 @@ function renderRail(activePanel: SidePanel) {
 
 describe("ViewModeRail currency pill", () => {
   it("marks the active view with a white pill", () => {
-    // White is the shared currency color across all three rails (session list,
-    // node rail, view-mode rail), which leaves blue to mean "unread" alone.
+    // White marks the current thing in all three rails, leaving blue for unread.
     const { container } = renderRail("git");
     const pills = container.querySelectorAll("[data-testid='view-mode-pill']");
     expect(pills.length).toBe(1);
@@ -30,9 +29,7 @@ describe("ViewModeRail currency pill", () => {
   });
 
   it("dims every mode but the active one", () => {
-    // Contrast is the second half of the currency signal: the pill says which
-    // mode is current, and the dimming keeps the other two from competing for
-    // the same glance.
+    // The pill says which mode is current; dimming keeps the others quiet.
     const { container } = renderRail("git");
     const dimmed = (label: string) =>
       container

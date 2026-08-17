@@ -17,10 +17,9 @@ export function useSessions() {
   const homeDir: string = data?.home_dir ?? "";
 
   // What the server has actually said, tracked off the query's cache events
-  // rather than its rendered status — see useRosterFetchState for why the
-  // render layer cannot answer this. `settled` gates anything that acts on a
-  // session's absence; `fetchedRevision` carries the answers themselves, for
-  // the toast below, which needs the event and not the state.
+  // rather than its rendered status. `settled` gates anything that acts on a
+  // session's absence; `fetchedRevision` counts answers, which the toast below
+  // needs instead of a state.
   const { settled: rosterSettled, fetchedRevision } = useRosterFetchState();
 
   const deleteMutation = useDeleteSession();
@@ -87,39 +86,20 @@ export function useSessions() {
   }, []);
 
   // A failed fetch is announced, not rendered: the list keeps its placeholder
-  // rows and the query keeps polling on its own interval, so there's nothing to
-  // retry by hand and nothing worth taking the sidebar over for.
+  // rows and the query keeps polling, so there's nothing to retry by hand.
   //
-  // Fires on the transition into failure, not on every failed poll — otherwise
-  // an unreachable node would emit a toast every 10s for as long as it stayed
-  // down. Re-arms once a fetch succeeds, so a second outage is announced again.
+  // Fires on the transition into failure, not on every failed poll, and is held
+  // while a fetch is in flight, because an error can outlive the outage that
+  // caused it — a remount after a failed visit starts with that error on the
+  // query and a refetch already running to settle it.
   //
-  // Re-arming keys off a real server answer, not `!isError` and not `isSuccess`.
-  // `!isError` goes true for the in-flight moment of every retry, since with no
-  // cached data the status cycles error → pending → error (measured), which
-  // would re-announce on every poll for a node that has never answered — the
-  // exact case this guard exists for. `isSuccess` fails the other way: an
-  // optimistic rename or pin counts as success, so editing a cached row during
-  // an outage would score as recovery and let the next failure announce again.
+  // Re-arms by consuming the answer count rather than reading `settled`: a poll
+  // that succeeds and is immediately followed by a mutation's optimistic write
+  // renders once, as `settled: false`, so reading the state would miss the
+  // recovery and leave the next real outage unannounced.
   //
-  // The message stays neutral about the cause: `isError` is any rejected query,
-  // and apiFetch rejects on 4xx/5xx and malformed JSON as readily as on an
-  // unreachable host, so naming connectivity would misdiagnose a node that is
-  // reachable and failing.
-  //
-  // Held while a fetch is in flight, because an error can outlive the outage
-  // that caused it. Coming back to a node that failed last time you were here
-  // arrives with that stale error still on the query and a refetch already
-  // running to settle it — announcing then reports a node as down that may be
-  // answering by the time the words are on screen. Waiting for the fetch to land
-  // costs a round trip on a genuinely dead node and nothing on a live one.
-  //
-  // Re-arming consumes the revision rather than reading `settled`, because
-  // recovery is an event and `settled` is a state you can already have left.
-  // A poll that succeeds and is immediately followed by a mutation's optimistic
-  // write renders once, as `settled: false` — so the node came back, the guard
-  // never noticed, and the *next* real outage was announced to nobody. The
-  // count survives that collapse; a level cannot.
+  // The message stays neutral about the cause: any rejected query lands here,
+  // including 4xx/5xx and malformed JSON, not just an unreachable node.
   const announcedFailure = useRef(false);
   const seenRevision = useRef(0);
   useEffect(() => {
@@ -136,25 +116,19 @@ export function useSessions() {
   return {
     sessions,
     homeDir,
-    // Surfaced so the sidebar can tell "no sessions" apart from "not yet known".
-    // Until the first fetch lands, an empty list is the absence of an answer,
-    // not an answer.
-    //
-    // Keyed off holding data rather than query status: the list polls every 10s,
-    // and a failed poll leaves `status: "error"` sitting on top of a perfectly
-    // good cached list, so `isSuccess` would drop the whole sidebar back to
-    // placeholders every time a remote node blinked.
+    // Answers "is there something to draw", so the sidebar can tell "no
+    // sessions" apart from "not yet known". Keyed off holding data rather than
+    // query status: a failed poll leaves `status: "error"` on top of a perfectly
+    // good cached list, which the sidebar should keep drawing.
     isLoaded: data !== undefined,
     // Whether the list can be trusted to say which sessions *don't* exist.
-    // `isLoaded` deliberately answers a weaker question — "is there something to
-    // draw" — and cached data under a failed refetch answers it yes while the
-    // server's current roster is unknown. That's the right call for rendering
-    // and the wrong one for anything that deletes on absence, so the two are
-    // separate flags rather than one doing double duty.
+    // Cached data under a failed refetch is drawable while the server's current
+    // roster is unknown, so this is a separate flag from `isLoaded`: rendering
+    // wants the weaker question, acting on absence wants this one.
     //
-    // Goes false again whenever a fetch is in flight, the last one failed, or
-    // the cache was written locally, which is exactly when "that session isn't
-    // in the list" means "not yet" rather than "not anymore".
+    // False whenever a fetch is in flight, the last one failed, or the cache was
+    // written locally — exactly when "not in the list" means "not yet" rather
+    // than "not anymore".
     isRosterSettled: rosterSettled,
     deleteSession,
     renameSession,

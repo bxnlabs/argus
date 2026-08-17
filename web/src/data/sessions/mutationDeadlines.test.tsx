@@ -11,11 +11,8 @@ import {
   useSessionsQuery,
 } from "./queries";
 
-// Which deadline a mutation actually runs under, observed the only way that
-// can't drift from the truth: by letting the clock pass the boundary and seeing
-// whether the request is still alive. Asserting on the exported constants would
-// pass just as happily with the call site wired to the wrong one — which is the
-// mistake these guard, since every one of these numbers was moved by hand.
+// Which deadline a mutation runs under, observed by letting the clock pass the
+// boundary rather than by asserting on the exported constants.
 function wrapper(qc: QueryClient) {
   return ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={qc}>
@@ -24,8 +21,7 @@ function wrapper(qc: QueryClient) {
   );
 }
 
-// Honours abort, never answers otherwise: the blackholed node a deadline exists
-// for, and the only case where the deadline is observable at all.
+// Honours abort, never answers otherwise: the hung node a deadline exists for.
 function blackholeFetch() {
   return vi.fn(
     (_url: string, init?: RequestInit) =>
@@ -67,22 +63,13 @@ function launch(useHook: () => { mutateAsync: (v: never) => Promise<unknown> }, 
 }
 
 describe("session mutation deadlines", () => {
-  // Every *long-running lifecycle* mutation. Rename, pin and the read-marks are
-  // mutations too and deliberately keep the default deadline — they are single
-  // DB writes with nothing in them that can outlive a git fetch.
-  //
-  // The rule for the ones below is that a ceiling under the real work tells the
-  // user a mutation failed while the node commits it, and aborting the fetch
-  // stops none of it. Each reaches something nothing on the node bounds: a
-  // remote source's `git clone` for create, git probes for clone, compose calls
-  // bounded only one at a time for a dockerized profile change, worktree
-  // removal and branch deletion for delete, and session or profile lock waits
-  // for all of them.
-  //
-  // Listed exhaustively within that group rather than sampled, because the
-  // failure this guards against is one call site keeping a ceiling the others
-  // dropped, which is invisible in review and only shows up on the slow repo
-  // nobody tests with.
+  // Every long-running lifecycle mutation, listed exhaustively so one call site
+  // keeping a ceiling the others dropped fails here. A ceiling under the real
+  // work reports a failure while the node commits anyway, and each of these
+  // reaches something nothing on the node bounds: a remote source's `git clone`
+  // for create, git probes for clone, compose calls bounded only one at a time
+  // for a dockerized profile change, worktree removal and branch deletion for
+  // delete, and lock waits for all of them. Rename and pin keep the default.
   it.each([
     ["create", () => useCreateSession(), { provider_type: "claude", auto_approve: false }],
     ["clone", () => useCloneSession(), { sessionId: "a" }],
@@ -91,20 +78,15 @@ describe("session mutation deadlines", () => {
     ["delete", () => useDeleteSession(), { sessionId: "a" }],
     ["delete with branch", () => useDeleteSession(), { sessionId: "a", deleteBranch: true }],
   ])("leaves %s running with no deadline at all", async (_name, useHook, vars) => {
-    // Advanced well past every ceiling these call sites have ever carried — the
-    // 75s default, the 120s lifecycle cutoff, the 25-minute session-operation
-    // one — so a call site left on any of them fails here rather than sitting
-    // inside it and passing either way.
+    // Far past any deadline a call site could plausibly carry.
     const state = launch(useHook as never, vars);
 
     await vi.advanceTimersByTimeAsync(30 * 60_000);
     expect(state.settled).toBe(false);
 
-    // Outliving 30 minutes is not the same fact as carrying no deadline — a
-    // freshly-introduced 31-minute ceiling would satisfy the above. This is the
-    // exact one: `withDeadline` only builds a controller when it has a timer to
-    // hang off it, so with no caller signal either, a request that opted out
-    // reaches `fetch` with no signal at all. Any numeric deadline produces one.
+    // Outliving 30 minutes is not the same fact as carrying no deadline. Any
+    // numeric deadline builds an abort controller, so only a request that opted
+    // out reaches `fetch` with no signal at all.
     const calls = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } })
       .mock.calls;
     expect(calls.length).toBeGreaterThan(0);
@@ -112,17 +94,13 @@ describe("session mutation deadlines", () => {
   });
 
   it("still cuts the roster poll, which the rule above does not reach", async () => {
-    // The boundary. Dropping deadlines is right for mutations because the node
-    // keeps working after the abort; a read is the opposite — the request *is*
-    // the work, nothing survives the caller giving up, and a poll left hanging
-    // takes the failure toast and the presence dot down with it. Guards against
-    // the rule being applied by search-and-replace.
+    // The boundary: a mutation's work outlives the abort, but for a poll the
+    // request is the work, and one left hanging stops anything downstream
+    // noticing the node went quiet.
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useSessionsQuery(), { wrapper: wrapper(qc) });
 
-    // Straddled rather than overshot, so this pins POLL_TIMEOUT_MS itself and
-    // not merely "something under nine seconds" — the poll being quietly moved
-    // onto the 75s default would still fail here.
+    // Straddled rather than overshot, so this pins POLL_TIMEOUT_MS itself.
     await vi.advanceTimersByTimeAsync(POLL_TIMEOUT_MS - 100);
     expect(result.current.error).toBeNull();
 

@@ -24,8 +24,7 @@ function NodeTile({
   const attention = node.summary?.attention ?? 0;
   const busy = node.summary?.busy ?? 0;
   // Every online node with running sessions gets the ring, the current one
-  // included: currency lives on the pill now, so the tile's border is free and
-  // "is this node working?" is worth answering for the node you're standing on.
+  // included — the pill is what marks which node you're on.
   const working = node.online && busy > 0;
   // Only manually-added (Custom) nodes can be edited/removed; the local node and
   // Tailscale-discovered peers aren't editable, so they get no menu.
@@ -51,14 +50,12 @@ function NodeTile({
       }
       className={cn(
         // The node's derived accent color is its identity (same tile as the
-        // switcher avatar). Every tile carries the same 3px transparent border
-        // for the working ring to offset past (--node-working-border) — currency
-        // is the pill's job, so no tile spends its border on selection.
+        // switcher avatar). Every tile keeps the same 3px transparent border for
+        // the working ring to offset past (--node-working-border).
         "relative mx-auto flex h-8 w-8 items-center justify-center rounded-lg border-[3px] border-solid border-transparent text-sm font-semibold leading-none text-white transition-[opacity,filter]",
         !active && "hover:brightness-110",
-        // Offline recedes rather than alarms: the colored tile simply dims so
-        // a down node is the quietest tile in the rail, never the loudest. This
-        // holds for the current node too — the pill still says you're on it.
+        // Offline nodes dim rather than alarm, the current one included — the
+        // pill still says you're on it.
         !node.online && "opacity-40",
         working && "node-working",
       )}
@@ -116,21 +113,9 @@ function NodeTile({
     tile
   );
 
-  // Currency pill, anchored flush to the rail's leading edge — the app's own
-  // outer edge, furthest from the content it selects (Discord's server rail,
-  // VS Code's activity bar). White to match the session-list and view-mode
-  // pills, which leaves blue to mean "unread" on its own. Flat against that
-  // edge and rounded toward the tile, so it reads as growing inward off the
-  // border rather than floating in the margin.
-  //
-  // Deliberately short — 8px, a quarter of the tile's height — but kept at the
-  // full 4px thick. Length is what makes the mark loud; thickness is what makes
-  // it legible, and a 2px hairline reads as an artifact of the border rather
-  // than a deliberate mark. The tile is centered in the rail (see NodeRail), so
-  // there are ~11px between its edge and either border and the working ring
-  // spends the innermost 3px; at this size the pill still clears the ring by
-  // ~4px, so a busy current node reads as a green ring *and* a white pill
-  // rather than one bright smear.
+  // Marks the current node, flush to the rail's leading edge. White to match the
+  // session-list and view-mode pills, which leaves blue to mean "unread" on its
+  // own. Short enough to stay clear of the working ring on a busy current node.
   return (
     <div className="relative">
       {content}
@@ -169,9 +154,8 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
         data-side={side}
         className={cn(
           // No horizontal padding: the tiles and the add button center on the
-          // rail's own axis, and the pill overlays the margin the centering
-          // leaves rather than being given a lane of its own (see NodeTile).
-          // Reserving one shifted every tile off-center by half its width.
+          // rail's own axis and the pill overlays the margin (see NodeTile).
+          // Giving the pill a lane of its own would shift every tile off-center.
           "node-rail-glass bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3",
           side === "right" ? "border-l" : "border-r",
         )}

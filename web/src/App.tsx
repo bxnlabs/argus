@@ -171,12 +171,11 @@ function HomeContent({
   // Close a dialog whose target session disappears (deleted elsewhere, or
   // restarted under a new id) so it never lingers on stale data.
   //
-  // Waits for the roster to settle rather than merely to exist: a session
-  // created or cloned moments ago is absent from the cached list until its
-  // refetch lands, and if that refetch is slow or failing, `sessionsLoaded`
-  // still says yes. Opening Session Info on the tab you just created would then
-  // clear the intent instead of showing the dialog, and clear it for good — the
-  // request that would have vindicated it arrives after the state is gone.
+  // Gated on the roster being settled, not just loaded: a session created or
+  // cloned moments ago is absent from the cached list until its refetch lands,
+  // and a slow or failing refetch still leaves the list looking loaded. Opening
+  // Session Info on the tab you just created would then clear the intent for
+  // good, since the answer arrives after the state is gone.
   useEffect(() => {
     if (!isRosterSettled) return;
     if (changeProfileSessionId && !changeProfileSession) setChangeProfileSessionId(null);
@@ -184,21 +183,15 @@ function HomeContent({
   }, [isRosterSettled, changeProfileSessionId, changeProfileSession, infoSessionId, infoSession]);
 
   // Detach tabs whose session no longer exists (e.g. stale localStorage after restart).
-  // Runs once, on a roster that is a settled server answer, to avoid racing with
-  // newly created sessions that haven't appeared in the list yet.
+  // Runs once per node scope, on a roster that is a settled server answer, to
+  // avoid racing with sessions that haven't appeared in the list yet: cached
+  // data under a failed refetch still looks loaded, and this scope remounts on
+  // every node switch (AppInner keys TabProvider on it), re-arming
+  // `staleCleaned` each time.
   //
-  // Gated on the roster being settled rather than merely rendered:
-  // `sessionsLoaded` is true for cached data under a failed refetch, and this
-  // node scope remounts on every node switch (AppInner keys TabProvider on it),
-  // which re-arms `staleCleaned`. Coming back to a node whose last poll failed
-  // would otherwise judge "this session is gone" against a list that predates
-  // the session — detaching a tab that was fine.
-  //
-  // Being one-shot is not a reason to accept the weaker "answered at some point"
-  // question. That stays true across a failed mutation's rollback, which writes
-  // an *older* roster back over a newer one — so the single pass this gets could
-  // be the one spent on a snapshot the data layer already knows is stale, and it
-  // deletes on what it finds missing. Waiting costs at most a poll.
+  // Being one-shot is no reason to accept the weaker "a fetch answered at some
+  // point": a failed mutation's rollback writes an older roster back, so the
+  // single pass could judge absence against data known to be stale.
   const staleCleaned = useRef(false);
   useEffect(() => {
     if (!isRosterSettled || staleCleaned.current) return;

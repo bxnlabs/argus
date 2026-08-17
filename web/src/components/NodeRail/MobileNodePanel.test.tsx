@@ -108,8 +108,7 @@ describe("MobileNodePanel", () => {
     );
     // The busy online peer carries the spinning ring...
     expect(screen.getByTestId("node-row-m2").querySelector(".node-working")).not.toBeNull();
-    // ...and so does the current node: selection is conveyed separately, so the
-    // ring is free to answer "is this node working?" everywhere.
+    // ...and so does the current node.
     expect(screen.getByTestId("node-row-local").querySelector(".node-working")).not.toBeNull();
   });
 

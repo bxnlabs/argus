@@ -161,7 +161,7 @@ describe("SessionListSkeleton", () => {
     expect(root.getAttribute("role")).toBe("status");
     expect(root.getAttribute("aria-label")).toBe("Loading sessions");
     // Every bar pulses — a static grey block reads as broken layout, not as work
-    // in progress. Matches the editor's file-loading skeleton.
+    // in progress.
     const bars = container.querySelectorAll(".bg-muted");
     expect(bars.length).toBeGreaterThan(0);
     for (const bar of bars) {

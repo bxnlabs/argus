@@ -11,11 +11,10 @@ import { nodeStatus } from "./status";
  * panel (mobile) via `onToggleRail`. While the rail is collapsed the tile carries
  * a top-right bell whenever unread is waiting on the *other* online nodes — what
  * you can't see with the rail closed; once it's open those counts live on the
- * individual rail tiles instead. The bell is deliberately countless: a number
- * pinned to this tile reads as the *current* node's unread when it is precisely
- * the opposite, so the total rides on the label and tooltip instead. With no
- * active node (empty/errored registry) it falls back to a Plus tile so the rail
- * stays reachable.
+ * individual rail tiles instead. The bell carries no number: a digit on this tile
+ * would read as the *current* node's unread, so the total goes in the label and
+ * tooltip. With no active node (empty/errored registry) it falls back to a Plus
+ * tile so the rail stays reachable.
  */
 export function NodeStatus({
   railOpen,
@@ -53,14 +52,14 @@ export function NodeStatus({
   }
 
   const status = nodeStatus(activeNode);
-  // The *other* online nodes with unread — the active node is excluded (you're
-  // already looking at it, just like the rail tiles never badge it).
+  // The *other* online nodes with unread — the active node is excluded, since
+  // you're already looking at it.
   const others = nodes.filter(
     (n) => n.id !== activeNode.id && n.online && (n.summary?.attention ?? 0) > 0,
   );
   const otherUnread = others.reduce((sum, n) => sum + (n.summary?.attention ?? 0), 0);
-  // The bell drops the number to avoid claiming it as the current node's, so the
-  // count lives here instead — the only place it can say whose it is.
+  // The bell carries no digits, so the count lives here — the only place it can
+  // say whose it is.
   const unreadLabel =
     otherUnread > 0
       ? ` · ${otherUnread} unread on ${others.length === 1 ? "another node" : "other nodes"}`
