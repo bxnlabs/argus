@@ -103,6 +103,34 @@ describe("apiFetch deadline", () => {
     expect(err).not.toBeInstanceOf(TimeoutError);
   });
 
+  it("keeps the deadline when the caller also brings a signal", async () => {
+    // With `AbortSignal.any` removed, which is the case the old composition
+    // fell back for: it picked the caller's signal alone, so supplying one
+    // silently deleted the deadline. Both aborts now run through a single
+    // controller, so there is nothing to fall back to and nothing to drop.
+    //
+    // jsdom does provide `AbortSignal.any`, so testing this without removing it
+    // would pass against the very code it is meant to reject.
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", blackholeFetch());
+    const realAny = AbortSignal.any;
+    // @ts-expect-error — deliberately simulating a runtime without it.
+    delete AbortSignal.any;
+
+    try {
+      const caller = new AbortController();
+      const pending = apiFetch("", "/api/node/sessions", {
+        signal: caller.signal,
+        timeoutMs: 500,
+      }).catch((e) => e);
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(await pending).toBeInstanceOf(TimeoutError);
+    } finally {
+      AbortSignal.any = realAny;
+    }
+  });
+
   it("covers a response that arrives and then stalls mid-body", async () => {
     // `fetch` resolves on headers, so a deadline that ends there guards nothing
     // that matters: a node which sends 200 and then stops writing hangs exactly

@@ -100,22 +100,33 @@ async function withDeadline<T>(
 ): Promise<T> {
   const { timeoutMs = REQUEST_TIMEOUT_MS, signal, ...rest } = options ?? {};
 
-  // Composed rather than replacing the caller's signal, so a deadline never
-  // costs an abort the caller was relying on.
-  const timer = new AbortController();
-  const timeout = setTimeout(() => timer.abort(), timeoutMs);
-  const composed =
-    signal && typeof AbortSignal.any === "function"
-      ? AbortSignal.any([signal, timer.signal])
-      : (signal ?? timer.signal);
+  // One controller fed by both the deadline and the caller, rather than
+  // `AbortSignal.any`. Composing by hand is barely longer and it cannot fail
+  // open: `any` would need a fallback for runtimes without it, and every
+  // fallback that picks one signal over the other silently drops whichever it
+  // didn't pick — a deadline that quietly stops existing on some browsers is
+  // worse than one that was never claimed.
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
 
   try {
-    return await use({ ...rest, signal: composed });
+    return await use({ ...rest, signal: controller.signal });
   } catch (err) {
-    // The DOMException an abort raises says nothing about which abort it was.
-    // Re-throw the deadline as itself so callers can tell "the node never
-    // answered" from "the user navigated away".
-    if (timer.signal.aborted) throw new TimeoutError(timeoutMs);
+    // The DOMException an abort raises says nothing about which abort it was,
+    // and now that both aborts arrive through one controller, the signal can't
+    // either — hence the flag. Callers need to tell "the node never answered",
+    // which the sidebar announces, from "the caller cancelled", which it must
+    // not.
+    if (timedOut) throw new TimeoutError(timeoutMs);
     throw err;
   } finally {
     clearTimeout(timeout);
