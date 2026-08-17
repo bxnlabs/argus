@@ -9,7 +9,7 @@ import { nodeStatus } from "./status";
  * Node switcher beside the `argus` wordmark: just the active node's accent tile
  * (with its status presence dot). Clicking toggles the node rail (desktop) /
  * panel (mobile) via `onToggleRail`. While the rail is collapsed the tile carries
- * a top-right bell whenever unread is waiting on the *other* online nodes — what
+ * a top-left bell whenever unread is waiting on the *other* online nodes — what
  * you can't see with the rail closed; once it's open those counts live on the
  * individual rail tiles instead. The bell carries no number: a digit on this tile
  * would read as the *current* node's unread, so the total goes in the label and
