@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { apiFetch, apiTextFetch } from "@/api/client";
+import { apiFetch, apiTextFetch, POLL_TIMEOUT_MS } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import type { Session, SessionStatusInfo } from "@/types";
 import { statusKeys } from "../sessions/keys";
@@ -31,7 +31,10 @@ export function useSessionStatusesQuery({
   const { scope, baseUrl } = useActiveNode();
   const query = useQuery({
     queryKey: statusKeys.all(scope),
-    queryFn: () => apiFetch<StatusResponse>(baseUrl, "/api/node/sessions/status"),
+    queryFn: () =>
+      apiFetch<StatusResponse>(baseUrl, "/api/node/sessions/status", {
+        timeoutMs: POLL_TIMEOUT_MS,
+      }),
     enabled: sessions.length > 0,
     staleTime: 2000,
     refetchInterval: sessions.length > 0 ? 2000 : false,

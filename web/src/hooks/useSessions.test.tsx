@@ -3,6 +3,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StubNodeProvider } from "@/test/node-context";
 import { sessionKeys } from "@/data/sessions/keys";
+import { POLL_TIMEOUT_MS } from "@/api/client";
 import { useSessions } from "./useSessions";
 
 const toastError = vi.fn();
@@ -194,6 +195,36 @@ describe("useSessions", () => {
     rerender();
 
     expect(result.current.isRosterAuthoritative).toBe(false);
+  });
+
+  it("announces a node that accepts the connection and then says nothing", async () => {
+    // The failure a deadline exists for. A request that is refused or errors
+    // announces on its own; one that is swallowed never settles, so before
+    // apiFetch had a deadline the query sat fetching forever — no toast, no
+    // further polls, and a sidebar quietly serving a cached list.
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      ),
+    );
+
+    const qc = client();
+    renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+
+    expect(toastError).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_TIMEOUT_MS + 500);
+    });
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
   it("doesn't let renaming a row during an outage count as recovery", async () => {

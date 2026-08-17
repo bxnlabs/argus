@@ -8,6 +8,43 @@ export class ApiError extends Error {
   }
 }
 
+/** A request that passed its deadline without the server answering. */
+export class TimeoutError extends Error {
+  constructor(public timeoutMs: number) {
+    super(`Request timed out after ${timeoutMs}ms`);
+    this.name = "TimeoutError";
+  }
+}
+
+/**
+ * Default request deadline.
+ *
+ * Sized off what the node itself will do rather than picked by feel: the git
+ * layer bounds its own work at 10s for most commands, 30s for the long ones,
+ * and 60s for `git fetch`, which is the slowest thing any handler will sit on
+ * (internal/node/git). Anything past that is not a slow answer, it's no answer
+ * — so the ceiling clears the server's own maximum with margin, and the client
+ * never cancels work the node would have finished.
+ */
+export const REQUEST_TIMEOUT_MS = 75_000;
+
+/**
+ * Deadline for the polled node reads.
+ *
+ * These are DB and tmux reads that return in milliseconds, and they repeat on a
+ * timer, so the generous ceiling above is the wrong shape for them: a request
+ * into a black hole would hold the poll loop open long enough that nothing
+ * downstream — the sidebar's failure toast, the node's presence dot — can tell
+ * you the node stopped answering. Short enough to notice, long enough to
+ * survive a slow link.
+ */
+export const POLL_TIMEOUT_MS = 8_000;
+
+export interface ApiRequestInit extends RequestInit {
+  /** Overrides REQUEST_TIMEOUT_MS for this request. */
+  timeoutMs?: number;
+}
+
 // Node identity is explicit: every fetch/WS helper takes the target node's
 // origin (baseUrl) as its first argument. "" == same-origin (the local node).
 // Callers obtain it from useActiveNode(); there is no module-level active node.
@@ -31,9 +68,34 @@ export function nodeWsUrl(baseUrl: string, sessionId?: string | null): string {
 async function baseFetch(
   baseUrl: string,
   url: string,
-  options?: RequestInit,
+  options?: ApiRequestInit,
 ): Promise<Response> {
-  const res = await fetch(`${baseUrl}${url}`, options);
+  const { timeoutMs = REQUEST_TIMEOUT_MS, signal, ...rest } = options ?? {};
+
+  // Composed rather than replacing the caller's signal, so a deadline never
+  // costs an abort the caller was relying on. `AbortSignal.any` is the only
+  // piece here that isn't ancient; it's in every browser this app already
+  // requires for `structuredClone`-era APIs, and the fallback below keeps the
+  // deadline working anywhere it's missing rather than throwing.
+  const timer = new AbortController();
+  const timeout = setTimeout(() => timer.abort(new TimeoutError(timeoutMs)), timeoutMs);
+  const composed =
+    signal && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([signal, timer.signal])
+      : (signal ?? timer.signal);
+
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${url}`, { ...rest, signal: composed });
+  } catch (err) {
+    // The DOMException an abort raises says nothing about which abort it was.
+    // Re-throw the deadline as itself so callers can tell "the node never
+    // answered" from "the user navigated away".
+    if (timer.signal.aborted) throw new TimeoutError(timeoutMs);
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     let message = `Request failed: ${res.status}`;
@@ -52,7 +114,7 @@ async function baseFetch(
 export async function apiFetch<T>(
   baseUrl: string,
   url: string,
-  options?: RequestInit,
+  options?: ApiRequestInit,
 ): Promise<T> {
   // Only declare a JSON body when there is one. A Content-Type on a bodyless
   // cross-origin GET makes it a non-"simple" request, forcing a CORS preflight
@@ -73,7 +135,7 @@ export async function apiFetch<T>(
 export async function apiTextFetch(
   baseUrl: string,
   url: string,
-  options?: RequestInit,
+  options?: ApiRequestInit,
 ): Promise<Response> {
   return baseFetch(baseUrl, url, options);
 }

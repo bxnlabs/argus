@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
-import { apiFetch } from "@/api/client";
+import { apiFetch, POLL_TIMEOUT_MS } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import type { Session, ProviderType } from "@/types";
 import { sessionKeys, profileKeys, statusKeys } from "./keys";
@@ -31,7 +31,10 @@ export function useSessionsQuery() {
   const { scope, baseUrl } = useActiveNode();
   return useQuery({
     queryKey: sessionKeys.list(scope),
-    queryFn: () => apiFetch<SessionsResponse>(baseUrl, "/api/node/sessions"),
+    queryFn: () =>
+      apiFetch<SessionsResponse>(baseUrl, "/api/node/sessions", {
+        timeoutMs: POLL_TIMEOUT_MS,
+      }),
     staleTime: 5000,
     refetchInterval: 10000,
   });
