@@ -33,6 +33,13 @@ function makeSession(id: string, name: string): Session {
 
 const sessions = [makeSession("a", "first"), makeSession("b", "second")];
 
+function rowNames() {
+  return screen
+    .getAllByRole("button")
+    .map((b) => b.querySelector(".truncate.font-medium")?.textContent)
+    .filter(Boolean);
+}
+
 function renderSwitcher(currentSessionId?: string) {
   return render(
     <QuickSwitcher
@@ -59,6 +66,29 @@ describe("QuickSwitcher current-session marker", () => {
     expect(row).not.toBeNull();
     expect(row!.className).not.toMatch(/bg-primary/);
     expect(screen.getByText("Current")).toBeTruthy();
+  });
+
+  it("puts the session you're on at the top, whatever the list order says", () => {
+    // `sessions` arrives in the sidebar's recency order, so the current one can
+    // be anywhere in it. Its row is the only one whose position you can know
+    // before looking.
+    renderSwitcher("b");
+    expect(rowNames()).toEqual(["second", "first"]);
+  });
+
+  it("leaves the order alone when the current session is already first", () => {
+    renderSwitcher("a");
+    expect(rowNames()).toEqual(["first", "second"]);
+  });
+
+  it("doesn't resurrect the current session when a search excludes it", () => {
+    // Hoisting applies among the matches. A search the current session fails is
+    // still a search it fails.
+    renderSwitcher("b");
+    fireEvent.change(screen.getByPlaceholderText("Search sessions..."), {
+      target: { value: "first" },
+    });
+    expect(rowNames()).toEqual(["first"]);
   });
 
   it("says nothing about currency when no session is attached", () => {

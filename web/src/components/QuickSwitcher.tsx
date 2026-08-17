@@ -40,7 +40,7 @@ export function QuickSwitcher({
   const { isMobile } = useViewport();
 
   // Filter sessions based on search query
-  const filteredSessions = sessions.filter((session) => {
+  const matchingSessions = sessions.filter((session) => {
     if (!query) return true;
     const q = query.toLowerCase();
     return (
@@ -50,6 +50,24 @@ export function QuickSwitcher({
       session.provider_type?.toLowerCase().includes(q)
     );
   });
+
+  // The session you're on sits at the top, whatever the sidebar's recency order
+  // puts there. It's the one row whose position you can predict before the list
+  // renders, which is what makes it a landmark — the rest of the list reads as
+  // "everything else" relative to it, and switching away and back doesn't move
+  // it. Hoisted among the matches rather than pinned outright, so a search it
+  // doesn't match still excludes it.
+  const currentIndex = currentSessionId
+    ? matchingSessions.findIndex((s) => s.id === currentSessionId)
+    : -1;
+  const filteredSessions =
+    currentIndex > 0
+      ? [
+          matchingSessions[currentIndex],
+          ...matchingSessions.slice(0, currentIndex),
+          ...matchingSessions.slice(currentIndex + 1),
+        ]
+      : matchingSessions;
 
   // Reset state when dialog opens
   useEffect(() => {
