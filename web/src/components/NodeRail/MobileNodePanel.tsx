@@ -67,10 +67,9 @@ export function MobileNodePanel({
             const status = nodeStatus(n);
             const active = n.id === activeNodeId;
             const attention = n.summary?.attention ?? 0;
-            // Mirror the desktop rail's working ring (NodeTile): a busy peer
-            // announces itself with the spinning halo. The active node conveys
-            // its state through selection, so it never shows the ring.
-            const working = !active && n.online && (n.summary?.busy ?? 0) > 0;
+            // Mirror the desktop rail's working ring (NodeTile): every online
+            // node with running sessions shows it, the current one included.
+            const working = n.online && (n.summary?.busy ?? 0) > 0;
             // Only Custom (manual) nodes can be renamed/removed.
             const editable = n.source === "manual";
             return (
@@ -95,9 +94,7 @@ export function MobileNodePanel({
                 <span className="relative flex-shrink-0">
                   <NodeAvatar node={n} size={36} className={cn(working && "node-working")} />
                   {/* The active node keeps its unread badge — sessions on it can
-                      still need attention while you're in another session — even
-                      though selection suppresses its working ring above. Matches
-                      the desktop rail (NodeTile). */}
+                      still need attention. Matches the desktop rail (NodeTile). */}
                   {n.online && attention > 0 && (
                     <UnreadBadge count={attention} data-testid={`node-row-attention-${n.id}`} />
                   )}
@@ -115,8 +112,13 @@ export function MobileNodePanel({
                     {sourceLabel(n)} · {status.label}
                   </div>
                 </div>
+                {/* White, not blue: white marks the current thing across all
+                    three rails, which leaves blue to mean "unread" on its own. */}
                 {active && (
-                  <Check className="text-primary h-[18px] w-[18px] flex-shrink-0" />
+                  <Check
+                    data-testid={`node-row-check-${n.id}`}
+                    className="h-[18px] w-[18px] flex-shrink-0 text-white"
+                  />
                 )}
                 {editable && (
                   <DropdownMenu>

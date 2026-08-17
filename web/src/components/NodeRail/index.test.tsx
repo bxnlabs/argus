@@ -72,6 +72,54 @@ describe("NodeRail", () => {
     expect(screen.getByTestId("node-tile-m1").getAttribute("data-online")).toBe("false");
   });
 
+  it("marks the current node with a currency pill, and only that one", () => {
+    renderRail(
+      [
+        { ...base, id: "local", self: true },
+        { ...base, id: "m1", name: "gpu" },
+      ],
+      "local",
+    );
+    expect(screen.getByTestId("node-pill-local")).toBeTruthy();
+    expect(screen.queryByTestId("node-pill-m1")).toBeNull();
+  });
+
+  it("centers the tiles and the add button on the rail's own axis", () => {
+    // The pill overlays the centering margin; a lane of its own would push every
+    // centered child off the rail's midline.
+    const { container } = renderRail([{ ...base, id: "local", self: true }], "local");
+    const rail = container.querySelector("[data-testid='node-rail']")!;
+    expect(rail.className).not.toMatch(/\bp[xlr]-/);
+    expect(screen.getByTestId("node-tile-local").className).toContain("mx-auto");
+    expect(screen.getByLabelText("Add node").className).toContain("mx-auto");
+  });
+
+  it("leaves every tile the same border, so the pill alone carries currency", () => {
+    renderRail(
+      [
+        { ...base, id: "local", self: true },
+        { ...base, id: "m1", name: "gpu" },
+      ],
+      "local",
+    );
+    // Both keep the 3px transparent border the working ring offsets past.
+    expect(screen.getByTestId("node-tile-local").className).not.toContain("border-white");
+    expect(screen.getByTestId("node-tile-m1").className).not.toContain("border-white");
+  });
+
+  it("dims the current node when it goes offline", () => {
+    renderRail([{ ...base, id: "local", self: true, online: false }], "local");
+    expect(screen.getByTestId("node-tile-local").className).toContain("opacity-40");
+  });
+
+  it("runs the working ring on the current node when it's busy", () => {
+    renderRail(
+      [{ ...base, id: "local", self: true, summary: { attention: 0, busy: 1, total: 2 } }],
+      "local",
+    );
+    expect(screen.getByTestId("node-tile-local").className).toContain("node-working");
+  });
+
   it("offsets the working ring past the tile border on a busy peer", () => {
     renderRail(
       [

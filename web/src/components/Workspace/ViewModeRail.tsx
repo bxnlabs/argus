@@ -45,14 +45,22 @@ function RailButton({
           disabled={disabled}
           className={cn(
             "relative h-12 w-12",
-            active && "bg-accent"
+            // Inactive modes dim so the active one is the only icon at full
+            // strength. Ghost's `hover:text-*` outranks this, so hover restores it.
+            active ? "bg-accent" : "text-muted-foreground",
           )}
           aria-label={tooltip}
           aria-pressed={active}
         >
-          {/* Active view mode indicator pill — anchored to right border */}
+          {/* Active view mode indicator pill — anchored to right border. White
+              marks the current thing across the session list, node rail, and
+              view-mode rail, which leaves blue to mean "unread" on its own. */}
           {active && (
-            <span aria-hidden="true" className="bg-primary absolute right-0 top-0 h-full w-1 rounded-full" />
+            <span
+              aria-hidden="true"
+              data-testid="view-mode-pill"
+              className="absolute right-0 top-0 h-full w-1 rounded-full bg-white"
+            />
           )}
           {children}
         </Button>
@@ -85,7 +93,7 @@ export function ViewModeRail({
         onClick={() => onSetActivePanel(null)}
         tooltip={`Terminal (${leader} T)`}
       >
-        <TerminalIcon className={cn("h-6 w-6", isTerminalActive && "text-primary")} />
+        <TerminalIcon className="h-6 w-6" />
       </RailButton>
 
       <RailButton
@@ -94,7 +102,7 @@ export function ViewModeRail({
         onClick={() => onSetActivePanel("git")}
         tooltip={`Git (${leader} G)`}
       >
-        <GitBranch className={cn("h-6 w-6", isGitActive && "text-primary")} />
+        <GitBranch className="h-6 w-6" />
       </RailButton>
 
       <RailButton
@@ -103,7 +111,7 @@ export function ViewModeRail({
         onClick={() => onSetActivePanel("editor")}
         tooltip={`Editor (${leader} E)`}
       >
-        <FilePenLine className={cn("h-6 w-6", isEditorActive && "text-primary")} />
+        <FilePenLine className="h-6 w-6" />
       </RailButton>
 
       {/* Divider */}

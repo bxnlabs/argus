@@ -7,7 +7,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn, formatRelativeTime, compressPath } from "@/lib/utils";
-import { Terminal, Clock, Check, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Terminal, Clock, X } from "lucide-react";
 import type { Session } from "@/types";
 import { useViewport } from "@/hooks/useViewport";
 
@@ -39,7 +40,7 @@ export function QuickSwitcher({
   const { isMobile } = useViewport();
 
   // Filter sessions based on search query
-  const filteredSessions = sessions.filter((session) => {
+  const matchingSessions = sessions.filter((session) => {
     if (!query) return true;
     const q = query.toLowerCase();
     return (
@@ -50,19 +51,55 @@ export function QuickSwitcher({
     );
   });
 
+  // The session you're on is hoisted to the top: it's the one row whose position
+  // you can predict before the list renders, so the rest reads as "everything
+  // else" relative to it. Hoisted among the matches rather than pinned, so a
+  // search it doesn't match still excludes it.
+  const currentIndex = currentSessionId
+    ? matchingSessions.findIndex((s) => s.id === currentSessionId)
+    : -1;
+  const filteredSessions =
+    currentIndex > 0
+      ? [
+          matchingSessions[currentIndex],
+          ...matchingSessions.slice(0, currentIndex),
+          ...matchingSessions.slice(currentIndex + 1),
+        ]
+      : matchingSessions;
+
+  // The keyboard cursor opens on the first row that isn't the session you're on;
+  // landing it on the hoisted current row would make the default action "switch
+  // to where you are". Falls back to 0 when there's nothing else to land on, so
+  // a lone current session still has a selected row.
+  const initialIndex =
+    filteredSessions.length > 1 && filteredSessions[0]?.id === currentSessionId
+      ? 1
+      : 0;
+
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setQuery("");
-      setSelectedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
 
-  // Reset selected index when filtered results change
+  // Land the cursor on the first row worth going to, and re-land it if that row
+  // only shows up later. `initialIndex` is a dependency rather than a ref read,
+  // because the dialog can open before the list has arrived, and a cursor placed
+  // against an empty list would sit on row 0 — the current session, once it's
+  // hoisted there — so Enter would go back to where you already are. It's only
+  // ever 0 or 1, so ordinary polling and reordering don't reset the cursor.
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
+    if (open) setSelectedIndex(initialIndex);
+  }, [open, query, initialIndex]);
+
+  // Keep the cursor on a row that exists. Sessions can leave the list while the
+  // dialog is open, and a cursor past the end selects nothing, so Enter does
+  // nothing.
+  useEffect(() => {
+    setSelectedIndex((i) => Math.min(i, Math.max(filteredSessions.length - 1, 0)));
+  }, [filteredSessions.length]);
 
   // Auto-scroll selected item into view
   useEffect(() => {
@@ -171,12 +208,15 @@ export function QuickSwitcher({
                       onSelectSession(session.id);
                       onOpenChange(false);
                     }}
+                    // The row background is the keyboard cursor only. `cn` runs
+                    // tailwind-merge, so a second background class silently
+                    // replaces the first — which is why currency is a chip, not
+                    // a tint.
                     className={cn(
                       "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors",
                       index === selectedIndex
                         ? "bg-accent"
                         : "hover:bg-accent/50",
-                      isCurrent && "bg-primary/10"
                     )}
                   >
                     {/* Icon */}
@@ -190,8 +230,18 @@ export function QuickSwitcher({
                         <span className="truncate font-medium">
                           {session.name || "Unnamed Session"}
                         </span>
+                        {/* White means "you're on this one" app-wide, leaving
+                            blue to mean unread. A word rather than a check,
+                            since in a list you're picking from a bare tick
+                            reads as "chosen" as easily as "current". Outlined
+                            chip at text-[10px] matches ProviderBadge. */}
                         {isCurrent && (
-                          <Check className="text-primary h-3.5 w-3.5 flex-shrink-0" />
+                          <Badge
+                            variant="outline"
+                            className="flex-shrink-0 border-current px-1 py-0 text-[10px] font-medium text-white"
+                          >
+                            Current
+                          </Badge>
                         )}
                       </div>
                       <div className="text-muted-foreground flex items-center gap-2 text-xs">

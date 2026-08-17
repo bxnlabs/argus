@@ -23,11 +23,9 @@ function NodeTile({
 }) {
   const attention = node.summary?.attention ?? 0;
   const busy = node.summary?.busy ?? 0;
-  // The selected node still shows its unread badge: sessions on it can need
-  // attention while you're looking at a different session. The working ring,
-  // though, stays off the active tile — selection already says "you're here", so
-  // the ring takes effect only on the *other* tiles.
-  const working = !active && node.online && busy > 0;
+  // Every online node with running sessions gets the ring, the current one
+  // included — the pill is what marks which node you're on.
+  const working = node.online && busy > 0;
   // Only manually-added (Custom) nodes can be edited/removed; the local node and
   // Tailscale-discovered peers aren't editable, so they get no menu.
   const editable = node.source === "manual";
@@ -51,16 +49,14 @@ function NodeTile({
         } as CSSProperties
       }
       className={cn(
-        "relative mx-auto flex h-8 w-8 items-center justify-center rounded-lg border-solid text-sm font-semibold leading-none text-white transition-[border-color,opacity,filter]",
         // The node's derived accent color is its identity (same tile as the
-        // switcher avatar). Active is called out by the ring; inactive tiles
-        // brighten on hover. Inactive tiles keep the 3px border the working ring
-        // offsets past (--node-working-border); the active tile uses a thinner
-        // border since it never shows the ring.
-        active ? "border-[1.5px] border-white" : "border-[3px] border-transparent hover:brightness-110",
-        // Offline recedes rather than alarms: the colored tile simply dims so
-        // a down node is the quietest tile in the rail, never the loudest.
-        !node.online && !active && "opacity-40",
+        // switcher avatar). Every tile keeps the same 3px transparent border for
+        // the working ring to offset past (--node-working-border).
+        "relative mx-auto flex h-8 w-8 items-center justify-center rounded-lg border-[3px] border-solid border-transparent text-sm font-semibold leading-none text-white transition-[opacity,filter]",
+        !active && "hover:brightness-110",
+        // Offline nodes dim rather than alarm, the current one included — the
+        // pill still says you're on it.
+        !node.online && "opacity-40",
         working && "node-working",
       )}
     >
@@ -96,9 +92,7 @@ function NodeTile({
     </Tooltip>
   );
 
-  if (!editable) return tile;
-
-  return (
+  const content = editable ? (
     <ContextMenu>
       {tile}
       <ContextMenuContent>
@@ -115,6 +109,24 @@ function NodeTile({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  ) : (
+    tile
+  );
+
+  // Marks the current node, flush to the rail's leading edge. White to match the
+  // session-list and view-mode pills, which leaves blue to mean "unread" on its
+  // own. Short enough to stay clear of the working ring on a busy current node.
+  return (
+    <div className="relative">
+      {content}
+      {active && (
+        <span
+          aria-hidden="true"
+          data-testid={`node-pill-${node.id}`}
+          className="absolute left-0 top-1/2 h-2 w-1 -translate-y-1/2 rounded-r-full bg-white"
+        />
+      )}
+    </div>
   );
 }
 
@@ -141,6 +153,9 @@ export function NodeRail({ side = "left" }: { side?: "left" | "right" }) {
         data-testid="node-rail"
         data-side={side}
         className={cn(
+          // No horizontal padding: the tiles and the add button center on the
+          // rail's own axis and the pill overlays the margin (see NodeTile).
+          // Giving the pill a lane of its own would shift every tile off-center.
           "node-rail-glass bg-sidebar-background flex h-full w-14 flex-shrink-0 flex-col items-stretch gap-3 py-3",
           side === "right" ? "border-l" : "border-r",
         )}

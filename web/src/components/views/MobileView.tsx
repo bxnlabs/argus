@@ -12,6 +12,7 @@ export function MobileView({
   sessions,
   homeDir,
   sessionStatuses,
+  sessionsLoaded,
   sidebarOpen,
   setSidebarOpen,
   railOpen,
@@ -116,6 +117,7 @@ export function MobileView({
                       homeDir={homeDir}
                       activeSessionId={activeTab?.sessionId || undefined}
                       sessionStatuses={sessionStatuses}
+                      isLoading={!sessionsLoaded}
                       onAttachSession={handleAttachSession}
                       onDeleteSession={onDeleteSession}
                       onRenameSession={onRenameSession}

@@ -228,3 +228,20 @@ describe("SessionItem busy state", () => {
     expect(onAttachSession).toHaveBeenCalledWith("sess-1");
   });
 });
+
+describe("SessionItem currency pill", () => {
+  it("marks the active row with a white pill, and only the active row", () => {
+    // White is the shared currency color across all three rails, leaving blue to
+    // mean "unread".
+    const { container } = render(<SessionItem {...itemProps({ isActive: true })} />);
+    const pill = container.querySelector("[data-testid='session-pill']");
+    expect(pill).not.toBeNull();
+    expect(pill?.className).toContain("bg-white");
+
+    cleanup();
+    const { container: inactive } = render(
+      <SessionItem {...itemProps({ isActive: false })} />,
+    );
+    expect(inactive.querySelector("[data-testid='session-pill']")).toBeNull();
+  });
+});

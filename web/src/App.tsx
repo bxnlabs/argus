@@ -100,6 +100,7 @@ function HomeContent({
     sessions,
     homeDir,
     isLoaded: sessionsLoaded,
+    isRosterSettled,
     deleteSession,
     renameSession,
     changeProfile,
@@ -169,18 +170,31 @@ function HomeContent({
 
   // Close a dialog whose target session disappears (deleted elsewhere, or
   // restarted under a new id) so it never lingers on stale data.
+  //
+  // Gated on the roster being settled, not just loaded: a session created or
+  // cloned moments ago is absent from the cached list until its refetch lands,
+  // and a slow or failing refetch still leaves the list looking loaded. Opening
+  // Session Info on the tab you just created would then clear the intent for
+  // good, since the answer arrives after the state is gone.
   useEffect(() => {
-    if (!sessionsLoaded) return;
+    if (!isRosterSettled) return;
     if (changeProfileSessionId && !changeProfileSession) setChangeProfileSessionId(null);
     if (infoSessionId && !infoSession) setInfoSessionId(null);
-  }, [sessionsLoaded, changeProfileSessionId, changeProfileSession, infoSessionId, infoSession]);
+  }, [isRosterSettled, changeProfileSessionId, changeProfileSession, infoSessionId, infoSession]);
 
   // Detach tabs whose session no longer exists (e.g. stale localStorage after restart).
-  // Runs once after the first successful sessions fetch to avoid racing with
-  // newly created sessions that haven't appeared in the list yet.
+  // Runs once per node scope, on a roster that is a settled server answer, to
+  // avoid racing with sessions that haven't appeared in the list yet: cached
+  // data under a failed refetch still looks loaded, and this scope remounts on
+  // every node switch (AppInner keys TabProvider on it), re-arming
+  // `staleCleaned` each time.
+  //
+  // Being one-shot is no reason to accept the weaker "a fetch answered at some
+  // point": a failed mutation's rollback writes an older roster back, so the
+  // single pass could judge absence against data known to be stale.
   const staleCleaned = useRef(false);
   useEffect(() => {
-    if (!sessionsLoaded || staleCleaned.current) return;
+    if (!isRosterSettled || staleCleaned.current) return;
     staleCleaned.current = true;
     const sessionIds = new Set(sessions.map((s) => s.id));
     for (const tab of tabs) {
@@ -188,7 +202,7 @@ function HomeContent({
         detachSessionById(tab.sessionId);
       }
     }
-  }, [sessionsLoaded, sessions, tabs, detachSessionById]);
+  }, [isRosterSettled, sessions, tabs, detachSessionById]);
 
   // Set CSS variable for viewport height (handles mobile keyboard)
   useViewportHeight();
@@ -673,6 +687,7 @@ function HomeContent({
     sessions,
     homeDir,
     sessionStatuses,
+    sessionsLoaded,
     sidebarOpen,
     setSidebarOpen,
     railOpen,

@@ -1,6 +1,15 @@
-import { describe, it, expect } from "vitest";
-import { partitionSessions, readMenuState, resolveStatusDisplay, resolveRowDisplay } from "./index";
+import { describe, it, expect, afterEach } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
+import {
+  partitionSessions,
+  readMenuState,
+  resolveStatusDisplay,
+  resolveRowDisplay,
+  SessionListSkeleton,
+} from "./index";
 import type { Session } from "@/types";
+
+afterEach(cleanup);
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -141,6 +150,22 @@ describe("resolveRowDisplay", () => {
         ...resolveStatusDisplay(status, null, null),
         spinner: false,
       });
+    }
+  });
+});
+
+describe("SessionListSkeleton", () => {
+  it("renders pulsing placeholder rows, announced as loading", () => {
+    const { container } = render(<SessionListSkeleton />);
+    const root = screen.getByTestId("session-list-skeleton");
+    expect(root.getAttribute("role")).toBe("status");
+    expect(root.getAttribute("aria-label")).toBe("Loading sessions");
+    // Every bar pulses — a static grey block reads as broken layout, not as work
+    // in progress.
+    const bars = container.querySelectorAll(".bg-muted");
+    expect(bars.length).toBeGreaterThan(0);
+    for (const bar of bars) {
+      expect(bar.className).toContain("animate-pulse");
     }
   });
 });

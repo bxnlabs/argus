@@ -10,6 +10,11 @@ export interface ViewProps {
   homeDir: string;
   sessionStatuses: Record<string, SessionStatusInfo>;
 
+  // Whether the sessions fetch has landed, so the list can tell an empty list
+  // apart from an unanswered one and hold placeholder rows instead of claiming
+  // "no sessions". Failures don't appear here; they go to a toast (useSessions).
+  sessionsLoaded: boolean;
+
   // Sidebar
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;

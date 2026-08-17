@@ -121,7 +121,22 @@ describe("NodeStatus", () => {
     ...base, self: false, source: "manual", ...over,
   });
 
-  it("sums unread across the other online nodes while the rail is collapsed", () => {
+  it("rings the bell when other online nodes have unread, without printing a count", () => {
+    renderWithNodes(
+      [
+        { ...base, summary: { attention: 1, busy: 0, total: 1 } }, // active — excluded
+        peer({ id: "m1", summary: { attention: 2, busy: 0, total: 2 } }),
+        peer({ id: "m2", summary: { attention: 3, busy: 0, total: 3 } }),
+      ],
+      "local",
+      false,
+    );
+    const bell = screen.getByTestId("node-status-attention");
+    // A digit on the current node's avatar would read as that node's own count.
+    expect(bell.textContent).toBe("");
+  });
+
+  it("names the waiting count in the bell's accessible label", () => {
     renderWithNodes(
       [
         { ...base, summary: { attention: 1, busy: 0, total: 1 } }, // active — excluded
@@ -132,7 +147,23 @@ describe("NodeStatus", () => {
       false,
     );
     // 2 + 3 from the peers; the active node's own 1 is not counted.
-    expect(screen.getByTestId("node-status-attention").textContent).toBe("5");
+    const label = screen.getByTestId("node-status").getAttribute("aria-label") ?? "";
+    expect(label).toContain("5 unread on other nodes");
+  });
+
+  it("says one node in the singular", () => {
+    renderWithNodes(
+      [{ ...base }, peer({ id: "m1", summary: { attention: 1, busy: 0, total: 1 } })],
+      "local",
+      false,
+    );
+    const label = screen.getByTestId("node-status").getAttribute("aria-label") ?? "";
+    expect(label).toContain("1 unread on another node");
+  });
+
+  it("leaves the label free of unread wording when nothing is waiting", () => {
+    renderWithNodes([{ ...base }, peer({ id: "m1" })], "local", false);
+    expect(screen.getByTestId("node-status").getAttribute("aria-label")).not.toContain("unread");
   });
 
   it("omits offline nodes from the aggregate and hides the badge at zero", () => {

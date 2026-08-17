@@ -23,9 +23,9 @@ export function notifySessionDeepLink(): void {
  *
  * The param is the one-shot token — there is no "already handled" flag — and it
  * survives a miss on purpose. A request routinely arrives before the list
- * catches up: `sessionsLoaded` is TanStack's `isSuccess`, which is already true
- * for a cached list with a refetch in flight, so a create or clone handed over
- * from another node lands while that node's cached list still predates it.
+ * catches up: `sessionsLoaded` only means the list query holds data, which is
+ * already true for a cached list with a refetch in flight, so a create or clone
+ * handed over from another node lands while that list still predates it.
  * Consuming the param on that first miss would drop the request for good;
  * leaving it lets the render that finally sees the session finish the job.
  *
