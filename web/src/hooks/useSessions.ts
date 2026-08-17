@@ -12,7 +12,7 @@ import {
 import { useMarkRead, useMarkUnread } from "@/data/statuses/queries";
 
 export function useSessions() {
-  const { data, isError, isSuccess, isFetching } = useSessionsQuery();
+  const { data, isError, isFetching } = useSessionsQuery();
   const sessions: Session[] = data?.sessions ?? [];
   const homeDir: string = data?.home_dir ?? "";
 
