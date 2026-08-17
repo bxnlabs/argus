@@ -69,18 +69,38 @@ export function QuickSwitcher({
         ]
       : matchingSessions;
 
+  // The cursor opens on the first row that isn't the session you're already on.
+  // Hoisting put that session at the top, and landing the cursor there would
+  // make the default action "switch to where you are" — the switcher's whole
+  // job is the other thing. Same convention as an app switcher, where the
+  // current window is the anchor you count from rather than a destination.
+  //
+  // Falls back to 0 when there's nothing else to land on, so a lone current
+  // session (or a search that matches only it) still has a selected row rather
+  // than a cursor pointing past the end.
+  //
+  // Held in a ref because the effects below must not re-run when it changes:
+  // they reset the cursor, and the value moves whenever the session list does.
+  // Recomputing on a poll would yank the cursor back mid-navigation. Same
+  // render-assignment pattern the mutation refs in App use.
+  const initialIndexRef = useRef(0);
+  initialIndexRef.current =
+    filteredSessions.length > 1 && filteredSessions[0]?.id === currentSessionId
+      ? 1
+      : 0;
+
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setQuery("");
-      setSelectedIndex(0);
+      setSelectedIndex(initialIndexRef.current);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
 
   // Reset selected index when filtered results change
   useEffect(() => {
-    setSelectedIndex(0);
+    setSelectedIndex(initialIndexRef.current);
   }, [query]);
 
   // Auto-scroll selected item into view

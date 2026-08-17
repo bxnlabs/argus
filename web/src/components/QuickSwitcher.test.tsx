@@ -91,32 +91,88 @@ describe("QuickSwitcher current-session marker", () => {
     expect(rowNames()).toEqual(["first"]);
   });
 
+  it("opens the cursor past the session you're on, not on it", () => {
+    // The top row is where you already are, so landing there would make Enter
+    // mean "stay put" — the one thing nobody opens a switcher to do.
+    renderSwitcher("b");
+
+    const rows = screen.getAllByRole("button");
+    const current = screen.getByText("second").closest("button")!;
+    const next = screen.getByText("first").closest("button")!;
+
+    expect(rows.indexOf(current)).toBeLessThan(rows.indexOf(next));
+    expect(current.className.split(/\s+/)).not.toContain("bg-accent");
+    expect(next.className.split(/\s+/)).toContain("bg-accent");
+  });
+
+  it("selects the next session on Enter without touching the arrows", () => {
+    const onSelectSession = vi.fn();
+    render(
+      <QuickSwitcher
+        sessions={sessions}
+        homeDir="/home/u"
+        open
+        onOpenChange={() => {}}
+        onSelectSession={onSelectSession}
+        currentSessionId="b"
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByPlaceholderText("Search sessions..."), {
+      key: "Enter",
+    });
+
+    expect(onSelectSession).toHaveBeenCalledWith("a");
+  });
+
+  it("still has a selected row when the current session is the only one", () => {
+    // Nothing to skip to, so the cursor stays put rather than pointing past the
+    // end of the list.
+    render(
+      <QuickSwitcher
+        sessions={[makeSession("a", "only")]}
+        homeDir="/home/u"
+        open
+        onOpenChange={() => {}}
+        onSelectSession={() => {}}
+        currentSessionId="a"
+      />,
+    );
+
+    expect(
+      screen.getByText("only").closest("button")!.className.split(/\s+/),
+    ).toContain("bg-accent");
+  });
+
   it("says nothing about currency when no session is attached", () => {
     renderSwitcher(undefined);
     expect(screen.queryByText("Current")).toBeNull();
   });
 
   it("keeps the keyboard cursor visible on the current session's row", () => {
-    // Selection starts on index 0, which is also the current session here —
-    // the exact overlap the old tint erased.
+    // The cursor no longer starts on the current row, but it can still be moved
+    // onto it — and that overlap is what the old `bg-primary/10` tint erased,
+    // since tailwind-merge dropped the cursor's own background outright.
+    //
+    // Two things this has to get right or it asserts nothing: the key goes to
+    // the search input, since that's where the handler lives (a keydown on
+    // window never reaches React's tree), and the classes are compared as whole
+    // tokens, since an unselected row carries `hover:bg-accent/50` and would
+    // satisfy a substring match for "bg-accent" either way.
     renderSwitcher("a");
 
     const rowFor = (name: string) =>
       screen.getByText(name).closest("button")!.className.split(/\s+/);
 
-    expect(rowFor("first")).toContain("bg-accent");
+    // Opens on the non-current row...
+    expect(rowFor("second")).toContain("bg-accent");
 
-    // ...and it still moves off it. Two things this has to get right or it
-    // asserts nothing: the key goes to the search input, since that's where the
-    // handler lives (a keydown on window never reaches React's tree), and the
-    // classes are compared as whole tokens, since an unselected row carries
-    // `hover:bg-accent/50` and would satisfy a substring match for "bg-accent"
-    // whether or not the cursor ever moved.
+    // ...and arrowing back onto the current one still shows the cursor there.
     fireEvent.keyDown(screen.getByPlaceholderText("Search sessions..."), {
-      key: "ArrowDown",
+      key: "ArrowUp",
     });
 
-    expect(rowFor("first")).not.toContain("bg-accent");
-    expect(rowFor("second")).toContain("bg-accent");
+    expect(rowFor("first")).toContain("bg-accent");
+    expect(rowFor("second")).not.toContain("bg-accent");
   });
 });
