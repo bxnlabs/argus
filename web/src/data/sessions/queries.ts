@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, hashKey } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { apiFetch, POLL_TIMEOUT_MS } from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
@@ -67,10 +67,14 @@ export function useRosterFetchState(): RosterFetchState {
 
   useEffect(() => {
     setState({ settled: false, revision: 0 });
-    const key = JSON.stringify(sessionKeys.list(scope));
+    // Identify the roster query by the hash TanStack already computed for it,
+    // rather than re-deriving key equality here: every query in the cache
+    // reaches this listener, and `hashKey` is the same function that produced
+    // `queryHash`, so the two notions of identity cannot drift.
+    const hash = hashKey(sessionKeys.list(scope));
     return queryClient.getQueryCache().subscribe((event) => {
       if (event.type !== "updated") return;
-      if (JSON.stringify(event.query.queryKey) !== key) return;
+      if (event.query.queryHash !== hash) return;
       const action = event.action;
       if (action.type === "success") {
         if (action.manual) setState((s) => ({ ...s, settled: false }));
