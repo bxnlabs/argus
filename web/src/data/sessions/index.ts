@@ -1,6 +1,7 @@
 export { sessionKeys, statusKeys, profileKeys } from "./keys";
 export {
   useSessionsQuery,
+  useRosterFetchState,
   useCreateSession,
   useCloneSession,
   useDeleteSession,

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/api/client";
@@ -34,6 +35,63 @@ export function useSessionsQuery() {
     staleTime: 5000,
     refetchInterval: 10000,
   });
+}
+
+export interface RosterFetchState {
+  /** A roster fetch has answered from the server since this hook mounted. */
+  everFetched: boolean;
+  /** The cached roster currently reflects a completed server answer. */
+  settled: boolean;
+}
+
+/**
+ * Tracks what the *server* has actually said about the roster, as opposed to
+ * what the query's rendered status implies.
+ *
+ * Anything that decides a session no longer exists needs the former, and
+ * `status`/`isSuccess`/`isFetching` cannot supply it. TanStack scores an
+ * optimistic `setQueryData` as a success, and rename and pin both cancel the
+ * in-flight roster fetch before writing — so at the render layer that pair is
+ * indistinguishable from a fetch that answered (measured: the observer emits
+ * `fetching` then `idle`+`success`, and React batches the cancelled state in
+ * between out of existence). Retry pausing and a fetch too fast for React to
+ * commit its in-flight snapshot produce the same ambiguity from the other side.
+ *
+ * The cache events carry the distinction the snapshots lose: a manual write
+ * arrives as `{ type: "success", manual: true }`, a real answer as the same
+ * action without it. Subscribing is therefore not defensiveness, it's the only
+ * place the question can be answered.
+ *
+ * `everFetched` latches per mount, for one-shot reconciliation. `settled` is
+ * live, for repeated absence checks, and goes false whenever a fetch starts,
+ * fails, or the cache is written locally — each of which makes "not in the
+ * list" mean "not yet" rather than "not anymore".
+ */
+export function useRosterFetchState(): RosterFetchState {
+  const queryClient = useQueryClient();
+  const { scope } = useActiveNode();
+  const [state, setState] = useState<RosterFetchState>({
+    everFetched: false,
+    settled: false,
+  });
+
+  useEffect(() => {
+    setState({ everFetched: false, settled: false });
+    const key = JSON.stringify(sessionKeys.list(scope));
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated") return;
+      if (JSON.stringify(event.query.queryKey) !== key) return;
+      const action = event.action;
+      if (action.type === "success") {
+        if (action.manual) setState((s) => ({ ...s, settled: false }));
+        else setState({ everFetched: true, settled: true });
+      } else if (action.type === "error" || action.type === "fetch") {
+        setState((s) => ({ ...s, settled: false }));
+      }
+    });
+  }, [queryClient, scope]);
+
+  return state;
 }
 
 export interface CreateSessionInput {

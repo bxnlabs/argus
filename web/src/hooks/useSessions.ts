@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type { Session } from "@/types";
 import {
   useSessionsQuery,
+  useRosterFetchState,
   useDeleteSession,
   useRenameSession,
   useChangeSessionProfile,
@@ -15,31 +16,12 @@ export function useSessions() {
   const sessions: Session[] = data?.sessions ?? [];
   const homeDir: string = data?.home_dir ?? "";
 
-  // Whether a roster fetch has actually come back from the server since this
-  // mount. Watching the fetch settle, rather than reading `isSuccess`, because
-  // `isSuccess` answers a different question than it appears to:
-  //
-  //   - A manual cache write counts as success. `useRenameSession` and
-  //     `useUpdateSession` both `setQueryData` on this exact key in `onMutate`,
-  //     and on 5.100.14 that flips a query sitting at `status: "error"` straight
-  //     to `"success"` with no request in between (measured). Renaming one
-  //     session during a roster outage would otherwise declare the stale list
-  //     authoritative and detach a tab holding a session it predates.
-  //   - Cached success is immediate on mount, which lands *before* TabProvider
-  //     restores tabs from localStorage — child effects commit before parent
-  //     ones — so the one-shot cleanup would consume its guard against the
-  //     generated blank tab and never see the real ones.
-  //
-  // A settled fetch answers both: `setQueryData` never toggles `isFetching`, and
-  // any completed fetch necessarily lands after the mount effects. The cost is
-  // that a remount whose cache is still fresh waits for the next poll before
-  // reconciling, which is the right way to be wrong here.
-  const [rosterFetched, setRosterFetched] = useState(false);
-  const wasFetching = useRef(false);
-  useEffect(() => {
-    if (wasFetching.current && !isFetching && isSuccess) setRosterFetched(true);
-    wasFetching.current = isFetching;
-  }, [isFetching, isSuccess]);
+  // What the server has actually said, tracked off the query's cache events
+  // rather than its rendered status — see useRosterFetchState for why the
+  // render layer cannot answer this. `everFetched` gates one-shot work,
+  // `settled` gates the repeated kind.
+  const { everFetched: rosterFetched, settled: rosterSettled } =
+    useRosterFetchState();
 
   const deleteMutation = useDeleteSession();
   const renameMutation = useRenameSession();
@@ -112,13 +94,13 @@ export function useSessions() {
   // an unreachable node would emit a toast every 10s for as long as it stayed
   // down. Re-arms once a fetch succeeds, so a second outage is announced again.
   //
-  // Re-arming keys off `isSuccess`, not `!isError`, because those differ exactly
-  // where it matters. With no cached data the status cycles error → pending →
-  // error across a retry (measured on 5.100.14), so `!isError` goes true for the
-  // in-flight moment and clears the flag — meaning a node that has *never*
-  // answered re-announces on every poll, which is precisely the case this guard
-  // exists for. `isSuccess` is false throughout that cycle and only turns true
-  // on an actual answer.
+  // Re-arming keys off a real server answer, not `!isError` and not `isSuccess`.
+  // `!isError` goes true for the in-flight moment of every retry, since with no
+  // cached data the status cycles error → pending → error (measured), which
+  // would re-announce on every poll for a node that has never answered — the
+  // exact case this guard exists for. `isSuccess` fails the other way: an
+  // optimistic rename or pin counts as success, so editing a cached row during
+  // an outage would score as recovery and let the next failure announce again.
   //
   // The message stays neutral about the cause: `isError` is any rejected query,
   // and apiFetch rejects on 4xx/5xx and malformed JSON as readily as on an
@@ -136,10 +118,10 @@ export function useSessions() {
     if (isError && !isFetching && !announcedFailure.current) {
       announcedFailure.current = true;
       toast.error("Couldn't load sessions — retrying…", { id: "sessions-fetch" });
-    } else if (isSuccess && announcedFailure.current) {
+    } else if (rosterSettled && announcedFailure.current) {
       announcedFailure.current = false;
     }
-  }, [isError, isFetching, isSuccess]);
+  }, [isError, isFetching, rosterSettled]);
 
   return {
     sessions,
@@ -164,9 +146,10 @@ export function useSessions() {
     // flag above latches once per mount, which suits a one-shot pass but is
     // useless to anything asking the question repeatedly — by the time a dialog
     // opens it has long since latched true. This one goes false again whenever a
-    // fetch is in flight or the last one failed, which is exactly when "that
-    // session isn't in the list" means "not yet" rather than "not anymore".
-    isRosterSettled: isSuccess && !isFetching,
+    // fetch is in flight, the last one failed, or the cache was written locally,
+    // which is exactly when "that session isn't in the list" means "not yet"
+    // rather than "not anymore".
+    isRosterSettled: rosterSettled,
     deleteSession,
     renameSession,
     changeProfile,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StubNodeProvider } from "@/test/node-context";
 import { sessionKeys } from "@/data/sessions/keys";
@@ -194,6 +194,63 @@ describe("useSessions", () => {
     rerender();
 
     expect(result.current.isRosterAuthoritative).toBe(false);
+  });
+
+  it("doesn't let renaming a row during an outage count as recovery", async () => {
+    // Re-arming on `isSuccess` would treat an optimistic write as the node
+    // coming back, so editing a cached row mid-outage would license a second
+    // announcement for the same uninterrupted outage.
+    const qc = client();
+    seedRoster(qc, [{ id: "a", name: "one" }]);
+    respond = down;
+
+    renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+
+    // Settled before the refetch, so React actually commits the render where the
+    // optimistic write has the query reading as a success. Without that gap the
+    // batching hides the very state the guard has to resist, and this test would
+    // pass against the bug.
+    await act(async () => {
+      qc.setQueryData(sessionKeys.list("local:"), {
+        sessions: [{ id: "a", name: "renamed" }],
+        home_dir: "/home/u",
+      });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    await qc.refetchQueries({ queryKey: ["sessions"] });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't mistake a cancelled fetch plus a local write for an answer", async () => {
+    // The sequence rename and pin actually perform in onMutate: cancel the
+    // in-flight roster fetch, then write the cache. Cancelling stops the fetch
+    // and the write lands as success, so at the render layer this is
+    // indistinguishable from a fetch that answered — the observer goes
+    // fetching → idle+success and React batches the cancelled state in between
+    // out of existence. Anything reading rendered status grants authority here
+    // and detaches a tab for a session the stale roster predates.
+    const qc = client();
+    seedRoster(qc, [{ id: "a", name: "one" }]);
+    respond = slowDown;
+
+    const { result, rerender } = renderHook(() => useSessions(), { wrapper: wrapper(qc) });
+    expect(result.current.isRosterAuthoritative).toBe(false);
+
+    await act(async () => {
+      await qc.cancelQueries({ queryKey: sessionKeys.list("local:") });
+      qc.setQueryData(sessionKeys.list("local:"), {
+        sessions: [{ id: "a", name: "renamed" }],
+        home_dir: "/home/u",
+      });
+    });
+    rerender();
+
+    expect(result.current.isRosterAuthoritative).toBe(false);
+    expect(result.current.isRosterSettled).toBe(false);
   });
 
   it("won't call a session absent while the roster is unsettled", async () => {
