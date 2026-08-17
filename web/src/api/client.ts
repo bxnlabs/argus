@@ -17,16 +17,36 @@ export class TimeoutError extends Error {
 }
 
 /**
- * Default request deadline.
+ * Default request deadline, for the ordinary request that reads something.
  *
- * Sized off what the node itself will do rather than picked by feel: the git
- * layer bounds its own work at 10s for most commands, 30s for the long ones,
- * and 60s for `git fetch`, which is the slowest thing any handler will sit on
- * (internal/node/git). Anything past that is not a slow answer, it's no answer
- * — so the ceiling clears the server's own maximum with margin, and the client
- * never cancels work the node would have finished.
+ * Clears the slowest bound the node puts on that kind of work: the git layer
+ * caps its commands at 10s, its long ones at 30s, and `git fetch` at 60s
+ * (internal/node/git). Past that is not a slow answer, it's no answer.
+ *
+ * It is emphatically not a bound on every handler — session create, clone and
+ * profile change can sit on a `docker compose up` the node allows 20 minutes
+ * for, and those opt into SESSION_OPERATION_TIMEOUT_MS below. Anything added
+ * here that can outlive a git fetch needs the same treatment; a default that
+ * cuts real work is worse than no default at all, because it reports a failure
+ * for an operation that is still running and will succeed.
  */
 export const REQUEST_TIMEOUT_MS = 75_000;
+
+/**
+ * Deadline for the session operations that can bring a Docker stack up.
+ *
+ * Mirrors the CLI's `profileStackClientTimeout` (cmd/argus/cli/client.go) and
+ * for its reason: it sits just above the node's own `stackOpTimeout` of 20
+ * minutes (internal/node/session/docker.go) so the server's bound stays the
+ * source of truth for the compose operation, while still capping the wait if a
+ * handler wedges somewhere outside that bounded path.
+ *
+ * Create can also run an unbounded `git clone` for a remote source
+ * (internal/git/worktree) — nothing on either side bounds that today, so a
+ * clone slower than this would still be cut off. The CLI carries the same
+ * exposure; bounding it belongs on the server, next to the clone.
+ */
+export const SESSION_OPERATION_TIMEOUT_MS = 25 * 60_000;
 
 /**
  * Deadline for the polled node reads.
@@ -65,28 +85,32 @@ export function nodeWsUrl(baseUrl: string, sessionId?: string | null): string {
   return `${protocol}//${window.location.host}${path}`;
 }
 
-async function baseFetch(
-  baseUrl: string,
-  url: string,
-  options?: ApiRequestInit,
-): Promise<Response> {
+/**
+ * Runs `use` under a deadline, and — the part that matters — keeps the deadline
+ * running for as long as the caller needs the response.
+ *
+ * `fetch` resolves once the response *headers* arrive, so a deadline that ends
+ * there leaves the body unguarded: a node that sends headers and then stalls
+ * mid-JSON hangs exactly as long as one that never answered at all. Everything
+ * that reads the body therefore happens inside this call, not after it.
+ */
+async function withDeadline<T>(
+  options: ApiRequestInit | undefined,
+  use: (init: RequestInit) => Promise<T>,
+): Promise<T> {
   const { timeoutMs = REQUEST_TIMEOUT_MS, signal, ...rest } = options ?? {};
 
   // Composed rather than replacing the caller's signal, so a deadline never
-  // costs an abort the caller was relying on. `AbortSignal.any` is the only
-  // piece here that isn't ancient; it's in every browser this app already
-  // requires for `structuredClone`-era APIs, and the fallback below keeps the
-  // deadline working anywhere it's missing rather than throwing.
+  // costs an abort the caller was relying on.
   const timer = new AbortController();
-  const timeout = setTimeout(() => timer.abort(new TimeoutError(timeoutMs)), timeoutMs);
+  const timeout = setTimeout(() => timer.abort(), timeoutMs);
   const composed =
     signal && typeof AbortSignal.any === "function"
       ? AbortSignal.any([signal, timer.signal])
       : (signal ?? timer.signal);
 
-  let res: Response;
   try {
-    res = await fetch(`${baseUrl}${url}`, { ...rest, signal: composed });
+    return await use({ ...rest, signal: composed });
   } catch (err) {
     // The DOMException an abort raises says nothing about which abort it was.
     // Re-throw the deadline as itself so callers can tell "the node never
@@ -96,6 +120,14 @@ async function baseFetch(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function baseFetch(
+  baseUrl: string,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const res = await fetch(`${baseUrl}${url}`, init);
 
   if (!res.ok) {
     let message = `Request failed: ${res.status}`;
@@ -124,18 +156,26 @@ export async function apiFetch<T>(
   if (options?.body != null && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const res = await baseFetch(baseUrl, url, { ...options, headers });
-  return res.json();
+  // The parse is inside the deadline, not after it — see withDeadline.
+  return withDeadline({ ...options, headers }, async (init) => {
+    const res = await baseFetch(baseUrl, url, init);
+    return res.json() as Promise<T>;
+  });
 }
 
 /**
  * Fetch text content from the API. Used for endpoints that
  * send/receive raw text instead of JSON (e.g., file content).
+ *
+ * The deadline covers reaching the response, not draining it: the body belongs
+ * to the caller here, so it is read after this returns and the timer is already
+ * cleared. Callers that stream something large are the ones this shape suits;
+ * a caller wanting the body bounded too should read it through `apiFetch`.
  */
 export async function apiTextFetch(
   baseUrl: string,
   url: string,
   options?: ApiRequestInit,
 ): Promise<Response> {
-  return baseFetch(baseUrl, url, options);
+  return withDeadline(options, (init) => baseFetch(baseUrl, url, init));
 }

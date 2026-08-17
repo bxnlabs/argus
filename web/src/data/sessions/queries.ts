@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
-import { apiFetch, POLL_TIMEOUT_MS } from "@/api/client";
+import {
+  apiFetch,
+  POLL_TIMEOUT_MS,
+  SESSION_OPERATION_TIMEOUT_MS,
+} from "@/api/client";
 import { useActiveNode } from "@/hooks/useActiveNode";
 import type { Session, ProviderType } from "@/types";
 import { sessionKeys, profileKeys, statusKeys } from "./keys";
@@ -118,9 +122,13 @@ export function useCreateSession() {
   return useMutation({
     mutationKey: sessionKeys.mutation(scope, "create"),
     mutationFn: (input: CreateSessionInput) =>
+      // Can sit on a `docker compose up` the node allows 20 minutes for, and
+      // on an unbounded clone for a remote source — the default read deadline
+      // would report a failure while the node was still working.
       apiFetch<CreateSessionResponse>(baseUrl, "/api/node/sessions", {
         method: "POST",
         body: JSON.stringify(input),
+        timeoutMs: SESSION_OPERATION_TIMEOUT_MS,
       }),
     onSuccess: () => {
       invalidateSessionMembership(queryClient, scope);
@@ -138,7 +146,7 @@ export function useCloneSession() {
       apiFetch<CreateSessionResponse>(
         baseUrl,
         `/api/node/sessions/${encodeURIComponent(sessionId)}/clone`,
-        { method: "POST" },
+        { method: "POST", timeoutMs: SESSION_OPERATION_TIMEOUT_MS },
       ),
     onSuccess: () => {
       invalidateSessionMembership(queryClient, scope);
@@ -241,12 +249,16 @@ export function useChangeSessionProfile() {
       profile: string | null;
     }) =>
       profile === null
+        // Changing profile runs the same docker preconditions as create
+        // (prepareDockerTarget), so it gets the same ceiling.
         ? apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "DELETE",
+            timeoutMs: SESSION_OPERATION_TIMEOUT_MS,
           })
         : apiFetch(baseUrl, `/api/node/sessions/${encodeURIComponent(sessionId)}/profile`, {
             method: "PUT",
             body: JSON.stringify({ profile }),
+            timeoutMs: SESSION_OPERATION_TIMEOUT_MS,
           }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list(scope) });

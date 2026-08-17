@@ -6,6 +6,7 @@ import {
   TimeoutError,
   POLL_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS,
+  SESSION_OPERATION_TIMEOUT_MS,
 } from "./client";
 
 afterEach(() => {
@@ -100,6 +101,45 @@ describe("apiFetch deadline", () => {
     // Aborting for the caller's own reasons must not be reported as the node
     // failing to answer — the sidebar announces one of those and not the other.
     expect(err).not.toBeInstanceOf(TimeoutError);
+  });
+
+  it("covers a response that arrives and then stalls mid-body", async () => {
+    // `fetch` resolves on headers, so a deadline that ends there guards nothing
+    // that matters: a node which sends 200 and then stops writing hangs exactly
+    // as long as one that never answered. The stream below never closes.
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: string, init?: RequestInit) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                init?.signal?.addEventListener("abort", () =>
+                  controller.error(new DOMException("aborted", "AbortError")),
+                );
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    const pending = apiFetch("", "/api/node/sessions", { timeoutMs: 500 }).catch(
+      (e) => e,
+    );
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(await pending).toBeInstanceOf(TimeoutError);
+  });
+
+  it("gives the docker-capable session operations room the node actually needs", () => {
+    // The node allows `docker compose up` 20 minutes (stackOpTimeout), and
+    // create/clone/profile-change can all sit on one. A ceiling below that
+    // reports failure for work that is still running and will succeed — worse
+    // than no ceiling, because the user retries and creates a duplicate.
+    expect(SESSION_OPERATION_TIMEOUT_MS).toBeGreaterThan(20 * 60_000);
+    expect(REQUEST_TIMEOUT_MS).toBeLessThan(SESSION_OPERATION_TIMEOUT_MS);
   });
 
   it("keeps the polled reads on a much shorter leash than the default", () => {
