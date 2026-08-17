@@ -144,6 +144,68 @@ describe("QuickSwitcher current-session marker", () => {
     ).toContain("bg-accent");
   });
 
+  it("lands the cursor once the list arrives after the dialog opened", () => {
+    // Cmd+K is bound with no gate on the list having loaded (App), and the
+    // dialog stays mounted, so opening it during the first fetch — or right
+    // after a node switch, which empties the cache for the new scope — places
+    // the cursor against an empty list.
+    //
+    // Reading the landing spot out of a ref made that permanent: the ref
+    // updated when the sessions arrived, but nothing depended on it, so no
+    // effect re-ran. The cursor stayed on row 0, the current session was
+    // hoisted underneath it, and Enter went back to where you already were.
+    const onSelectSession = vi.fn();
+    const props = {
+      homeDir: "/home/u",
+      open: true,
+      onOpenChange: () => {},
+      onSelectSession,
+      currentSessionId: "b",
+    };
+    const { rerender } = render(<QuickSwitcher sessions={[]} {...props} />);
+    rerender(<QuickSwitcher sessions={sessions} {...props} />);
+
+    const rowFor = (name: string) =>
+      screen.getByText(name).closest("button")!.className.split(/\s+/);
+
+    expect(rowNames()).toEqual(["second", "first"]);
+    expect(rowFor("second")).not.toContain("bg-accent");
+    expect(rowFor("first")).toContain("bg-accent");
+
+    fireEvent.keyDown(screen.getByPlaceholderText("Search sessions..."), {
+      key: "Enter",
+    });
+    expect(onSelectSession).toHaveBeenCalledWith("a");
+  });
+
+  it("keeps a usable cursor when the list shrinks under it", () => {
+    // Sessions can leave the list while the dialog is open — deleted from
+    // another client, or on the node itself. The cursor now commonly starts at
+    // row 1, so a list dropping to a single row leaves it pointing past the
+    // end: nothing takes the wash, and Enter selects nothing at all.
+    const onSelectSession = vi.fn();
+    const props = {
+      homeDir: "/home/u",
+      open: true,
+      onOpenChange: () => {},
+      onSelectSession,
+      currentSessionId: "b",
+    };
+    const { rerender } = render(<QuickSwitcher sessions={sessions} {...props} />);
+    rerender(
+      <QuickSwitcher sessions={[makeSession("b", "second")]} {...props} />,
+    );
+
+    expect(
+      screen.getByText("second").closest("button")!.className.split(/\s+/),
+    ).toContain("bg-accent");
+
+    fireEvent.keyDown(screen.getByPlaceholderText("Search sessions..."), {
+      key: "Enter",
+    });
+    expect(onSelectSession).toHaveBeenCalledWith("b");
+  });
+
   it("says nothing about currency when no session is attached", () => {
     renderSwitcher(undefined);
     expect(screen.queryByText("Current")).toBeNull();

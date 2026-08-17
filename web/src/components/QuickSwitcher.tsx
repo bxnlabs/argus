@@ -78,13 +78,7 @@ export function QuickSwitcher({
   // Falls back to 0 when there's nothing else to land on, so a lone current
   // session (or a search that matches only it) still has a selected row rather
   // than a cursor pointing past the end.
-  //
-  // Held in a ref because the effects below must not re-run when it changes:
-  // they reset the cursor, and the value moves whenever the session list does.
-  // Recomputing on a poll would yank the cursor back mid-navigation. Same
-  // render-assignment pattern the mutation refs in App use.
-  const initialIndexRef = useRef(0);
-  initialIndexRef.current =
+  const initialIndex =
     filteredSessions.length > 1 && filteredSessions[0]?.id === currentSessionId
       ? 1
       : 0;
@@ -93,15 +87,33 @@ export function QuickSwitcher({
   useEffect(() => {
     if (open) {
       setQuery("");
-      setSelectedIndex(initialIndexRef.current);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
 
-  // Reset selected index when filtered results change
+  // Land the cursor on the first row worth going to, and re-land it if that row
+  // only shows up later. `initialIndex` is a dependency rather than a ref read,
+  // because the switcher opens fine before the list has arrived — Cmd+K is
+  // ungated, and a node switch empties the cache for the new scope — and on that
+  // path the cursor would otherwise be placed against an empty list and left
+  // there. It settles on 0, the sessions land, the current one is hoisted under
+  // it, and Enter goes back to the session you're already in: the exact thing
+  // hoisting was supposed to stop.
+  //
+  // Only ever 0 or 1, so this re-runs when an alternative first appears or last
+  // disappears — not on the reordering an ordinary poll causes, which would drag
+  // the cursor back to the top mid-navigation.
   useEffect(() => {
-    setSelectedIndex(initialIndexRef.current);
-  }, [query]);
+    if (open) setSelectedIndex(initialIndex);
+  }, [open, query, initialIndex]);
+
+  // Keep the cursor on a row that exists. Sessions can leave the list while the
+  // dialog is open (deleted from another client, or on the node itself), and a
+  // cursor left past the end selects nothing: no row takes the wash, and Enter
+  // does nothing at all.
+  useEffect(() => {
+    setSelectedIndex((i) => Math.min(i, Math.max(filteredSessions.length - 1, 0)));
+  }, [filteredSessions.length]);
 
   // Auto-scroll selected item into view
   useEffect(() => {
