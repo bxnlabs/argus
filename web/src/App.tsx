@@ -674,6 +674,7 @@ function HomeContent({
       sessions={sessions}
       sessionStatuses={sessionStatuses}
       homeDir={homeDir}
+      nodeName={activeNode?.name}
       activePanel={activePanel}
       setActivePanel={setActivePanel}
       activeWorkingDirectory={activeWorkingDirectory}

@@ -23,6 +23,8 @@ interface WorkspaceProps {
   // Feeds the status bar's counts; see StatusBar.summarizeSessions.
   sessionStatuses: Record<string, SessionStatusInfo>;
   homeDir: string;
+  // Names the node those counts belong to; see StatusBar.
+  nodeName?: string | null;
   activePanel: SidePanel;
   setActivePanel: (panel: SidePanel) => void;
   activeWorkingDirectory: string | null;
@@ -37,6 +39,7 @@ export const Workspace = memo(function Workspace({
   sessions,
   sessionStatuses,
   homeDir,
+  nodeName,
   activePanel,
   setActivePanel,
   activeWorkingDirectory,
@@ -306,6 +309,7 @@ export const Workspace = memo(function Workspace({
             sessionStatuses={sessionStatuses}
             session={session ?? null}
             homeDir={homeDir}
+            nodeName={nodeName}
             onOpenGit={isGitRepo ? () => setActivePanel("git") : undefined}
             // Same rule the tab bar's button used: detachable when the tab
             // points at a session, whether or not that session is still listed.
