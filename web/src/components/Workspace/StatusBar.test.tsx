@@ -98,7 +98,7 @@ describe("summarizeSessions", () => {
 
 describe("repoNamedElsewhere", () => {
   it("matches a whole path segment", () => {
-    expect(repoNamedElsewhere("bxnlabs/argus", "~/repos/bxnlabs/argus", null)).toBe(
+    expect(repoNamedElsewhere("bxnlabs/argus", "~/repos/bxnlabs/argus")).toBe(
       true,
     );
   });
@@ -108,27 +108,23 @@ describe("repoNamedElsewhere", () => {
     // so a substring test would hide the repo cell for every worktree session —
     // the one case where the path can't say which repo it belongs to.
     expect(
-      repoNamedElsewhere("bxnlabs/argus", "~/.argus/projects/x/worktrees/a", null),
+      repoNamedElsewhere("bxnlabs/argus", "~/.argus/projects/x/worktrees/a"),
     ).toBe(false);
-  });
-
-  it("counts the branch as naming the repo", () => {
-    expect(repoNamedElsewhere("bxnlabs/argus", "~/code/checkout", "argus/main")).toBe(
-      true,
-    );
   });
 
   it("does not match inside an elided path", () => {
     // compressPath drops segments; a name the user can't read isn't naming it.
     expect(
-      repoNamedElsewhere("bxnlabs/argus", "~/.../worktrees/jeev--foo", null),
+      repoNamedElsewhere("bxnlabs/argus", "~/.../worktrees/jeev--foo"),
     ).toBe(false);
   });
 });
 
 function renderBar(props: Partial<React.ComponentProps<typeof StatusBar>> = {}) {
   return render(
-    <TooltipProvider>
+    // No delay, so a tooltip opens on the pointer event rather than after a
+    // timer the tests would have to fake.
+    <TooltipProvider delayDuration={0}>
       <StatusBar
         sessions={[]}
         sessionStatuses={{}}
@@ -138,6 +134,20 @@ function renderBar(props: Partial<React.ComponentProps<typeof StatusBar>> = {}) 
       />
     </TooltipProvider>,
   );
+}
+
+/**
+ * Open a cell's tooltip and return its text.
+ *
+ * Radix opens on `pointermove`, which jsdom dispatches happily — no layout
+ * needed, since the tooltip's content is real DOM whether or not anything is
+ * positioned. That makes the value recoverable in a test, which matters because
+ * the tooltip is the only place a shrunk cell's text survives.
+ */
+async function tooltipText(testId: string) {
+  fireEvent.pointerMove(screen.getByTestId(testId), { pointerType: "mouse" });
+  const tip = await screen.findByRole("tooltip");
+  return tip.textContent ?? "";
 }
 
 const text = (testId: string) => screen.getByTestId(testId).textContent ?? "";
@@ -251,7 +261,7 @@ describe("StatusBar counts", () => {
     expect(mark("status-session")).toContain("rounded-full");
   });
 
-  it("hangs a tooltip on every count, and on the node", () => {
+  it("hangs a tooltip on every count, and on the node", async () => {
     // Below the breakpoint the words are gone and a count is a mark and a
     // number, so the phrase is the only place the full reading survives. It
     // backs up the mark's shape rather than carrying the distinction on its
@@ -260,14 +270,19 @@ describe("StatusBar counts", () => {
     // The node needs its own because it truncates while it is still shown —
     // above the breakpoint, since below it the cell is gone entirely.
     renderBar({ ...busy, nodeName: "prime" });
-    for (const id of [
-      "status-node",
-      "status-count-total",
-      "status-count-active",
-      "status-count-unread",
-    ]) {
-      expect(screen.getByTestId(id)).toHaveProperty("dataset.state", "closed");
-    }
+    expect(await tooltipText("status-node")).toBe("prime");
+    cleanup();
+
+    renderBar({ ...busy, nodeName: "prime" });
+    expect(await tooltipText("status-count-total")).toBe("2 sessions");
+    cleanup();
+
+    renderBar({ ...busy, nodeName: "prime" });
+    expect(await tooltipText("status-count-active")).toBe("1 active");
+    cleanup();
+
+    renderBar({ ...busy, nodeName: "prime" });
+    expect(await tooltipText("status-count-unread")).toBe("1 unread");
   });
 
   it("omits the node segment until the nodes load", () => {
@@ -305,36 +320,58 @@ describe("StatusBar counts", () => {
     ).toBeNull();
   });
 
-  it("yields width before the identity does", () => {
-    // The counts used to be `shrink-0`, so every pixel the bar lost came out of
-    // the identity half: measured at 1024px, the counts held 272px of a 680px
-    // bar — 40%, one field of it reading "0 unread" — while the branch, the repo
-    // and the path were each clipped to about half their text.
+  it("is pinned to its content width rather than shrinking", () => {
+    // Not a layout assertion — jsdom does no layout — but the class this names
+    // is the whole ranking mechanism, so it is worth pinning.
+    //
+    // The counts were briefly made shrinkable to stop them crowding out the
+    // identity. That doesn't rank them: two flex siblings that both shrink give
+    // up the same proportion of their width, so measured at a 1184px bar the
+    // counts and the identity had both shrunk to 82% of their basis — the
+    // counts holding 284px of labels while the repo cell was down to 27px of an
+    // 81px name. Ranking by unequal shrink factors is worse: these cells carry
+    // no `truncate`, so at a factor of 8 the labels ran into their neighbours
+    // and rendered as "7 sessio●2 activ■3 unre". They collapse at the
+    // breakpoint instead, and hold their width either side of it.
     renderBar({ ...busy, session: session({ id: "a" }) });
-    expect(classes("status-counts")).not.toContain("shrink-0");
-    expect(classes("status-counts")).toContain("min-w-0");
+    expect(classes("status-counts")).toContain("shrink-0");
   });
 
-  it("drops its word labels near the onset of identity truncation", () => {
-    // Container queries, so this tracks the BAR's width rather than the
+  it("gates its word labels behind a container query on the bar", () => {
+    // Container queries, so the collapse tracks the BAR's width rather than the
     // window's — opening the sidebar takes ~340px out of the bar without
-    // touching the viewport. jsdom does no layout, so this asserts the
-    // container and the variant that make the collapse possible.
+    // touching the viewport.
     //
-    // 72rem, not 64rem: the identity starts ellipsing at a 1184px bar and
-    // 64rem sat 152px below that, so the labels outlasted the first clip. A
-    // 1096px bar clipped the path to 224 of 262px while a 1024px bar clipped
-    // nothing, which made the bar worse at a width where it had more room.
-    // "Near", not "before": 72rem still leaves 1160–1184px showing labels over
-    // a clipped identity, which is the cost of a standard breakpoint.
+    // Asserts the container and the variant that make the collapse possible,
+    // NOT that it happens at any particular width: jsdom does no layout, so
+    // nothing here can see a breakpoint fire. What the threshold is worth was
+    // settled in a browser, and the reasoning lives next to the constant.
+    //
+    // Pins the value, not just that the two agree: the threshold is the entire
+    // ranking mechanism now, and both places drifting to the same wrong number
+    // is exactly how it broke before. Changing it should be deliberate enough
+    // to fail a test. And they must stay equal — a node name left behind at a
+    // width the labels have abandoned would be the widest cell in a group that
+    // is meant to be narrow, which is the case that sets the threshold.
     renderBar({ ...busy, nodeName: "prime" });
     expect(classes("status-bar")).toContain("@container");
-    expect(classes("status-node")).toContain("@6xl");
-    expect(
-      screen
-        .getByTestId("status-count-total")
-        .querySelector(".tabular-nums span")?.className,
-    ).toContain("@6xl");
+    const nodeVariant = /@min-\[[^\]]+\]/.exec(classes("status-node"))?.[0];
+    const labelVariant = /@min-\[[^\]]+\]/.exec(
+      screen.getByTestId("status-count-total").querySelector(".tabular-nums span")
+        ?.className ?? "",
+    )?.[0];
+    expect(nodeVariant).toBe("@min-[98rem]");
+    expect(labelVariant).toBe(nodeVariant);
+  });
+
+  it("bounds the node name, the one count cell that isn't a number", () => {
+    // `shrink-0` means nothing in this group gives way, so an unbounded node
+    // name would take its width straight out of the identity half.
+    renderBar({ ...busy, nodeName: "a-very-long-manually-named-node-indeed" });
+    const span = screen.getByTestId("status-node").querySelector("span");
+    expect(span?.className).toContain("max-w-");
+    expect(span?.className).toContain("truncate");
+    expect(span?.textContent).toBe("a-very-long-manually-named-node-indeed");
   });
 });
 
@@ -389,6 +426,33 @@ describe("StatusBar active session segments", () => {
     ).toContain("bg-green-500");
   });
 
+  it("says so when the session's status hasn't arrived yet", () => {
+    // The list and the status poll arrive independently, so a freshly created
+    // session is listed before it has a status. Sighted that reads as the dot's
+    // muted colour; the dot is aria-hidden, so without a label the cell would
+    // announce a bare name and say nothing about the one thing it is for.
+    renderBar({ session: attached, sessionStatuses: {} });
+    expect(text("status-session")).toContain("Status unknown");
+  });
+
+  it("keeps the repo cell when only the branch echoes its name", () => {
+    // A branch namespace is arbitrary and doesn't name a repo: `argus/main`
+    // identifies neither the owner nor, where two owners share a basename, the
+    // project. The path is the only thing that counts as naming it, and a
+    // worktree's path points away from the repo — which is exactly when this
+    // cell is the only thing on the bar saying which project this is.
+    renderBar({
+      session: session({
+        id: "sess_wt2",
+        working_directory: "/home/jeevb/.argus/projects/x/worktrees/jeev--foo",
+        git_parent_dir: "/home/jeevb/Workspace/repos/bxnlabs/argus",
+        git_remote_url: "git@github.com:bxnlabs/argus.git",
+        worktree_branch: "argus/main",
+      }),
+    });
+    expect(text("status-repo")).toContain("bxnlabs/argus");
+  });
+
   it("renders profile, branch, and a tilde-contracted directory", () => {
     renderBar({ session: attached });
     expect(text("status-profile")).toContain("work");
@@ -428,18 +492,6 @@ describe("StatusBar active session segments", () => {
         id: "a",
         working_directory: "/home/jeevb/Workspace/repos/bxnlabs/argus",
         git_remote_url: "git@github.com:bxnlabs/argus.git",
-      }),
-    });
-    expect(screen.queryByTestId("status-repo")).toBeNull();
-  });
-
-  it("omits the repo segment when the branch already names it", () => {
-    renderBar({
-      session: session({
-        id: "a",
-        working_directory: "/home/jeevb/code/checkout",
-        git_remote_url: "git@github.com:bxnlabs/argus.git",
-        worktree_branch: "argus/main",
       }),
     });
     expect(screen.queryByTestId("status-repo")).toBeNull();
@@ -536,16 +588,19 @@ describe("StatusBar active session segments", () => {
     expect(onOpenGit).toHaveBeenCalledTimes(1);
   });
 
-  it("hangs a tooltip on the inert cells too", () => {
+  it("opens a tooltip on the inert cells too", async () => {
     // Every cell here can be ellipsed down to its icon — the repo cell measured
-    // 27px of an 81px name at a 680px bar — and the tooltip is then the only
-    // place the value survives. Inert cells used to drop theirs on the floor.
-    // The profile is the most aggressive shrinker of the four, at the same
-    // factor as the path, which measured down to 107 of 262px at that width.
+    // 27px of an 81px name at a 680px bar, and the profile 14 of 176px — and
+    // the tooltip is then the only place the value survives. Inert cells used
+    // to drop theirs on the floor: StatusItem returned the span before it
+    // reached the wrapper, so the value was recoverable nowhere.
     renderBar({ session: attached, onOpenGit: undefined });
-    for (const id of ["status-session", "status-branch", "status-profile"]) {
-      expect(screen.getByTestId(id)).toHaveProperty("dataset.state", "closed");
-    }
+    expect(screen.getByTestId("status-branch").tagName).not.toBe("BUTTON");
+    expect(await tooltipText("status-branch")).toBe("feat/status-bar");
+    cleanup();
+
+    renderBar({ session: attached, onOpenGit: undefined });
+    expect(await tooltipText("status-profile")).toBe("work");
   });
 
   it("leaves the branch inert when git is unavailable", () => {
@@ -570,10 +625,13 @@ describe("StatusBar active session segments", () => {
     expect(classes("status-identity")).toContain("overflow-hidden");
   });
 
-  it("ranks the identity cells so the branch is the last to ellipse", () => {
+  it("orders the identity cells' shrink factors, branch lowest", () => {
+    // Reads the factors off the classes; the ellipsing itself needs a layout.
     // Flex shrink is proportional, so equal factors clipped the branch — the
     // field that gets read — at the same rate as the path and the repo. At
-    // 1024px that showed 91px of a 185px branch. Lower factor, later ellipsis.
+    // 1024px that showed 91px of a 185px branch. Lower factor, later ellipsis:
+    // measured at a 560px bar the branch still held 135 of 170px while the repo
+    // and the path were down to nothing.
     renderBar({ session: worktree });
     const factor = (id: string) =>
       Number(/shrink-\[(\d+)\]/.exec(classes(id))?.[1]);

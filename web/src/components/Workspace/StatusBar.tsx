@@ -47,20 +47,54 @@ const BRANCH_MAX_WIDTH = "max-w-[35ch]";
 // the bar's own width (`@container` below), not the window's — opening the
 // sidebar takes ~340px out of the bar without touching the viewport.
 //
-// 72rem is where the identity measured out, not a derived figure: it starts
-// ellipsing at a 1184px bar, and 64rem simply sat 152px below that. (Only 8px
-// of the gap is the container query reading the content box past this bar's
-// `px-1`; the rest was the breakpoint being in the wrong place.) At 64rem the
-// labels therefore outlasted the identity's first clip, and across that band
-// the bar was worse than it was when narrower: a 1096px bar (a 1440px window
-// with the sidebar open) clipped the path to 224 of 262px and the repo to 54 of
-// 81, where a 1024px bar clipped nothing at all.
+// Dropping them is the *only* way the counts yield: the group is `shrink-0`
+// (see below). So the breakpoint is not a refinement on top of flex shrink, it
+// is the whole mechanism, and it wants to be early rather than late. Collapsing
+// sooner than strictly necessary costs three words that the `sr-only` line and
+// each count's tooltip still carry; collapsing later starves the identity,
+// which is the half nothing else on screen repeats.
 //
-// 72rem leaves a 24px band, 1160–1184px, where the labels still show and the
-// identity has begun to clip. Closing it exactly would take a bespoke 73.5rem
-// tuned to one fixture; the standard step is worth more than those 24px.
-const WIDE = "hidden @6xl:inline";
-const WIDE_CELL = "hidden @6xl:flex";
+// No fixed threshold is right for every session: the identity's natural width
+// is a name plus a profile plus a branch plus a path, so a session with long
+// ones wants the labels gone long before a session with short ones does. What
+// makes the choice tractable is that the two ways of being wrong don't cost the
+// same. Collapsing earlier than a short session needed costs three words that
+// the `sr-only` line and each count's tooltip still carry, and its identity
+// stays whole either way. Collapsing later than a long session needed costs
+// that identity — and costs it at a cliff, because the labels are 219px that
+// appear all at once.
+//
+// Measured, both directions: a short session (`api`, `main`, `~/code/api`)
+// keeps 100% of its identity at every width down to 680px whether the labels
+// are there or not, so an early collapse costs it nothing but the words. A
+// worktree session with all four fields long is the one that pays, and it pays
+// at a step: with the labels gone it keeps everything, and the pixel they
+// return on it loses ~100px of text at once.
+//
+// So the threshold goes where the labelled bar actually fits, and the width it
+// has to fit is the widest the labelled group can get — not the width of a
+// comfortable example. That group is bounded but not small: the node cell
+// contributes up to its 16ch cap, and the numbers up to their digit count.
+// Measured against the long identity, the narrowest bar at which nothing
+// truncates is 1460px with an 11-character node and two-digit counts, 1524px
+// with the node at its cap, and 1552px with three-digit counts as well. A
+// threshold below the last of those doesn't remove the cliff, it just picks
+// which configuration falls off it — 90rem was under even the first case.
+//
+// Hence 98rem. Deliberately past the measured worst case rather than at it,
+// because the error is asymmetric and the slack is cheap: the only thing an
+// over-wide threshold costs is three words on bars between there and where
+// they'd have fit, and those words are still in the `sr-only` line and in every
+// count's tooltip. What it buys is that no bounded configuration reads worse
+// than it does one pixel narrower.
+//
+// It does not make that true for an unbounded one. The session name and the
+// profile have no cap, so a long enough pair still truncates above any fixed
+// threshold. That degrades by ellipsis rather than by a step, which is the part
+// that holds regardless of content — but a bar that has to survive arbitrary
+// identity strings wants a measured collapse, not a number in `rem`.
+const WIDE = "hidden @min-[98rem]:inline";
+const WIDE_CELL = "hidden @min-[98rem]:flex";
 
 export interface SessionCounts {
   total: number;
@@ -95,9 +129,9 @@ export function summarizeSessions(
 }
 
 /**
- * Whether something else on the bar already names this repo.
+ * Whether the path already names this repo.
  *
- * The path usually does — a session sitting in the repo itself reads
+ * It usually does — a session sitting in the repo itself reads
  * `~/Workspace/repos/bxnlabs/argus`, and a second `bxnlabs/argus` beside it buys
  * nothing. A worktree's path points away from the repo, and there the repo cell
  * is the only thing on the bar that says which project this is.
@@ -106,16 +140,19 @@ export function summarizeSessions(
  * the path shown is compressed, so a repo name buried in an elided middle isn't
  * readable and shouldn't count — and a plain substring test would find `argus`
  * inside `.argus` and strike out a segment that was carrying its own weight.
+ *
+ * The branch deliberately doesn't count, though it names a segment often enough
+ * to look like it should. A branch namespace is arbitrary: `argus/main` in
+ * `bxnlabs/argus` would suppress the cell while naming neither the owner nor,
+ * for a repo whose basename another owner also uses, the project. It would not
+ * pay for that in the case it was meant for either — the case is a worktree,
+ * whose path doesn't name the repo, and whose branch here is `user/slug` and
+ * doesn't name it either.
  */
-export function repoNamedElsewhere(
-  repo: string,
-  dirDisplay: string,
-  branch: string | null,
-): boolean {
+export function repoNamedElsewhere(repo: string, dirDisplay: string): boolean {
   const name = repo.split("/").pop();
   if (!name) return false;
-  const segments = [...dirDisplay.split("/"), ...(branch?.split("/") ?? [])];
-  return segments.includes(name);
+  return dirDisplay.split("/").includes(name);
 }
 
 // One cell of the bar. Renders as a button when it does something and as plain
@@ -183,12 +220,14 @@ function StatusItem({
   // every inert cell keeps its whole value in the DOM, so a screen reader reads
   // what the ellipsis hides. What a sighted keyboard user can't recover is the
   // hidden tail, and the profile is the sharp case: inert, and on the same
-  // shrink factor as the path, it held 27 of 219px at a 680px bar.
+  // shrink factor as the path, it measured 14 of 176px at a 680px bar.
   //
   // Not fixed by making these focusable. That buys the tail back at the price
-  // of a tab stop per inert cell — four of them now — in a bar that is a
-  // readout with nothing in it to operate. The cells worth reaching are already
-  // buttons and already reachable.
+  // of a tab stop per inert cell, and the cells that do something — the branch,
+  // the repo, the path, the id, detach — are already buttons and already in the
+  // tab order. So the new stops would all be on cells that go nowhere, which is
+  // a poor trade in a bar this size. Revisit if an inert cell becomes
+  // actionable, or for a keyboard-first user, for whom it is the wrong call.
   if (!tooltip || disabled) return item;
   return (
     <Tooltip>
@@ -285,14 +324,21 @@ export function StatusBar({
   const dir = location ? (location.worktreeDir ?? location.directory).copy : "";
   const dirDisplay = compressPath(dir, homeDir, MAX_DIR_WIDTH);
   const repo =
-    location?.repo &&
-    !repoNamedElsewhere(location.repo, dirDisplay, location.branch)
+    location?.repo && !repoNamedElsewhere(location.repo, dirDisplay)
       ? location.repo
       : null;
 
   const statusMeta = getStatusMeta(
     session ? sessionStatuses[session.id]?.status : undefined,
   );
+  // getStatusMeta leaves the label empty for a status it doesn't know, which
+  // includes the gap before the first status poll lands — the list and the poll
+  // arrive independently, as summarizeSessions above depends on. Sighted, that
+  // gap reads as the dot's muted "unknown" colour; without the fallback it
+  // reads as nothing at all, because the dot is aria-hidden and the cell would
+  // then announce a bare session name. The one thing this cell exists to say is
+  // what the session is doing, so it says that it doesn't know.
+  const statusLabel = statusMeta.label || "Status unknown";
 
   // Each count's own phrase, reused as its tooltip. Below the breakpoint the
   // words are gone and a count is a mark and a number, so the phrase is the
@@ -334,12 +380,34 @@ export function StatusBar({
           screen-reader user all day is worse than saying nothing. */}
       <span className="sr-only">{countsLabel}</span>
 
-      {/* Fleet counts. They shrink before the identity does — they are an
-          aggregate that changes slowly, against the one line on screen that says
-          what you are looking at. `h-full` on the group is what lets the cells
-          inside it fill the bar: a cell's own `h-full` resolves against its
-          parent, so a content-height group would leave half-height hit targets
-          and hover boxes to match.
+      {/* Fleet counts. They yield to the identity — they are an aggregate that
+          changes slowly, against the one line on screen that says what you are
+          looking at — but they yield by dropping their labels at the breakpoint
+          above, not by shrinking.
+
+          `shrink-0` is the point. Letting these shrink does not rank them below
+          the identity: two flex siblings that both shrink give up the same
+          *proportion* of their width, so the counts merely shrank alongside the
+          identity rather than ahead of it, and the identity, being the wider of
+          the two, lost more pixels doing it. Ranking them by an unequal shrink
+          factor instead is worse still — the cells in here have no `truncate`
+          to absorb it (a count is an icon and a number, and half a number is
+          not a reading), so a shrunk group overlaps each cell's text with its
+          neighbour's. The identity half shrinks well precisely because every
+          cell in it truncates. These have two useful widths and nothing in
+          between, so they are pinned to whichever one the bar is wide enough
+          for.
+
+          What that buys, stated no wider than it was measured: the optional
+          labels collapse before the identity truncates, for identities up to
+          the longest one measured against. A wider identity than that — enough
+          long fields at once, or counts in the thousands — still truncates,
+          because a threshold in `rem` cannot see the strings. It truncates
+          rather than overlapping, which is the part that holds regardless.
+
+          `h-full` on the group is what lets the cells inside it fill the bar: a
+          cell's own `h-full` resolves against its parent, so a content-height
+          group would leave half-height hit targets and hover boxes to match.
 
           Hidden from assistive tech, because the line above already says all of
           it. Naming the group instead left the cells in the tree underneath the
@@ -350,7 +418,7 @@ export function StatusBar({
       <div
         data-testid="status-counts"
         aria-hidden="true"
-        className="flex h-full min-w-0 shrink items-center gap-0.5 overflow-hidden pr-1"
+        className="flex h-full shrink-0 items-center gap-0.5 pr-1"
       >
         {nodeName && (
           <>
@@ -362,7 +430,16 @@ export function StatusBar({
               className={WIDE_CELL}
               tooltip={nodeName}
             >
-              <span className="truncate">{nodeName}</span>
+              {/* Capped for the same reason the branch is, and more sharply
+                  now that the group is `shrink-0`: this is the one string in
+                  here that isn't a small number, so it is the only way the
+                  counts can inflate, and nothing gives way when they do. A
+                  discovered node's name is derived from its hostname (see
+                  deriveNodeName, which takes the first DNS label), but a manual
+                  one is whatever the user typed (see registry.ManualNode) and
+                  has no length anyone promised, which is the case the cap is
+                  for. The tooltip holds whatever it takes off. */}
+              <span className="max-w-[16ch] truncate">{nodeName}</span>
             </StatusItem>
             <Separator className={WIDE} />
           </>
@@ -430,16 +507,10 @@ export function StatusBar({
             <StatusItem
               testId="status-session"
               className="shrink-[2]"
-              tooltip={
-                statusMeta.label
-                  ? `${statusMeta.label} · ${session.name}`
-                  : session.name
-              }
+              tooltip={`${statusLabel} · ${session.name}`}
             >
               <Dot color={statusMeta.color} animation={statusMeta.animation} />
-              {statusMeta.label && (
-                <span className="sr-only">{statusMeta.label}</span>
-              )}
+              <span className="sr-only">{statusLabel}</span>
               <span className="truncate">{session.name}</span>
             </StatusItem>
 
