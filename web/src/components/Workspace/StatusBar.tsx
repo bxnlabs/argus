@@ -41,60 +41,34 @@ const MAX_DIR_WIDTH = 50;
 // exist to set.
 const BRANCH_MAX_WIDTH = "max-w-[35ch]";
 
-// The word labels and the node name are the first thing to go when the bar
-// narrows: they carry the least per pixel, and the counts are what should yield
-// to the attached session's identity rather than the other way round. Keyed off
-// the bar's own width (`@container` below), not the window's — opening the
-// sidebar takes ~340px out of the bar without touching the viewport.
+// The counts are marks and numbers, with no words and no node name. They used
+// to grow both back on a wide bar, behind a container query on the bar's own
+// width.
 //
-// Dropping them is the *only* way the counts yield: the group is `shrink-0`
-// (see below). So the breakpoint is not a refinement on top of flex shrink, it
-// is the whole mechanism, and it wants to be early rather than late. Collapsing
-// sooner than strictly necessary costs three words that the `sr-only` line and
-// each count's tooltip still carry; collapsing later starves the identity,
-// which is the half nothing else on screen repeats.
+// That mechanism is gone, and it is worth saying why rather than leaving the
+// absence to look like an oversight. Once the group became `shrink-0` (see
+// below) the breakpoint wasn't a refinement on top of flex shrink, it was the
+// only way the counts yielded at all — so the whole behaviour of the bar rested
+// on one number, and that number cannot be derived. The width the labels need
+// is the width the identity doesn't have, and the identity's width is a session
+// name plus a profile plus a branch plus a path: unbounded strings that vary
+// per session. Every threshold picked against one example was wrong for
+// another, and being wrong meant a cliff rather than a graceful loss, because
+// the labels are ~220px that appear all at once. Measured: at 72rem the bar was
+// worse at 1288px than at 1287px by 158px of identity text; at 90rem, worse at
+// 1448px than 1447px by ~100px, once the node name reached its cap. Each fix
+// moved the cliff rather than removing it. The last threshold that covered
+// every bounded case was 98rem, by which point the labels needed a ~1576px bar
+// and a 1440px laptop never saw them.
 //
-// No fixed threshold is right for every session: the identity's natural width
-// is a name plus a profile plus a branch plus a path, so a session with long
-// ones wants the labels gone long before a session with short ones does. What
-// makes the choice tractable is that the two ways of being wrong don't cost the
-// same. Collapsing earlier than a short session needed costs three words that
-// the `sr-only` line and each count's tooltip still carry, and its identity
-// stays whole either way. Collapsing later than a long session needed costs
-// that identity — and costs it at a cliff, because the labels are 219px that
-// appear all at once.
-//
-// Measured, both directions: a short session (`api`, `main`, `~/code/api`)
-// keeps 100% of its identity at every width down to 680px whether the labels
-// are there or not, so an early collapse costs it nothing but the words. A
-// worktree session with all four fields long is the one that pays, and it pays
-// at a step: with the labels gone it keeps everything, and the pixel they
-// return on it loses ~100px of text at once.
-//
-// So the threshold goes where the labelled bar actually fits, and the width it
-// has to fit is the widest the labelled group can get — not the width of a
-// comfortable example. That group is bounded but not small: the node cell
-// contributes up to its 16ch cap, and the numbers up to their digit count.
-// Measured against the long identity, the narrowest bar at which nothing
-// truncates is 1460px with an 11-character node and two-digit counts, 1524px
-// with the node at its cap, and 1552px with three-digit counts as well. A
-// threshold below the last of those doesn't remove the cliff, it just picks
-// which configuration falls off it — 90rem was under even the first case.
-//
-// Hence 98rem. Deliberately past the measured worst case rather than at it,
-// because the error is asymmetric and the slack is cheap: the only thing an
-// over-wide threshold costs is three words on bars between there and where
-// they'd have fit, and those words are still in the `sr-only` line and in every
-// count's tooltip. What it buys is that no bounded configuration reads worse
-// than it does one pixel narrower.
-//
-// It does not make that true for an unbounded one. The session name and the
-// profile have no cap, so a long enough pair still truncates above any fixed
-// threshold. That degrades by ellipsis rather than by a step, which is the part
-// that holds regardless of content — but a bar that has to survive arbitrary
-// identity strings wants a measured collapse, not a number in `rem`.
-const WIDE = "hidden @min-[98rem]:inline";
-const WIDE_CELL = "hidden @min-[98rem]:flex";
+// So they cost a container query, a threshold nobody could justify from first
+// principles, two variant aliases and a cap on the node name, to show three
+// words on monitors wide enough not to need them. Dropping them makes the
+// counts a fixed ~128px at every width, which is what lets the identity have
+// everything else, and it makes that true by construction rather than by
+// measurement. Nothing is lost that wasn't recoverable: the `sr-only` line
+// below still speaks the whole phrase including the node, and each count keeps
+// its own phrase in a tooltip.
 
 export interface SessionCounts {
   total: number;
@@ -340,11 +314,17 @@ export function StatusBar({
   // what the session is doing, so it says that it doesn't know.
   const statusLabel = statusMeta.label || "Status unknown";
 
-  // Each count's own phrase, reused as its tooltip. Below the breakpoint the
-  // words are gone and a count is a mark and a number, so the phrase is the
-  // only place the full reading survives for a pointer. It backs up the mark's
-  // shape rather than carrying the distinction alone — a tooltip needs a
-  // pointer, and these cells take no focus.
+  // Each count's own phrase, reused as its tooltip. The bar shows a mark and a
+  // number, so the phrase is the only place the full reading survives for a
+  // pointer. It backs up the mark's shape rather than carrying the distinction
+  // alone — a tooltip needs a pointer, and these cells take no focus.
+  //
+  // Scoped by the node, because the counts are: on a bar that can show two
+  // nodes' worth of sessions over its lifetime, "7 sessions" alone is
+  // ambiguous. The node used to have a cell of its own here. It doesn't need
+  // one — the rail already marks which node is active and names it on hover,
+  // and this was the widest string in a group whose whole job is to be narrow.
+  const scoped = (phrase: string) => (nodeName ? `${nodeName}: ${phrase}` : phrase);
   const totalLabel = `${total} ${total === 1 ? "session" : "sessions"}`;
   const activeLabel = `${active} active`;
   const unreadLabel = `${unread} unread`;
@@ -371,7 +351,7 @@ export function StatusBar({
   return (
     <div
       data-testid="status-bar"
-      className="@container border-border bg-muted text-muted-foreground flex h-6 shrink-0 select-none items-center gap-0.5 border-t px-1 text-xs"
+      className="border-border bg-muted text-muted-foreground flex h-6 shrink-0 select-none items-center gap-0.5 border-t px-1 text-xs"
     >
       {/* The counts in one phrase, with the zeros the bar hides. `sr-only` is
           absolutely positioned, so it sits outside the flex flow and costs the
@@ -380,30 +360,23 @@ export function StatusBar({
           screen-reader user all day is worse than saying nothing. */}
       <span className="sr-only">{countsLabel}</span>
 
-      {/* Fleet counts. They yield to the identity — they are an aggregate that
-          changes slowly, against the one line on screen that says what you are
-          looking at — but they yield by dropping their labels at the breakpoint
-          above, not by shrinking.
+      {/* Fleet counts: an aggregate that changes slowly, against the one line
+          on screen that says what you are looking at. So the identity gets the
+          bar's width and these get what they need, which is a fixed ~128px.
 
-          `shrink-0` is the point. Letting these shrink does not rank them below
-          the identity: two flex siblings that both shrink give up the same
-          *proportion* of their width, so the counts merely shrank alongside the
-          identity rather than ahead of it, and the identity, being the wider of
-          the two, lost more pixels doing it. Ranking them by an unequal shrink
-          factor instead is worse still — the cells in here have no `truncate`
-          to absorb it (a count is an icon and a number, and half a number is
-          not a reading), so a shrunk group overlaps each cell's text with its
-          neighbour's. The identity half shrinks well precisely because every
-          cell in it truncates. These have two useful widths and nothing in
-          between, so they are pinned to whichever one the bar is wide enough
-          for.
+          `shrink-0` is the point, and it is what makes that fixed. Letting
+          these shrink does not rank them below the identity: two flex siblings
+          that both shrink give up the same *proportion* of their width, so the
+          counts merely shrank alongside the identity rather than ahead of it,
+          and the identity, being the wider of the two, lost more pixels doing
+          it. Ranking them by an unequal shrink factor is worse still — the
+          cells in here have no `truncate` to absorb it (a count is an icon and
+          a number, and half a number is not a reading), so a shrunk group runs
+          each cell's text into its neighbour's. The identity half shrinks well
+          precisely because every cell in it truncates.
 
-          What that buys, stated no wider than it was measured: the optional
-          labels collapse before the identity truncates, for identities up to
-          the longest one measured against. A wider identity than that — enough
-          long fields at once, or counts in the thousands — still truncates,
-          because a threshold in `rem` cannot see the strings. It truncates
-          rather than overlapping, which is the part that holds regardless.
+          With nothing here that can grow, there is no width at which this group
+          takes room the identity needed, and no threshold to keep true.
 
           `h-full` on the group is what lets the cells inside it fill the bar: a
           cell's own `h-full` resolves against its parent, so a content-height
@@ -420,42 +393,15 @@ export function StatusBar({
         aria-hidden="true"
         className="flex h-full shrink-0 items-center gap-0.5 pr-1"
       >
-        {nodeName && (
-          <>
-            {/* The counts are scoped to the active node, so on a bar that can
-                show two nodes' worth of sessions over its lifetime, "7 sessions"
-                alone is ambiguous. */}
-            <StatusItem
-              testId="status-node"
-              className={WIDE_CELL}
-              tooltip={nodeName}
-            >
-              {/* Capped for the same reason the branch is, and more sharply
-                  now that the group is `shrink-0`: this is the one string in
-                  here that isn't a small number, so it is the only way the
-                  counts can inflate, and nothing gives way when they do. A
-                  discovered node's name is derived from its hostname (see
-                  deriveNodeName, which takes the first DNS label), but a manual
-                  one is whatever the user typed (see registry.ManualNode) and
-                  has no length anyone promised, which is the case the cap is
-                  for. The tooltip holds whatever it takes off. */}
-              <span className="max-w-[16ch] truncate">{nodeName}</span>
-            </StatusItem>
-            <Separator className={WIDE} />
-          </>
-        )}
-
         {/* Read-only. Clicking a count should narrow the session list to exactly
             that count, which needs filters the quick switcher doesn't have yet;
             opening it unfiltered would answer a question nobody asked. */}
-        <StatusItem testId="status-count-total" tooltip={totalLabel}>
-          {/* Earns the icon because the word is the part that drops on a narrow
-              bar, and a bare "7" names nothing. */}
+        <StatusItem testId="status-count-total" tooltip={scoped(totalLabel)}>
+          {/* Carries the whole meaning now that there is no word beside it: a
+              bare "7" names nothing. The icon is why the words are affordable
+              to lose rather than a decoration on top of them. */}
           <Layers className="h-3 w-3 shrink-0" />
-          <span className="tabular-nums">
-            {total}
-            <span className={WIDE}> {total === 1 ? "session" : "sessions"}</span>
-          </span>
+          <span className="tabular-nums">{total}</span>
         </StatusItem>
 
         {/* Zero states are dropped, not dimmed: "0 unread" held 78px of a bar
@@ -465,27 +411,24 @@ export function StatusBar({
         {active > 0 && (
           <>
             <Separator />
-            <StatusItem testId="status-count-active" tooltip={activeLabel}>
+            <StatusItem testId="status-count-active" tooltip={scoped(activeLabel)}>
               <Dot color={getStatusMeta("active").color} />
-              <span className="tabular-nums">
-                {active}
-                <span className={WIDE}> active</span>
-              </span>
+              <span className="tabular-nums">{active}</span>
             </StatusItem>
           </>
         )}
         {unread > 0 && (
           <>
             <Separator />
-            <StatusItem testId="status-count-unread" tooltip={unreadLabel}>
+            <StatusItem testId="status-count-unread" tooltip={scoped(unreadLabel)}>
               {/* Blue means unread everywhere else in the app (session rows, node
                   rail badges), so it means unread here too — and the square is
-                  what carries that meaning when the blue doesn't land. */}
+                  what carries that meaning when the blue doesn't land. With the
+                  words gone for good, that shape is now the only thing telling
+                  these two counts apart for a reader who can't separate the
+                  colours, since a dropped zero means position says nothing. */}
               <Dot color="bg-blue-500" square />
-              <span className="tabular-nums">
-                {unread}
-                <span className={WIDE}> unread</span>
-              </span>
+              <span className="tabular-nums">{unread}</span>
             </StatusItem>
           </>
         )}

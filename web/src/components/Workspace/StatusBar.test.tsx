@@ -204,11 +204,15 @@ describe("StatusBar counts", () => {
     },
   };
 
-  it("renders the derived counts", () => {
+  it("renders the derived counts as bare numbers", () => {
+    // Marks and numbers, no words: the words cost a container query and a
+    // threshold that couldn't be derived, to say on a wide monitor what the
+    // icons already say. What they said survives in the tooltips and the
+    // sr-only line below.
     renderBar(busy);
-    expect(text("status-count-total")).toContain("2 sessions");
-    expect(text("status-count-active")).toContain("1 active");
-    expect(text("status-count-unread")).toContain("1 unread");
+    expect(text("status-count-total")).toBe("2");
+    expect(text("status-count-active")).toBe("1");
+    expect(text("status-count-unread")).toBe("1");
   });
 
   it("drops a count at zero but always keeps the total", () => {
@@ -216,15 +220,17 @@ describe("StatusBar counts", () => {
     // fields at once. The total is the anchor and stays even at zero, so an
     // empty node reads as empty rather than broken.
     renderBar();
-    expect(text("status-count-total")).toContain("0 sessions");
+    expect(text("status-count-total")).toBe("0");
     expect(screen.queryByTestId("status-count-active")).toBeNull();
     expect(screen.queryByTestId("status-count-unread")).toBeNull();
   });
 
-  it("says 1 session, not 1 sessions", () => {
+  it("says 1 session, not 1 sessions, where it still says it", () => {
+    // Only the tooltip and the spoken line carry the noun now, so that is
+    // where the plural has to be right.
     renderBar({ sessions: [session({ id: "a" })] });
-    expect(text("status-count-total")).toContain("1 session");
-    expect(text("status-count-total")).not.toContain("1 sessions");
+    expect(text("status-bar")).toContain("1 session,");
+    expect(text("status-bar")).not.toContain("1 sessions");
   });
 
   it("leaves the counts inert", () => {
@@ -241,16 +247,27 @@ describe("StatusBar counts", () => {
     }
   });
 
-  it("names the node the counts belong to", () => {
+  it("scopes each count to the node without spending a cell on it", async () => {
+    // The counts are node-scoped, so "2 sessions" alone is ambiguous on a bar
+    // that shows two nodes' worth over its lifetime. The node had a cell here
+    // and doesn't need one: the rail already marks the active node and names
+    // it on hover, and this was the widest string in a group whose whole job
+    // is to be narrow.
     renderBar({ ...busy, nodeName: "prime" });
-    expect(text("status-node")).toContain("prime");
+    expect(screen.queryByTestId("status-node")).toBeNull();
+    expect(await tooltipText("status-count-total")).toBe("prime: 2 sessions");
+  });
+
+  it("leaves the node out of the tooltip before the nodes load", async () => {
+    renderBar(busy);
+    expect(await tooltipText("status-count-total")).toBe("2 sessions");
   });
 
   it("separates active from unread by shape, not only by hue", () => {
-    // Below the breakpoint both counts are a mark and a number, and a dropped
-    // zero means position says nothing either. Colour alone would leave anyone
-    // who can't split green from blue with two identical marks. Shape is the
-    // cue that costs no width, which is the whole point of the collapse.
+    // Both counts are a mark and a number, and a dropped zero means position
+    // says nothing either. Colour alone would leave anyone who can't split
+    // green from blue with two identical marks. Shape is the cue that costs no
+    // width, which is what carries the distinction now the words are gone.
     renderBar(busy);
     const mark = (id: string) =>
       screen.getByTestId(id).querySelector("span[aria-hidden]")?.className ?? "";
@@ -261,33 +278,21 @@ describe("StatusBar counts", () => {
     expect(mark("status-session")).toContain("rounded-full");
   });
 
-  it("hangs a tooltip on every count, and on the node", async () => {
-    // Below the breakpoint the words are gone and a count is a mark and a
-    // number, so the phrase is the only place the full reading survives. It
-    // backs up the mark's shape rather than carrying the distinction on its
-    // own — a tooltip needs a pointer, and these cells take no focus.
-    //
-    // The node needs its own because it truncates while it is still shown —
-    // above the breakpoint, since below it the cell is gone entirely.
+  it("hangs a tooltip on every count", async () => {
+    // A count is a mark and a number, so the phrase is the only place the full
+    // reading survives for a pointer. It backs up the mark's shape rather than
+    // carrying the distinction on its own — a tooltip needs a pointer, and
+    // these cells take no focus.
     renderBar({ ...busy, nodeName: "prime" });
-    expect(await tooltipText("status-node")).toBe("prime");
+    expect(await tooltipText("status-count-total")).toBe("prime: 2 sessions");
     cleanup();
 
     renderBar({ ...busy, nodeName: "prime" });
-    expect(await tooltipText("status-count-total")).toBe("2 sessions");
+    expect(await tooltipText("status-count-active")).toBe("prime: 1 active");
     cleanup();
 
     renderBar({ ...busy, nodeName: "prime" });
-    expect(await tooltipText("status-count-active")).toBe("1 active");
-    cleanup();
-
-    renderBar({ ...busy, nodeName: "prime" });
-    expect(await tooltipText("status-count-unread")).toBe("1 unread");
-  });
-
-  it("omits the node segment until the nodes load", () => {
-    renderBar(busy);
-    expect(screen.queryByTestId("status-node")).toBeNull();
+    expect(await tooltipText("status-count-unread")).toBe("prime: 1 unread");
   });
 
   it("speaks the counts as one phrase, zeros included", () => {
@@ -337,41 +342,21 @@ describe("StatusBar counts", () => {
     expect(classes("status-counts")).toContain("shrink-0");
   });
 
-  it("gates its word labels behind a container query on the bar", () => {
-    // Container queries, so the collapse tracks the BAR's width rather than the
-    // window's — opening the sidebar takes ~340px out of the bar without
-    // touching the viewport.
+  it("holds a fixed width no session can change", () => {
+    // The property the whole group exists to have, and the reason there is no
+    // container query here any more. Every cell is an icon and a number, so
+    // the group's width is a function of the digit count and nothing else —
+    // not the node name, not the session, not the viewport. That is what lets
+    // the identity have the rest of the bar by construction, rather than by a
+    // threshold measured against one fixture and wrong for the next.
     //
-    // Asserts the container and the variant that make the collapse possible,
-    // NOT that it happens at any particular width: jsdom does no layout, so
-    // nothing here can see a breakpoint fire. What the threshold is worth was
-    // settled in a browser, and the reasoning lives next to the constant.
-    //
-    // Pins the value, not just that the two agree: the threshold is the entire
-    // ranking mechanism now, and both places drifting to the same wrong number
-    // is exactly how it broke before. Changing it should be deliberate enough
-    // to fail a test. And they must stay equal — a node name left behind at a
-    // width the labels have abandoned would be the widest cell in a group that
-    // is meant to be narrow, which is the case that sets the threshold.
-    renderBar({ ...busy, nodeName: "prime" });
-    expect(classes("status-bar")).toContain("@container");
-    const nodeVariant = /@min-\[[^\]]+\]/.exec(classes("status-node"))?.[0];
-    const labelVariant = /@min-\[[^\]]+\]/.exec(
-      screen.getByTestId("status-count-total").querySelector(".tabular-nums span")
-        ?.className ?? "",
-    )?.[0];
-    expect(nodeVariant).toBe("@min-[98rem]");
-    expect(labelVariant).toBe(nodeVariant);
-  });
-
-  it("bounds the node name, the one count cell that isn't a number", () => {
-    // `shrink-0` means nothing in this group gives way, so an unbounded node
-    // name would take its width straight out of the identity half.
+    // A word, a name, or any uncapped string reintroduced in here would take
+    // its width straight out of the identity, because `shrink-0` means nothing
+    // in this group gives way. Guarded as text, since jsdom does no layout.
     renderBar({ ...busy, nodeName: "a-very-long-manually-named-node-indeed" });
-    const span = screen.getByTestId("status-node").querySelector("span");
-    expect(span?.className).toContain("max-w-");
-    expect(span?.className).toContain("truncate");
-    expect(span?.textContent).toBe("a-very-long-manually-named-node-indeed");
+    expect(text("status-counts")).toBe("2·1·1");
+    expect(classes("status-counts")).toContain("shrink-0");
+    expect(classes("status-bar")).not.toContain("@container");
   });
 });
 
