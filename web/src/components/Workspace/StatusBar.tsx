@@ -41,9 +41,9 @@ const MAX_DIR_WIDTH = 50;
 // exist to set.
 const BRANCH_MAX_WIDTH = "max-w-[35ch]";
 
-// The counts are marks and numbers, with no words and no node name. They used
-// to grow both back on a wide bar, behind a container query on the bar's own
-// width.
+// The counts are the node's name and then marks and numbers, with no words.
+// The words used to come back on a wide bar, behind a container query on the
+// bar's own width, and the name went with them.
 //
 // That mechanism is gone, and it is worth saying why rather than leaving the
 // absence to look like an oversight. Once the group became `shrink-0` (see
@@ -61,14 +61,27 @@ const BRANCH_MAX_WIDTH = "max-w-[35ch]";
 // every bounded case was 98rem, by which point the labels needed a ~1576px bar
 // and a 1440px laptop never saw them.
 //
-// So they cost a container query, a threshold nobody could justify from first
-// principles, two variant aliases and a cap on the node name, to show three
-// words on monitors wide enough not to need them. Dropping them makes the
-// counts a fixed ~128px at every width, which is what lets the identity have
-// everything else, and it makes that true by construction rather than by
-// measurement. Nothing is lost that wasn't recoverable: the `sr-only` line
-// below still speaks the whole phrase including the node, and each count keeps
-// its own phrase in a tooltip.
+// So the words cost a container query, a threshold nobody could justify from
+// first principles and two variant aliases, to say on a wide monitor what the
+// icons already say. They're gone, and the group is a fixed width at every
+// width — which is what lets the identity have everything else, by construction
+// rather than by measurement. What they said survives: the `sr-only` line below
+// speaks the whole phrase, and each count keeps its own in a tooltip.
+//
+// The node's name stays visible, though, rather than following the words into
+// the tooltips. It answers a different question — not "what is this number" but
+// "whose numbers are these", which is unanswerable from anything else on screen
+// in the default layout: the rail that also names the active node renders only
+// when the sidebar is open (see DesktopView), and the sidebar starts closed.
+// Capped rather than dropped, because it is the one string in a group that is
+// otherwise all small numbers, so it is the only way the counts can inflate —
+// and with `shrink-0`, nothing gives way when they do. A discovered node's name
+// is derived from its hostname (see deriveNodeName, which takes the first DNS
+// label); a manual one is whatever the user typed (see registry.ManualNode) and
+// has no length anyone promised, which is the case the cap is for. Capped, the
+// group is still a fixed width — the property that matters is that it cannot
+// vary with the session, not that it is small.
+const NODE_MAX_WIDTH = "max-w-[16ch]";
 
 export interface SessionCounts {
   total: number;
@@ -319,12 +332,9 @@ export function StatusBar({
   // pointer. It backs up the mark's shape rather than carrying the distinction
   // alone — a tooltip needs a pointer, and these cells take no focus.
   //
-  // Scoped by the node, because the counts are: on a bar that can show two
-  // nodes' worth of sessions over its lifetime, "7 sessions" alone is
-  // ambiguous. The node used to have a cell of its own here. It doesn't need
-  // one — the rail already marks which node is active and names it on hover,
-  // and this was the widest string in a group whose whole job is to be narrow.
-  const scoped = (phrase: string) => (nodeName ? `${nodeName}: ${phrase}` : phrase);
+  // Not scoped by the node, though the counts are: the node's own cell sits two
+  // places to the left under exactly the condition these would name it, so a
+  // prefix here would repeat what the pointer can already see.
   const totalLabel = `${total} ${total === 1 ? "session" : "sessions"}`;
   const activeLabel = `${active} active`;
   const unreadLabel = `${unread} unread`;
@@ -393,10 +403,23 @@ export function StatusBar({
         aria-hidden="true"
         className="flex h-full shrink-0 items-center gap-0.5 pr-1"
       >
+        {nodeName && (
+          <>
+            {/* Whose numbers these are. The counts are node-scoped, so on a bar
+                that can show two nodes' worth of sessions over its lifetime,
+                "7 sessions" alone is ambiguous — and in the default layout the
+                bar is the only thing on screen that answers it. */}
+            <StatusItem testId="status-node" tooltip={nodeName}>
+              <span className={cn("truncate", NODE_MAX_WIDTH)}>{nodeName}</span>
+            </StatusItem>
+            <Separator />
+          </>
+        )}
+
         {/* Read-only. Clicking a count should narrow the session list to exactly
             that count, which needs filters the quick switcher doesn't have yet;
             opening it unfiltered would answer a question nobody asked. */}
-        <StatusItem testId="status-count-total" tooltip={scoped(totalLabel)}>
+        <StatusItem testId="status-count-total" tooltip={totalLabel}>
           {/* Carries the whole meaning now that there is no word beside it: a
               bare "7" names nothing. The icon is why the words are affordable
               to lose rather than a decoration on top of them. */}
@@ -411,7 +434,7 @@ export function StatusBar({
         {active > 0 && (
           <>
             <Separator />
-            <StatusItem testId="status-count-active" tooltip={scoped(activeLabel)}>
+            <StatusItem testId="status-count-active" tooltip={activeLabel}>
               <Dot color={getStatusMeta("active").color} />
               <span className="tabular-nums">{active}</span>
             </StatusItem>
@@ -420,7 +443,7 @@ export function StatusBar({
         {unread > 0 && (
           <>
             <Separator />
-            <StatusItem testId="status-count-unread" tooltip={scoped(unreadLabel)}>
+            <StatusItem testId="status-count-unread" tooltip={unreadLabel}>
               {/* Blue means unread everywhere else in the app (session rows, node
                   rail badges), so it means unread here too — and the square is
                   what carries that meaning when the blue doesn't land. With the
