@@ -339,23 +339,22 @@ describe("StatusBar counts", () => {
     // counts holding 284px of labels while the repo cell was down to 27px of an
     // 81px name. Ranking by unequal shrink factors is worse: these cells carry
     // no `truncate`, so at a factor of 8 the labels ran into their neighbours
-    // and rendered as "7 sessio●2 activ■3 unre". They collapse at the
-    // breakpoint instead, and hold their width either side of it.
+    // and rendered as "7 sessio●2 activ■3 unre". Those labels are gone now, and
+    // what is left holds its width at every bar width instead.
     renderBar({ ...busy, session: session({ id: "a" }) });
     expect(classes("status-counts")).toContain("shrink-0");
   });
 
-  it("holds a width no session can change", () => {
-    // The property the whole group exists to have, and the reason there is no
-    // container query here any more. Nothing in here varies with the session or
-    // the viewport: the numbers vary with their digit count, and the node name
-    // is capped, so the group's width is bounded by construction rather than by
-    // a threshold measured against one fixture and wrong for the next.
+  it("keeps its width out of the bar's hands, and bounded", () => {
+    // Not "one width" — the node name, the digit count and a count crossing
+    // zero all change it. The property is that none of those is the BAR's
+    // width: nothing in this group answers to a resize, which is why there is
+    // no container query here any more and no threshold to keep true.
     //
-    // Any uncapped string reintroduced in here would take its width straight
-    // out of the identity, because `shrink-0` means nothing in this group gives
-    // way. That is what the cap is for, and why it isn't optional. Guarded as
-    // markup, since jsdom does no layout.
+    // Bounded is the other half. `shrink-0` means nothing in this group gives
+    // way, so any uncapped string reintroduced here would take its width
+    // straight out of the identity. That is what the cap is for, and why it
+    // isn't optional. Guarded as markup, since jsdom does no layout.
     const nodeName = "a-very-long-manually-named-node-indeed";
     renderBar({ ...busy, nodeName });
     expect(classes("status-counts")).toContain("shrink-0");
@@ -369,6 +368,17 @@ describe("StatusBar counts", () => {
     expect(text("status-count-total")).toBe("2");
     expect(text("status-count-active")).toBe("1");
     expect(text("status-count-unread")).toBe("1");
+  });
+
+  it("keeps the node visible rather than gating it on width again", () => {
+    // The cell is the only place the active node's name is plainly legible in
+    // the default layout, so it must not go back behind a responsive variant.
+    // Presence in the DOM won't catch that: jsdom reports textContent for a
+    // `hidden` node just the same, which is exactly how a `hidden @xl:flex`
+    // would slip back in unnoticed.
+    renderBar({ ...busy, nodeName: "prime" });
+    expect(classes("status-node")).not.toContain("hidden");
+    expect(classes("status-node")).not.toMatch(/@\w*\[?[\w.]*\]?:/);
   });
 });
 

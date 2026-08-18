@@ -63,16 +63,20 @@ const BRANCH_MAX_WIDTH = "max-w-[35ch]";
 //
 // So the words cost a container query, a threshold nobody could justify from
 // first principles and two variant aliases, to say on a wide monitor what the
-// icons already say. They're gone, and the group is a fixed width at every
-// width — which is what lets the identity have everything else, by construction
-// rather than by measurement. What they said survives: the `sr-only` line below
-// speaks the whole phrase, and each count keeps its own in a tooltip.
+// icons already say. They're gone, and with them the last thing here that
+// answered to the bar's width — which is what lets the identity have the rest
+// by construction rather than by measurement. What they said survives: the
+// `sr-only` line below speaks the whole phrase, and each count keeps its own in
+// a tooltip.
 //
 // The node's name stays visible, though, rather than following the words into
 // the tooltips. It answers a different question — not "what is this number" but
-// "whose numbers are these", which is unanswerable from anything else on screen
-// in the default layout: the rail that also names the active node renders only
-// when the sidebar is open (see DesktopView), and the sidebar starts closed.
+// "whose numbers are these", which nothing else on screen answers in the
+// default layout. The rail shows initials and holds the full name in a tooltip,
+// and it renders only when the sidebar is open (see DesktopView) while the
+// sidebar starts closed; the sidebar's own node snippet is expanded-only and
+// names it through a tooltip too. So this cell is the one place the active
+// node's name is simply legible.
 // Capped rather than dropped, because it is the one string in a group that is
 // otherwise all small numbers, so it is the only way the counts can inflate —
 // and with `shrink-0`, nothing gives way when they do. A discovered node's name
@@ -228,11 +232,11 @@ function Dot({
   color,
   animation,
   /**
-   * Squares the mark off. Below the breakpoint the counts lose their words and
-   * active and unread come down to two marks of the same size, so a reader who
-   * can't separate green from blue has nothing left to go on — position won't
-   * serve either, since a zero count is dropped rather than dimmed. Shape is
-   * the one cue that costs no width, which is what the collapse was for.
+   * Squares the mark off. The counts carry no words, so active and unread are
+   * two marks of the same size beside two numbers, and a reader who can't
+   * separate green from blue has nothing else to go on — position won't serve
+   * either, since a zero count is dropped rather than dimmed. Shape is the one
+   * cue that costs no width, which is what makes it affordable here.
    */
   square,
 }: {
@@ -372,21 +376,27 @@ export function StatusBar({
 
       {/* Fleet counts: an aggregate that changes slowly, against the one line
           on screen that says what you are looking at. So the identity gets the
-          bar's width and these get what they need, which is a fixed ~128px.
+          bar's width and these take what their contents need — measured at
+          226px with a five-character node name, 260px with an eleven, and 323px
+          with the name at its cap and three-digit counts.
 
-          `shrink-0` is the point, and it is what makes that fixed. Letting
-          these shrink does not rank them below the identity: two flex siblings
-          that both shrink give up the same *proportion* of their width, so the
-          counts merely shrank alongside the identity rather than ahead of it,
-          and the identity, being the wider of the two, lost more pixels doing
-          it. Ranking them by an unequal shrink factor is worse still — the
-          cells in here have no `truncate` to absorb it (a count is an icon and
-          a number, and half a number is not a reading), so a shrunk group runs
-          each cell's text into its neighbour's. The identity half shrinks well
-          precisely because every cell in it truncates.
+          `shrink-0` is the point. Letting these shrink does not rank them below
+          the identity: two flex siblings that both shrink give up the same
+          *proportion* of their width, so the counts merely shrank alongside the
+          identity rather than ahead of it, and the identity, being the wider of
+          the two, lost more pixels doing it. Ranking them by an unequal shrink
+          factor is worse still — the cells in here have no `truncate` to absorb
+          it (a count is an icon and a number, and half a number is not a
+          reading), so a shrunk group runs each cell's text into its
+          neighbour's. The identity half shrinks well precisely because every
+          cell in it truncates.
 
-          With nothing here that can grow, there is no width at which this group
-          takes room the identity needed, and no threshold to keep true.
+          The claim is not that this group is one width — the name, the digits,
+          and a count crossing zero all change it. It is that none of those is
+          the bar's width. Nothing in here responds to a resize, so there is no
+          threshold to keep true and no width at which the group takes room the
+          identity had. What it does take, it takes at every width equally, and
+          the cap is what bounds it.
 
           `h-full` on the group is what lets the cells inside it fill the bar: a
           cell's own `h-full` resolves against its parent, so a content-height
