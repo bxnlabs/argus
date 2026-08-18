@@ -744,8 +744,8 @@ func (m *Manager) resolveWorkingDir(session *db.Session) (string, error) {
 // respawnTmux (re)creates the tmux session for a DB session record. It resolves
 // the working directory, builds the agent command (resuming the stored
 // provider_session_id), sources the profile- and project-level post_create
-// hooks, writes the init script, spawns tmux, and applies the status bar. The
-// caller must kill any existing tmux session first.
+// hooks, writes the init script, and spawns tmux. The caller must kill any
+// existing tmux session first.
 func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	tmuxName := session.TmuxName
 

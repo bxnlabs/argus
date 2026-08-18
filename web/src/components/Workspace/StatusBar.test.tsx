@@ -113,10 +113,14 @@ function renderBar(props: Partial<React.ComponentProps<typeof StatusBar>> = {}) 
 const text = (testId: string) => screen.getByTestId(testId).textContent ?? "";
 
 describe("StatusBar detach", () => {
+  // The bar's cells, in visual order. The two layout groups carry testids as
+  // stable handles for the layout guards further down, but they are containers
+  // rather than cells, so they don't belong in this ordering.
+  const GROUPS = new Set(["status-counts", "status-identity"]);
   const testIds = () =>
-    [...screen.getByTestId("status-bar").querySelectorAll("[data-testid]")].map(
-      (el) => el.getAttribute("data-testid"),
-    );
+    [...screen.getByTestId("status-bar").querySelectorAll("[data-testid]")]
+      .map((el) => el.getAttribute("data-testid"))
+      .filter((id) => id !== null && !GROUPS.has(id));
 
   it("leads the bar", () => {
     renderBar({ onDetach: vi.fn() });
@@ -320,5 +324,40 @@ describe("StatusBar active session segments", () => {
     // that silently does nothing is worse than plain text.
     renderBar({ session: attached, onOpenGit: undefined });
     expect(screen.getByTestId("status-branch").tagName).not.toBe("BUTTON");
+  });
+
+  // jsdom does no layout, so these assert the classes that make truncation
+  // possible rather than a measured width. They guard a bug that shipped: a
+  // flex child defaults to min-width:auto, so without `min-w-0` the cells stay
+  // as wide as their text and the identity half runs off the end of the bar
+  // instead of ellipsing — measured at 329px of overflow in a 900px column,
+  // leaving 12px of the 339px path cell inside it.
+  it("lets the identity cells shrink so their text can truncate", () => {
+    renderBar({ session: attached });
+    for (const id of ["status-session-id", "status-branch", "status-dir"]) {
+      expect(screen.getByTestId(id).className).toContain("min-w-0");
+    }
+    expect(screen.getByTestId("status-identity").className).toContain("min-w-0");
+    expect(screen.getByTestId("status-identity").className).toContain(
+      "overflow-hidden",
+    );
+  });
+
+  it("holds the counts at full width while identity yields", () => {
+    // The counts are short; the identity half is what should give up space. If
+    // the counts could shrink they would ellipse first.
+    renderBar({ session: attached });
+    expect(screen.getByTestId("status-counts").className).toContain("shrink-0");
+  });
+
+  it("stretches both groups to the bar's height", () => {
+    // Each cell sizes itself with `h-full`, which resolves against its group,
+    // not the bar. A content-height group therefore silently halves the cells:
+    // measured at 12px for detach and 14px for identity inside a 24px bar,
+    // shrinking the detach hit target and its hover box to match.
+    renderBar({ session: attached });
+    for (const id of ["status-counts", "status-identity"]) {
+      expect(screen.getByTestId(id).className).toContain("h-full");
+    }
   });
 });

@@ -65,8 +65,12 @@ function StatusItem({
   ariaLabel?: string;
   children: React.ReactNode;
 }) {
+  // `min-w-0` is load-bearing: a flex child defaults to min-width:auto, which
+  // pins it to its content and leaves the `truncate` on the text below with no
+  // width to truncate against. Without it the identity cells push past the bar
+  // instead of shrinking, and the last of them — the path — lands outside it.
   const className = cn(
-    "flex h-full items-center gap-1.5 whitespace-nowrap rounded-sm px-2",
+    "flex h-full min-w-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-2",
     onClick
       ? "hover:bg-accent/60 hover:text-foreground transition-colors"
       : ariaLabel && "opacity-40",
@@ -171,40 +175,53 @@ export function StatusBar({
       data-testid="status-bar"
       className="border-border bg-muted text-muted-foreground flex h-6 shrink-0 select-none items-center gap-0.5 border-t px-1 text-xs"
     >
-      {/* Detach leads the bar — it acts on the attached session, whose identity
-          the bar's right half spells out. Icon-only, so it needs an aria-label;
-          the shortcut lives in the tooltip, as it did on the tab bar. */}
-      <StatusItem
-        testId="status-detach"
-        onClick={onDetach}
-        ariaLabel="Detach session"
-        tooltip={`Detach session (${isMac() ? "⌘ ;" : "Ctrl ;"} d)`}
+      {/* The counts hold their width: they are short and the first thing the eye
+          lands on, so the identity half yields instead. `h-full` on both groups
+          is what lets the cells inside them fill the bar — a cell's own `h-full`
+          resolves against its parent, so a content-height group would leave the
+          detach control a half-height hit target and a hover box to match. */}
+      <div
+        data-testid="status-counts"
+        className="flex h-full shrink-0 items-center gap-0.5"
       >
-        <Unplug className="h-3 w-3 shrink-0" />
-      </StatusItem>
-      <Separator />
+        {/* Detach leads the bar — it acts on the attached session, whose identity
+            the bar's right half spells out. Icon-only, so it needs an aria-label;
+            the shortcut lives in the tooltip, as it did on the tab bar. */}
+        <StatusItem
+          testId="status-detach"
+          onClick={onDetach}
+          ariaLabel="Detach session"
+          tooltip={`Detach session (${isMac() ? "⌘ ;" : "Ctrl ;"} d)`}
+        >
+          <Unplug className="h-3 w-3 shrink-0" />
+        </StatusItem>
+        <Separator />
 
-      {/* Read-only. Clicking a count should narrow the session list to exactly
-          that count, which needs filters the quick switcher doesn't have yet;
-          opening it unfiltered would answer a question nobody asked. */}
-      <StatusItem testId="status-count-total">
-        {total} {total === 1 ? "session" : "sessions"}
-      </StatusItem>
-      <Separator />
-      <StatusItem testId="status-count-active">
-        <Dot color={getStatusMeta("active").color} />
-        {active} active
-      </StatusItem>
-      <Separator />
-      <StatusItem testId="status-count-unread">
-        {/* Blue means unread everywhere else in the app (session rows, node
-            rail badges), so it means unread here too. */}
-        <Dot color="bg-blue-500" />
-        {unread} unread
-      </StatusItem>
+        {/* Read-only. Clicking a count should narrow the session list to exactly
+            that count, which needs filters the quick switcher doesn't have yet;
+            opening it unfiltered would answer a question nobody asked. */}
+        <StatusItem testId="status-count-total">
+          {total} {total === 1 ? "session" : "sessions"}
+        </StatusItem>
+        <Separator />
+        <StatusItem testId="status-count-active">
+          <Dot color={getStatusMeta("active").color} />
+          {active} active
+        </StatusItem>
+        <Separator />
+        <StatusItem testId="status-count-unread">
+          {/* Blue means unread everywhere else in the app (session rows, node
+              rail badges), so it means unread here too. */}
+          <Dot color="bg-blue-500" />
+          {unread} unread
+        </StatusItem>
+      </div>
 
       {session && (
-        <div className="ml-auto flex min-w-0 items-center gap-0.5">
+        <div
+          data-testid="status-identity"
+          className="ml-auto flex h-full min-w-0 items-center gap-0.5 overflow-hidden"
+        >
           <StatusItem
             testId="status-session-id"
             onClick={() => copy(session.id, "session ID")}
