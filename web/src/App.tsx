@@ -672,6 +672,8 @@ function HomeContent({
   const renderWorkspace = () => (
     <Workspace
       sessions={sessions}
+      sessionStatuses={sessionStatuses}
+      homeDir={homeDir}
       activePanel={activePanel}
       setActivePanel={setActivePanel}
       activeWorkingDirectory={activeWorkingDirectory}

@@ -201,23 +201,9 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, err
 	}
 
-	// Spawn tmux session and apply standard styling
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
 		return nil, fmt.Errorf("spawn tmux: %w", err)
 	}
-	configDir := cwd
-	if gitParentDir != nil {
-		configDir = *gitParentDir
-	}
-	configBranch := ""
-	if worktreeBranch != nil {
-		configBranch = *worktreeBranch
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Printf("resolve home dir: %v", err)
-	}
-	ConfigureSession(tmuxName, sessionID, configDir, configBranch, resolvedProfile, home)
 
 	// Insert into database
 	var providerSessionID *string
@@ -758,8 +744,8 @@ func (m *Manager) resolveWorkingDir(session *db.Session) (string, error) {
 // respawnTmux (re)creates the tmux session for a DB session record. It resolves
 // the working directory, builds the agent command (resuming the stored
 // provider_session_id), sources the profile- and project-level post_create
-// hooks, writes the init script, spawns tmux, and applies the status bar. The
-// caller must kill any existing tmux session first.
+// hooks, writes the init script, and spawns tmux. The caller must kill any
+// existing tmux session first.
 func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	tmuxName := session.TmuxName
 
@@ -790,19 +776,6 @@ func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
 		return "", fmt.Errorf("spawn tmux: %w", err)
 	}
-	configDir := session.WorkingDirectory
-	if session.GitParentDir != nil {
-		configDir = *session.GitParentDir
-	}
-	configBranch := ""
-	if session.WorktreeBranch != nil {
-		configBranch = *session.WorktreeBranch
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Printf("resolve home dir: %v", err)
-	}
-	ConfigureSession(tmuxName, session.ID, configDir, configBranch, profileName, home)
 
 	return tmuxName, nil
 }

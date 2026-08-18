@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect, memo, useState } from "react";
 import { useTabs } from "@/contexts/TabContext";
 import { useViewport } from "@/hooks/useViewport";
-import type { Session } from "@/types";
+import type { Session, SessionStatusInfo } from "@/types";
 import type { SidePanel } from "@/components/views/types";
 import type { GitTabRequest } from "@/components/GitPanel/GitPanelTabs";
 import { cn } from "@/lib/utils";
@@ -13,12 +13,16 @@ import { FileExplorer } from "@/components/FileExplorer";
 import { Terminal } from "@/components/Terminal";
 import { FilePicker } from "@/components/FilePicker";
 import { ViewModeRail } from "./ViewModeRail";
+import { StatusBar } from "./StatusBar";
 import { useFileUpload } from "@/data/files/mutations";
 import { toast } from "sonner";
 import type { TerminalHandle } from "@/components/Terminal";
 
 interface WorkspaceProps {
   sessions: Session[];
+  // Feeds the status bar's counts; see StatusBar.summarizeSessions.
+  sessionStatuses: Record<string, SessionStatusInfo>;
+  homeDir: string;
   activePanel: SidePanel;
   setActivePanel: (panel: SidePanel) => void;
   activeWorkingDirectory: string | null;
@@ -31,6 +35,8 @@ interface WorkspaceProps {
 
 export const Workspace = memo(function Workspace({
   sessions,
+  sessionStatuses,
+  homeDir,
   activePanel,
   setActivePanel,
   activeWorkingDirectory,
@@ -203,11 +209,9 @@ export const Workspace = memo(function Workspace({
             tabs={tabs}
             activeTabId={activeTabId}
             sessions={sessions}
-            hasAttachedSession={!!activeTab?.sessionId}
             onTabSwitch={switchTab}
             onTabClose={closeTab}
             onTabAdd={addTab}
-            onDetach={detachSession}
           />
         )}
 
@@ -291,6 +295,23 @@ export const Workspace = memo(function Workspace({
             />
           )}
         </div>
+
+        {/* Status bar — last child of the column, so it spans the content panel
+            and the view-mode rail alike. Desktop only: on mobile the rows are
+            worth more to the terminal, and MobileTabBar already names the
+            attached session. */}
+        {!isMobile && (
+          <StatusBar
+            sessions={sessions}
+            sessionStatuses={sessionStatuses}
+            session={session ?? null}
+            homeDir={homeDir}
+            onOpenGit={isGitRepo ? () => setActivePanel("git") : undefined}
+            // Same rule the tab bar's button used: detachable when the tab
+            // points at a session, whether or not that session is still listed.
+            onDetach={activeTab?.sessionId ? detachSession : undefined}
+          />
+        )}
       </div>
 
       <FilePicker
