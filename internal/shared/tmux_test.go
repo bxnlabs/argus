@@ -163,11 +163,16 @@ func TestSeedTmuxConfig_WritesWhenMissing(t *testing.T) {
 		`default-terminal "tmux-256color"`,
 		"terminal-overrides",
 		"mouse on",
-		"status-position bottom",
 	} {
 		if !strings.Contains(string(data), directive) {
 			t.Errorf("config missing %q\ngot:\n%s", directive, data)
 		}
+	}
+	// Argus turns the status bar off per session (see session.NewSession), so
+	// the seed carries no styling for a bar that never renders. A stray
+	// status-* line here would read as a knob that does something.
+	if strings.Contains(string(data), "status-") {
+		t.Errorf("config still styles the status bar\ngot:\n%s", data)
 	}
 }
 

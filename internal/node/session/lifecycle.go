@@ -201,23 +201,9 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 		return nil, err
 	}
 
-	// Spawn tmux session and apply standard styling
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
 		return nil, fmt.Errorf("spawn tmux: %w", err)
 	}
-	configDir := cwd
-	if gitParentDir != nil {
-		configDir = *gitParentDir
-	}
-	configBranch := ""
-	if worktreeBranch != nil {
-		configBranch = *worktreeBranch
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Printf("resolve home dir: %v", err)
-	}
-	ConfigureSession(tmuxName, sessionID, configDir, configBranch, resolvedProfile, home)
 
 	// Insert into database
 	var providerSessionID *string
@@ -790,19 +776,6 @@ func (m *Manager) respawnTmux(session *db.Session) (string, error) {
 	if err := NewSession(tmuxName, cwd, tmuxCmd); err != nil {
 		return "", fmt.Errorf("spawn tmux: %w", err)
 	}
-	configDir := session.WorkingDirectory
-	if session.GitParentDir != nil {
-		configDir = *session.GitParentDir
-	}
-	configBranch := ""
-	if session.WorktreeBranch != nil {
-		configBranch = *session.WorktreeBranch
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Printf("resolve home dir: %v", err)
-	}
-	ConfigureSession(tmuxName, session.ID, configDir, configBranch, profileName, home)
 
 	return tmuxName, nil
 }

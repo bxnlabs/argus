@@ -53,58 +53,29 @@ func NewSession(name, cwd, command string) error {
 	if err != nil {
 		return fmt.Errorf("tmux new-session: %w: %s", err, string(out))
 	}
+	hideStatusBar(name)
 	return nil
 }
 
-const (
-	maxDirWidth    = 50
-	maxBranchWidth = 35
-)
-
-// escapeTmuxLiteral escapes characters that tmux interprets in format strings:
-// # -> ## (prevents #(...) command execution, #{...} variable expansion, #[...] style changes)
-// % -> %% (prevents strftime expansion like %H, %M)
-// Control characters are normalized to spaces to prevent malformed rendering.
-var tmuxEscaper = strings.NewReplacer("#", "##", "%", "%%", "\n", " ", "\r", " ", "\t", " ")
-
-func escapeTmuxLiteral(s string) string {
-	return tmuxEscaper.Replace(s)
-}
-
-// buildStatusRight formats the right side of the tmux status bar.
-// Layout (segments are included only when non-empty):
+// hideStatusBar turns off the tmux status bar for a single session. The web UI
+// renders the session's identity — ID, profile, branch, directory — in its own
+// status bar, so tmux's would only repeat it at the cost of a row in every
+// pane. Setting it per session (rather than globally in the seeded tmux.conf)
+// keeps it out of reach of a user-edited config, which Argus never overwrites,
+// and applies to installs seeded before the bar went away.
 //
-//	"{sessionID} | {profile} | {branch} | {dir} "
-func buildStatusRight(sessionID, dir, branch, profile, home string) string {
-	displayDir := escapeTmuxLiteral(shared.CompressPath(dir, home, maxDirWidth))
-	displayID := escapeTmuxLiteral(sessionID)
-
-	// Optional profile segment, rendered right after the session ID.
-	profileSeg := ""
-	if profile != "" {
-		profileSeg = fmt.Sprintf("#[fg=#6c7086]| #[fg=#a6e3a1]%s ", escapeTmuxLiteral(profile))
-	}
-
-	if branch == "" {
-		return fmt.Sprintf("#[fg=#a6adc8]%s %s#[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, profileSeg, displayDir)
-	}
-	displayBranch := escapeTmuxLiteral(shared.TruncateRight(branch, maxBranchWidth))
-	return fmt.Sprintf("#[fg=#a6adc8]%s %s#[fg=#6c7086]| #[fg=#cba6f7] %s #[fg=#6c7086]| #[fg=#89b4fa]%s ", displayID, profileSeg, displayBranch, displayDir)
-}
-
-// ConfigureSession applies the per-session dynamic status-right to a session.
-// Static styling (status-style, status-left, mouse, position, lengths) lives in
-// the dedicated server's seeded tmux.conf, so only the per-session value is
-// applied at runtime here.
-func ConfigureSession(name, sessionID, dir, branch, profile, home string) {
-	statusRight := buildStatusRight(sessionID, dir, branch, profile, home)
-	cmd, err := shared.TmuxCommand("set-option", "-t", name, "status-right", statusRight)
+// Best-effort: a session that renders one row too few is not worth failing a
+// create over, so a failure is logged and the session still comes up. The
+// option is set while the session is still detached, so no client has rendered
+// the bar yet and there is nothing to flash.
+func hideStatusBar(name string) {
+	cmd, err := shared.TmuxCommand("set-option", "-t", name, "status", "off")
 	if err != nil {
-		log.Printf("tmux set-option status-right: %v", err)
+		log.Printf("tmux set-option status off: %v", err)
 		return
 	}
-	if err := cmd.Run(); err != nil {
-		log.Printf("tmux set-option status-right: %v", err)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("tmux set-option status off: %v: %s", err, out)
 	}
 }
 

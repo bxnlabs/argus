@@ -1,9 +1,5 @@
 import { Button } from "@/components/ui/button";
-import {
-  X,
-  Unplug,
-  Plus,
-} from "lucide-react";
+import { X, Plus } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -18,22 +14,18 @@ interface DesktopTabBarProps {
   tabs: TabData[];
   activeTabId: string;
   sessions: Session[];
-  hasAttachedSession: boolean;
   onTabSwitch: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   onTabAdd: () => void;
-  onDetach: () => void;
 }
 
 export function DesktopTabBar({
   tabs,
   activeTabId,
   sessions,
-  hasAttachedSession,
   onTabSwitch,
   onTabClose,
   onTabAdd,
-  onDetach,
 }: DesktopTabBarProps) {
   const leader = isMac() ? "⌘ ;" : "Ctrl ;";
 
@@ -98,28 +90,6 @@ export function DesktopTabBar({
           <TooltipContent>New tab ({leader} =)</TooltipContent>
         </Tooltip>
       </div>
-
-      {/* Actions */}
-      <div className="ml-auto flex items-center gap-0.5 px-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDetach();
-              }}
-              disabled={!hasAttachedSession}
-              className="h-6 w-6"
-            >
-              <Unplug className="h-3 w-3" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Detach session ({leader} d)</TooltipContent>
-        </Tooltip>
-      </div>
-
     </div>
   );
 }

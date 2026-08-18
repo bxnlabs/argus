@@ -11,17 +11,16 @@ import (
 
 // baseTmuxConfig is the default config seeded for Argus's dedicated tmux
 // server. It is written once (see SeedTmuxConfig) and then owned by the user;
-// Argus never overwrites it. It restores the rendering and styling Argus
-// previously inherited from the user's ~/.tmux.conf on the shared server.
+// Argus never overwrites it. It restores the rendering Argus previously
+// inherited from the user's ~/.tmux.conf on the shared server.
+//
+// It styles no status bar: the web UI carries the session's identity in its own
+// status bar, and session.NewSession turns tmux's off per session, so styling
+// one here would only describe a bar that never renders.
 const baseTmuxConfig = `# Argus tmux defaults — seeded once. Edit to customize; Argus won't overwrite.
 set -g default-terminal "tmux-256color"
 set -ga terminal-overrides ",*:Tc"
 set -g mouse on
-set -g status-style "bg=#1e1e2e,fg=#cdd6f4"
-set -g status-left "#[fg=#cba6f7,bold] Argus #[fg=#6c7086]| "
-set -g status-left-length 20
-set -g status-right-length 110
-set -g status-position bottom
 `
 
 // tmuxStateDir returns Argus's dedicated tmux directory: <StateDir>/tmux.
