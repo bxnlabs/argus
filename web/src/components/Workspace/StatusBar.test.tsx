@@ -183,13 +183,6 @@ describe("StatusBar detach", () => {
     const ids = testIds();
     expect(ids[ids.length - 1]).toBe("status-detach");
   });
-
-  it("does not fire when disabled", () => {
-    const onDetach = vi.fn();
-    renderBar({ onDetach: undefined });
-    fireEvent.click(screen.getByTestId("status-detach"));
-    expect(onDetach).not.toHaveBeenCalled();
-  });
 });
 
 describe("StatusBar counts", () => {
@@ -243,21 +236,73 @@ describe("StatusBar counts", () => {
     expect(text("status-node")).toContain("prime");
   });
 
+  it("separates active from unread by shape, not only by hue", () => {
+    // Below the breakpoint both counts are a mark and a number, and a dropped
+    // zero means position says nothing either. Colour alone would leave anyone
+    // who can't split green from blue with two identical marks. Shape is the
+    // cue that costs no width, which is the whole point of the collapse.
+    renderBar(busy);
+    const mark = (id: string) =>
+      screen.getByTestId(id).querySelector("span[aria-hidden]")?.className ?? "";
+    expect(mark("status-count-active")).toContain("rounded-full");
+    expect(mark("status-count-unread")).not.toContain("rounded-full");
+    // The attached session's status mark is a circle too: circles are liveness.
+    renderBar({ ...busy, session: session({ id: "a" }) });
+    expect(mark("status-session")).toContain("rounded-full");
+  });
+
+  it("hangs a tooltip on every count, and on the node", () => {
+    // Below the breakpoint the words are gone and a count is a mark and a
+    // number, so the phrase is the only place the full reading survives. It
+    // backs up the mark's shape rather than carrying the distinction on its
+    // own — a tooltip needs a pointer, and these cells take no focus.
+    //
+    // The node needs its own because it truncates while it is still shown —
+    // above the breakpoint, since below it the cell is gone entirely.
+    renderBar({ ...busy, nodeName: "prime" });
+    for (const id of [
+      "status-node",
+      "status-count-total",
+      "status-count-active",
+      "status-count-unread",
+    ]) {
+      expect(screen.getByTestId(id)).toHaveProperty("dataset.state", "closed");
+    }
+  });
+
   it("omits the node segment until the nodes load", () => {
     renderBar(busy);
     expect(screen.queryByTestId("status-node")).toBeNull();
   });
 
-  it("speaks the counts as one named phrase, zeros included", () => {
+  it("speaks the counts as one phrase, zeros included", () => {
     // Unlabelled, these announce as a run of bare numbers — "7", "sessions",
     // "2", "active" — with nothing saying whose sessions they are. The zeros
     // the bar drops visually stay in the spoken form: hiding them saves pixels,
     // which is not a problem a screen reader has.
     renderBar({ ...busy, nodeName: "prime" });
-    const group = screen.getByRole("group", {
-      name: "prime: 2 sessions, 1 active, 1 unread",
-    });
-    expect(group).toBe(screen.getByTestId("status-counts"));
+    const spoken = screen
+      .getByTestId("status-bar")
+      .querySelector(".sr-only")?.textContent;
+    expect(spoken).toBe("prime: 2 sessions, 1 active, 1 unread");
+  });
+
+  it("keeps the visual counts out of the accessibility tree", () => {
+    // Naming the group left its cells in the tree underneath the name, where a
+    // reader walking into the group reaches the bare numbers the summary was
+    // added to replace. jsdom computes no accessibility tree, so this asserts
+    // the markup that produces the outcome, not the announcement itself.
+    //
+    // Hiding the cluster is safe only while nothing inside it can take focus —
+    // aria-hidden over a focusable node strands it for assistive tech.
+    renderBar({ ...busy, nodeName: "prime" });
+    const counts = screen.getByTestId("status-counts");
+    expect(counts.getAttribute("aria-hidden")).toBe("true");
+    expect(
+      counts.querySelector(
+        "button, a[href], input, select, textarea, [tabindex]",
+      ),
+    ).toBeNull();
   });
 
   it("yields width before the identity does", () => {
@@ -270,19 +315,26 @@ describe("StatusBar counts", () => {
     expect(classes("status-counts")).toContain("min-w-0");
   });
 
-  it("drops its word labels before the bar overflows", () => {
+  it("drops its word labels near the onset of identity truncation", () => {
     // Container queries, so this tracks the BAR's width rather than the
     // window's — opening the sidebar takes ~340px out of the bar without
     // touching the viewport. jsdom does no layout, so this asserts the
     // container and the variant that make the collapse possible.
+    //
+    // 72rem, not 64rem: the identity starts ellipsing at a 1184px bar and
+    // 64rem sat 152px below that, so the labels outlasted the first clip. A
+    // 1096px bar clipped the path to 224 of 262px while a 1024px bar clipped
+    // nothing, which made the bar worse at a width where it had more room.
+    // "Near", not "before": 72rem still leaves 1160–1184px showing labels over
+    // a clipped identity, which is the cost of a standard breakpoint.
     renderBar({ ...busy, nodeName: "prime" });
     expect(classes("status-bar")).toContain("@container");
-    expect(classes("status-node")).toContain("@5xl");
+    expect(classes("status-node")).toContain("@6xl");
     expect(
       screen
         .getByTestId("status-count-total")
         .querySelector(".tabular-nums span")?.className,
-    ).toContain("@5xl");
+    ).toContain("@6xl");
   });
 });
 
@@ -420,14 +472,32 @@ describe("StatusBar active session segments", () => {
     expect(screen.queryByTestId("status-session")).toBeTruthy();
   });
 
-  it("truncates a long branch rather than pushing the bar wide", () => {
+  it("caps a long branch rather than pushing the bar wide", () => {
+    // Bounded in CSS, so the cell can't inflate the identity half — uncapped, a
+    // 59-character branch left the repo 6% of its text at a 1280px bar — while
+    // the branch itself stays whole in the DOM. It used to be cut to 35
+    // characters in JS, which dropped the tail at every width and left it only
+    // in a tooltip that opens on hover, unreachable when the cell goes inert.
+    const branch = "feat/some-really-long-branch-name-that-keeps-going";
+    renderBar({ session: session({ id: "a", worktree_branch: branch }) });
+    const span = screen
+      .getByTestId("status-branch")
+      .querySelector(".truncate");
+    expect(span?.textContent).toBe(branch);
+    expect(span?.className).toContain("max-w-");
+    expect(span?.className).toContain("truncate");
+  });
+
+  it("keeps the whole branch readable when git is unavailable", () => {
+    // The cell is an inert span here, and its tooltip needs a pointer. If the
+    // value were cut to fit, the tail would exist nowhere else — so it isn't.
+    const branch = "feat/some-really-long-branch-name-that-keeps-going";
     renderBar({
-      session: session({
-        id: "a",
-        worktree_branch: "feat/some-really-long-branch-name-that-keeps-going",
-      }),
+      session: session({ id: "a", worktree_branch: branch }),
+      onOpenGit: undefined,
     });
-    expect(text("status-branch")).toContain("…");
+    expect(screen.getByTestId("status-branch").tagName).not.toBe("BUTTON");
+    expect(text("status-branch")).toContain(branch);
   });
 
   it("keeps the session id as an icon that copies it", () => {
@@ -470,8 +540,10 @@ describe("StatusBar active session segments", () => {
     // Every cell here can be ellipsed down to its icon — the repo cell measured
     // 27px of an 81px name at a 680px bar — and the tooltip is then the only
     // place the value survives. Inert cells used to drop theirs on the floor.
+    // The profile is the most aggressive shrinker of the four, at the same
+    // factor as the path, which measured down to 107 of 262px at that width.
     renderBar({ session: attached, onOpenGit: undefined });
-    for (const id of ["status-session", "status-branch"]) {
+    for (const id of ["status-session", "status-branch", "status-profile"]) {
       expect(screen.getByTestId(id)).toHaveProperty("dataset.state", "closed");
     }
   });

@@ -8,7 +8,7 @@ import {
   Unplug,
 } from "lucide-react";
 import { toast } from "sonner";
-import { cn, compressPath, truncateRight } from "@/lib/utils";
+import { cn, compressPath } from "@/lib/utils";
 import { isMac } from "@/lib/device";
 import { copyToClipboard } from "@/lib/clipboard";
 import { getStatusMeta } from "@/lib/sessionStatus";
@@ -23,15 +23,44 @@ import type { Session, SessionStatusInfo } from "@/types";
 // Widths inherited from the tmux status bar this replaced, which had the same
 // job of keeping a long branch or a deep path from crowding out everything else.
 const MAX_DIR_WIDTH = 50;
-const MAX_BRANCH_WIDTH = 35;
+
+// The branch's cap is CSS, not a cut string. It still bounds the cell's flex
+// basis, so one long branch can't inflate the identity half and crush the rest
+// of it — uncapped, a 59-character branch left the repo cell 6% of its text at
+// a 1280px bar — but it leaves the whole branch in the DOM. Cutting the string
+// dropped the tail at every width, not only where the bar was short of room,
+// and with git unavailable the cell is an inert span whose tooltip opens on
+// hover alone: the tail then existed nowhere a keyboard or a screen reader
+// could reach it.
+//
+// A backstop, not a routine trim. `ch` is the width of a zero and this font's
+// average glyph is narrower, so 35ch measures 282px here rather than the 213px
+// a 35-character cut produced — it starts biting around 59 characters. That
+// slack is deliberate: at 213px the cap clipped the branch to 55% at a 1280px
+// bar while the path kept 77%, inverting the ranking the shrink factors below
+// exist to set.
+const BRANCH_MAX_WIDTH = "max-w-[35ch]";
 
 // The word labels and the node name are the first thing to go when the bar
 // narrows: they carry the least per pixel, and the counts are what should yield
 // to the attached session's identity rather than the other way round. Keyed off
 // the bar's own width (`@container` below), not the window's — opening the
 // sidebar takes ~340px out of the bar without touching the viewport.
-const WIDE = "hidden @5xl:inline";
-const WIDE_CELL = "hidden @5xl:flex";
+//
+// 72rem is where the identity measured out, not a derived figure: it starts
+// ellipsing at a 1184px bar, and 64rem simply sat 152px below that. (Only 8px
+// of the gap is the container query reading the content box past this bar's
+// `px-1`; the rest was the breakpoint being in the wrong place.) At 64rem the
+// labels therefore outlasted the identity's first clip, and across that band
+// the bar was worse than it was when narrower: a 1096px bar (a 1440px window
+// with the sidebar open) clipped the path to 224 of 262px and the repo to 54 of
+// 81, where a 1024px bar clipped nothing at all.
+//
+// 72rem leaves a 24px band, 1160–1184px, where the labels still show and the
+// identity has begun to clip. Closing it exactly would take a bespoke 73.5rem
+// tuned to one fixture; the standard step is worth more than those 24px.
+const WIDE = "hidden @6xl:inline";
+const WIDE_CELL = "hidden @6xl:flex";
 
 export interface SessionCounts {
   total: number;
@@ -148,6 +177,18 @@ function StatusItem({
   //
   // A disabled button is the exception — it takes no pointer events, so Radix
   // never sees the hover that would open one. Nothing to hang it on.
+  //
+  // Known gap, accepted: an inert cell is a span, so it takes no focus and its
+  // tooltip opens on hover only. It is a gap about legibility, not about data —
+  // every inert cell keeps its whole value in the DOM, so a screen reader reads
+  // what the ellipsis hides. What a sighted keyboard user can't recover is the
+  // hidden tail, and the profile is the sharp case: inert, and on the same
+  // shrink factor as the path, it held 27 of 219px at a 680px bar.
+  //
+  // Not fixed by making these focusable. That buys the tail back at the price
+  // of a tab stop per inert cell — four of them now — in a bar that is a
+  // readout with nothing in it to operate. The cells worth reaching are already
+  // buttons and already reachable.
   if (!tooltip || disabled) return item;
   return (
     <Tooltip>
@@ -157,11 +198,33 @@ function StatusItem({
   );
 }
 
-function Dot({ color, animation }: { color: string; animation?: string }) {
+function Dot({
+  color,
+  animation,
+  /**
+   * Squares the mark off. Below the breakpoint the counts lose their words and
+   * active and unread come down to two marks of the same size, so a reader who
+   * can't separate green from blue has nothing left to go on — position won't
+   * serve either, since a zero count is dropped rather than dimmed. Shape is
+   * the one cue that costs no width, which is what the collapse was for.
+   */
+  square,
+}: {
+  color: string;
+  animation?: string;
+  square?: boolean;
+}) {
   return (
     <span
       aria-hidden="true"
-      className={cn("h-1.5 w-1.5 shrink-0 rounded-full", color, animation)}
+      className={cn(
+        "h-1.5 w-1.5 shrink-0",
+        // Circles stay with liveness — the attached session's status dot is one
+        // — and the square belongs to the unread marker alone.
+        square ? "rounded-[1px]" : "rounded-full",
+        color,
+        animation,
+      )}
     />
   );
 }
@@ -231,13 +294,22 @@ export function StatusBar({
     session ? sessionStatuses[session.id]?.status : undefined,
   );
 
+  // Each count's own phrase, reused as its tooltip. Below the breakpoint the
+  // words are gone and a count is a mark and a number, so the phrase is the
+  // only place the full reading survives for a pointer. It backs up the mark's
+  // shape rather than carrying the distinction alone — a tooltip needs a
+  // pointer, and these cells take no focus.
+  const totalLabel = `${total} ${total === 1 ? "session" : "sessions"}`;
+  const activeLabel = `${active} active`;
+  const unreadLabel = `${unread} unread`;
+
   // Spoken as one phrase, and with the zeros the bar hides: a screen reader
   // gets the whole picture in a single stop rather than a run of bare numbers.
   const countsLabel = [
     nodeName ? `${nodeName}:` : null,
-    `${total} ${total === 1 ? "session" : "sessions"},`,
-    `${active} active,`,
-    `${unread} unread`,
+    `${totalLabel},`,
+    `${activeLabel},`,
+    unreadLabel,
   ]
     .filter(Boolean)
     .join(" ");
@@ -255,6 +327,13 @@ export function StatusBar({
       data-testid="status-bar"
       className="@container border-border bg-muted text-muted-foreground flex h-6 shrink-0 select-none items-center gap-0.5 border-t px-1 text-xs"
     >
+      {/* The counts in one phrase, with the zeros the bar hides. `sr-only` is
+          absolutely positioned, so it sits outside the flex flow and costs the
+          bar no width. Not a live region: these numbers move every time any
+          agent anywhere wakes up, and narrating the whole fleet at a
+          screen-reader user all day is worse than saying nothing. */}
+      <span className="sr-only">{countsLabel}</span>
+
       {/* Fleet counts. They shrink before the identity does — they are an
           aggregate that changes slowly, against the one line on screen that says
           what you are looking at. `h-full` on the group is what lets the cells
@@ -262,14 +341,15 @@ export function StatusBar({
           parent, so a content-height group would leave half-height hit targets
           and hover boxes to match.
 
-          `role="group"` rather than `role="status"`: these numbers move every
-          time any agent anywhere wakes up, and a live region would narrate the
-          whole fleet at a screen-reader user all day. The name is what was
-          missing, not the announcement. */}
+          Hidden from assistive tech, because the line above already says all of
+          it. Naming the group instead left the cells in the tree underneath the
+          name, where a reader that walks into the group commonly reaches them
+          again: the summary, and then the run of bare numbers the summary was
+          added to replace. Nothing in here takes focus, so hiding it strands no
+          control. */}
       <div
         data-testid="status-counts"
-        role="group"
-        aria-label={countsLabel}
+        aria-hidden="true"
         className="flex h-full min-w-0 shrink items-center gap-0.5 overflow-hidden pr-1"
       >
         {nodeName && (
@@ -277,7 +357,11 @@ export function StatusBar({
             {/* The counts are scoped to the active node, so on a bar that can
                 show two nodes' worth of sessions over its lifetime, "7 sessions"
                 alone is ambiguous. */}
-            <StatusItem testId="status-node" className={WIDE_CELL}>
+            <StatusItem
+              testId="status-node"
+              className={WIDE_CELL}
+              tooltip={nodeName}
+            >
               <span className="truncate">{nodeName}</span>
             </StatusItem>
             <Separator className={WIDE} />
@@ -287,7 +371,7 @@ export function StatusBar({
         {/* Read-only. Clicking a count should narrow the session list to exactly
             that count, which needs filters the quick switcher doesn't have yet;
             opening it unfiltered would answer a question nobody asked. */}
-        <StatusItem testId="status-count-total">
+        <StatusItem testId="status-count-total" tooltip={totalLabel}>
           {/* Earns the icon because the word is the part that drops on a narrow
               bar, and a bare "7" names nothing. */}
           <Layers className="h-3 w-3 shrink-0" />
@@ -304,7 +388,7 @@ export function StatusBar({
         {active > 0 && (
           <>
             <Separator />
-            <StatusItem testId="status-count-active">
+            <StatusItem testId="status-count-active" tooltip={activeLabel}>
               <Dot color={getStatusMeta("active").color} />
               <span className="tabular-nums">
                 {active}
@@ -316,10 +400,11 @@ export function StatusBar({
         {unread > 0 && (
           <>
             <Separator />
-            <StatusItem testId="status-count-unread">
+            <StatusItem testId="status-count-unread" tooltip={unreadLabel}>
               {/* Blue means unread everywhere else in the app (session rows, node
-                  rail badges), so it means unread here too. */}
-              <Dot color="bg-blue-500" />
+                  rail badges), so it means unread here too — and the square is
+                  what carries that meaning when the blue doesn't land. */}
+              <Dot color="bg-blue-500" square />
               <span className="tabular-nums">
                 {unread}
                 <span className={WIDE}> unread</span>
@@ -361,7 +446,11 @@ export function StatusBar({
             {session.profile && (
               <>
                 <Separator />
-                <StatusItem testId="status-profile" className="shrink-[8]">
+                <StatusItem
+                  testId="status-profile"
+                  className="shrink-[8]"
+                  tooltip={session.profile}
+                >
                   <Settings2 className="h-3 w-3 shrink-0" />
                   <span className="truncate">{session.profile}</span>
                 </StatusItem>
@@ -385,8 +474,8 @@ export function StatusBar({
                   }
                 >
                   <GitBranch className="h-3 w-3 shrink-0" />
-                  <span className="truncate">
-                    {truncateRight(session.worktree_branch, MAX_BRANCH_WIDTH)}
+                  <span className={cn("truncate", BRANCH_MAX_WIDTH)}>
+                    {session.worktree_branch}
                   </span>
                 </StatusItem>
               </>
