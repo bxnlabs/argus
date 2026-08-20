@@ -101,20 +101,83 @@ func TestParsePaneDimensions(t *testing.T) {
 	}
 }
 
-func TestNewSession_AppliesSeededConfig(t *testing.T) {
+// bootstrapTmuxConfigs runs the config half of the node's startup (see
+// node.Setup) against a throwaway ARGUS_HOME, so a session created afterwards
+// boots a server the same way production does.
+func bootstrapTmuxConfigs(t *testing.T) {
+	t.Helper()
+	if _, err := shared.EnsureTmuxStateDir(); err != nil {
+		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	}
+	if _, err := shared.SeedTmuxConfig(); err != nil {
+		t.Fatalf("SeedTmuxConfig: %v", err)
+	}
+	if _, err := shared.WriteManagedTmuxConfig(); err != nil {
+		t.Fatalf("WriteManagedTmuxConfig: %v", err)
+	}
+}
+
+// showOption reads one option back off the throwaway server, e.g.
+// showOption(t, "-g", "mouse") -> "mouse on".
+func showOption(t *testing.T, args ...string) string {
+	t.Helper()
+	cmd, err := shared.TmuxCommand(append([]string{"show-options"}, args...)...)
+	if err != nil {
+		t.Fatalf("build show-options: %v", err)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("show-options %v: %v: %s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestNewSession_AppliesManagedConfig(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
 	dir := shortTempDir(t)
 	t.Setenv("ARGUS_HOME", dir)
 	requireDedicatedSocketUnder(t, dir)
+	bootstrapTmuxConfigs(t)
 
-	// Bootstrap dir + config as the node does at startup.
-	if _, err := shared.EnsureTmuxStateDir(); err != nil {
-		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
+	t.Cleanup(func() { killTestSession(name) })
+	if err := NewSession(name, "", ""); err != nil {
+		t.Fatalf("NewSession: %v", err)
 	}
-	if _, err := shared.SeedTmuxConfig(); err != nil {
-		t.Fatalf("SeedTmuxConfig: %v", err)
+
+	// Each of these differs from tmux's own default, so seeing it on the running
+	// server proves NewSession booted with -f <managed config>.
+	for _, want := range []string{"mouse on", "history-limit 20000"} {
+		option := strings.SplitN(want, " ", 2)[0]
+		if got := showOption(t, "-g", option); got != want {
+			t.Errorf("managed config not applied: show-options -g %s = %q, want %q", option, got, want)
+		}
+	}
+	if got := showOption(t, "-s", "focus-events"); got != "focus-events on" {
+		t.Errorf("managed config not applied: show-options -s focus-events = %q, want %q", got, "focus-events on")
+	}
+}
+
+// The managed config sources the user's *after* its own defaults, which is the
+// only thing making those defaults overridable rather than imposed. Nothing
+// about the file layout says so on its own, so prove it against real tmux.
+func TestNewSession_UserConfigOverridesDefaults(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	dir := shortTempDir(t)
+	t.Setenv("ARGUS_HOME", dir)
+	requireDedicatedSocketUnder(t, dir)
+	bootstrapTmuxConfigs(t)
+
+	userPath, err := shared.TmuxUserConfigPath()
+	if err != nil {
+		t.Fatalf("TmuxUserConfigPath: %v", err)
+	}
+	if err := os.WriteFile(userPath, []byte("set -g history-limit 4321\n"), 0o600); err != nil {
+		t.Fatalf("write user config: %v", err)
 	}
 
 	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
@@ -123,25 +186,15 @@ func TestNewSession_AppliesSeededConfig(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 
-	// The seeded config sets `mouse on` (tmux defaults to off), so its effect on
-	// the running server proves NewSession booted it with -f <seeded config>.
-	cmd, err := shared.TmuxCommand("show-options", "-g", "mouse")
-	if err != nil {
-		t.Fatalf("build show-options: %v", err)
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("show-options: %v: %s", err, out)
-	}
-	if got := strings.TrimSpace(string(out)); got != "mouse on" {
-		t.Errorf("seeded config not applied: show-options -g mouse = %q, want %q", got, "mouse on")
+	if got := showOption(t, "-g", "history-limit"); got != "history-limit 4321" {
+		t.Errorf("user config did not override the default: show-options -g history-limit = %q, want %q", got, "history-limit 4321")
 	}
 }
 
 // The web UI carries the session's identity in its own status bar, so tmux's
-// bar is redundant chrome eating a row of every pane. NewSession turns it off
-// per session, which outranks whatever the user's tmux.conf sets globally —
-// tmux's own default is on, so seeing "off" here proves the override landed.
+// bar is redundant chrome eating a row of every pane. The managed config turns
+// it off after sourcing the user's, so even a user config asking for the bar
+// back leaves it off — tmux's own default is on, so "off" here proves it.
 func TestNewSession_DisablesStatusBar(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
@@ -149,12 +202,14 @@ func TestNewSession_DisablesStatusBar(t *testing.T) {
 	dir := shortTempDir(t)
 	t.Setenv("ARGUS_HOME", dir)
 	requireDedicatedSocketUnder(t, dir)
+	bootstrapTmuxConfigs(t)
 
-	if _, err := shared.EnsureTmuxStateDir(); err != nil {
-		t.Fatalf("EnsureTmuxStateDir: %v", err)
+	userPath, err := shared.TmuxUserConfigPath()
+	if err != nil {
+		t.Fatalf("TmuxUserConfigPath: %v", err)
 	}
-	if _, err := shared.SeedTmuxConfig(); err != nil {
-		t.Fatalf("SeedTmuxConfig: %v", err)
+	if err := os.WriteFile(userPath, []byte("set -g status on\n"), 0o600); err != nil {
+		t.Fatalf("write user config: %v", err)
 	}
 
 	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
@@ -163,16 +218,54 @@ func TestNewSession_DisablesStatusBar(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 
-	cmd, err := shared.TmuxCommand("show-options", "-t", name, "status")
+	// Ask what the session actually renders, not what is set on it: the value
+	// now arrives by inheriting the global, so `show-options -t <name> status`
+	// reports nothing at all. display-message resolves the inheritance.
+	cmd, err := shared.TmuxCommand("display-message", "-t", name, "-p", "#{status}")
 	if err != nil {
-		t.Fatalf("build show-options: %v", err)
+		t.Fatalf("build display-message: %v", err)
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("show-options: %v: %s", err, out)
+		t.Fatalf("display-message: %v: %s", err, out)
 	}
-	if got := strings.TrimSpace(string(out)); got != "status off" {
-		t.Errorf("show-options -t %s status = %q, want %q", name, got, "status off")
+	if got := strings.TrimSpace(string(out)); got != "off" {
+		t.Errorf("session %s renders status = %q, want %q", name, got, "off")
+	}
+}
+
+// A settings change has to reach a server that is already up, or it waits on
+// every live session exiting. Booting with -f cannot do that; SourceManagedTmuxConfig
+// is what closes the gap, and node.Setup calls it on every start.
+func TestSourceManagedTmuxConfig_ReachesRunningServer(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	dir := shortTempDir(t)
+	t.Setenv("ARGUS_HOME", dir)
+	requireDedicatedSocketUnder(t, dir)
+	bootstrapTmuxConfigs(t)
+
+	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
+	t.Cleanup(func() { killTestSession(name) })
+	if err := NewSession(name, "", ""); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	// Stand in for an upgrade changing a default while the server is up.
+	managedPath, err := shared.TmuxManagedConfigPath()
+	if err != nil {
+		t.Fatalf("TmuxManagedConfigPath: %v", err)
+	}
+	if err := os.WriteFile(managedPath, []byte("set -g history-limit 9876\n"), 0o600); err != nil {
+		t.Fatalf("write managed config: %v", err)
+	}
+	if err := shared.SourceManagedTmuxConfig(); err != nil {
+		t.Fatalf("SourceManagedTmuxConfig: %v", err)
+	}
+
+	if got := showOption(t, "-g", "history-limit"); got != "history-limit 9876" {
+		t.Errorf("show-options -g history-limit = %q, want %q (config never reached the running server)", got, "history-limit 9876")
 	}
 }
 

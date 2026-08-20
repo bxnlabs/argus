@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -25,11 +24,14 @@ func HasSession(name string) bool {
 
 // NewSession creates a new tmux session running the given command on Argus's
 // dedicated server. If command is empty, starts a default shell. The dedicated
-// server's directory and config are bootstrapped (fatally) at node startup
-// (see shared.EnsureTmuxStateDir / SeedTmuxConfig), so the config is guaranteed
-// present; the first session create boots the server with it via -f.
+// server's directory and configs are bootstrapped (fatally) at node startup
+// (see shared.EnsureTmuxStateDir / SeedTmuxConfig / WriteManagedTmuxConfig), so
+// the config is guaranteed present; the first session create boots the server
+// with it via -f. Passing it on every create keeps configuration self-healing:
+// the server exits once its last session does, and the next create boots a
+// fresh one the same way.
 func NewSession(name, cwd, command string) error {
-	confPath, err := shared.TmuxConfigPath()
+	confPath, err := shared.TmuxManagedConfigPath()
 	if err != nil {
 		return fmt.Errorf("build tmux command: %w", err)
 	}
@@ -53,30 +55,7 @@ func NewSession(name, cwd, command string) error {
 	if err != nil {
 		return fmt.Errorf("tmux new-session: %w: %s", err, string(out))
 	}
-	hideStatusBar(name)
 	return nil
-}
-
-// hideStatusBar turns off the tmux status bar for a single session. The web UI
-// renders the session's identity — ID, profile, branch, directory — in its own
-// status bar, so tmux's would only repeat it at the cost of a row in every
-// pane. Setting it per session (rather than globally in the seeded tmux.conf)
-// keeps it out of reach of a user-edited config, which Argus never overwrites,
-// and applies to installs seeded before the bar went away.
-//
-// Best-effort: a session that renders one row too few is not worth failing a
-// create over, so a failure is logged and the session still comes up. The
-// option is set while the session is still detached, so no client has rendered
-// the bar yet and there is nothing to flash.
-func hideStatusBar(name string) {
-	cmd, err := shared.TmuxCommand("set-option", "-t", name, "status", "off")
-	if err != nil {
-		log.Printf("tmux set-option status off: %v", err)
-		return
-	}
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("tmux set-option status off: %v: %s", err, out)
-	}
 }
 
 // KillSession kills a tmux session.
