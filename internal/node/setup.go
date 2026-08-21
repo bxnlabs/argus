@@ -77,14 +77,24 @@ func Setup(cfg *config.Config, baseURL string) (http.Handler, *db.DB, func(http.
 	}
 
 	// Bootstrap the dedicated tmux server state before anything else: the
-	// directory holds the server socket and the seeded config is read once at
-	// first server start. Both are required, so a failure here is fatal rather
-	// than leaving the server permanently misconfigured.
+	// directory holds the server socket, and the managed config it reads at
+	// server start sources the user's. All three are required, so a failure
+	// here is fatal rather than leaving the server permanently misconfigured.
 	if _, err := shared.EnsureTmuxStateDir(); err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("ensure tmux dir: %w", err)
 	}
 	if _, err := shared.SeedTmuxConfig(); err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("seed tmux config: %w", err)
+	}
+	if _, err := shared.WriteManagedTmuxConfig(); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("write managed tmux config: %w", err)
+	}
+	// Push the freshly written config into a server that is already up, so an
+	// upgrade's settings do not wait on every live session exiting. Best-effort:
+	// the config is on disk either way and the next server start reads it, which
+	// is not worth refusing to boot the node over.
+	if err := shared.SourceManagedTmuxConfig(); err != nil {
+		log.Printf("source managed tmux config: %v", err)
 	}
 
 	dbPath, err := shared.DBPath()
