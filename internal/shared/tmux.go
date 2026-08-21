@@ -8,7 +8,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// sourceTmuxConfigTimeout bounds SourceManagedTmuxConfig. A tmux config is a
+// list of commands, not a settings file: tmux runs it on its command queue and
+// source-file does not return until that queue drains, so a synchronous
+// run-shell in the user's config would otherwise block node startup for as long
+// as it runs. Giving up only unblocks the node — tmux keeps working through the
+// queue — but a late-applied setting is a far smaller problem than an API that
+// never binds. The managed config sets the options the web UI depends on before
+// sourcing the user's as well as after, so the ones that matter are already
+// applied by the time anything in that file can block.
+const sourceTmuxConfigTimeout = 5 * time.Second
 
 // userTmuxConfigSeed is the config Argus seeds once for the user (see
 // SeedTmuxConfig) and then never overwrites. It carries no settings of its own:
@@ -21,6 +33,11 @@ const userTmuxConfigSeed = `# Your settings for Argus's dedicated tmux server. A
 # regenerated on every start and sources this file *after* its defaults, so a
 # setting here wins. The options it applies after the source-file line are ones
 # the web UI is built on; those are re-applied last and cannot be overridden.
+#
+# Keep this to settings rather than commands. Argus re-reads the file on every
+# start, including into a tmux server that is already running, so anything here
+# that is not idempotent — a run-shell, a new-window, an appending set -ga —
+# runs again on each restart rather than once.
 `
 
 // managedTmuxConfig renders the config Argus owns for its dedicated tmux
@@ -47,28 +64,67 @@ func managedTmuxConfig(userConfPath string) string {
 
 # Defaults. The user config below is sourced after these, so it wins.
 set -g default-terminal "tmux-256color"
+# -u before -a: this file is re-sourced into a live server on every start (see
+# SourceManagedTmuxConfig) and -a appends, so without resetting to tmux's own
+# default first the override list grows by an entry per restart, forever.
+set -gu terminal-overrides
 set -ga terminal-overrides ",*:Tc"
 set -g mouse on
 set -g history-limit 20000
 set -g focus-events on
 
-source-file -q ` + quoteTmuxString(userConfPath) + `
-
 # The web UI renders the session's identity in its own status bar, so tmux's
-# would only repeat it at the cost of a row in every pane. Applied after the
-# user config because the UI is built on its being off.
+# would only repeat it at the cost of a row in every pane. Set on both sides of
+# the user config, for two different reasons. Here, because tmux runs a config
+# as a command queue: a slow or blocking command in the user's file strands
+# everything after the source line, and the bar would stay up until it returned.
+set -g status off
+
+source-file -q ` + quoteTmuxPath(userConfPath) + `
+
+# And again here, after the user config, because the UI is built on the bar
+# being off — this is the copy that makes it non-overridable.
 set -g status off
 `
 }
 
-// quoteTmuxString renders s as a double-quoted tmux config string.
+// quoteTmuxPath renders path as an argument to source-file. It is not a general
+// tmux string quoter: the glob escaping below is right for a path tmux expands
+// and wrong for anything else.
 //
-// tmux expands environment variables inside double quotes, so a path holding a
-// literal $ has to be escaped along with the quote and escape characters
-// themselves. Formats are not expanded — source-file only treats its argument
-// as one under -F — so # and the rest pass through untouched.
-func quoteTmuxString(s string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`).Replace(s) + `"`
+// Two separate passes have to survive. tmux's parser expands environment
+// variables inside double quotes, so a literal $ needs escaping along with the
+// quote and escape characters themselves. Then source-file hands what the
+// parser produced to glob(3), which quoting does not protect — so a path with a
+// wildcard in it has to reach glob already escaped, or it is read as a pattern.
+// A pattern matching nothing is the bad case: source-file -q reports no error,
+// and the user's config is skipped in silence.
+//
+// The escaping is applied in two passes, innermost layer first, because that is
+// the order the two consumers unwrap it: glob sees what the parser leaves
+// behind. Doing it in one pass means hand-counting backslashes per character —
+// a metacharacter needs two and a literal backslash needs four — and the counts
+// silently compose wrong when a path holds both.
+//
+// Formats are not expanded — source-file only treats its argument as one under
+// -F — so # and the rest pass through untouched. $ and " are escaped for the
+// parser alone; neither is special to glob once the parser is done with them.
+func quoteTmuxPath(path string) string {
+	// For glob: a literal backslash or metacharacter has to arrive escaped, or
+	// glob reads it as a pattern. A pattern matching nothing is the bad case —
+	// source-file -q reports no error and the user's config is skipped silently.
+	forGlob := strings.NewReplacer(
+		`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`,
+	).Replace(path)
+
+	// For tmux's parser, which unescapes inside double quotes and would
+	// otherwise eat the backslashes glob needs, expand $ on the way through, and
+	// let a quote end the argument early.
+	forParser := strings.NewReplacer(
+		`\`, `\\`, `"`, `\"`, `$`, `\$`,
+	).Replace(forGlob)
+
+	return `"` + forParser + `"`
 }
 
 // tmuxStateDir returns Argus's dedicated tmux directory: <StateDir>/tmux.
@@ -250,12 +306,27 @@ func writeTempTmuxConfig(dest, content string) (string, error) {
 //
 // A missing server is not an error: source-file does not start one, so on a
 // fresh install this is a no-op and the -f at first new-session does the work.
+// tmux reports that two ways depending on whether the socket file is still
+// around — it outlives the server that created it — and both mean the same
+// thing here. Any other connection failure (a socket we may not open, say) is
+// reported, so a server that silently keeps stale settings is not mistaken for
+// one that was never there.
 func SourceManagedTmuxConfig() error {
+	ctx, cancel := context.WithTimeout(context.Background(), sourceTmuxConfigTimeout)
+	defer cancel()
+	return sourceManagedTmuxConfig(ctx, sourceTmuxConfigTimeout)
+}
+
+// sourceManagedTmuxConfig is SourceManagedTmuxConfig with the deadline supplied
+// by the caller, so a test can bound it at milliseconds instead of sitting out
+// the production timeout. timeout is only for the error message; ctx is what
+// actually bounds the command.
+func sourceManagedTmuxConfig(ctx context.Context, timeout time.Duration) error {
 	managedPath, err := TmuxManagedConfigPath()
 	if err != nil {
 		return err
 	}
-	cmd, err := TmuxCommand("source-file", managedPath)
+	cmd, err := TmuxCommandContext(ctx, "source-file", managedPath)
 	if err != nil {
 		return err
 	}
@@ -263,8 +334,91 @@ func SourceManagedTmuxConfig() error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(string(out), "error connecting") {
+
+	sourceErr := classifySourceFileError(ctx.Err(), err, string(out), timeout)
+	if !errors.Is(sourceErr, context.DeadlineExceeded) {
+		return sourceErr
+	}
+
+	// The config's status-off lines are stranded in tmux's command queue behind
+	// whatever blocked, so the bar stays up — including when the user's config
+	// turned it on before blocking. A fresh client gets its own queue and lands
+	// regardless. ctx is spent; the fallback needs a deadline of its own.
+	fallbackCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if fallbackErr := enforceHiddenTmuxStatusBar(fallbackCtx); fallbackErr != nil {
+		return errors.Join(sourceErr, fallbackErr)
+	}
+	return fmt.Errorf("%w (status bar turned off directly instead)", sourceErr)
+}
+
+// noTmuxServerRunning reports whether out is tmux saying there was no server to
+// talk to. It says so two ways depending on whether the socket file is still on
+// disk — it outlives the server that created it — and both are the ordinary
+// state on an idle box rather than a failure. A socket that exists but cannot
+// be opened is a real problem and is deliberately not matched here.
+func noTmuxServerRunning(out string) bool {
+	if strings.Contains(out, "no server running on") {
+		return true
+	}
+	return strings.Contains(out, "error connecting") &&
+		strings.Contains(out, "No such file or directory")
+}
+
+// enforceHiddenTmuxStatusBar sets status off on the server without going
+// through the config.
+//
+// This is the one tmux setting Argus expresses in Go rather than in the managed
+// config, and it is deliberate rather than a leftover: the web UI's layout is
+// built on the bar being absent, so it is Argus's to guarantee, not the user's
+// to leave half-applied. It runs only when source-file timed out — the config
+// remains the single place the setting is *declared*, and this re-asserts that
+// one declaration when the queue carrying it stalled.
+func enforceHiddenTmuxStatusBar(ctx context.Context) error {
+	cmd, err := TmuxCommandContext(ctx, "set-option", "-g", "status", "off")
+	if err != nil {
+		return err
+	}
+	out, err := cmd.CombinedOutput()
+	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("tmux source-file: %w: %s", err, strings.TrimSpace(string(out)))
+	msg := strings.TrimSpace(string(out))
+	// Same benign case as the source itself: there may be no server to set it on.
+	if noTmuxServerRunning(msg) {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return fmt.Errorf("tmux set-option status off: %w", ctx.Err())
+	}
+	return fmt.Errorf("tmux set-option status off: %w: %s", err, msg)
+}
+
+// classifySourceFileError decides whether a failed source-file is worth
+// reporting. It is separate from the command so every branch is testable
+// without arranging the corresponding tmux server state, which for the
+// permission case means arranging a socket the node may not open.
+//
+// ctxErr is checked first and only once the command has already failed: a
+// command that succeeded just before the deadline is a success, not a timeout.
+//
+// timeout is passed rather than read from the constant so the reported duration
+// is the one that actually elapsed — the helper takes any context, and a test
+// bounding it at milliseconds should not produce an error claiming 5s.
+func classifySourceFileError(ctxErr, runErr error, out string, timeout time.Duration) error {
+	if ctxErr != nil {
+		return fmt.Errorf("tmux source-file: gave up after %s, is a command in the user config blocking?: %w",
+			timeout, ctxErr)
+	}
+
+	msg := strings.TrimSpace(out)
+	if noTmuxServerRunning(msg) {
+		return nil
+	}
+	if strings.Contains(msg, "error connecting") {
+		// A socket we cannot open is a real problem: the server keeps its stale
+		// settings and nothing else would say so.
+		return fmt.Errorf("tmux source-file: %s", msg)
+	}
+	return fmt.Errorf("tmux source-file: %w: %s", runErr, msg)
 }

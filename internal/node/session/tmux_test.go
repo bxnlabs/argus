@@ -269,6 +269,76 @@ func TestSourceManagedTmuxConfig_ReachesRunningServer(t *testing.T) {
 	}
 }
 
+// The managed config is re-sourced into a live server on every node start, so
+// applying it twice has to leave the server where applying it once did. The
+// test above deliberately swaps in a one-line config to prove the reload
+// arrives; this one sources the config Argus actually generates, which is the
+// only way an appending directive (set -ga) shows up as growth.
+func TestSourceManagedTmuxConfig_IsIdempotent(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	dir := shortTempDir(t)
+	t.Setenv("ARGUS_HOME", dir)
+	requireDedicatedSocketUnder(t, dir)
+	bootstrapTmuxConfigs(t)
+
+	// A user config that appends too, like the one every install seeded before
+	// the defaults moved into managed.conf. It compounds the growth, so the
+	// stable value here is the one a real upgraded box has to reach.
+	//
+	// The user's entry is deliberately not the one Argus appends: an identical
+	// entry would look stable even if the reset had wiped the user's layer and
+	// left only Argus's, which is the other way this can break. It carries no
+	// backslash on purpose — tmux unescapes one inside a double-quoted string,
+	// so the value read back would not match the literal written here.
+	const userOverride = "xterm-argustest*:Ms=argus"
+	userPath, err := shared.TmuxUserConfigPath()
+	if err != nil {
+		t.Fatalf("TmuxUserConfigPath: %v", err)
+	}
+	userConf := fmt.Sprintf("set -ga terminal-overrides \",*:Tc\"\nset -ga terminal-overrides \",%s\"\n", userOverride)
+	if err := os.WriteFile(userPath, []byte(userConf), 0o600); err != nil {
+		t.Fatalf("write user config: %v", err)
+	}
+
+	name := fmt.Sprintf("argus-test-%d", time.Now().UnixNano())
+	t.Cleanup(func() { killTestSession(name) })
+	if err := NewSession(name, "", ""); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	overrides := func() string {
+		t.Helper()
+		cmd, err := shared.TmuxCommand("show-options", "-sv", "terminal-overrides")
+		if err != nil {
+			t.Fatalf("build show-options: %v", err)
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("show-options -sv terminal-overrides: %v: %s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	atBoot := overrides()
+	if !strings.Contains(atBoot, userOverride) {
+		t.Fatalf("user's terminal-overrides entry missing at boot; the reset wiped the user's layer\ngot:\n%s", atBoot)
+	}
+	for i := 1; i <= 3; i++ {
+		if err := shared.SourceManagedTmuxConfig(); err != nil {
+			t.Fatalf("SourceManagedTmuxConfig (reload %d): %v", i, err)
+		}
+		got := overrides()
+		if got != atBoot {
+			t.Fatalf("terminal-overrides changed after reload %d:\n at boot: %q\n  after: %q\nthe config appends without resetting first", i, atBoot, got)
+		}
+		if !strings.Contains(got, userOverride) {
+			t.Fatalf("user's terminal-overrides entry gone after reload %d; the reset outlived the user config\ngot:\n%s", i, got)
+		}
+	}
+}
+
 func TestCapturePaneContext_JoinsWrappedLines(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
